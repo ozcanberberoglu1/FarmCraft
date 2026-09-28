@@ -1,0 +1,228 @@
+{
+  "accessors": [
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 1035,
+      "max": [
+        2.2648720741271973,
+        17.75316619873047,
+        3.087441921234131
+      ],
+      "min": [
+        -3.4926950931549072,
+        11.77703857421875,
+        -4.066208839416504
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 12420,
+      "componentType": 5126,
+      "count": 1035,
+      "max": [
+        0.9995545744895935,
+        0.9990214705467224,
+        0.9993643164634705
+      ],
+      "min": [
+        -0.9984215497970581,
+        -0.9992377758026123,
+        -0.9988985061645508
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5126,
+      "count": 1035,
+      "max": [
+        0.9999726414680481,
+        0.9999679327011108,
+        0.26038655638694763,
+        1.0
+      ],
+      "min": [
+        -0.9999639391899109,
+        -0.9998244047164917,
+        -0.18006718158721924,
+        1.0
+      ],
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 1035,
+      "max": [
+        0.9830060005187988,
+        0.9799169898033142
+      ],
+      "min": [
+        0.012364000082015991,
+        0.018473999574780464
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5125,
+      "count": 6000,
+      "type": "SCALAR"
+    }
+  ],
+  "asset": {
+    "extras": {
+      "author": "Bandit (https://sketchfab.com/0BNDT)",
+      "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+      "source": "https://sketchfab.com/3d-models/egg-a96f2ce3d1ec429181031e97086d5b1f",
+      "title": "Egg"
+    },
+    "generator": "Sketchfab-12.63.0",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 24000,
+      "name": "floatBufferViews",
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 8280,
+      "byteOffset": 24000,
+      "byteStride": 8,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 24840,
+      "byteOffset": 32280,
+      "byteStride": 12,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 16560,
+      "byteOffset": 57120,
+      "byteStride": 16,
+      "name": "floatBufferViews",
+      "target": 34962
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 73680,
+      "uri": "scene.bin"
+    }
+  ],
+  "images": [
+    {
+      "uri": "textures/Egg_Tex_baseColor.png"
+    },
+    {
+      "uri": "textures/Egg_Tex_normal.png"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "Egg_Tex",
+      "normalTexture": {
+        "index": 1
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.45
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Object_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "children": [
+        1
+      ],
+      "matrix": [
+        0.9993715286254883,
+        -0.03536967560648918,
+        -0.0023629444185644466,
+        0.0,
+        -0.016278568655252457,
+        -0.3986935019493101,
+        -0.9169397354125978,
+        0.0,
+        0.031489770859479904,
+        0.9164019227027894,
+        -0.3990187048912046,
+        0.0,
+        0.23881426453590393,
+        5.878706455230713,
+        -1.298159837722777,
+        1.0
+      ],
+      "name": "Sketchfab_model"
+    },
+    {
+      "children": [
+        2
+      ],
+      "name": "b867353d00614478bdaf8013a19b4c77.obj.cleaner.materialmerger.gles"
+    },
+    {
+      "mesh": 0,
+      "name": "Object_2"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Sketchfab_Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    }
+  ]
+}

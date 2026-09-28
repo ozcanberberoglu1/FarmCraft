@@ -1,0 +1,57 @@
+extends Node
+## Global signal bus. Gameplay systems emit here so UI and other systems can react
+## without holding direct references to each other.
+
+# Economy
+signal money_changed(new_amount: int, delta: int)
+
+# Items
+signal item_picked_up(item_id: StringName, count: int)
+signal item_sold(item_id: StringName, count: int, gold: int)
+
+# Farm work (quests and farm experience listen to these)
+signal action_done(action_id: String, target: Node)
+signal placed(item_id: StringName)
+signal crafted(item_id: StringName, count: int)
+signal machine_started(machine_id: StringName)
+signal product_made(item_id: StringName, count: int)
+signal animal_born(species: StringName)
+signal order_delivered(item_id: StringName, count: int, reward: int)
+
+# The first day's hands-on steps (the tutorial and achievements listen to these)
+signal door_toggled(door_id: StringName, open: bool)
+signal drawer_opened(drawer_id: StringName)
+signal world_item_taken(item_id: StringName)
+signal vehicle_entered(vehicle: Node)
+signal vehicle_exited(vehicle: Node)
+signal animals_bought(species: StringName, count: int)
+signal crate_stored(item_id: StringName, where: StringName)
+signal construction_started(build_id: StringName, site: Node)
+signal building_completed(build_id: StringName, building: Node)
+signal animal_released(species: StringName, home: Node)
+signal shipped(item_id: StringName, count: int)
+signal achievement_unlocked(achievement_id: StringName)
+signal morning_sale(gold: int)
+
+# Player feedback
+signal notification_requested(text: String, color: Color)
+signal interaction_prompt_changed(lines: PackedStringArray)
+signal action_progress_started(label: String, duration: float)
+signal action_progress_updated(ratio: float)
+signal action_progress_finished(completed: bool)
+
+# Weather & day cycle
+signal lightning
+signal day_ending
+signal passed_out
+
+# UI focus (inventory, shop, menus...)
+signal ui_opened(ui_name: StringName)
+signal ui_closed(ui_name: StringName)
+
+# Time
+signal clock_tick(total_minutes: float, delta_minutes: float)
+signal hour_passed(hour: int)
+signal day_started(day: int)
+signal season_changed(season: int)
+signal time_skipped(delta_minutes: float)

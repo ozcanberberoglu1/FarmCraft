@@ -1,0 +1,228 @@
+{
+  "accessors": [
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 764,
+      "max": [
+        1.8329800367355347,
+        2.1085898876190186,
+        1.951930046081543
+      ],
+      "min": [
+        -2.0256600379943848,
+        -1.6021599769592285,
+        -2.011579990386963
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 9168,
+      "componentType": 5126,
+      "count": 764,
+      "max": [
+        0.9994540810585022,
+        0.9979076385498047,
+        0.9987572431564331
+      ],
+      "min": [
+        -0.9990493059158325,
+        -0.9984236359596252,
+        -0.9974920153617859
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5126,
+      "count": 764,
+      "max": [
+        0.970511794090271,
+        0.9760129451751709,
+        0.8536894917488098,
+        1.0
+      ],
+      "min": [
+        -0.9370005130767822,
+        -0.9998275637626648,
+        -0.8252745866775513,
+        1.0
+      ],
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 764,
+      "max": [
+        0.9720969796180725,
+        0.991972029209137
+      ],
+      "min": [
+        0.021841000765562057,
+        0.011491999961435795
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5125,
+      "count": 4032,
+      "type": "SCALAR"
+    }
+  ],
+  "asset": {
+    "extras": {
+      "author": "Tayfun Özen (https://sketchfab.com/tayfunozen)",
+      "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+      "source": "https://sketchfab.com/3d-models/4k-tomato-photogrammetry-3d-model-low-poly-e569c4763db04a32b2bc23361b82b3f0",
+      "title": "4K Tomato Photogrammetry 3D Model - Low poly"
+    },
+    "generator": "Sketchfab-12.64.0",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 16128,
+      "name": "floatBufferViews",
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 6112,
+      "byteOffset": 16128,
+      "byteStride": 8,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 18336,
+      "byteOffset": 22240,
+      "byteStride": 12,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 12224,
+      "byteOffset": 40576,
+      "byteStride": 16,
+      "name": "floatBufferViews",
+      "target": 34962
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 52800,
+      "uri": "scene.bin"
+    }
+  ],
+  "images": [
+    {
+      "uri": "textures/tomato_mat_baseColor.png"
+    },
+    {
+      "uri": "textures/tomato_mat_normal.png"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "tomato_mat",
+      "normalTexture": {
+        "index": 1
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.08683247298883072,
+        "roughnessFactor": 0.46323471292462404
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Object_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "children": [
+        1
+      ],
+      "matrix": [
+        -0.3188531354460764,
+        -0.00451914362117889,
+        0.005161441063381788,
+        0.0,
+        0.006860257686321702,
+        -0.21004213110897046,
+        0.23989503353498515,
+        0.0,
+        1.1065000666677901e-18,
+        0.23995054135206567,
+        0.21009075747749512,
+        0.0,
+        -0.19810841977596283,
+        0.15801012516021737,
+        -0.42246499657630915,
+        1.0
+      ],
+      "name": "Sketchfab_model"
+    },
+    {
+      "children": [
+        2
+      ],
+      "name": "tomato.obj.cleaner.materialmerger.gles"
+    },
+    {
+      "mesh": 0,
+      "name": "Object_2"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Sketchfab_Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    }
+  ]
+}

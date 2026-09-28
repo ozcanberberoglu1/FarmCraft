@@ -1,0 +1,11 @@
+Model Information:
+* title:	Hay bales
+* source:	https://sketchfab.com/3d-models/hay-bales-d6e087f9a2a9416c94918f0503943c17
+* author:	Zbrojmistrz (https://sketchfab.com/zbrojmistrz)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Hay bales" (https://sketchfab.com/3d-models/hay-bales-d6e087f9a2a9416c94918f0503943c17) by Zbrojmistrz (https://sketchfab.com/zbrojmistrz) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

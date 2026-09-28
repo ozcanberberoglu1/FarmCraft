@@ -1,0 +1,11 @@
+Model Information:
+* title:	Ball Of Yarn
+* source:	https://sketchfab.com/3d-models/ball-of-yarn-28cf446dd629404c920df2ba64e22dde
+* author:	Mikko Haapoja (https://sketchfab.com/mikkoh)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Ball Of Yarn" (https://sketchfab.com/3d-models/ball-of-yarn-28cf446dd629404c920df2ba64e22dde) by Mikko Haapoja (https://sketchfab.com/mikkoh) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

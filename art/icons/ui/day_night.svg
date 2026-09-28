@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 64 64">
+  <defs>
+    <clipPath id="c"><circle cx="32" cy="32" r="29"/></clipPath>
+    <linearGradient id="day" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#bfe4ff"/>
+      <stop offset="1" stop-color="#eaf6ff"/>
+    </linearGradient>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2d5e"/>
+      <stop offset="1" stop-color="#34569a"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#c)">
+    <rect width="64" height="64" fill="url(#day)"/>
+    <path d="M0 0 H64 L0 64 Z" fill="url(#night)"/>
+    <path d="M24 9 a12 12 0 1 0 11 17.5 a9.5 9.5 0 1 1 -11 -17.5 z" fill="#ffd54a"/>
+    <path d="M38 10 l1.2 3 3 1.2 -3 1.2 -1.2 3 -1.2 -3 -3 -1.2 3 -1.2 z" fill="#fff2b3"/>
+    <path d="M12 30 l0.9 2.1 2.1 0.9 -2.1 0.9 -0.9 2.1 -0.9 -2.1 -2.1 -0.9 2.1 -0.9 z" fill="#fff2b3"/>
+    <circle cx="44" cy="20" r="1.1" fill="#fff2b3"/>
+    <g stroke="#ffb300" stroke-width="2.4" stroke-linecap="round">
+      <path d="M45 30 v-3"/><path d="M45 55 v3"/><path d="M32 43 h-3"/><path d="M58 43 h3"/>
+      <path d="M36 34 l-2 -2"/><path d="M54 52 l2 2"/><path d="M54 34 l2 -2"/><path d="M36 52 l-2 2"/>
+    </g>
+    <circle cx="45" cy="43" r="9.5" fill="#ffc400"/>
+    <circle cx="45" cy="43" r="6.5" fill="#ffd84d"/>
+  </g>
+  <circle cx="32" cy="32" r="29.5" fill="none" stroke="#ffffff" stroke-width="3"/>
+</svg>

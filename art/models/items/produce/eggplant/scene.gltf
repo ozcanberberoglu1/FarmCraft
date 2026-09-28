@@ -1,0 +1,305 @@
+{
+  "accessors": [
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 1308,
+      "max": [
+        0.025467459112405777,
+        0.09282610565423965,
+        0.022415990009903908
+      ],
+      "min": [
+        -0.0271285530179739,
+        -0.14365993440151215,
+        -0.03316083922982216
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 15696,
+      "componentType": 5126,
+      "count": 1308,
+      "max": [
+        0.9987278580665588,
+        0.9995671510696411,
+        0.999679446220398
+      ],
+      "min": [
+        -0.9989907145500183,
+        -0.9994709491729736,
+        -0.9970014691352844
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5126,
+      "count": 1308,
+      "max": [
+        0.8772292137145996,
+        0.6095851063728333,
+        0.9921231269836426,
+        1.0
+      ],
+      "min": [
+        -0.9992029666900635,
+        -0.9999122619628906,
+        -0.8802841305732727,
+        1.0
+      ],
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 1308,
+      "max": [
+        0.9936702251434326,
+        0.9964895248413086
+      ],
+      "min": [
+        0.00418119365349412,
+        0.008661150932312012
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 10464,
+      "componentType": 5126,
+      "count": 1308,
+      "max": [
+        0.9936702251434326,
+        0.9964895248413086
+      ],
+      "min": [
+        0.00418119365349412,
+        0.008661150932312012
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5125,
+      "count": 7296,
+      "type": "SCALAR"
+    }
+  ],
+  "asset": {
+    "extras": {
+      "author": "Meerschaum Digital (https://sketchfab.com/meerschaumdigital)",
+      "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+      "source": "https://sketchfab.com/3d-models/eggplant-game-ready-2k-pbr-334a3ab0383f49d1bd34575a36ddf4d6",
+      "title": "Eggplant (Game Ready / 2K PBR)"
+    },
+    "generator": "Sketchfab-12.68.0",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 29184,
+      "name": "floatBufferViews",
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 20928,
+      "byteOffset": 29184,
+      "byteStride": 8,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 31392,
+      "byteOffset": 50112,
+      "byteStride": 12,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 20928,
+      "byteOffset": 81504,
+      "byteStride": 16,
+      "name": "floatBufferViews",
+      "target": 34962
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 102432,
+      "uri": "scene.bin"
+    }
+  ],
+  "images": [
+    {
+      "uri": "textures/Eggplant_PBR_baseColor.jpeg"
+    },
+    {
+      "uri": "textures/Eggplant_PBR_metallicRoughness.png"
+    },
+    {
+      "uri": "textures/Eggplant_PBR_normal.jpeg"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "Eggplant_PBR",
+      "normalTexture": {
+        "index": 2
+      },
+      "occlusionTexture": {
+        "index": 1
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.0,
+        "metallicRoughnessTexture": {
+          "index": 1
+        },
+        "roughnessFactor": 0.4
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Eggplant_Eggplant PBR_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3,
+            "TEXCOORD_1": 4
+          },
+          "indices": 5,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "children": [
+        1
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        2.220446049250313e-16,
+        -1.0,
+        0.0,
+        0.0,
+        1.0,
+        2.220446049250313e-16,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "Sketchfab_model"
+    },
+    {
+      "children": [
+        2
+      ],
+      "matrix": [
+        0.009999999776482582,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.009999999776482582,
+        0.0,
+        0.0,
+        -0.009999999776482582,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "97cfc5d9d6fe48d898633460fe1c5e15.fbx"
+    },
+    {
+      "children": [
+        3
+      ],
+      "name": "RootNode"
+    },
+    {
+      "children": [
+        4
+      ],
+      "matrix": [
+        100.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -1.629206793918314e-05,
+        -99.99999999999868,
+        0.0,
+        0.0,
+        99.99999999999868,
+        -1.629206793918314e-05,
+        0.0,
+        -16.07756233215332,
+        3.3601808547973633,
+        -3.5040996074676514,
+        1.0
+      ],
+      "name": "Eggplant"
+    },
+    {
+      "mesh": 0,
+      "name": "Eggplant_Eggplant PBR_0"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Sketchfab_Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    },
+    {
+      "sampler": 0,
+      "source": 2
+    }
+  ]
+}

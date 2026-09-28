@@ -1,0 +1,652 @@
+extends Node
+## All of the game's sound: interface clicks, positional one-shots (tools, animals,
+## thunder), footsteps by surface, ambience beds that follow the time of day, the
+## season, the weather and whether the player is under a roof, the pickup's engine,
+## horse hooves and the music playlist. Files: art/audio (see CREDITS.md). Buses:
+## Music, Effects, Ambience, UI (default_bus_layout.tres; volumes in Settings).
+
+const DIR := "res://art/audio/"
+
+## One-shot sets: name -> a path with %d (numbered variants 0-9 that exist) or a list.
+const SETS := {
+	"step_grass": "sfx/steps/grass_%d.ogg", "step_concrete": "sfx/steps/concrete_%d.ogg",
+	"step_wood": "sfx/steps/wood_%d.ogg", "step_gravel": "sfx/steps/gravel_%d.ogg",
+	"chop": ["sfx/tools/chop.ogg"], "wood_hit": "sfx/tools/wood_hit_%d.ogg", "mining": "sfx/tools/mining_%d.ogg",
+	"dig": ["sfx/tools/dig_1.mp3", "sfx/tools/dig_2.mp3", "sfx/tools/dig_3.mp3", "sfx/tools/shovel_stab.mp3"],
+	"swoosh": ["sfx/tools/swoosh.mp3"], "grass": ["sfx/tools/grass_cut.mp3", "sfx/tools/grass_heavy.mp3"],
+	"water_pour": ["sfx/tools/water_pour.mp3"], "water_fill": ["sfx/tools/water_fill.mp3"],
+	"splash": ["sfx/tools/water_splash.mp3"], "milk": ["sfx/tools/milk_squirt.mp3"],
+	"shears": ["sfx/tools/shears_snip.mp3"], "brush": "sfx/tools/brush_%d.ogg",
+	"soft": "sfx/misc/soft_%d.ogg", "plank": "sfx/misc/plank_%d.ogg", "metal": "sfx/misc/metal_%d.ogg",
+	"pot": "sfx/misc/pot_%d.ogg", "door_open": ["sfx/misc/door_open.ogg"], "door_close": ["sfx/misc/door_close.ogg"],
+	"creak": ["sfx/misc/creak.ogg"],
+	"coins": ["sfx/money/coins_clink.mp3"], "coins_small": ["sfx/money/coins_small.ogg", "sfx/money/coins_handle.mp3"],
+	"money_bag": ["sfx/money/money_bag.mp3"], "thunder": "sfx/weather/thunder_%d.mp3",
+	"cow": ["sfx/animals/cow_moo_1.mp3", "sfx/animals/cow_moo_2.mp3", "sfx/animals/cow_moo_3.mp3"],
+	"cow_eat": ["sfx/animals/cow_eat.mp3"], "cow_breath": ["sfx/animals/cow_breath.mp3"],
+	"sheep": ["sfx/animals/sheep_baa_1.mp3", "sfx/animals/sheep_baa_2.mp3", "sfx/animals/sheep_baa_3.mp3"],
+	"lamb": ["sfx/animals/lamb_baa.mp3"],
+	"chicken": ["sfx/animals/hen_cluck_1.mp3", "sfx/animals/hen_cluck_2.mp3"],
+	"rooster": ["sfx/animals/rooster_1.mp3", "sfx/animals/rooster_2.mp3"],
+	"horse": ["sfx/animals/horse_neigh.mp3"], "horse_snort": ["sfx/animals/horse_snort.mp3", "sfx/animals/horse_snore.mp3"],
+	"engine_start": ["sfx/vehicle/engine_start.mp3"], "car_door": ["sfx/vehicle/door_close.mp3", "sfx/vehicle/door_slam.mp3"],
+	"click": ["sfx/ui/click.ogg"], "hover": ["sfx/ui/hover.ogg"], "open": ["sfx/ui/open.ogg"], "close": ["sfx/ui/close.ogg"],
+	"confirm": ["sfx/ui/confirm.ogg"], "error": ["sfx/ui/error.ogg"], "toggle": ["sfx/ui/toggle.ogg"],
+	"drop": ["sfx/ui/drop.ogg"], "notify": ["sfx/ui/notify.ogg"],
+}
+## Looping beds and engines, cross-faded so recordings that don't loop cleanly never click.
+const LOOPS := {
+	"day": "ambience/farm_day.mp3", "night": "ambience/night_crickets.mp3", "wind": "ambience/wind.mp3",
+	"rain": "ambience/rain_light.mp3", "rain_heavy": "ambience/rain_heavy.mp3",
+	"barn": "ambience/barn.mp3", "coop": "ambience/coop.mp3",
+	"engine": "sfx/vehicle/engine_loop.mp3",
+	"hooves_walk": "sfx/animals/horse_walk_dirt.mp3", "hooves_gallop": "sfx/animals/horse_gallop_dirt.mp3",
+	"hooves_road": "sfx/animals/horse_trot_road.mp3",
+}
+const DAY_MUSIC: Array[String] = ["music/day_relaxing_country.mp3", "music/day_relaxing_in_nature.mp3",
+	"music/day_wind_leaves.mp3", "music/day_the_long_road.mp3"]
+const NIGHT_MUSIC: Array[String] = ["music/night_relaxation.mp3"]
+## What each finished action sounds like: [set, volume dB, optional pitch]. It plays on
+## the final stroke's impact tick (see Player._fire_cue); swings add a swoosh before it.
+const ACTIONS := {
+	"chop": [["chop", -2.0], ["wood_hit", -4.0], ["wood_hit", -3.0, 0.62]], "break": [["mining", -2.0], ["metal", -16.0, 1.6]],
+	"hoe": [["dig", -3.0], ["soft", -10.0, 0.7]],
+	"clear": [["grass", -4.0]], "cut": [["grass", -3.0]], "refill": [["splash", -4.0]],
+	"fill_water": [["water_fill", -6.0]], "fill_feed": [["grass", -6.0]], "plant": [["soft", -8.0]],
+	"harvest": [["grass", -8.0]], "milk": [["milk", -4.0]], "shear": [["shears", -2.0]], "brush": [["brush", -6.0]],
+	"feed": [["soft", -8.0]], "medicine": [["pot", -10.0]], "fertilize": [["soft", -8.0], ["grass", -14.0]],
+	"muck": [["grass", -5.0], ["soft", -8.0]],
+}
+## The strokes before the final one (and the hand letting seeds, feed or fertilizer go).
+const HITS := {
+	"hoe": [["dig", -7.0]], "muck": [["dig", -9.0]], "plant": [["grass", -16.0, 1.4]],
+	"fertilize": [["grass", -14.0, 1.2]], "fill_feed": [["grass", -12.0, 1.1]], "milk": [["milk", -9.0]],
+	"brush": [["brush", -9.0]],
+}
+## The swoosh of each tool's swing: [volume dB, pitch] (heavy heads swing lower).
+const SWING := {&"axe": [-11.0, 0.85], &"pickaxe": [-11.0, 0.8], &"hoe": [-14.0, 1.0], &"scythe": [-9.0, 1.15],
+	&"pitchfork": [-14.0, 1.05]}
+## Seconds of near-silence at the start of some recordings, skipped when they play so the
+## sound lands on the frame of the hit (measured: 10 ms RMS windows, onset at 20% of peak).
+const LEAD_IN := {
+	"sfx/tools/dig_1.mp3": 0.8, "sfx/tools/dig_2.mp3": 1.0, "sfx/tools/dig_3.mp3": 0.86,
+	"sfx/tools/shovel_stab.mp3": 0.08, "sfx/tools/grass_cut.mp3": 0.1, "sfx/tools/grass_heavy.mp3": 0.1,
+	"sfx/tools/swoosh.mp3": 0.14, "sfx/tools/water_splash.mp3": 0.3, "sfx/tools/water_pour.mp3": 0.35,
+	"sfx/tools/milk_squirt.mp3": 0.06, "sfx/tools/shears_snip.mp3": 0.24,
+}
+## Seconds between the roof, housing and hoof-surface probes (the fades smooth the steps).
+const PROBE_SECONDS := 0.1
+
+var _streams := {}
+## Seconds each stream starts into (LEAD_IN), by stream.
+var _lead := {}
+var _pool_2d: Array[AudioStreamPlayer] = []
+var _pool_3d: Array[AudioStreamPlayer3D] = []
+var _loops := {}
+var _indoors := 0.0
+var _probe_t := 0.0
+## Last probe results: under a roof, animals per housing, hooves on a road.
+var _inside := false
+var _housed := {"barn": 0, "coop": 0}
+var _hooves_on_road := false
+var _lowpass: AudioEffectLowPassFilter
+var _music: AudioStreamPlayer
+var _music_state := ""
+var _music_gap := 6.0
+var _music_fade := 0.0
+var _last_track := ""
+## The track that plays after the current gap; it loads in the background meanwhile.
+var _next_track := ""
+var _chatter := 4.0
+var _crowed_day := -1
+var _last_money := 0.0
+var _vehicle: Vehicle
+var _engine_delay := 0.0
+## Headless runs (tests) have no audio output: nothing plays.
+var _silent := false
+
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	# The 3D players are placed from _process (and pooled ones jump between sounds):
+	# interpolating them between physics ticks would slide the sound across.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	_silent = DisplayServer.get_name() == "headless"
+	if not _silent:
+		_request_sets()
+	var amb := AudioServer.get_bus_index("Ambience")
+	if amb >= 0:
+		_lowpass = AudioEffectLowPassFilter.new()
+		_lowpass.cutoff_hz = 20000.0
+		AudioServer.add_bus_effect(amb, _lowpass)
+	_music = AudioStreamPlayer.new()
+	_music.bus = &"Music"
+	_music.finished.connect(func() -> void: _music_gap = randf_range(45.0, 110.0))
+	add_child(_music)
+	for key: String in LOOPS:
+		var positional: bool = key in ["barn", "coop", "engine", "hooves_walk", "hooves_gallop", "hooves_road"]
+		_loops[key] = Loop.new(self, _stream(LOOPS[key]), positional, &"Effects" if key.begins_with("engine") or key.begins_with("hooves") else &"Ambience")
+	Events.lightning.connect(_on_lightning)
+	Events.money_changed.connect(_on_money)
+	Events.item_picked_up.connect(func(_id: StringName, _n: int) -> void: ui("drop", -8.0))
+
+
+## Silences everything; the mixer lets go of the streams over the next few frames.
+func shutdown() -> void:
+	_silent = true
+	for loop: Loop in _loops.values():
+		for p: Node in loop.players:
+			p.call("stop")
+	for p in _pool_2d + _pool_3d:
+		p.stop()
+	_music.stop()
+
+
+func _exit_tree() -> void:
+	# The bus outlives this node: take the filter back so nothing lingers at exit.
+	var amb := AudioServer.get_bus_index("Ambience")
+	if amb >= 0 and _lowpass:
+		for i in range(AudioServer.get_bus_effect_count(amb) - 1, -1, -1):
+			if AudioServer.get_bus_effect(amb, i) == _lowpass:
+				AudioServer.remove_bus_effect(amb, i)
+	_lowpass = null
+	# Playing streams are held by the mixer until stopped.
+	for loop: Loop in _loops.values():
+		for p: Node in loop.players:
+			p.call("stop")
+			p.set("stream", null)
+	for p in _pool_2d + _pool_3d:
+		p.stop()
+		p.stream = null
+	_music.stop()
+	_music.stream = null
+	_loops.clear()
+	_streams.clear()
+	_lead.clear()
+
+
+# --- Playback ----------------------------------------------------------------------
+
+## Loads (or picks up a background load of) a file under DIR; null if it is missing.
+func _stream(rel: String) -> AudioStream:
+	if not _streams.has(rel):
+		var path := DIR + rel
+		if ResourceLoader.load_threaded_get_status(path) != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			_streams[rel] = ResourceLoader.load_threaded_get(path) as AudioStream
+		else:
+			_streams[rel] = load(path) if ResourceLoader.exists(path) else null
+	return _streams[rel]
+
+
+## The files of a set's spec (numbered variants that exist, or the listed paths).
+func _set_paths(spec: Variant) -> Array[String]:
+	var out: Array[String] = []
+	if spec is String:
+		for i in 10:
+			var rel := (spec as String) % i
+			if ResourceLoader.exists(DIR + rel):
+				out.append(rel)
+	else:
+		for rel: String in spec:
+			out.append(rel)
+	return out
+
+
+## Starts loading every one-shot sound in the background, so the first swing, step
+## or moo doesn't read its files from disk mid-game.
+func _request_sets() -> void:
+	for set_name: String in SETS:
+		for rel in _set_paths(SETS[set_name]):
+			if ResourceLoader.exists(DIR + rel):
+				ResourceLoader.load_threaded_request(DIR + rel)
+
+
+## The files of a set (numbered variants that exist, or the listed paths).
+func _files(set_name: String) -> Array:
+	var key := "set:" + set_name
+	if _streams.has(key):
+		return _streams[key]
+	var out := []
+	for rel in _set_paths(SETS.get(set_name, [])):
+		var s := _stream(rel)
+		if s:
+			out.append(s)
+			if LEAD_IN.has(rel):
+				_lead[s] = LEAD_IN[rel]
+	_streams[key] = out
+	return out
+
+
+## A sound from `set_name` on the interface bus (not positional).
+func ui(set_name: String, volume_db := -4.0) -> void:
+	play(set_name, null, volume_db, 0.04, &"UI")
+
+
+## Plays one of `set_name`'s sounds: at a world position (Vector3) or flat when `at` is
+## null. Returns the player (or null).
+func play(set_name: String, at = null, volume_db := 0.0, pitch_var := 0.08, bus := &"Effects",
+		unit_size := 5.0, pitch := 1.0) -> Node:
+	if _silent:
+		return null
+	var files := _files(set_name)
+	if files.is_empty():
+		return null
+	var stream: AudioStream = files.pick_random()
+	var p := 1.0 + randf_range(-pitch_var, pitch_var)
+	if at is Vector3:
+		var s3 := _free_3d()
+		s3.stream = stream
+		s3.bus = bus
+		s3.volume_db = volume_db
+		s3.pitch_scale = p * pitch
+		s3.unit_size = unit_size
+		s3.max_distance = unit_size * 14.0
+		s3.global_position = at
+		s3.play(float(_lead.get(stream, 0.0)))
+		return s3
+	var s2 := _free_2d()
+	s2.stream = stream
+	s2.bus = bus
+	s2.volume_db = volume_db
+	s2.pitch_scale = p * pitch
+	s2.play(float(_lead.get(stream, 0.0)))
+	return s2
+
+
+func _free_2d() -> AudioStreamPlayer:
+	for s in _pool_2d:
+		if not s.playing:
+			return s
+	var n := AudioStreamPlayer.new()
+	add_child(n)
+	if _pool_2d.size() < 16:
+		_pool_2d.append(n)
+	else:
+		n.finished.connect(n.queue_free)
+	return n
+
+
+func _free_3d() -> AudioStreamPlayer3D:
+	for s in _pool_3d:
+		if not s.playing:
+			return s
+	var n := AudioStreamPlayer3D.new()
+	n.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	n.panning_strength = 0.9
+	add_child(n)
+	if _pool_3d.size() < 32:
+		_pool_3d.append(n)
+	else:
+		n.finished.connect(n.queue_free)
+	return n
+
+
+# --- Gameplay hooks --------------------------------------------------------------------
+
+## A step of the player: the sound of what is underfoot.
+func footstep(body: Node3D, running: bool) -> void:
+	play("step_" + _surface(body), body.global_position, -9.0 if running else -13.0, 0.1, &"Effects", 3.0)
+
+
+func _surface(body: Node3D) -> String:
+	var from := body.global_position + Vector3(0, 0.4, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3(0, -1.6, 0), 1)
+	q.exclude = [body.get_rid()] if body is CollisionObject3D else []
+	var hit := body.get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return "grass"
+	var path := String((hit["collider"] as Node).get_path())
+	if "/Road/" in path or "/Town/" in path or "Warehouse" in path:
+		return "concrete"
+	if "/Terrain/" in path:
+		var p: Vector3 = hit["position"]
+		if Weather.snow_cover > 0.35 or TerrainData.path_at(p.x, p.z) > 0.4:
+			return "gravel"
+		return "grass"
+	return "wood"
+
+
+## A tool swing (the swoosh just before the hit).
+func swing(tool_type: StringName, at: Vector3) -> void:
+	var s: Array = SWING.get(tool_type, [])
+	if not s.is_empty():
+		play("swoosh", at, float(s[0]), 0.06, &"Effects", 3.0, float(s[1]))
+
+
+## An action starting to pour (the watering can): returns the pour, to be faded out with
+## fade_out when the can is tipped back (or null).
+func action_started(id: String, at: Vector3) -> Node:
+	if id == "water" or id == "fill_water":
+		return play("water_pour", at, -6.0, 0.05, &"Effects", 4.0)
+	return null
+
+
+## A stroke before the final one landing (or seeds, feed or fertilizer leaving the hand).
+func impact(id: String, at: Vector3) -> void:
+	for entry: Array in HITS.get(id, []):
+		play(entry[0], at, float(entry[1]), 0.08, &"Effects", 5.0, float(entry[2]) if entry.size() > 2 else 1.0)
+
+
+## An action finishing on its target; animals answer being milked, brushed or fed.
+func action_done(id: String, at: Vector3, target: Node = null) -> void:
+	for entry: Array in ACTIONS.get(id, []):
+		play(entry[0], at, float(entry[1]), 0.08, &"Effects", 5.0, float(entry[2]) if entry.size() > 2 else 1.0)
+	if target is Animal and id in ["milk", "brush", "feed", "shear"] and randf() < 0.45:
+		var data: AnimalData = (target as Animal).data
+		animal_voice(data.species, data.adult, (target as Node3D).global_position, -8.0)
+
+
+## Fades a playing sound out over `seconds` and stops it (a pour cut short).
+## A pooled player that ends and is reused for another sound mid-fade is left alone; one
+## beyond the pool (freed on `finished`, which stop() never sends) is freed here.
+func fade_out(p: Node, seconds := 0.15) -> void:
+	if p == null or not is_instance_valid(p) or not p.get("playing"):
+		return
+	var stream: Variant = p.get("stream")
+	var from: float = p.get("volume_db")
+	var mine := func() -> bool:
+		return is_instance_valid(p) and p.get("stream") == stream and p.get("playing")
+	var fade := func(db: float) -> void:
+		if mine.call():
+			p.set("volume_db", db)
+	var stop := func() -> void:
+		if not mine.call():
+			return
+		p.call("stop")
+		# Typed pools: look only in the one of the player's own class.
+		var pooled := _pool_3d.has(p) if p is AudioStreamPlayer3D else (p is AudioStreamPlayer and _pool_2d.has(p))
+		if not pooled:
+			p.queue_free()
+	var tw := create_tween()
+	tw.tween_method(fade, from, -60.0, seconds)
+	tw.tween_callback(stop)
+
+
+## An animal's voice (baby animals higher); `loud` for the rooster at dawn.
+func animal_voice(species: StringName, adult: bool, at: Vector3, volume_db := -4.0) -> void:
+	var set_name := String(species)
+	var pitch := 1.0 if adult else 1.3
+	match species:
+		&"sheep":
+			if not adult:
+				set_name = "lamb"
+				pitch = 1.0
+		&"horse":
+			set_name = "horse" if randf() < 0.3 else "horse_snort"
+	play(set_name, at + Vector3(0, 1.0, 0), volume_db, 0.06, &"Effects", 7.0, pitch)
+
+
+func vehicle_enter(v: Vehicle) -> void:
+	_vehicle = v
+	play("car_door", v.global_position + Vector3(0, 1, 0), -6.0, 0.05, &"Effects", 4.0)
+	_engine_delay = 0.45
+	var start := play("engine_start", v.global_position + Vector3(0, 0.8, 0), -4.0, 0.03, &"Effects", 6.0)
+	if start is AudioStreamPlayer3D:
+		(start as AudioStreamPlayer3D).stop()
+		get_tree().create_timer(0.35).timeout.connect(func() -> void:
+			if is_instance_valid(start):
+				(start as AudioStreamPlayer3D).play())
+
+
+func vehicle_exit(v: Vehicle) -> void:
+	_vehicle = null
+	play("car_door", v.global_position + Vector3(0, 1, 0), -5.0, 0.05, &"Effects", 4.0)
+
+
+func _on_lightning() -> void:
+	# Light travels faster than sound: the rumble follows a moment later.
+	get_tree().create_timer(randf_range(0.4, 2.8)).timeout.connect(func() -> void:
+		play("thunder", null, randf_range(-6.0, 0.0), 0.08, &"Ambience"))
+
+
+func _on_money(_amount: int, delta: int) -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	if delta == 0 or now - _last_money < 0.25 or Game.top_ui() == &"sleep":
+		return
+	_last_money = now
+	ui("coins" if delta > 0 else "coins_small", -8.0)
+
+
+# --- Every frame ---------------------------------------------------------------------------
+
+func _process(delta: float) -> void:
+	if _silent:
+		return
+	var player := Game.player as Node3D
+	var in_world := player != null and is_instance_valid(player) and not SaveGame.loading
+	_probe_t -= delta
+	var probe := _probe_t <= 0.0
+	if probe:
+		_probe_t = PROBE_SECONDS
+	_update_indoors(delta, player if in_world else null, probe)
+	_update_ambience(delta, in_world, probe)
+	_update_vehicle(delta, in_world)
+	_update_hooves(delta, player if in_world else null, probe)
+	_update_animals(delta, player if in_world else null)
+	_update_music(delta)
+
+
+## Under a roof the outdoors is muffled (rain on the roof stays audible).
+func _update_indoors(delta: float, player: Node3D, probe: bool) -> void:
+	if player == null:
+		_inside = false
+	elif probe:
+		var eye := player.global_position + Vector3(0, 1.6, 0)
+		var q := PhysicsRayQueryParameters3D.create(eye, eye + Vector3(0, 12, 0), 1)
+		if player is CollisionObject3D:
+			q.exclude = [(player as CollisionObject3D).get_rid()]
+		_inside = not player.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
+	_indoors = move_toward(_indoors, 1.0 if _inside else 0.0, delta * 2.0)
+	if _lowpass:
+		_lowpass.cutoff_hz = lerpf(20000.0, 900.0, _indoors)
+
+
+func _update_ambience(delta: float, in_world: bool, probe: bool) -> void:
+	var hour := GameClock.get_hour_float()
+	var season := GameClock.get_season()
+	var rain := Weather.precip if Weather.today != Weather.Kind.SNOW else 0.0
+	var daylight := smoothstep(4.8, 6.2, hour) * (1.0 - smoothstep(19.2, 20.6, hour))
+	var birds := daylight * (1.0 - rain * 0.85) * (0.35 if season == GameClock.Season.WINTER else 1.0)
+	var crickets := (1.0 - daylight) * (1.0 - rain) * ([0.6, 1.0, 0.5, 0.0][season] as float)
+	var wind := clampf((Weather.wind - 0.6) / 1.6, 0.0, 1.0) * 0.8 + (0.25 if season == GameClock.Season.WINTER else 0.0)
+	var gate := 1.0 if in_world else 0.55
+	var inside := 1.0 - _indoors * 0.6
+	(_loops["day"] as Loop).update(delta, birds * 0.75 * gate * inside)
+	(_loops["night"] as Loop).update(delta, crickets * 0.7 * gate * inside)
+	(_loops["wind"] as Loop).update(delta, wind * gate * (1.0 - _indoors * 0.4))
+	(_loops["rain"] as Loop).update(delta, clampf(rain * 1.6, 0.0, 1.0) * 0.8 * gate)
+	(_loops["rain_heavy"] as Loop).update(delta, clampf((rain - 0.55) * 2.2, 0.0, 1.0) * 0.8 * gate)
+	# Animal housing hums with its animals (positional, near the buildings).
+	var farm: Node = Game.world.get("farm") if in_world and Game.world else null
+	for kind: String in _housed:
+		if probe:
+			_housed[kind] = Animals.count_in(kind)
+		var level := 0.0
+		var at := Vector3.ZERO
+		if farm:
+			var housing: Node3D = farm.get(kind)
+			if housing and int(_housed[kind]) > 0:
+				level = (0.45 if kind == "barn" else 0.6) * (0.4 + 0.6 * daylight)
+				at = housing.global_position + Vector3(0, 1.5, 0)
+		(_loops[kind] as Loop).update(delta, level, at)
+
+
+func _update_vehicle(delta: float, in_world: bool) -> void:
+	var engine: Loop = _loops["engine"]
+	if not in_world or _vehicle == null or not is_instance_valid(_vehicle) or _vehicle.driver == null:
+		engine.update(delta, 0.0)
+		return
+	if _engine_delay > 0.0:
+		_engine_delay -= delta
+		engine.update(delta, 0.0)
+		return
+	var v := _vehicle
+	var speed := clampf(v.speed_kmh() / 90.0, 0.0, 1.0)
+	var throttle := absf(v._throttle)
+	# The old four-cylinder idles low and climbs with speed; gear changes are implied
+	# by a sawtooth on the pitch.
+	var gear := fmod(speed * 3.2, 1.0)
+	engine.pitch = float(v.info.get("engine_pitch", 0.62)) + speed * 0.45 + gear * 0.22 * speed + throttle * 0.12
+	engine.update(delta, 0.35 + throttle * 0.45 + speed * 0.2, v.global_position + v.global_basis.z * 1.6 + Vector3(0, 0.8, 0))
+
+
+func _update_hooves(delta: float, player: Node3D, probe: bool) -> void:
+	var horse: Node3D = player.get("riding") if player else null
+	var speed := 0.0
+	var road := false
+	if horse and is_instance_valid(horse):
+		speed = Vector2((player as CharacterBody3D).velocity.x, (player as CharacterBody3D).velocity.z).length()
+		if probe:
+			_hooves_on_road = _surface(horse) == "concrete"
+		road = _hooves_on_road
+	var at := horse.global_position if horse and is_instance_valid(horse) else Vector3.ZERO
+	var walk := clampf(speed / 3.0, 0.0, 1.0) * (1.0 - smoothstep(5.5, 7.0, speed))
+	var gallop := smoothstep(5.5, 7.0, speed)
+	(_loops["hooves_walk"] as Loop).update(delta, walk * (0.0 if road else 0.8), at)
+	(_loops["hooves_road"] as Loop).update(delta, (walk + gallop) * (0.8 if road else 0.0), at)
+	(_loops["hooves_gallop"] as Loop).update(delta, gallop * (0.0 if road else 0.9), at)
+
+
+## Now and then an animal near the player makes itself heard; the rooster crows at dawn.
+func _update_animals(delta: float, player: Node3D) -> void:
+	if player == null:
+		return
+	_chatter -= delta
+	if _chatter > 0.0:
+		return
+	_chatter = randf_range(2.5, 6.0)
+	var hour := GameClock.get_hour_float()
+	var asleep := hour < 5.3 or hour > 21.5
+	var near := []
+	for a: AnimalData in Animals.animals:
+		var n := Animals.node_of(a)
+		if n and n.global_position.distance_to(player.global_position) < 45.0:
+			near.append([a, n])
+	if near.is_empty():
+		return
+	if hour > 5.4 and hour < 7.5 and _crowed_day != GameClock.day:
+		for pair: Array in near:
+			if (pair[0] as AnimalData).species == &"chicken":
+				_crowed_day = GameClock.day
+				play("rooster", (pair[1] as Node3D).global_position + Vector3(0, 1, 0), 0.0, 0.03, &"Effects", 10.0)
+				return
+	var pick: Array = near.pick_random()
+	var a: AnimalData = pick[0]
+	var chance: float = {&"chicken": 0.55, &"cow": 0.22, &"sheep": 0.3, &"horse": 0.15}.get(a.species, 0.2)
+	if asleep:
+		chance *= 0.08
+	if randf() < chance:
+		animal_voice(a.species, a.adult, (pick[1] as Node3D).global_position, -6.0)
+
+
+## Quiet stretches between tracks; day tracks by day (and on the title screen), the
+## night track after dark, nothing while sleeping.
+func _update_music(delta: float) -> void:
+	var hour := GameClock.get_hour_float()
+	var title := Game.hud != null and is_instance_valid(Game.hud) and (Game.hud.get("title_screen") as Control) != null \
+			and (Game.hud.get("title_screen") as Control).visible
+	var state := "day" if title else ("night" if (hour >= 20.5 or hour < 5.5) else "day")
+	var sleeping := Game.top_ui() == &"sleep"
+	if _music.playing:
+		if sleeping or state != _music_state:
+			_music_fade = maxf(_music_fade - delta / 3.0, 0.0)
+			if _music_fade <= 0.0:
+				_music.stop()
+				_music_gap = 4.0
+		else:
+			_music_fade = minf(_music_fade + delta / 4.0, 1.0)
+		_music.volume_db = linear_to_db(maxf(_music_fade, 0.0001))
+		return
+	if sleeping:
+		return
+	# Pick the next track while the gap runs and load it in the background (a whole
+	# mp3 of several MB would stall the frame it starts on).
+	var list: Array[String] = NIGHT_MUSIC if state == "night" else DAY_MUSIC
+	if _next_track not in list:
+		var options := list.filter(func(t: String) -> bool: return t != _last_track)
+		_next_track = (options if not options.is_empty() else list).pick_random()
+		if not _streams.has(_next_track) and ResourceLoader.exists(DIR + _next_track):
+			ResourceLoader.load_threaded_request(DIR + _next_track)
+	_music_gap -= delta
+	if _music_gap > 0.0:
+		return
+	if ResourceLoader.load_threaded_get_status(DIR + _next_track) == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+		return
+	var track := _next_track
+	_next_track = ""
+	_last_track = track
+	_music.stream = _stream(track)
+	_music_state = state
+	_music_fade = 0.0
+	_music.volume_db = -80.0
+	_music.play()
+
+
+## Two players taking turns on one recording: the next pass starts a few seconds before
+## the current one ends and they cross-fade; starts at a random point so repeats vary.
+class Loop:
+	const FADE := 2.5
+	var stream: AudioStream
+	var players: Array = []
+	var length := 0.0
+	var level := 0.0
+	var pitch := 1.0
+	var _current := 0
+	## Pitch and position as last set on the players.
+	var _set_pitch := 1.0
+	var _set_at := Vector3.ZERO
+
+	func _init(owner: Node, p_stream: AudioStream, positional: bool, bus: StringName) -> void:
+		stream = p_stream
+		length = stream.get_length() if stream else 0.0
+		for i in 2:
+			var p: Node
+			if positional:
+				var p3 := AudioStreamPlayer3D.new()
+				p3.unit_size = 6.0
+				p3.max_distance = 70.0
+				p3.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+				p = p3
+			else:
+				p = AudioStreamPlayer.new()
+			p.set("bus", bus)
+			p.set("stream", stream)
+			owner.add_child(p)
+			players.append(p)
+
+	func update(delta: float, target: float, at := Vector3.ZERO) -> void:
+		if stream == null or length < FADE * 2.0:
+			return
+		level = move_toward(level, clampf(target, 0.0, 1.5), delta * 0.8)
+		var a: Node = players[_current]
+		var b: Node = players[1 - _current]
+		if level <= 0.001:
+			for p: Node in players:
+				if p.get("playing"):
+					p.call("stop")
+			return
+		if at != _set_at or pitch != _set_pitch:
+			_set_at = at
+			_set_pitch = pitch
+			for p: Node in players:
+				if p is AudioStreamPlayer3D:
+					(p as AudioStreamPlayer3D).global_position = at
+				p.set("pitch_scale", pitch)
+		if not a.get("playing"):
+			a.call("play", randf_range(0.0, length - FADE * 2.0))
+		var pos: float = a.call("get_playback_position")
+		var left := length - pos
+		var fade_a := 1.0
+		if left < FADE:
+			if not b.get("playing"):
+				b.call("play", 0.0)
+			fade_a = left / FADE
+			if left < 0.05 or not a.get("playing"):
+				a.call("stop")
+				_current = 1 - _current
+				a = players[_current]
+				b = players[1 - _current]
+				fade_a = 1.0
+		a.set("volume_db", linear_to_db(maxf(level * fade_a, 0.0001)))
+		if b.get("playing"):
+			b.set("volume_db", linear_to_db(maxf(level * (1.0 - fade_a), 0.0001)))

@@ -1,0 +1,11 @@
+Model Information:
+* title:	Garden Hoe Scan LOWPOLY
+* source:	https://sketchfab.com/3d-models/garden-hoe-scan-lowpoly-f9df2e5940f04dbfa4534f26229100aa
+* author:	EFX (https://sketchfab.com/evan4129)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Garden Hoe Scan LOWPOLY" (https://sketchfab.com/3d-models/garden-hoe-scan-lowpoly-f9df2e5940f04dbfa4534f26229100aa) by EFX (https://sketchfab.com/evan4129) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

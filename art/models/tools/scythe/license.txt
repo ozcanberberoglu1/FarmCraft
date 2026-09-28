@@ -1,0 +1,11 @@
+Model Information:
+* title:	Scythe
+* source:	https://sketchfab.com/3d-models/scythe-54a14468c36e4f09b6f4038565819b7a
+* author:	DrKryzel (https://sketchfab.com/DrKryzel)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Scythe" (https://sketchfab.com/3d-models/scythe-54a14468c36e4f09b6f4038565819b7a) by DrKryzel (https://sketchfab.com/DrKryzel) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -1,0 +1,11 @@
+Model Information:
+* title:	Maize Corn Plant
+* source:	https://sketchfab.com/3d-models/maize-corn-plant-5fd3b104d8104519b061469c365d4974
+* author:	gilles.schaeck (https://sketchfab.com/gilles.schaeck)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Maize Corn Plant" (https://sketchfab.com/3d-models/maize-corn-plant-5fd3b104d8104519b061469c365d4974) by gilles.schaeck (https://sketchfab.com/gilles.schaeck) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

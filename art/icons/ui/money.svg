@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="144" viewBox="0 0 96 72">
+  <g transform="rotate(-16 44 36)">
+    <rect x="16" y="30" width="62" height="30" rx="4" fill="#23713a"/>
+    <rect x="13" y="23" width="62" height="30" rx="4" fill="#2f8f4a" stroke="#1c5e30" stroke-width="1.5"/>
+    <rect x="10" y="15" width="62" height="30" rx="4" fill="#45b865" stroke="#1c5e30" stroke-width="1.5"/>
+    <rect x="15" y="19.5" width="52" height="21" rx="3" fill="none" stroke="#b5f0c2" stroke-width="1.6"/>
+    <circle cx="41" cy="30" r="7.5" fill="#b5f0c2"/>
+    <circle cx="41" cy="30" r="4.6" fill="#2f8f4a"/>
+    <circle cx="21" cy="30" r="2.2" fill="#b5f0c2"/>
+    <circle cx="61" cy="30" r="2.2" fill="#b5f0c2"/>
+  </g>
+  <circle cx="72" cy="51" r="15" fill="#c98a08"/>
+  <circle cx="71" cy="49" r="14" fill="#f2b21b" stroke="#a86d00" stroke-width="1.5"/>
+  <circle cx="71" cy="49" r="9.5" fill="#ffd54f" stroke="#e39b0c" stroke-width="1.2"/>
+  <path d="M71 42.5 L73 47 L78 47.4 L74.2 50.6 L75.4 55.4 L71 52.8 L66.6 55.4 L67.8 50.6 L64 47.4 L69 47 Z" fill="#f2a60c"/>
+  <path d="M62 43 Q66 37 74 37" stroke="#fff6cf" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.8"/>
+</svg>

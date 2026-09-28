@@ -15,3 +15,9 @@ export_credentials.cfg
 .mono/
 data_*/
 mono_crash.*.json
+
+# Exported builds (made again with Project > Export; too big for GitHub)
+build/
+
+# macOS folder metadata
+.DS_Store

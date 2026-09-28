@@ -1,0 +1,11 @@
+Model Information:
+* title:	Old burlap bag photo scan
+* source:	https://sketchfab.com/3d-models/old-burlap-bag-photo-scan-d52b9c947f994d528e872f71a1cabba1
+* author:	Teilor Andersen (https://sketchfab.com/teilorandersen)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Old burlap bag photo scan" (https://sketchfab.com/3d-models/old-burlap-bag-photo-scan-d52b9c947f994d528e872f71a1cabba1) by Teilor Andersen (https://sketchfab.com/teilorandersen) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

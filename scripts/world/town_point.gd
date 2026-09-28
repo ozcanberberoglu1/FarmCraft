@@ -1,0 +1,35 @@
+class_name TownPoint
+extends StaticBody3D
+## An invisible interaction box in town (shop counters, fuel pumps): shows a prompt
+## and runs `action` on E.
+
+var prompt_key := ""
+var action: Callable
+var size := Vector3.ONE
+var is_pump := false
+
+
+func _ready() -> void:
+	collision_layer = 4
+	collision_mask = 0
+	add_to_group(&"interactable")
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	cs.shape = box
+	add_child(cs)
+
+
+func interact_prompt(_player: Node) -> String:
+	if is_pump:
+		var v := Town._nearest_owned_vehicle(global_position, 7.5)
+		if v == null:
+			return tr("ACTION_REFUEL_NO_VEHICLE")
+		var need := float(v.info.get("fuel_capacity", 40.0)) - v.fuel
+		return tr(prompt_key) % [roundi(need), UiTheme.money(int(ceil(need * Town.FUEL_PRICE)))]
+	return tr(prompt_key)
+
+
+func interact(_player: Node) -> void:
+	if action.is_valid():
+		action.call()

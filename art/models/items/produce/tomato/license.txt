@@ -1,0 +1,11 @@
+Model Information:
+* title:	4K Tomato Photogrammetry 3D Model - Low poly
+* source:	https://sketchfab.com/3d-models/4k-tomato-photogrammetry-3d-model-low-poly-e569c4763db04a32b2bc23361b82b3f0
+* author:	Tayfun Özen (https://sketchfab.com/tayfunozen)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "4K Tomato Photogrammetry 3D Model - Low poly" (https://sketchfab.com/3d-models/4k-tomato-photogrammetry-3d-model-low-poly-e569c4763db04a32b2bc23361b82b3f0) by Tayfun Özen (https://sketchfab.com/tayfunozen) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

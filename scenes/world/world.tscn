@@ -1,0 +1,48 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/world/world.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/world/day_night_cycle.gd" id="2_daynight"]
+[ext_resource type="Script" path="res://scripts/world/terrain.gd" id="3_terrain"]
+[ext_resource type="Script" path="res://scripts/world/pond.gd" id="4_pond"]
+[ext_resource type="Script" path="res://scripts/world/grass_field.gd" id="5_grass"]
+[ext_resource type="Script" path="res://scripts/world/nature_spawner.gd" id="6_nature"]
+[ext_resource type="Script" path="res://scripts/world/farm_house.gd" id="7_house"]
+[ext_resource type="Script" path="res://scripts/props/well.gd" id="8_well"]
+[ext_resource type="Script" path="res://scripts/world/farm.gd" id="10_farm"]
+[ext_resource type="Script" path="res://scripts/world/road.gd" id="11_road"]
+[ext_resource type="Script" path="res://scripts/world/town.gd" id="12_town"]
+
+[node name="World" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="DayNight" type="Node3D" parent="."]
+script = ExtResource("2_daynight")
+
+[node name="Terrain" type="Node3D" parent="."]
+script = ExtResource("3_terrain")
+
+[node name="Road" type="Node3D" parent="."]
+script = ExtResource("11_road")
+
+[node name="Pond" type="Node3D" parent="."]
+script = ExtResource("4_pond")
+
+[node name="Grass" type="Node3D" parent="."]
+script = ExtResource("5_grass")
+
+[node name="Nature" type="Node3D" parent="."]
+script = ExtResource("6_nature")
+
+[node name="FarmHouse" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -16, 0, -18)
+script = ExtResource("7_house")
+
+[node name="Well" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, -6)
+script = ExtResource("8_well")
+
+[node name="Farm" type="Node3D" parent="."]
+script = ExtResource("10_farm")
+
+[node name="Town" type="Node3D" parent="."]
+script = ExtResource("12_town")
