@@ -35,7 +35,9 @@ func _run() -> void:
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.keep_aspect = Camera3D.KEEP_HEIGHT
-	cam.far = 200.0
+	# Far off (orthogonal, so only for the foliage's shade by distance): the trees as
+	# seen where their pictures take over.
+	cam.far = 400.0
 	vp.add_child(cam)
 	var mi := MeshInstance3D.new()
 	vp.add_child(mi)
@@ -44,7 +46,7 @@ func _run() -> void:
 		mi.mesh = meshes[i]
 		var frame := NatureModels.impostor_frame(meshes[i])
 		cam.size = frame.y
-		cam.position = Vector3(0, frame.y * 0.5, 60)
+		cam.position = Vector3(0, frame.y * 0.5, 150)
 		cam.look_at(Vector3(0, frame.y * 0.5, 0), Vector3.UP)
 		for f in 4:
 			await process_frame

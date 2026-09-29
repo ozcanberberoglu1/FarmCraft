@@ -19,6 +19,8 @@ varying vec3 v_right;
 varying vec3 v_to_cam;
 varying float v_rand;
 varying float v_broad;
+varying float v_across;
+varying vec3 v_tint;
 
 void vertex() {
 	// VERTEX is already in world space; rebuild it from the card corner (UV) so the
@@ -32,7 +34,14 @@ void vertex() {
 	vec2 corner = vec2(UV.x - 0.5, 1.0 - UV.y);
 	VERTEX = origin + (right * corner.x * INSTANCE_CUSTOM.y + vec3(0.0, corner.y * INSTANCE_CUSTOM.z, 0.0)) * scale;
 	NORMAL = to_cam;
-	UV = vec2((INSTANCE_CUSTOM.x + UV.x) / cells, UV.y);
+	// Every other tree is the mirror image of its picture, and each has its own shade
+	// of green: a forest of a few pictures doesn't repeat.
+	float h = hash12(origin.xz * 1.37 + 5.1);
+	float u = h < 0.5 ? UV.x : 1.0 - UV.x;
+	UV = vec2((INSTANCE_CUSTOM.x + u) / cells, UV.y);
+	v_across = corner.x * 2.0;
+	float h2 = hash12(origin.xz * 0.53 + 17.3);
+	v_tint = vec3(1.0 + (h2 - 0.5) * 0.12, 1.0, 1.0 - (h2 - 0.5) * 0.16) * mix(0.86, 1.1, fract(h * 7.31));
 	v_right = right;
 	v_to_cam = to_cam;
 	v_rand = hash12(origin.xz * 0.731);
@@ -41,7 +50,7 @@ void vertex() {
 
 void fragment() {
 	vec4 tex = texture(atlas, UV);
-	vec3 col = tex.rgb * brightness;
+	vec3 col = tex.rgb * brightness * v_tint;
 	// Leaves are greener than bark: only they take autumn colour, fall and snow.
 	float leafy = smoothstep(0.0, 0.04, col.g - col.r * 0.95);
 	if (v_broad > 0.5 && leafy > 0.5 && hash12(floor(UV * vec2(1400.0, 520.0)) + v_rand * 37.0) < leaf_drop) {
@@ -57,13 +66,12 @@ void fragment() {
 		col = mix(col, snow_color(), snow_amount * leafy * mix(0.72, 1.0, patches));
 	}
 	// Rounded crown: across the card the normal turns sideways and a little up.
-	float across = fract(UV.x * cells) * 2.0 - 1.0;
-	vec3 n = normalize(v_to_cam * 0.75 + v_right * across * 0.9 + vec3(0.0, 0.3, 0.0));
+	vec3 n = normalize(v_to_cam * 0.75 + v_right * v_across * 0.9 + vec3(0.0, 0.3, 0.0));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 	ALBEDO = col * (1.0 - wetness * 0.15);
 	ALPHA = tex.a;
 	ALPHA_SCISSOR_THRESHOLD = alpha_cut;
-	ALPHA_ANTIALIASING_EDGE = 0.2;
+	ALPHA_ANTIALIASING_EDGE = 0.0;
 	ROUGHNESS = mix(0.78, 0.4, wetness);
 	SPECULAR = 0.18;
 	BACKLIGHT = col * translucency;

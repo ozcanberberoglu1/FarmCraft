@@ -6,8 +6,10 @@ extends RefCounted
 ## valley, the town valley, the hills around them, a pass between them and the
 ## county road, whose bed is cut and filled to a smooth, grade-limited profile.
 ##
-## Mask channels: R = path, G = dirt yard, B = pond shore. The terrain shader samples
-## the mask texture; placement code queries it through path_at()/dirt_at().
+## Mask channels: R = path, G = dirt yard, B = pond shore, A = closeness to the centre
+## line of a lane vehicles use (1 on it, 0 from TRACK_REACH away; the ground shaders
+## draw its wheel ruts from it). The terrain shader samples the mask texture; placement
+## code queries it through path_at()/dirt_at().
 
 const MIN_X := WorldLayout.MAP_MIN_X
 const MIN_Z := WorldLayout.MAP_MIN_Z
@@ -19,12 +21,17 @@ const MASK_W := WorldLayout.MAP_W * MASK_PPM
 const MASK_H := WorldLayout.MAP_D * MASK_PPM
 ## Road centreline resampled every ROAD_STEP metres, with the road surface height.
 const ROAD_STEP := 1.0
+## Lanes at least this wide carry wheel ruts (mask A).
+const TRACK_WIDTH := 2.6
+## How far from a lane's centre line the mask A channel reaches (metres).
+const TRACK_REACH := 2.5
 
 static var heights := PackedFloat32Array()
 static var mask := PackedByteArray()
 static var road_points := PackedVector2Array()
 static var road_heights := PackedFloat32Array()
 static var _mask_texture: ImageTexture
+static var _height_texture: ImageTexture
 static var _generated := false
 
 
@@ -37,15 +44,51 @@ static func ensure() -> void:
 static func invalidate() -> void:
 	_generated = false
 	_mask_texture = null
+	_height_texture = null
 
 
 static func mask_texture() -> ImageTexture:
 	ensure()
 	if _mask_texture == null:
-		var img := Image.create_from_data(MASK_W, MASK_H, false, Image.FORMAT_RGB8, mask)
+		var img := Image.create_from_data(MASK_W, MASK_H, false, Image.FORMAT_RGBA8, mask)
 		img.generate_mipmaps()
 		_mask_texture = ImageTexture.create_from_image(img)
 	return _mask_texture
+
+
+## The heightfield as a float texture (one texel per grid point) with mipmaps: the
+## ground shaders compare a point's height with the blurred height around it to find
+## damp hollows. Half floats: linear filtering of them works on every GPU (32-bit float
+## filtering is optional in Vulkan), and they keep millimetres in the valley.
+static func height_texture() -> ImageTexture:
+	ensure()
+	if _height_texture == null:
+		var img := Image.create_from_data(NX, NZ, false, Image.FORMAT_RF, heights.to_byte_array())
+		img.convert(Image.FORMAT_RH)
+		img.generate_mipmaps()
+		_height_texture = ImageTexture.create_from_image(img)
+	return _height_texture
+
+
+## Sets the ground-field uniforms (shaders/include/ground.gdshaderinc) that the terrain,
+## the meadow grass and the other ground shaders share, so they agree on where the
+## meadow is damp, trampled or dry.
+static func apply_ground_fields(mat: ShaderMaterial) -> void:
+	mat.set_shader_parameter("mask_tex", mask_texture())
+	mat.set_shader_parameter("height_tex", height_texture())
+	mat.set_shader_parameter("map_min", Vector2(MIN_X, MIN_Z))
+	mat.set_shader_parameter("map_size", Vector2(WorldLayout.MAP_W, WorldLayout.MAP_D))
+	mat.set_shader_parameter("water_level", WorldLayout.WATER_LEVEL)
+	mat.set_shader_parameter("pond_center", WorldLayout.POND_CENTER)
+	mat.set_shader_parameter("pond_radius", WorldLayout.POND_RADIUS)
+	mat.set_shader_parameter("track_reach", TRACK_REACH)
+	var lots := PackedVector4Array()
+	for lot_id: StringName in WorldLayout.FIELD_LOTS:
+		var r: Rect2 = WorldLayout.FIELD_LOTS[lot_id]["rect"]
+		lots.append(Vector4(r.position.x, r.position.y, r.end.x, r.end.y))
+	while lots.size() < 4:
+		lots.append(Vector4(0, 0, 0, 0))
+	mat.set_shader_parameter("lots", lots.slice(0, 4))
 
 
 # --- Queries -------------------------------------------------------------------
@@ -79,6 +122,12 @@ static func dirt_at(x: float, z: float) -> float:
 
 static func shore_at(x: float, z: float) -> float:
 	return _mask_sample(x, z, 2)
+
+
+## Distance (m) to the centre line of the nearest lane vehicles use, TRACK_REACH when
+## farther than that. Visual only (ruts, the grassy strip between them).
+static func track_distance(x: float, z: float) -> float:
+	return (1.0 - _mask_sample(x, z, 3)) * TRACK_REACH
 
 
 static func normal_at(x: float, z: float) -> Vector3:
@@ -118,10 +167,10 @@ static func _mask_sample(x: float, z: float, channel: int) -> float:
 	var iz := int(fz)
 	var tx := fx - ix
 	var tz := fz - iz
-	var a := mask[(iz * MASK_W + ix) * 3 + channel]
-	var b := mask[(iz * MASK_W + ix + 1) * 3 + channel]
-	var c := mask[((iz + 1) * MASK_W + ix) * 3 + channel]
-	var d := mask[((iz + 1) * MASK_W + ix + 1) * 3 + channel]
+	var a := mask[(iz * MASK_W + ix) * 4 + channel]
+	var b := mask[(iz * MASK_W + ix + 1) * 4 + channel]
+	var c := mask[((iz + 1) * MASK_W + ix) * 4 + channel]
+	var d := mask[((iz + 1) * MASK_W + ix + 1) * 4 + channel]
 	return lerpf(lerpf(a, b, tx), lerpf(c, d, tx), tz) / 255.0
 
 
@@ -267,7 +316,7 @@ static func _build_road() -> void:
 
 
 static func _generate_mask() -> void:
-	mask.resize(MASK_W * MASK_H * 3)
+	mask.resize(MASK_W * MASK_H * 4)
 	mask.fill(0)
 	var edge := FastNoiseLite.new()
 	edge.seed = SEED + 7
@@ -276,6 +325,8 @@ static func _generate_mask() -> void:
 		var pts: Array = path["points"]
 		for i in pts.size() - 1:
 			_stamp_segment(pts[i], pts[i + 1], float(path["width"]), edge)
+			if float(path["width"]) >= TRACK_WIDTH:
+				_stamp_track(pts[i], pts[i + 1], edge)
 	# Gravel verges along the asphalt.
 	for i in range(0, road_points.size() - 2, 2):
 		_stamp_segment(road_points[i], road_points[i + 2], WorldLayout.ROAD_WIDTH + 2.4, edge)
@@ -285,7 +336,7 @@ static func _generate_mask() -> void:
 
 
 static func _write(px: int, pz: int, channel: int, value: float) -> void:
-	var i := (pz * MASK_W + px) * 3 + channel
+	var i := (pz * MASK_W + px) * 4 + channel
 	var v := clampi(int(value * 255.0), 0, 255)
 	if v > mask[i]:
 		mask[i] = v
@@ -317,6 +368,27 @@ static func _stamp_segment(a: Vector2, b: Vector2, width: float, edge: FastNoise
 			var v := 1.0 - smoothstep(half_w - 0.35, half_w + 0.25, dist + wobble)
 			if v > 0.0:
 				_write(px, pz, 0, v)
+
+
+## Mask A along a vehicle lane: closeness to its centre line, which wanders a little
+## (drivers don't keep to a line).
+static func _stamp_track(a: Vector2, b: Vector2, edge: FastNoiseLite) -> void:
+	var reach := TRACK_REACH + 0.3
+	var px0 := maxi(int((minf(a.x, b.x) - reach - MIN_X) * MASK_PPM), 0)
+	var px1 := mini(int((maxf(a.x, b.x) + reach - MIN_X) * MASK_PPM), MASK_W - 1)
+	var pz0 := maxi(int((minf(a.y, b.y) - reach - MIN_Z) * MASK_PPM), 0)
+	var pz1 := mini(int((maxf(a.y, b.y) + reach - MIN_Z) * MASK_PPM), MASK_H - 1)
+	var dir := (b - a).normalized()
+	var side := Vector2(-dir.y, dir.x)
+	for pz in range(pz0, pz1 + 1):
+		var wz := _world_z(pz)
+		for px in range(px0, px1 + 1):
+			var p := Vector2(_world_x(px), wz)
+			var q := Geometry2D.get_closest_point_to_segment(p, a, b)
+			var off := (p - q).dot(side) + edge.get_noise_2d(q.x * 0.25 + 50.0, q.y * 0.25) * 0.25
+			var dist := sqrt(maxf(p.distance_squared_to(q) - (p - q).dot(side) ** 2, 0.0) + off * off)
+			if dist < TRACK_REACH:
+				_write(px, pz, 3, 1.0 - dist / TRACK_REACH)
 
 
 static func _stamp_blob(center: Vector2, radius: float, channel: int, edge: FastNoiseLite) -> void:

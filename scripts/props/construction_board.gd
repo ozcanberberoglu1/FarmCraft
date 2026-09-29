@@ -10,11 +10,27 @@ func _ready() -> void:
 	var mb := MeshBuilder.new()
 	var wood := Color(0.5, 0.47, 0.44)
 	for sx: float in [-0.8, 0.8]:
-		mb.box_at(&"wood", Vector3(sx, 1.05, 0), Vector3(0.12, 2.1, 0.12), wood.darkened(0.2), Vector3.ZERO, true)
-	mb.box_at(&"planks", Vector3(0, 1.35, 0.02), Vector3(1.8, 1.1, 0.06), wood)
-	mb.box_at(&"wood", Vector3(0, 0.78, 0.05), Vector3(1.8, 0.06, 0.1), wood.darkened(0.25))
-	# Little roof over the board.
-	mb.prism(&"roof", Transform3D(Basis(), Vector3(0, 1.98, 0.0)), 2.1, 0.32, 0.5, Color(0.5, 0.48, 0.47))
+		BuildingKit.plank(mb, &"wood_ext", Transform3D(Basis(), Vector3(sx, 1.05, 0)), Vector3(0.12, 2.1, 0.12), wood.darkened(0.2),
+				Vector2(0.5 + sx * 0.4, 0.3))
+	mb.box_at(&"planks_ext", Vector3(0, 1.35, 0.02), Vector3(1.8, 1.1, 0.06), wood)
+	mb.box_at(&"wood_ext", Vector3(0, 0.78, 0.05), Vector3(1.8, 0.06, 0.1), wood.darkened(0.25), Vector3.ZERO, true)
+	# Little gable roof over the board (its ridge runs front to back): tiles in close,
+	# flat courses on boards, barge boards and a boarded ridge cap; a header board and
+	# a boarded gable close it between the posts.
+	var turn := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO)
+	var theta := atan2(0.32, 1.05)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 17
+	var apex := Vector3(0, 2.3 + 0.04 / cos(theta), 0)
+	for side: float in [1.0, -1.0]:
+		var frame := turn * BuildingKit.slope_frame(apex, theta, side)
+		BuildingKit.roof_trim(mb, frame, 0.56, 0.0, 1.12, 0.95, &"wood_ext", wood.darkened(0.3), &"wood_ext", wood.darkened(0.1), 0.04, 0.08)
+		BuildingKit.roof_courses(mb, &"roof", frame, 0.62, 0.0, 1.18, Color(0.5, 0.48, 0.47), rng, BuildingKit.ROOF_ROW, BuildingKit.ROOF_SEAM,
+				0.012, 0.01)
+		BuildingKit.ridge_boards(mb, &"wood_ext", frame, 0.66, wood.darkened(0.3), 0.012 + 0.01)
+	mb.box_at(&"wood_ext", Vector3(0, 1.96, 0), Vector3(1.6, 0.12, 0.04), wood.darkened(0.15), Vector3.ZERO, true)
+	var gable_h := apex.y - 0.04 / cos(theta) - 2.02
+	mb.prism(&"planks_ext", Transform3D(Basis(), Vector3(0, 2.02, 0)), gable_h / tan(theta) * 2.0, gable_h, 0.04, wood.darkened(0.1), false)
 	# Pinned blueprints and notes.
 	var papers := [[Vector3(-0.45, 1.38, 0.056), Vector2(0.62, 0.46), Color(0.22, 0.38, 0.62), -3.0],
 		[Vector3(0.32, 1.52, 0.056), Vector2(0.5, 0.36), Color(0.93, 0.9, 0.8), 4.0],

@@ -4,13 +4,15 @@ extends Node
 ## walked through by hand: the stuck front door, his tools on the worktable inside, three
 ## beds of wheat, the pickup's key in the desk drawer, two hens from the poultry stall in
 ## town, a coop put up from a kit, the ripe beds he left behind, the shipping bin, the
-## first egg and the first night (the bin is sold while the farm sleeps). From the second
-## morning the chapters bring the farm back piece by piece (the yard and the warehouse,
-## the market, the workshop, home, the barn, the dairy, the house), each opened by a line
-## from his notebook, with small rewards. A dot on the screen (waypoint()) shows where a
-## goal is done. Orders: customers who want a number of one product by a day and pay well
-## above the market for it. They grow with the farm level; three hang on the board,
-## expired ones are replaced each morning.
+## first egg, then the coop looked after (feed from the warehouse, water from the well,
+## straw in the nests) and the house's broken boards renewed by hand with a tree's wood.
+## After that the player is free; the next morning brings a little stonework (stone, a
+## millstone, the first flour), and later only a few milestones of a growing farm (the
+## barn, the dairy, the house), each chapter opened by a line from his notebook, with
+## small rewards. A dot on the screen (waypoint()) shows where a goal is done. Orders:
+## customers who want a number of one product by a day and pay well above the market
+## for it. They grow with the farm level; three hang on the board, expired ones are
+## replaced each morning.
 
 signal tutorial_changed
 signal orders_changed
@@ -19,26 +21,30 @@ signal chapter_started(chapter: int)
 ## The last goal is done: the story ends with a letter from Grandpa.
 signal story_finished
 
-const CHAPTERS: Array[String] = ["arrival", "soil", "town", "coop", "harvest", "night",
-	"yard", "market", "workshop", "home", "barn", "dairy", "legacy"]
-## The first chapter after the first night: saves from before the first day's story go
-## on from here.
-const DAY_TWO_CHAPTER := 6
-## Format of the chain in saves (2: the hand-held first day). Saves without it are older
-## and skip the first day (MOVED_V2).
-const CHAIN := 2
+const CHAPTERS: Array[String] = ["arrival", "soil", "town", "coop", "harvest", "coop_care",
+	"repair", "free", "stone", "barn", "dairy", "legacy"]
+## The first chapter after the first day's story (the player is free until morning):
+## saves from before the first day's story go on from here.
+const DAY_TWO_CHAPTER := 7
+## Format of the chain in saves (2: the hand-held first day; 3: the day ending with the
+## coop's care and the house mended by hand). Saves without it are older and skip the
+## first day (MOVED_V2); chain 2 saves go on at the nearest goal still here (MOVED_V3).
+const CHAIN := 3
 ## Story goals in order: chapter, id, what counts toward it, how many, reward in gold
 ## and farm experience ("xp", STEP_XP when left out; only goals that pay gold give it).
 ## kind: "action" (a finished farm action; "plant:<crop>" counts one crop's sowing),
 ## "sold" (units sold), "placed", "crafted" (at a workbench; building kits count as
-## "kit"), "product" (artisan goods made), "picked" (items picked up), "order",
-## "slept" (a night went by), or "check" (a condition polled each second: "flag:<name>"
+## "kit"), "product" (artisan goods made), "picked" (items picked up), "order", "fed"
+## (feed put in a coop's feeder), "watered" (water in a coop's trough), "nests" (the most
+## nests one coop has had straw in), "patched" (broken spots renewed on a building:
+## "house" or "warehouse"), or "check" (a condition polled each second: "flag:<name>"
 ## (FarmState.flags), "table" (Grandpa's things taken off the worktable), "key" (the
 ## pickup's key found), "driving", "hens:owned" (hens bought, crated or let out),
 ## "home" (back in the farmyard), "crates:warehouse" (hen crates stored, or hens let out),
 ## "kit" (a coop kit made), "coop:started" / "coop:built", "bin:<item or category>"
 ## (in the shipping bin, or shipped), "warehouse", "cargo", "near:town", "day:<n>",
-## "level", "built:<project>", "animals:<species>"; the counting ones report progress).
+## "level", "built:<project>", "animals:<species>", "has:<item>" (in the bag or put down
+## on the farm); the counting ones report progress).
 ## "ever": the goal also counts what was done before it came up (see `tally`), so work
 ## done early is never asked for twice and the chain can't stall on it.
 ## "past": a check that shows the player is beyond this goal already (done out of order,
@@ -72,55 +78,61 @@ const TUTORIAL := [
 	{"chapter": 4, "id": "ship", "kind": "check", "arg": "bin:crop", "count": 1, "gold": 20, "xp": 3, "at": "bin"},
 	{"chapter": 4, "id": "egg", "kind": "picked", "arg": "egg", "count": 1, "gold": 0, "ever": true, "at": "egg", "past": "bin:egg"},
 	{"chapter": 4, "id": "ship_egg", "kind": "check", "arg": "bin:egg", "count": 1, "gold": 20, "xp": 3, "at": "bin"},
-	# The first night: evening falls; the bin is sold while the farm sleeps. ("ever": a
-	# night already slept, or passed out, before the day's last goals were done counts.)
-	{"chapter": 5, "id": "sleep", "kind": "slept", "arg": "", "count": 1, "gold": 0, "ever": true, "at": "bed"},
-	# Day two, the yard: yesterday's wheat, water, wood and stone, a sound warehouse, hay.
-	{"chapter": 6, "id": "reap", "kind": "action", "arg": "harvest", "count": 3, "gold": 40, "xp": 5, "at": "plot:ripe"},
-	{"chapter": 6, "id": "replant", "kind": "action", "arg": "plant", "count": 3, "gold": 25, "xp": 3, "at": "plot:empty"},
-	{"chapter": 6, "id": "refill", "kind": "action", "arg": "refill", "count": 1, "gold": 15, "xp": 3, "ever": true, "at": "well"},
-	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 30, "gold": 40, "xp": 5, "ever": true, "at": "trees"},
-	{"chapter": 6, "id": "stone", "kind": "picked", "arg": "stone", "count": 10, "gold": 40, "xp": 5, "ever": true, "at": "rocks"},
-	{"chapter": 6, "id": "repair_warehouse", "kind": "check", "arg": "built:warehouse_1", "count": 1, "gold": 60, "xp": 8, "at": "sign:warehouse"},
-	{"chapter": 6, "id": "store", "kind": "check", "arg": "warehouse", "count": 1, "gold": 30, "xp": 3, "at": "warehouse"},
-	{"chapter": 6, "id": "hay", "kind": "action", "arg": "cut", "count": 3, "gold": 25, "xp": 3, "ever": true},
-	# The market: a load to town, the bakery's order, the first sales there.
-	{"chapter": 7, "id": "load", "kind": "check", "arg": "cargo", "count": 1, "gold": 30, "xp": 3, "at": "warehouse"},
-	{"chapter": 7, "id": "order", "kind": "order", "arg": "", "count": 1, "gold": 120, "xp": 10, "ever": true, "at": "order_board"},
-	{"chapter": 7, "id": "sell", "kind": "sold", "arg": "", "count": 10, "gold": 80, "xp": 8, "ever": true, "at": "market"},
-	# The workshop: the workbench and the millstone.
-	{"chapter": 8, "id": "workbench", "kind": "placed", "arg": "workbench", "count": 1, "gold": 100, "xp": 8, "ever": true},
-	{"chapter": 8, "id": "craft", "kind": "crafted", "arg": "", "count": 1, "gold": 100, "xp": 8, "ever": true},
-	# Home: a sound roof, flour, eggs. ("coop" and "chickens" guide the farms from before
-	# the first day's story; a new farm has both and passes them at once, unpaid.)
-	{"chapter": 9, "id": "repair_house", "kind": "check", "arg": "built:house_1", "count": 1, "gold": 100, "xp": 8, "at": "sign:house"},
-	{"chapter": 9, "id": "flour", "kind": "product", "arg": "flour", "count": 1, "gold": 50, "xp": 8, "ever": true},
-	{"chapter": 9, "id": "coop", "kind": "check", "arg": "coop:built", "count": 1, "gold": 0, "at": "build_coop"},
-	{"chapter": 9, "id": "chickens", "kind": "check", "arg": "animals:chicken", "count": 2, "gold": 0, "at": "chickens"},
-	{"chapter": 9, "id": "eggs", "kind": "picked", "arg": "egg", "count": 3, "gold": 100, "at": "coop"},
-	# The farm grows: sheep, a cow and a bigger house.
-	{"chapter": 10, "id": "level_3", "kind": "check", "arg": "level", "count": 3, "gold": 0},
-	{"chapter": 10, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "gold": 200},
-	{"chapter": 10, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "gold": 200},
-	{"chapter": 10, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "gold": 150},
-	{"chapter": 11, "id": "level_4", "kind": "check", "arg": "level", "count": 4, "gold": 0},
-	{"chapter": 11, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "gold": 250},
-	{"chapter": 11, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "gold": 150},
-	{"chapter": 11, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "gold": 300},
-	{"chapter": 12, "id": "level_5", "kind": "check", "arg": "level", "count": 5, "gold": 0},
-	{"chapter": 12, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "gold": 1000},
+	# The coop's care: the feed sack that waits in the warehouse into the feeder, the
+	# watering can from the well into the water trough, straw from the meadow in the nests
+	# (the hens lay there from then on).
+	{"chapter": 5, "id": "feed", "kind": "fed", "arg": "", "count": 1, "gold": 20, "xp": 3, "ever": true, "at": "feeder"},
+	{"chapter": 5, "id": "coop_water", "kind": "watered", "arg": "", "count": 1, "gold": 20, "xp": 3, "ever": true, "at": "coop_water"},
+	{"chapter": 5, "id": "straw", "kind": "nests", "arg": "", "count": 3, "gold": 30, "xp": 4, "ever": true, "at": "nests"},
+	# Mending: one tree's wood (counted from when the goal comes up), then the house's
+	# broken boards renewed by hand, a piece of wood each. (A house repaired already
+	# passes both.)
+	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 3, "gold": 15, "xp": 2, "at": "trees", "past": "built:house_1"},
+	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 3, "gold": 60, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
+	# The first day's story is done: the farm is the player's own until the next morning
+	# (no dot, no task; Grandpa's note says so).
+	{"chapter": 7, "id": "free", "kind": "check", "arg": "day:2", "count": 1, "gold": 0},
+	# Day two, stonework: the millstone's stone (RecipeTable: 20), the millstone made at a
+	# workbench (bought in town), the first flour from yesterday's wheat.
+	{"chapter": 8, "id": "stone", "kind": "picked", "arg": "stone", "count": 20, "gold": 30, "xp": 4, "ever": true, "at": "rocks", "past": "has:quern"},
+	{"chapter": 8, "id": "quern", "kind": "crafted", "arg": "quern", "count": 1, "gold": 60, "xp": 8, "ever": true, "at": "quern", "past": "has:quern"},
+	{"chapter": 8, "id": "flour", "kind": "product", "arg": "flour", "count": 1, "gold": 50, "xp": 8, "ever": true, "at": "mill"},
+	# From here the farm is the player's to run: a few milestones as it grows (sheep, a
+	# cow and a bigger house).
+	{"chapter": 9, "id": "level_3", "kind": "check", "arg": "level", "count": 3, "gold": 0},
+	{"chapter": 9, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "gold": 200},
+	{"chapter": 9, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "gold": 200},
+	{"chapter": 9, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "gold": 150},
+	{"chapter": 10, "id": "level_4", "kind": "check", "arg": "level", "count": 4, "gold": 0},
+	{"chapter": 10, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "gold": 250},
+	{"chapter": 10, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "gold": 150},
+	{"chapter": 10, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "gold": 300},
+	{"chapter": 11, "id": "level_5", "kind": "check", "arg": "level", "count": 5, "gold": 0},
+	{"chapter": 11, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "gold": 1000},
 ]
 ## Farm experience for a goal that pays gold and names no "xp".
 const STEP_XP := 10
 ## Goals of the chain before the first day's story (saves without "chain") and where
-## such a save goes on: its first day counts as done. Sowing and the first drive were
-## day one's, the night and the harvest came before the flour, the level wait before
-## the coop. Ids not listed are the same goal still.
+## such a save goes on (MOVED_V3 then takes it on to this chain): its first day counts
+## as done. Sowing and the first drive were day one's, the night and the harvest came
+## before the flour, the level wait before the coop. Ids not listed are the same goal
+## still.
 const MOVED_V2 := {
 	"till": "replant", "plant": "replant", "water": "replant",
 	"truck": "load", "visit": "order",
 	"sleep": "flour", "harvest": "flour", "replant": "flour",
 	"level_2": "coop",
+}
+## Goals of chain 2 that went when the first day came to end with the coop's care and
+## the house mended by hand, and where a save on one goes on (MOVED_V2 first for older
+## saves): the bedtime and the yard's work gave way to the coop's care, the market and
+## the workshop to the millstone, the house's repair sign to the flour, the old coop
+## goals to the farm's milestones. Ids not listed are the same goal still.
+const MOVED_V3 := {
+	"sleep": "feed", "reap": "feed", "replant": "feed", "refill": "feed",
+	"repair_warehouse": "quern", "store": "quern", "hay": "quern", "load": "quern",
+	"order": "quern", "sell": "quern", "workbench": "quern", "craft": "quern",
+	"repair_house": "flour", "coop": "level_3", "chickens": "level_3", "eggs": "level_3",
 }
 ## The goals before the day-one chapters, in their old order: saves from then kept only
 ## an index into this list (see _legacy_id).
@@ -155,16 +167,13 @@ const LEGACY_TUTORIAL := [
 ## filled the day in the yard, Grandpa's pickup came with the farm, and the order was
 ## due before the selling.
 const LEGACY_MOVED := {"harvest": "wood", "pickup": "truck", "sell": "order"}
-## The first day keeps time for the story: the clock runs at FIRST_DAY_PACE, from
-## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the first egg still comes), and
-## once the bedtime goal comes up evening comes on at DUSK_PACE until DUSK_HOUR (the bed
-## takes sleepers from 18:00). Multiplies GameClock.time_scale; the day length setting
-## still applies.
+## The first day keeps time for the story: the clock runs at FIRST_DAY_PACE and from
+## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the first egg still comes, and
+## there is light to mend the house by); once the day's story is done the clock runs as
+## usual. Multiplies GameClock.time_scale; the day length setting still applies.
 const FIRST_DAY_PACE := 0.5
 const LINGER_HOUR := 16.5
 const LINGER_PACE := 0.25
-const DUSK_PACE := 3.0
-const DUSK_HOUR := 18.75
 ## Grandpa's beds: the far end of the first field is ripe on a new farm, so the first
 ## harvest can be made on day one (the player's own wheat needs 20 wet hours and ripens
 ## overnight). Carrots, or wheat out of the carrot seasons. Set once (BEDS_FLAG in
@@ -242,6 +251,13 @@ func _ready() -> void:
 	Events.vehicle_exited.connect(func(_v: Node) -> void: _nudge())
 	Events.construction_started.connect(func(_id: StringName, _site: Node) -> void: _nudge())
 	Events.building_completed.connect(func(_id: StringName, _b: Node) -> void: _nudge())
+	# The coop's care and the house mended by hand.
+	Events.coop_fed.connect(func(_coop: Node) -> void: _count("fed", "", 1))
+	Events.coop_watered.connect(func(_coop: Node) -> void: _count("watered", "", 1))
+	Events.nest_filled.connect(_on_nest_filled)
+	Events.wall_patched.connect(func(id: StringName, _done: int, _total: int) -> void: _count("patched", String(id), 1))
+	Events.building_repaired.connect(func(_id: StringName) -> void: _nudge())
+	Events.egg_broken.connect(func(_at: Vector3) -> void: _on_egg_broken())
 	_start.call_deferred()
 
 
@@ -277,7 +293,7 @@ func index_of(id: String) -> int:
 	return -1
 
 
-## Index of the first goal after the first night (where older saves go on).
+## Index of the first goal after the first day's story (where older saves go on).
 func day_two_step() -> int:
 	for i in TUTORIAL.size():
 		if int(TUTORIAL[i]["chapter"]) >= DAY_TWO_CHAPTER:
@@ -285,7 +301,7 @@ func day_two_step() -> int:
 	return TUTORIAL.size()
 
 
-## The story is on its first day (the hand-held chapters before the first night).
+## The story is on its first day (the hand-held chapters before the player is let free).
 func first_day() -> bool:
 	return not tutorial_done() and int(current()["chapter"]) < DAY_TWO_CHAPTER
 
@@ -349,6 +365,16 @@ func _on_crafted(id: StringName, n: int) -> void:
 		_count("crafted", String(id), n)
 
 
+## Straw laid in a coop's nests: counted as the most nests one coop has had filled, so
+## a nest filled again after the hens used its straw isn't counted twice.
+func _on_nest_filled(_coop: Node, filled: int) -> void:
+	if tutorial_done():
+		return
+	var had := int(tally.get("nests:", 0))
+	if filled > had:
+		_count("nests", "", filled - had)
+
+
 ## Goods put in the shipping bin, counted by item and by category ("shipped:crop").
 func _on_shipped(id: StringName, n: int) -> void:
 	if tutorial_done():
@@ -392,11 +418,15 @@ func _tallied(g: Dictionary) -> int:
 	return int(tally.get("%s:%s" % [g["kind"], g["arg"]], 0))
 
 
-## An "ever" goal counts what was done before it came up, and may be done at once.
+## An "ever" goal counts what was done before it came up, and may be done at once; a
+## goal whose count is met already (a save of an older chain asked for more) is done.
 func _catch_up() -> void:
 	if tutorial_done() or SaveGame.loading:
 		return
 	var g := current()
+	if step_count >= int(g["count"]):
+		_complete()
+		return
 	if not bool(g.get("ever", false)):
 		return
 	var have := mini(maxi(step_count, _tallied(g)), int(g["count"]))
@@ -432,15 +462,15 @@ func _complete() -> void:
 	_catch_up.call_deferred()
 
 
-## A goal came up: the dot moves on at once, the drawer opens for its step, and evening
-## is announced at bedtime.
+## A goal came up: the dot moves on at once, the drawer opens for its step, and a first
+## day's story done late in the afternoon says evening is coming.
 func _goal_started() -> void:
 	_wp_left = 0.0
 	_poll = minf(_poll, 0.25)
 	_sync_drawer_lock()
 	if tutorial_done() or DebugTools.is_automated():
 		return
-	if String(current()["id"]) == "sleep" and GameClock.day == 1 and GameClock.minute / 60.0 < DUSK_HOUR:
+	if String(current()["id"]) == "free" and GameClock.day == 1 and GameClock.minute / 60.0 >= LINGER_HOUR:
 		Game.notify(tr("MSG_EVENING"), UiTheme.GOLD_SOFT)
 
 
@@ -542,7 +572,18 @@ func _check_progress(arg: String, count := 1) -> int:
 			return 1 if FarmState.is_built(StringName(what)) else 0
 		"animals":
 			return _animal_count(StringName(what))
+		"has":
+			return PlayerState.inventory.count_item(StringName(what)) + _placed_count(StringName(what))
 	return 0
+
+
+## How many `id` are put down on the farm (FarmState.placed).
+func _placed_count(id: StringName) -> int:
+	var n := 0
+	for e: Dictionary in FarmState.placed:
+		if StringName(e["id"]) == id:
+			n += 1
+	return n
 
 
 func _animal_count(species: StringName) -> int:
@@ -597,10 +638,44 @@ func skip_tutorial() -> void:
 
 # --- The first day ------------------------------------------------------------------------
 
+## The story's egg thrown away before it was shipped, with no other to hand (in the bag,
+## the bin or lying about): the story asks for an egg again, and a hen lays one soon
+## (eggs otherwise come each morning).
+func _on_egg_broken() -> void:
+	if tutorial_done() or (step != index_of("egg") and step != index_of("ship_egg")):
+		return
+	if _eggs_left() > 0:
+		return
+	# The eggs picked up so far were for the broken one: the next one counts afresh.
+	tally.erase("picked:egg")
+	if step != index_of("egg"):
+		step = index_of("egg")
+		step_count = 0
+		tutorial_changed.emit()
+		_goal_started()
+	var coop := _newest_coop()
+	if coop:
+		coop.hurry_egg()
+	Game.notify(tr("MSG_EGG_BROKEN"), UiTheme.RED)
+
+
+## Eggs the player could still ship: in the bag, the bin (or shipped), the warehouse or
+## lying on the farm.
+func _eggs_left() -> int:
+	var n := PlayerState.inventory.count_item(&"egg") + FarmState.warehouse.count(&"egg")
+	n += _check_progress("bin:egg")
+	for p in get_tree().get_nodes_in_group(&"pickups"):
+		var pk := p as Pickup
+		if pk and not pk.is_queued_for_deletion() and pk.stack and pk.stack.item.id == &"egg":
+			n += pk.stack.count
+	return n
+
+
 ## Once a second while the story runs: Grandpa's ripe beds on a new farm, and the desk
 ## drawer kept shut until its step.
 func _first_day_setup() -> void:
 	_dress_grandpa_beds()
+	_keep_beds_for_harvest()
 	_sync_drawer_lock()
 
 
@@ -614,18 +689,42 @@ func _dress_grandpa_beds() -> void:
 	var field := _first_field()
 	if field == null or field.plots.is_empty():
 		return
-	var crop: StringName = GRANDPA_CROP if CropTable.in_season(GRANDPA_CROP, GameClock.get_season()) else &"wheat"
-	var door := Vector3(WorldLayout.HOUSE_DOOR_X, 0.0, WorldLayout.HOUSE_FRONT_Z)
 	var beds: Array[FarmPlot] = []
 	for pl: FarmPlot in field.plots:
 		if pl.soil == FarmPlot.Soil.UNTILLED and pl.crop == &"":
 			beds.append(pl)
+	_ripen_beds(beds, GRANDPA_BEDS)
+	FarmState.flags[BEDS_FLAG] = true
+
+
+## The harvest step always has ripe beds to cut: any that went missing before it (a
+## rebuilt field, an early swing of the scythe...) come back ripe at the field's far end.
+func _keep_beds_for_harvest() -> void:
+	if tutorial_done() or step != index_of("harvest"):
+		return
+	var field := _first_field()
+	if field == null or field.plots.is_empty():
+		return
+	var need := int(TUTORIAL[step]["count"]) - step_count
+	var free: Array[FarmPlot] = []
+	for pl: FarmPlot in field.plots:
+		if pl.crop != &"" and not pl.withered and pl.is_ready():
+			need -= 1
+		elif pl.crop == &"" or pl.withered:
+			free.append(pl)
+	if need > 0:
+		_ripen_beds(free, need)
+
+
+## Grandpa's crop, ripe and watered, on the `count` beds of `beds` farthest from the house.
+func _ripen_beds(beds: Array[FarmPlot], count: int) -> void:
+	var crop: StringName = GRANDPA_CROP if CropTable.in_season(GRANDPA_CROP, GameClock.get_season()) else &"wheat"
+	var door := Vector3(WorldLayout.HOUSE_DOOR_X, 0.0, WorldLayout.HOUSE_FRONT_Z)
 	beds.sort_custom(func(a: FarmPlot, b: FarmPlot) -> bool:
 		return a.global_position.distance_squared_to(door) > b.global_position.distance_squared_to(door))
-	for pl: FarmPlot in beds.slice(0, GRANDPA_BEDS):
+	for pl: FarmPlot in beds.slice(0, count):
 		pl.load_data({"soil": FarmPlot.Soil.TILLED, "crop": String(crop),
 			"growth": float(CropTable.get_crop(crop).get("grow_h", 20)), "wet": 4.0})
-	FarmState.flags[BEDS_FLAG] = true
 
 
 func _first_field() -> Field:
@@ -668,11 +767,9 @@ func _paces_day() -> bool:
 			and not DebugTools.is_automated() and FarmHouse.first_day()
 
 
-## The first day's time scale at `hour` (from 6.0, past 24 after midnight) for the
-## current goal (tests check it).
+## The first day's time scale at `hour` (from 6.0, past 24 after midnight) while its
+## story runs (tests check it).
 func pace_for(hour: float) -> float:
-	if String(current().get("id", "")) == "sleep":
-		return DUSK_PACE if hour < DUSK_HOUR else 1.0
 	return FIRST_DAY_PACE if hour < LINGER_HOUR else LINGER_PACE
 
 
@@ -789,39 +886,69 @@ func _target(at: String) -> Variant:
 		"egg":
 			var egg := WaypointMarker.anchor(ChickenCoop.ANCHOR_EGG)
 			return egg if egg else _target("coop")
-		"bed":
-			var bed := get_tree().get_first_node_in_group(&"beds") as Node3D
-			if bed == null:
-				return null
-			return bed.global_position + Vector3(0, 0.9, 0)
 		"well":
 			return _ground(WorldLayout.WELL_POS.x, WorldLayout.WELL_POS.z, 1.5)
-		"sign":
-			var s := WorldLayout.HOUSE_REPAIR_SIGN if at.ends_with("house") else WorldLayout.WAREHOUSE_REPAIR_SIGN
-			return _ground(s.x, s.z, 1.8)
 		"warehouse":
 			return _anchor(&"warehouse", _warehouse_door())
-		"order_board":
-			var board := get_tree().get_first_node_in_group(&"order_board") as Node3D
-			if board == null:
-				return null
-			return board.global_position + Vector3(0, 2.0, 0)
 		"market":
 			var town := _town()
 			if town == null or town.market_counter == null:
 				return null
 			return town.market_counter.global_position + Vector3(0, 1.5, 0)
-		"build_coop":
-			# Old farms: a kit from the board, a spot for it, then the site.
-			if FarmState.coop_started():
-				return _target("coop")
-			if PlayerState.inventory.count_item(&"coop_kit") > 0:
-				return _target("coop_spot")
-			return _target("board")
-		"chickens":
-			if LiveCrates.count_at(&"all") > 0:
-				return _target("hens")
-			return _target("stall")
+		"feeder":
+			# The feed sack waits in the warehouse: fetch it first.
+			if PlayerState.inventory.count_item(&"feed") == 0:
+				return _anchor(&"warehouse", _warehouse_door())
+			return _anchor(&"coop_feeder", _target("coop"))
+		"coop_water":
+			# An empty can goes to the well first.
+			if not _can_has_water():
+				return _target("well")
+			return _anchor(&"coop_water", _target("coop"))
+		"nests":
+			# Short of straw for the nests still empty: hay lying about, else grass to cut.
+			var want := maxi(int(current().get("count", 1)) - step_count, 1)
+			if PlayerState.inventory.count_item(&"hay") < want:
+				var hay: Variant = _nearest_pickup(&"hay", from, 30.0)
+				if hay == null:
+					hay = _nearest_grass(from)
+				if hay != null:
+					return hay
+			return _anchor(&"coop_nest", _target("coop"))
+		"house_repair":
+			# Boards are mended with wood in hand: none left, the trees first.
+			if PlayerState.inventory.count_item(&"wood") == 0:
+				return _target("trees")
+			var house := _house()
+			var door: Variant = house.door_point() if house else null
+			return _anchor(&"house_repair", door)
+		"quern":
+			# The millstone is made at a workbench from the bag's stone and wood; the
+			# workbench is bought at the town market and set down anywhere on the farm.
+			var need: Dictionary = RecipeTable.crafting(&"quern").get("items", {})
+			if PlayerState.inventory.count_item(&"stone") < int(need.get(&"stone", 0)):
+				return _target("rocks")
+			if PlayerState.inventory.count_item(&"wood") < int(need.get(&"wood", 0)):
+				return _target("trees")
+			var bench := _nearest_placed(&"workbench", from)
+			if bench:
+				return bench.global_position + Vector3(0, 1.4, 0)
+			if PlayerState.inventory.count_item(&"workbench") > 0:
+				return null
+			return _target("market")
+		"mill":
+			# The millstone set down (in the bag still: wherever the player likes); short
+			# of wheat for a grinding, the ripe beds first.
+			var quern := _nearest_placed(&"quern", from)
+			if quern == null:
+				return null
+			var recipe := RecipeTable.recipe_for(&"quern", &"wheat")
+			var wheat := int((recipe.get("in", {}) as Dictionary).get(&"wheat", 1))
+			if PlayerState.inventory.count_item(&"wheat") < wheat:
+				var ripe: Variant = _plot_spot("ripe", from)
+				if ripe != null:
+					return ripe
+			return quern.global_position + Vector3(0, 1.3, 0)
 	return null
 
 
@@ -947,6 +1074,43 @@ func _nearest_rock(from: Vector3) -> Variant:
 		return best.global_position + Vector3(0, 1.2, 0)
 	var q := WorldLayout.QUARRY_RECT.get_center()
 	return _ground(q.x, q.y, 1.5)
+
+
+## Whether a watering can in the bag holds any water.
+func _can_has_water() -> bool:
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and st.item.water_capacity > 0 and st.water > 0:
+			return true
+	return false
+
+
+## The nearest uncut clump of tall grass (within 150 m), or null.
+func _nearest_grass(from: Vector3) -> Variant:
+	var best: GrassPatch = null
+	var best_d := 150.0 * 150.0
+	for g: GrassPatch in get_tree().get_nodes_in_group(&"grass_patches"):
+		var d := g.global_position.distance_squared_to(from)
+		if not g.cut and d < best_d:
+			best = g
+			best_d = d
+	if best == null:
+		return null
+	return best.global_position + Vector3(0, 1.1, 0)
+
+
+## The nearest `id` put down on the farm (a workbench, a machine), or null.
+func _nearest_placed(id: StringName, from: Vector3) -> PlacedObject:
+	var best: PlacedObject = null
+	var best_d := INF
+	for n in get_tree().get_nodes_in_group(&"placed"):
+		var po := n as PlacedObject
+		if po == null or po.item_id != id:
+			continue
+		var d := po.global_position.distance_squared_to(from)
+		if d < best_d:
+			best = po
+			best_d = d
+	return best
 
 
 ## The nearest `item` lying about to pick up (logs of a felled tree), within `radius`.
@@ -1119,10 +1283,10 @@ func deliver(o: Dictionary) -> bool:
 	return true
 
 
-## A night went by: the board is refilled, and the bedtime goal is met.
+## A night went by: the board is refilled, and a goal waiting for the morning looks now.
 func _on_day_started(_day: int) -> void:
 	refill_board()
-	_count("slept", "", 1)
+	_nudge()
 
 
 # --- Save ------------------------------------------------------------------------------------
@@ -1159,11 +1323,15 @@ func load_data(d: Dictionary) -> void:
 	step_count = int(d.get("count", 0))
 	_reset_cache()
 	# Saves from before the first day's story: that day counts as done, they go on in
-	# the chapters of day two and later.
-	var old := int(d.get("chain", 1)) < CHAIN
+	# the chapters after it. Saves of an older chain go on at the nearest goal still here.
+	var chain := int(d.get("chain", 1))
+	var old := chain < 2
 	var id := String(d["id"]) if d.has("id") else _legacy_id(int(d.get("step", 0)))
 	if old and MOVED_V2.has(id):
 		id = String(MOVED_V2[id])
+		step_count = 0
+	if chain < CHAIN and MOVED_V3.has(id):
+		id = String(MOVED_V3[id])
 		step_count = 0
 	step = TUTORIAL.size() if id == "" else index_of(id)
 	if step < 0:

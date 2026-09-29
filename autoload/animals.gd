@@ -528,7 +528,11 @@ func _produce(a: AnimalData) -> void:
 	match a.species:
 		&"chicken":
 			var h := housing_of(a)
-			if h:
+			var coop := ChickenCoop.of(h)
+			if coop:
+				# A kit-built coop's hens lay in its bedded nest boxes during the morning.
+				coop.egg_due(a, quality_for(a))
+			elif h:
 				var rng := RandomNumberGenerator.new()
 				rng.randomize()
 				Pickup.spawn(ItemStack.create(&"egg", 1, quality_for(a)), h.egg_spot(rng) + Vector3(0, 0.08, 0))

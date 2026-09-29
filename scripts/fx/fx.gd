@@ -93,6 +93,15 @@ static func stone_chips(at: Vector3, out := Vector3.UP) -> void:
 	_burst(at, Color(0.6, 0.58, 0.55, 0.5), 5, Vector3(0.06, 0.06, 0.06), 0.7, 0.8, 70.0, 0.15, dir, 0.8, 2.0)
 
 
+## A thrown egg breaking: yolk and white spattered off the surface, bits of shell.
+static func egg_splat(at: Vector3, normal := Vector3.UP) -> void:
+	var dir := (normal.normalized() + Vector3.UP * 0.4).normalized()
+	_burst(at, Color(0.97, 0.68, 0.12), 14, Vector3(0.03, 0.03, 0.03), 2.2, 0.55, 60.0, 0.022, dir,
+			9.8, 0.0, 1.0, false, 0.4)
+	_burst(at, Color(0.95, 0.92, 0.84), 10, Vector3(0.03, 0.03, 0.03), 2.8, 0.6, 70.0, 0.016, dir,
+			9.8, 0.0, 1.5, false, 0.5)
+
+
 ## Grass clippings flung along the scythe's sweep (`sweep`: world direction).
 static func clippings(at: Vector3, sweep: Vector3, color := Color(0.36, 0.52, 0.2)) -> void:
 	var dir := (sweep.normalized() + Vector3.UP * 0.7).normalized()

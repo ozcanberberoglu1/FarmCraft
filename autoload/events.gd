@@ -32,6 +32,14 @@ signal animal_released(species: StringName, home: Node)
 signal shipped(item_id: StringName, count: int)
 signal achievement_unlocked(achievement_id: StringName)
 signal morning_sale(gold: int)
+# Looking after the coop, and mending run-down walls by hand
+signal coop_fed(coop: Node)
+signal coop_watered(coop: Node)
+signal nest_filled(coop: Node, filled: int)
+signal wall_patched(building_id: StringName, done: int, total: int)
+signal building_repaired(building_id: StringName)
+# An egg thrown from the hand broke where it landed
+signal egg_broken(at: Vector3)
 
 # Player feedback
 signal notification_requested(text: String, color: Color)

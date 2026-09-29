@@ -16,6 +16,8 @@ const SOIL_Y := 0.12
 ## Fertilizer this far under the tilled soil's exact surface is left out (the soil
 ## mesh follows that surface through a grid, a few millimetres off in places).
 const BURIED := 0.012
+## Thickness of the frame's boards; the soil mesh reaches out to them.
+const BOARD_T := 0.045
 
 var soil := Soil.UNTILLED
 var crop: StringName = &""
@@ -46,6 +48,7 @@ static var _tilled_mesh: ArrayMesh
 static var _untilled_mesh: ArrayMesh
 static var _fert_meshes := {}
 static var _highlight_mat: StandardMaterial3D
+static var _tilled_noise: FastNoiseLite
 
 
 func _ready() -> void:
@@ -502,35 +505,57 @@ func _crop_height() -> float:
 	return 0.55
 
 
+## Weathered boards, two to a side with a thin gap and each a little out of true,
+## nailed to corner stakes that stand a hand above them.
 static func _make_frame() -> ArrayMesh:
 	var mb := MeshBuilder.new()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2404
 	var h := SIZE * 0.5
-	var t := 0.08
-	var col := Color(0.5, 0.47, 0.44)
+	var t := BOARD_T
+	var board := FRAME_H * 0.5 - 0.006
 	for side in 4:
 		var along_x := side < 2
 		var sgn := -1.0 if side % 2 == 0 else 1.0
-		var center := Vector3(0, FRAME_H * 0.5, sgn * (h - t * 0.5)) if along_x else Vector3(sgn * (h - t * 0.5), FRAME_H * 0.5, 0)
-		var size := Vector3(SIZE, FRAME_H, t) if along_x else Vector3(t, FRAME_H, SIZE - t * 2.0)
-		mb.box_at(&"wood", center, size, col.darkened(0.05 * side))
+		for row in 2:
+			var y := board * 0.5 + row * (board + 0.012)
+			var length := SIZE - 0.03 if along_x else SIZE - t * 2.0 - 0.02
+			var center := Vector3(0, y, sgn * (h - t * 0.5)) if along_x else Vector3(sgn * (h - t * 0.5), y, 0)
+			center += (Vector3(0, 0, 1) if along_x else Vector3(1, 0, 0)) * rng.randf_range(-0.006, 0.006)
+			var size := Vector3(length, board, t) if along_x else Vector3(t, board, length)
+			var tilt := Vector3(rng.randf_range(-1.2, 1.2), 0, rng.randf_range(-0.35, 0.35)) if along_x \
+					else Vector3(rng.randf_range(-0.35, 0.35), 0, rng.randf_range(-1.2, 1.2))
+			var tone := rng.randf_range(0.4, 0.52)
+			mb.box_at(&"wood_old", center, size, Color(tone, tone * 0.98, tone * 0.95), tilt)
 	for sx: float in [-1.0, 1.0]:
 		for sz: float in [-1.0, 1.0]:
-			mb.box_at(&"wood", Vector3(sx * (h - 0.05), FRAME_H * 0.5 + 0.02, sz * (h - 0.05)), Vector3(0.1, FRAME_H + 0.04, 0.1), col.darkened(0.2), Vector3.ZERO, true)
+			var tone := rng.randf_range(0.36, 0.44)
+			mb.box_at(&"wood_old", Vector3(sx * (h - t - 0.03), FRAME_H * 0.5 + 0.02, sz * (h - t - 0.03)),
+					Vector3(0.06, FRAME_H + 0.04, 0.06), Color(tone, tone, tone),
+					Vector3(rng.randf_range(-2, 2), rng.randf_range(0, 20), rng.randf_range(-2, 2)), true)
 	return mb.build()
 
 
 ## Soil surface inside the frame: ridged furrows when tilled, lumpy flat dirt otherwise.
 static func _make_soil(tilled: bool) -> ArrayMesh:
-	var n := 28
-	var half := INNER * 0.5
+	var n := 32
+	# Out to the boards, so no gap shows along them.
+	var half := SIZE * 0.5 - BOARD_T + 0.004
 	var noise := _soil_noise(tilled)
+	var step := 2.0 * half / n
 	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	for iz in n + 1:
 		for ix in n + 1:
-			var x := -half + INNER * ix / float(n)
-			var z := -half + INNER * iz / float(n)
+			var x := -half + step * ix
+			var z := -half + step * iz
 			verts.append(Vector3(x, _soil_y(noise, x, z, tilled), z))
+			# Smooth normals from the surface's slope.
+			var e := step * 0.5
+			var dx := _soil_y(noise, x + e, z, tilled) - _soil_y(noise, x - e, z, tilled)
+			var dz := _soil_y(noise, x, z + e, tilled) - _soil_y(noise, x, z - e, tilled)
+			norms.append(Vector3(-dx, 2.0 * e, -dz).normalized())
 			uvs.append(Vector2(x, z))
 	var mb := MeshBuilder.new()
 	var key := &"soil_tilled" if tilled else &"soil_untilled"
@@ -538,30 +563,43 @@ static func _make_soil(tilled: bool) -> ArrayMesh:
 	for iz in n:
 		for ix in n:
 			var i := iz * (n + 1) + ix
-			var a := verts[i]
-			var b := verts[i + 1]
-			var c := verts[i + n + 2]
-			var d := verts[i + n + 1]
+			var j := i + n + 1
 			# Counter-clockwise seen from above: a (x,z) -> d (x,z+1) -> c -> b.
-			mb.tri(key, a, d, c, white, uvs[i], uvs[i + n + 1], uvs[i + n + 2])
-			mb.tri(key, a, c, b, white, uvs[i], uvs[i + n + 2], uvs[i + 1])
-	return mb.build()
+			mb.tri_n(key, verts[i], verts[j], verts[j + 1], norms[i], norms[j], norms[j + 1], white, white, white,
+					uvs[i], uvs[j], uvs[j + 1])
+			mb.tri_n(key, verts[i], verts[j + 1], verts[i + 1], norms[i], norms[j + 1], norms[i + 1], white, white, white,
+					uvs[i], uvs[j + 1], uvs[i + 1])
+	return mb.build({}, true)
 
 
 static func _soil_noise(tilled: bool) -> FastNoiseLite:
 	var noise := FastNoiseLite.new()
 	noise.seed = 3 if tilled else 8
 	noise.frequency = 2.2
+	noise.fractal_octaves = 3
 	return noise
 
 
-## Height of the soil surface at (x, z) in the bed.
+## Height of the soil surface at (x, z) in the bed: crumbly, a little heaped in the
+## middle and against the boards; tilled soil in four hoed ridges with rounded crowns
+## and V furrows, higher and lower along their length.
 static func _soil_y(noise: FastNoiseLite, x: float, z: float, tilled: bool) -> float:
-	var y := SOIL_Y + noise.get_noise_2d(x, z) * 0.012
+	var half := SIZE * 0.5 - BOARD_T
+	var edge := minf(half - absf(x), half - absf(z))
+	var y := SOIL_Y + noise.get_noise_2d(x, z) * 0.012 + noise.get_noise_2d(x * 4.0 + 17.0, z * 4.0) * 0.004
+	y += 0.008 * (1.0 - smoothstep(0.0, 0.12, edge))
 	if tilled:
-		var ridge := 0.5 + 0.5 * cos(TAU * (z + INNER * 0.5) / (INNER / 4.0))
-		y += ridge * 0.06 - 0.01
+		var ridge := pow(0.5 + 0.5 * cos(TAU * (z + INNER * 0.5) / (INNER / 4.0)), 0.6)
+		ridge *= 0.8 + 0.4 * (0.5 + 0.5 * noise.get_noise_2d(x * 0.6 + 40.0, z * 0.3))
+		y += ridge * 0.065 - 0.015
 	return y
+
+
+## Height (bed-local) of the tilled soil's surface at (x, z): crops stand in it.
+static func soil_surface(x: float, z: float) -> float:
+	if _tilled_noise == null:
+		_tilled_noise = _soil_noise(true)
+	return _soil_y(_tilled_noise, x, z, true)
 
 
 # --- Save -----------------------------------------------------------------------------

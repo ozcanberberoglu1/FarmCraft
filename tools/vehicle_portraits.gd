@@ -56,25 +56,44 @@ func _run() -> void:
 		if info.has("strip_parts"):
 			ModelStrip.strip_parts(model, info["strip_parts"][0], info["strip_parts"][1])
 		model.rotation.y = deg_to_rad(-38.0)
-		# Same weathered paint as in game.
-		var paint := ShaderMaterial.new()
-		paint.shader = load("res://shaders/vehicle_paint.gdshader")
-		paint.set_shader_parameter("paint", Color(0.07, 0.12, 0.26))
+		# Dressed as in game (VehicleLook): paint, trim, wheels, cab and plates; dust and
+		# rust are placed in the model's frame.
+		var framed: Array[MeshInstance3D] = []
+		var mats := {}
 		for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+			if "Numberplate" in String(mi.name) and info.has("plate"):
+				VehicleLook.add_plate(mi, info["plate"])
 			for si in mi.mesh.get_surface_count():
 				var m := mi.get_active_material(si) as StandardMaterial3D
-				if m and "Bodymat" in m.resource_name:
-					if m.normal_texture:
-						paint.set_shader_parameter("normal_tex", m.normal_texture)
-						paint.set_shader_parameter("has_normal", true)
-					mi.set_surface_override_material(si, paint)
+				if m == null:
+					continue
+				var look := ""
+				if "Bodymat" in m.resource_name:
+					look = "paint"
+				elif "UCB_BOTTOM" in m.resource_name:
+					look = "trim"
+				elif "Tire" in m.resource_name:
+					look = "wheel"
+				elif "Interiors" in m.resource_name:
+					look = "interior"
+				if look == "":
+					continue
+				if not mats.has(look):
+					match look:
+						"paint":
+							mats[look] = VehicleLook.paint(m, info)
+						"trim":
+							mats[look] = VehicleLook.trim(m, info)
+						"wheel":
+							mats[look] = VehicleLook.wheel(m, info)
+						"interior":
+							mats[look] = VehicleLook.interior(m)
+				mi.set_surface_override_material(si, mats[look])
+				if look in ["paint", "trim"] and mi not in framed:
+					framed.append(mi)
 		await process_frame
-		for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
-			if mi.get_surface_override_material(0) == paint:
-				var up_local := (mi.global_basis.inverse() * Vector3.UP).normalized()
-				paint.set_shader_parameter("local_up", up_local)
-				paint.set_shader_parameter("ground_h", up_local.dot(mi.to_local(Vector3.ZERO)))
-				break
+		for mi in framed:
+			VehicleLook.fit_frame(mi, model)
 		var box := AABB()
 		var first := true
 		for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):

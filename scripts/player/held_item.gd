@@ -26,6 +26,9 @@ const POSES := {
 	&"fertilizer": [Vector3(0.3, -0.46, -0.72), Vector3(8, 25, 0), 0.8],
 	&"milk": [Vector3(0.3, -0.46, -0.68), Vector3(4, 25, 0), 0.8],
 	&"pumpkin": [Vector3(0.3, -0.44, -0.72), Vector3(8, 25, 0), 0.85],
+	# Wood and stone: one piece in the hand, not the whole pile.
+	&"wood": [Vector3(0.3, -0.4, -0.6), Vector3(12, 62, 6), 0.4],
+	&"stone": [Vector3(0.3, -0.38, -0.58), Vector3(10, 30, 0), 0.5],
 	# A crate of hens is carried in front with both hands, its long side across the view.
 	&"chicken_crate": [Vector3(0.02, -0.46, -0.64), Vector3(4, 90, 0), 0.95],
 }

@@ -14,6 +14,9 @@ const BURLAP := Color(0.66, 0.56, 0.4)
 const KRAFT := Color(0.72, 0.6, 0.44)
 const TWINE := Color(0.5, 0.33, 0.2)
 const LEAF := Color(0.24, 0.42, 0.14)
+## Firewood bark tints (0.5 grey leaves the bark texture as it is).
+const BARK := Color(0.4, 0.34, 0.28)
+const BARK_GREY := Color(0.44, 0.41, 0.37)
 
 ## Kilograms per item unit.
 const UNIT_KG := {
@@ -277,7 +280,9 @@ static func _grid(rng: RandomNumberGenerator, inner: Vector2, nx: int, nz: int, 
 
 # --- Loose goods ---------------------------------------------------------------------
 
-## Split logs stacked 3-2-1, bark outside and end grain at the cut ends.
+## Split logs stacked 3-2-1, bark outside and end grain at the cut ends. The bark is
+## tinted a darker, warmer brown than the texture (seasoned oak and beech), each log a
+## little different.
 static func _firewood(mb: MeshBuilder, rng: RandomNumberGenerator) -> void:
 	for p: Vector2 in [Vector2(-0.12, 0.05), Vector2(0.0, 0.05), Vector2(0.12, 0.05), Vector2(-0.06, 0.135), Vector2(0.06, 0.135), Vector2(0.0, 0.215)]:
 		var r := rng.randf_range(0.044, 0.054)
@@ -285,9 +290,10 @@ static func _firewood(mb: MeshBuilder, rng: RandomNumberGenerator) -> void:
 		var c := Vector3(rng.randf_range(-0.015, 0.015), p.y, p.x + rng.randf_range(-0.006, 0.006))
 		var a := c - Vector3(half, 0, 0)
 		var b := c + Vector3(half, 0, 0)
-		mb.cylinder_between(&"bark", a, b, r, r * 0.96, 7, Color(0.5, 0.5, 0.5).lightened(rng.randf_range(-0.08, 0.08)), false, false)
-		mb.disc(&"endgrain", Transform3D(Basis(Vector3.BACK, -PI * 0.5), b), r * 0.96, 7, Color.WHITE)
-		mb.disc(&"endgrain", Transform3D(Basis(Vector3.BACK, PI * 0.5), a), r, 7, Color.WHITE)
+		var bark := BARK.lerp(BARK_GREY, rng.randf()).lightened(rng.randf_range(-0.05, 0.05))
+		mb.cylinder_between(&"bark", a, b, r, r * 0.96, 9, bark, false, false)
+		mb.disc(&"endgrain", Transform3D(Basis(Vector3.BACK, -PI * 0.5), b), r * 0.96, 9, Color.WHITE)
+		mb.disc(&"endgrain", Transform3D(Basis(Vector3.BACK, PI * 0.5), a), r, 9, Color.WHITE)
 
 
 ## A full sack (the scanned burlap one, tinted as `id`) lying on its side, the tied

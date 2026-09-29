@@ -11,6 +11,7 @@
 [ext_resource type="Script" path="res://scripts/world/farm.gd" id="10_farm"]
 [ext_resource type="Script" path="res://scripts/world/road.gd" id="11_road"]
 [ext_resource type="Script" path="res://scripts/world/town.gd" id="12_town"]
+[ext_resource type="Script" path="res://scripts/world/backdrop.gd" id="13_backdrop"]
 
 [node name="World" type="Node3D"]
 script = ExtResource("1_world")
@@ -20,6 +21,9 @@ script = ExtResource("2_daynight")
 
 [node name="Terrain" type="Node3D" parent="."]
 script = ExtResource("3_terrain")
+
+[node name="Backdrop" type="Node3D" parent="."]
+script = ExtResource("13_backdrop")
 
 [node name="Road" type="Node3D" parent="."]
 script = ExtResource("11_road")

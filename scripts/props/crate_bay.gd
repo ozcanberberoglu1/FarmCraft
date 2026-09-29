@@ -192,31 +192,63 @@ func _mmi(key: String) -> MultiMeshInstance3D:
 
 func interact_prompt(_player: Node) -> String:
 	var s := PlayerState.selected_stack()
-	if s and LiveCrates.is_live(s.item.id):
-		return tr("ACTION_SET_DOWN_CRATES") % s.count
-	var live := live_entries()
-	if live.is_empty():
+	var next := _next_crate(s)
+	if next.is_empty():
+		if s and LiveCrates.is_live(s.item.id):
+			return tr("ACTION_SET_DOWN_CRATES") % s.count
 		return ""
-	var first: Dictionary = live[0]
-	return tr("ACTION_TAKE_CRATE") % [ItemDB.get_item(first["id"]).display_name(), LiveCrates.count_at(&"warehouse")]
+	return tr("ACTION_TAKE_CRATE") % [ItemDB.get_item(next["id"]).display_name(), LiveCrates.count_at(&"warehouse")]
+
+
+## With crates in hand and more to pick up, E stacks the next one on them: Q sets them down.
+func drop_prompt() -> String:
+	var s := PlayerState.selected_stack()
+	if s and LiveCrates.is_live(s.item.id) and not _next_crate(s).is_empty():
+		return tr("ACTION_SET_DOWN_CRATES") % s.count
+	return ""
+
+
+## Q at the bay: the crates in hand go back into the warehouse.
+func drop_held() -> bool:
+	var s := PlayerState.selected_stack()
+	if s == null or not LiveCrates.is_live(s.item.id):
+		return false
+	_set_down()
+	return true
 
 
 func interact(_player: Node) -> void:
 	var s := PlayerState.selected_stack()
-	if s and LiveCrates.is_live(s.item.id):
-		if FarmState.warehouse.store_stack(PlayerState.inventory, PlayerState.selected) <= 0:
-			Game.notify(tr("MSG_NO_ROOM"), UiTheme.RED)
-		else:
-			Audio.play("plank", _marker.global_position - Vector3(0, 0.8, 0), -10.0)
+	var next := _next_crate(s)
+	if next.is_empty():
+		if s and LiveCrates.is_live(s.item.id):
+			_set_down()
 		return
-	var live := live_entries()
-	if live.is_empty():
-		return
-	var first: Dictionary = live[0]
-	var id: StringName = first["id"]
-	var q := int(first["quality"])
+	var id: StringName = next["id"]
+	var q := int(next["quality"])
 	if LiveCrates.put_in_hand(id, 1, q) <= 0:
 		Game.notify(tr("MSG_INVENTORY_FULL"), UiTheme.RED)
 		return
 	FarmState.warehouse.take(id, 1, q)
 	Audio.animal_voice(AnimalTable.species_of_crate(id), true, _marker.global_position - Vector3(0, 0.8, 0), -10.0)
+
+
+## The crate E would pick up: with crates already in hand, one more of the same kind
+## while the stack has room (they are carried together); else the first on the pile.
+func _next_crate(held: ItemStack) -> Dictionary:
+	var live := live_entries()
+	if held and LiveCrates.is_live(held.item.id):
+		if held.space_left() <= 0:
+			return {}
+		for e: Dictionary in live:
+			if StringName(e["id"]) == held.item.id and int(e["quality"]) == held.quality:
+				return e
+		return {}
+	return {} if live.is_empty() else live[0]
+
+
+func _set_down() -> void:
+	if FarmState.warehouse.store_stack(PlayerState.inventory, PlayerState.selected) <= 0:
+		Game.notify(tr("MSG_NO_ROOM"), UiTheme.RED)
+	else:
+		Audio.play("plank", _marker.global_position - Vector3(0, 0.8, 0), -10.0)

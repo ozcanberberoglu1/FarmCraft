@@ -2,8 +2,9 @@
 class_name Road
 extends Node3D
 ## The asphalt county road from the farm gate to the town: a ribbon mesh along the
-## terrain's road profile (TerrainData.road_points / road_heights) with skirts that
-## tuck into the ground, plus exact collision for wheels and feet.
+## terrain's road profile (TerrainData.road_points / road_heights) with gravel skirts
+## that tuck into the ground, plus exact collision for wheels and feet. The shader wears
+## it: wheel paths, repair patches, crumbling edges, faded lines.
 
 ## How far the skirts reach out and down to hide the road bed.
 const SKIRT_OUT := 0.45
@@ -65,6 +66,9 @@ func build() -> void:
 	mat.set_shader_parameter("albedo_tex", Mats.texture("asphalt_02", "diff.jpg"))
 	mat.set_shader_parameter("normal_tex", Mats.texture("asphalt_02", "nor.jpg"))
 	mat.set_shader_parameter("arm_tex", Mats.texture("asphalt_02", "arm.jpg"))
+	# The gravel of the terrain's lanes, for the shoulders the asphalt crumbles into.
+	mat.set_shader_parameter("gravel_tex", Mats.texture("gravel_ground_01", "diff.jpg"))
+	mat.set_shader_parameter("gravel_nor", Mats.texture("gravel_ground_01", "nor.jpg"))
 	mat.set_shader_parameter("road_width", WorldLayout.ROAD_WIDTH)
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()

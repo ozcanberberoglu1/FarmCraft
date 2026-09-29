@@ -153,8 +153,11 @@ func _house() -> void:
 
 
 ## Grandpa's run-down house and warehouse on a new farm: they work (floor, bed, chest,
-## storage), carry repair signs, and the construction board repairs them.
+## storage) and carry repair signs; the board doesn't sell their repair. They are mended
+## by hand: wood in hand, LMB on each hole in their walls nails fresh boards over it
+## (one wood a hole, remembered through a rebuild) until the building is repaired.
 func _ruins() -> void:
+	var player: Player = Game.player
 	var farm: Farm = Game.world.farm
 	var house: FarmHouse = Game.world.get_node("FarmHouse")
 	var wh := farm.get_node("Warehouse") as Warehouse
@@ -168,23 +171,85 @@ func _ruins() -> void:
 			"the lantern keeps its layer-20 shadow")
 	_check(wh.level == 0 and FarmState.warehouse_level() == 0 and FarmState.warehouse.capacity == 200,
 			"the run-down warehouse holds 200 units")
-	_check(farm.get_node_or_null("Sign_house_1") != null and farm.get_node_or_null("Sign_warehouse_1") != null,
-			"both run-down buildings have a repair sign")
+	var sign := farm.get_node_or_null("Sign_house_1") as RepairSpot.Sign
+	_check(sign != null and farm.get_node_or_null("Sign_warehouse_1") is RepairSpot.Sign and sign.interact_prompt(player) == "",
+			"both run-down buildings have a repair sign (it opens no board)")
 	_check(not FarmState.can_build(&"house_2") and not FarmState.can_build(&"warehouse_2"),
 			"nothing is extended before it is repaired")
 	var level := Progress.level
 	Progress.level = 1
-	_check(FarmState.can_build(&"house_1") and FarmState.can_build(&"warehouse_1"), "the repairs are open from farm level 1")
-	# Repair both from the board's data, with the materials in the bag.
-	Economy.add_money(1000, "test")
-	PlayerState.inventory.add_item(&"wood", 45)
-	PlayerState.inventory.add_item(&"stone", 10)
+	_check(not BuildScreen.on_board(&"house_1") and not BuildScreen.on_board(&"warehouse_1") and BuildScreen.on_board(&"house_2"),
+			"the board doesn't sell the repairs")
+	var hs := _repair_spots(&"house")
+	var ws := _repair_spots(&"warehouse")
+	_check(hs.size() == 8 and ws.size() == 6 and RepairSpot.patched_count(&"house") == 0,
+			"the house has 8 holes to mend, the warehouse 6 (%d, %d)" % [hs.size(), ws.size()])
+	_check(WaypointMarker.anchor(&"house_repair") != null and WaypointMarker.anchor(&"warehouse_repair") != null,
+			"both buildings have a repair waypoint anchor")
+	var sent := []
+	var on_patch := func(id: StringName, done: int, total: int) -> void: sent.append([id, done, total])
+	var on_repaired := func(id: StringName) -> void: sent.append(["repaired", id])
+	Events.wall_patched.connect(on_patch)
+	Events.building_repaired.connect(on_repaired)
 	var chest_wood := (house.get_node("Chest") as Chest).inventory.count_item(&"wood")
-	_check(FarmState.build(&"house_1") and house.level == 1 and FarmState.house_level() == 1, "the house is repaired (level 1)")
-	_check(FarmState.build(&"warehouse_1") and wh.level == 1 and FarmState.warehouse.capacity == 400, "the warehouse is repaired (400 units)")
+	PlayerState.inventory.add_item(&"wood", 20)
+	var wood := PlayerState.inventory.count_item(&"wood")
+	# The first hole: without wood in hand it only says what it needs.
+	_select(&"hoe")
+	await _face_spot(player, hs[0])
+	_check(not _last_prompt.contains(tr("KEY_LMB")) and _last_prompt.contains(tr("HINT_PATCH_NEEDS_WOOD")),
+			"a hole without wood in hand asks for wood ('%s')" % _last_prompt)
+	var guide := WaypointMarker.anchor(&"house_repair")
+	_check(guide != null and guide.global_position.distance_to(hs[0].global_position) < 0.3,
+			"the house's waypoint is on the hole nearest the farmer")
+	_select(&"wood")
+	await _seconds(0.25)
+	_check(_last_prompt.contains(tr("ACTION_PATCH_WALL")), "wood in hand: LMB nails boards over it ('%s')" % _last_prompt)
+	_check(await _nail_spot(hs[0]) and hs[0].get_node_or_null("Patch") != null and hs[0].get_node_or_null("LooseBoard") == null
+			and PlayerState.inventory.count_item(&"wood") == wood - 1 and sent.has([&"house", 1, 8]),
+			"LMB nails fresh boards over the hole for one wood (wall_patched house 1/8)")
+	# A mended spot takes nothing more.
+	await _face_spot(player, hs[0])
+	_check(not _last_prompt.contains(tr("ACTION_PATCH_WALL")), "a mended spot offers nothing ('%s')" % _last_prompt)
+	Input.action_press("use")
+	await _seconds(1.2)
+	Input.action_release("use")
+	await _frames(2)
+	_check(PlayerState.inventory.count_item(&"wood") == wood - 1 and sent.size() == 1, "hitting a mended spot uses no wood")
+	for i in range(1, 3):
+		await _face_spot(player, hs[i])
+		await _nail_spot(hs[i])
+	# The mended spots come back mended after a rebuild (a load).
+	house.build()
+	await _frames(3)
+	hs = _repair_spots(&"house")
+	var kept := 0
+	for s: RepairSpot in hs:
+		if s.patched and s.get_node_or_null("Patch") != null:
+			kept += 1
+	_check(hs.size() == 8 and kept == 3 and RepairSpot.patched_count(&"house") == 3, "a rebuild keeps the 3 mended spots (%d)" % kept)
+	for s: RepairSpot in hs:
+		if not s.patched:
+			await _face_spot(player, s)
+			await _nail_spot(s)
+	_check(PlayerState.inventory.count_item(&"wood") == wood - 8 and sent.has([&"house", 8, 8]), "8 holes, 8 wood")
+	await _seconds(RepairSpot.REPAIR_DELAY + 0.4)
+	_check(house.level == 1 and FarmState.house_level() == 1 and sent.has(["repaired", &"house"]),
+			"the last board repairs the house (level 1, building_repaired sent)")
+	for s: RepairSpot in ws:
+		await _face_spot(player, s)
+		await _nail_spot(s)
+	await _seconds(RepairSpot.REPAIR_DELAY + 0.4)
+	_check(wh.level == 1 and FarmState.warehouse.capacity == 400 and sent.has([&"warehouse", 6, 6]) and sent.has(["repaired", &"warehouse"]),
+			"6 boards repair the warehouse (400 units)")
+	_check(PlayerState.inventory.count_item(&"wood") == wood - 14, "14 wood used in all")
+	Events.wall_patched.disconnect(on_patch)
+	Events.building_repaired.disconnect(on_repaired)
 	await _frames(3)
 	_check(farm.get_node_or_null("Sign_house_1") == null and farm.get_node_or_null("Sign_warehouse_1") == null,
 			"the repair signs are gone")
+	_check(WaypointMarker.anchor(&"house_repair") == null and WaypointMarker.anchor(&"warehouse_repair") == null
+			and _repair_spots(&"house").is_empty(), "the repair spots and their waypoints are gone")
 	_check(house.get_node_or_null("Clutter") == null and house.get_node_or_null("FireLight") != null
 			and not (house.get_node("Bed") as Bed).worn, "the repaired house has a fire and a new bed")
 	_check((house.get_node("Chest") as Chest).inventory.count_item(&"wood") == chest_wood, "the chest keeps its contents through the repair")
@@ -195,6 +260,49 @@ func _ruins() -> void:
 	_check(built.has("house_1") and built.has("warehouse_1") and built.has("house_2"), "a version 1 save gets house_1 and warehouse_1")
 	var current: Dictionary = SaveGame._migrate({"farm": {"built": ["field_0"]}}, SaveGame.VERSION)
 	_check(not ((current["farm"] as Dictionary)["built"] as Array).has("house_1"), "a current save is left as it is")
+
+
+## The building's repair spots in the world, in their order.
+func _repair_spots(building: StringName) -> Array[RepairSpot]:
+	var out: Array[RepairSpot] = []
+	for n: Node in tree.get_nodes_in_group(RepairSpot.GROUP):
+		var s := n as RepairSpot
+		if s and s.building_id == building and not s.is_queued_for_deletion():
+			out.append(s)
+	out.sort_custom(func(a: RepairSpot, b: RepairSpot) -> bool: return a.index < b.index)
+	return out
+
+
+## Stands the farmer on the ground (or the porch) 1.3 m out from the hole and looks at it.
+func _face_spot(player: Player, spot: RepairSpot) -> void:
+	var out := spot.global_basis.z
+	var flat := Vector3(out.x, 0.0, out.z).normalized()
+	var p := spot.global_position + flat * 1.3
+	var q := PhysicsRayQueryParameters3D.create(p, p + Vector3.DOWN * 4.0, 17)
+	q.exclude = [player.get_rid()]
+	var hit := player.get_world_3d().direct_space_state.intersect_ray(q)
+	var ground: float = (hit["position"] as Vector3).y if not hit.is_empty() else TerrainData.height(p.x, p.z)
+	player.global_position = Vector3(p.x, ground + 0.05, p.z)
+	player.velocity = Vector3.ZERO
+	await _frames(3)
+	_look_at(player, spot.global_position + out * 0.04)
+	await _seconds(0.3)
+
+
+## Holds LMB on the aimed hole through one nailing; true when it got mended for one wood.
+func _nail_spot(spot: RepairSpot) -> bool:
+	# The last hole's repair rebuilds the building (and frees the spot) meanwhile.
+	var building := spot.building_id
+	var index := spot.index
+	var wood := PlayerState.inventory.count_item(&"wood")
+	Input.action_press("use")
+	await _seconds(1.25)
+	Input.action_release("use")
+	await _frames(2)
+	var ok := RepairSpot.is_patched(building, index) and PlayerState.inventory.count_item(&"wood") == wood - 1
+	if not ok:
+		_check(false, "nailing %s hole %d (prompt '%s')" % [building, index, _last_prompt])
+	return ok
 
 
 ## A new farm's first day in the house: the shut front door (E opens it), Grandpa's things
@@ -911,6 +1019,16 @@ func _town() -> void:
 	_check(entered[1] == 1 and old.save_data().get("unlocked", false), "getting out is announced; the unlock is saved")
 	Events.vehicle_entered.disconnect(on_enter)
 	Events.vehicle_exited.disconnect(on_exit)
+	# A real E press gets in and stays in (the same press must not reach the vehicle
+	# as "get out"); the next one gets out.
+	_look_at(player, old.global_position + Vector3(0, 1.0, 0))
+	await _frames(4)
+	await _press_key(KEY_E)
+	await _frames(4)
+	_check(player.driving == old, "pressing E at the pickup gets in and stays in")
+	await _press_key(KEY_E)
+	await _frames(4)
+	_check(player.driving == null, "pressing E again gets out")
 	old.teleport(home)
 	await _frames(10)
 	# The warehouse ledger loads it.
@@ -970,8 +1088,12 @@ func _town() -> void:
 	var moved := v.global_position.distance_to(start)
 	_check(moved > 15.0 and kmh > 25.0, "the pickup drives (%.1f m, %.0f km/h)" % [moved, kmh])
 	_check(v.fuel < fuel, "driving burns fuel (%.3f L)" % (fuel - v.fuel))
+	# Held S brakes to a stop (and would then reverse): let go once it has stopped.
 	Input.action_press("move_back")
-	await _seconds(2.5)
+	var braked := 0.0
+	while v.speed_kmh() > 3.0 and braked < 4.0:
+		await _seconds(0.1)
+		braked += 0.1
 	Input.action_release("move_back")
 	await _seconds(1.0)
 	_check(v.speed_kmh() < 5.0, "braking stops it (%.1f km/h)" % v.speed_kmh())
@@ -1168,6 +1290,15 @@ func _cargo() -> void:
 	hand = PlayerState.selected_stack()
 	_check(FarmState.warehouse.count(&"chicken_crate") == in_stock + 1 and hand != null and hand.item.id == &"chicken_crate",
 			"E at the crate corner takes one back into the hands")
+	bay.interact(player)
+	await _frames(3)
+	hand = PlayerState.selected_stack()
+	_check(FarmState.warehouse.count(&"chicken_crate") == in_stock and hand != null and hand.count == 2,
+			"E again stacks the next crate on the one in hand")
+	_check(bay.drop_held() and FarmState.warehouse.count(&"chicken_crate") == in_stock + 2
+			and PlayerState.selected_stack() == null, "Q at the crate corner sets the crates in hand down")
+	bay.interact(player)
+	await _frames(3)
 	# The ledger moves crates like goods; a key stays in the bag.
 	PlayerState.inventory.add_item(&"truck_key")
 	Game.hud.open_storage(null)
@@ -2009,6 +2140,137 @@ func _coop() -> void:
 	await _seconds(2.0)
 	_check(inv.count_item(&"egg") == eggs + 1 and String(coop.entry.get("egg", "")) == "taken", "the first egg is picked up")
 
+	# (7b) Looking after the coop by hand: the feeder, the waterer and three nest boxes
+	# (guide dots over each); then hens lay in the bedded boxes.
+	var fed: Array = []
+	var watered: Array = []
+	var bedded: Array = []
+	var on_fed := func(c: Node) -> void: fed.append(c)
+	var on_watered := func(c: Node) -> void: watered.append(c)
+	var on_bedded := func(c: Node, n: int) -> void: bedded.append([c, n])
+	Events.coop_fed.connect(on_fed)
+	Events.coop_watered.connect(on_watered)
+	Events.nest_filled.connect(on_bedded)
+	_check(WaypointMarker.anchor(ChickenCoop.ANCHOR_FEEDER) != null and WaypointMarker.anchor(ChickenCoop.ANCHOR_WATER) != null
+			and WaypointMarker.anchor(ChickenCoop.ANCHOR_NEST) != null and coop.filled_nests() == 0,
+			"a new coop's nest boxes are bare; the feeder, the waterer and the next box are waypoint anchors")
+	# Feed in hand at the feeder.
+	inv.add_item(&"feed", 5)
+	var feed_n := inv.count_item(&"feed")
+	var feeder := h.feed
+	player.global_position = feeder.global_position + h.front() * 1.3 + Vector3(0, 0.2, 0)
+	_select(&"feed")
+	await _frames(6)
+	_look_at(player, feeder.global_position + Vector3(0, 0.15, 0))
+	await _frames(6)
+	_check(player.target == feeder and _last_prompt.contains(tr("ACTION_FILL_TROUGH")), "feed in hand at the coop's feeder: use fills it")
+	var feed_was := feeder.amount
+	await _hold_use(1.4)
+	_check(feeder.amount > feed_was and inv.count_item(&"feed") < feed_n and fed.size() == 1 and fed[0] == coop,
+			"the feeder fills with feed (coop_fed, %.0f)" % feeder.amount)
+	# The watering can at the waterer.
+	if inv.count_item(&"watering_can") == 0:
+		inv.add_item(&"watering_can", 1)
+	_select(&"watering_can")
+	var can := PlayerState.selected_stack()
+	can.water = can.item.water_capacity
+	var waterer := h.water
+	player.global_position = waterer.global_position + h.front() * 1.3 + Vector3(0, 0.2, 0)
+	await _frames(6)
+	_look_at(player, waterer.global_position + Vector3(0, 0.15, 0))
+	await _frames(6)
+	_check(player.target == waterer, "the watering can at the coop's waterer")
+	var water_was := waterer.amount
+	await _hold_use(1.6)
+	_check(waterer.amount > water_was and can.water < can.item.water_capacity and watered.size() == 1 and watered[0] == coop,
+			"the waterer fills from the can (coop_watered, %.0f)" % waterer.amount)
+	# An armful of hay into each nest box.
+	inv.add_item(&"hay", ChickenCoop.NESTS)
+	var hay := inv.count_item(&"hay")
+	_select(&"hay")
+	var aimed := 0
+	for i in ChickenCoop.NESTS:
+		player.global_position = coop.nest_front(i) + coop.nest_out() * 0.5 + coop.global_basis.z * 0.9 + Vector3(0, 0.2, 0)
+		await _frames(6)
+		_look_at(player, coop.nest_seat(i) + Vector3(0, 0.15, 0))
+		await _frames(6)
+		if player.target is ChickenCoop.Nest and (player.target as ChickenCoop.Nest).index == i and _last_prompt.contains(tr("ACTION_BED_NEST")):
+			aimed += 1
+		await _hold_use(1.4)
+		if i == 0:
+			_check(WaypointMarker.anchor(ChickenCoop.ANCHOR_NEST) != null and coop.filled_nests() == 1
+					and WaypointMarker.anchor(ChickenCoop.ANCHOR_NEST).global_position.distance_to(coop.nest_seat(1)) < 1.0,
+					"the nest guide dot moves on to the next bare box")
+	_check(aimed == ChickenCoop.NESTS, "hay in hand at a bare nest box: use beds it (%d/%d)" % [aimed, ChickenCoop.NESTS])
+	_check(coop.filled_nests() == ChickenCoop.NESTS and inv.count_item(&"hay") == hay - ChickenCoop.NESTS
+			and bedded.size() == ChickenCoop.NESTS and bedded.back() == [coop, ChickenCoop.NESTS],
+			"three armfuls of hay bed the three boxes (nest_filled up to 3)")
+	_check(WaypointMarker.anchor(ChickenCoop.ANCHOR_NEST) == null and coop.entry["nests"] == [true, true, true],
+			"every box bedded (saved): the nest guide dot is gone")
+	Events.coop_fed.disconnect(on_fed)
+	Events.coop_watered.disconnect(on_watered)
+	Events.nest_filled.disconnect(on_bedded)
+	# Hens lay in the bedded boxes: the story's first egg (were it still to come) and a
+	# day's egg. The farmer stands well out of reach so the eggs stay put.
+	var in_nests := func() -> Array[Pickup]:
+		var out: Array[Pickup] = []
+		for n in tree.get_nodes_in_group(&"pickups"):
+			var p := n as Pickup
+			if p == null or p.stack == null or p.stack.item.id != &"egg" or p.is_queued_for_deletion():
+				continue
+			for i in ChickenCoop.NESTS:
+				var seat := coop.nest_seat(i)
+				if Vector2(p.global_position.x - seat.x, p.global_position.z - seat.z).length() < 0.35 \
+						and absf(p.global_position.y - seat.y) < 0.2:
+					out.append(p)
+					break
+		return out
+	player.global_position = h.door_outside() + h.front() * 5.0 + Vector3(0, 0.3, 0)
+	_free_hands()
+	var nest_eggs: int = in_nests.call().size()
+	var hens := h.animals.duplicate()
+	var sat: Array = []
+	coop.entry["egg"] = "due"
+	coop.entry["egg_at"] = GameClock.total_minutes
+	if hens.size() > 1:
+		coop.egg_due((hens[1] as Animal).data, ItemStack.Quality.NORMAL)
+		coop.entry["lay"][str((hens[1] as Animal).data.id)]["at"] = GameClock.total_minutes
+	# The clock stands still in tests: one tick makes the first egg due.
+	GameClock.advance(GameClock.TICK_MINUTES)
+	_check(String(coop.entry.get("egg", "")) == "nest" and (coop.entry["lay"] as Dictionary).size() == mini(hens.size(), 2),
+			"with a box bedded the first egg waits for a hen to lay it there")
+	Engine.time_scale = 6.0
+	for i in 160:
+		await _seconds(0.5)
+		for n: Animal in hens:
+			if n.state == Animal.State.NEST and not sat.has(n):
+				sat.append(n)
+		if in_nests.call().size() >= nest_eggs + 2 and coop.first_egg() != null:
+			break
+	Engine.time_scale = 1.0
+	var laid: Array[Pickup] = in_nests.call()
+	_check(sat.size() >= 2 and laid.size() == nest_eggs + 2 and (coop.entry["lay"] as Dictionary).is_empty(),
+			"hens with an egg due walk in, sit in a bedded box and lay there (%d sat, %d eggs)" % [sat.size(), laid.size() - nest_eggs])
+	var first := coop.first_egg()
+	_check(first != null and laid.has(first) and String(coop.entry.get("egg", "")) == "laid"
+			and WaypointMarker.anchor(ChickenCoop.ANCHOR_EGG) == first, "with a box bedded the first egg is laid in it (a waypoint anchor)")
+	# Down again and back out into the yard.
+	Engine.time_scale = 6.0
+	var out_again := 0
+	for i in 80:
+		await _seconds(0.5)
+		out_again = 0
+		for n: Animal in sat:
+			if is_instance_valid(n) and not n.indoors and n.state != Animal.State.NEST:
+				out_again += 1
+		if out_again == sat.size():
+			break
+	Engine.time_scale = 1.0
+	_check(sat.size() > 0 and out_again == sat.size(), "after laying the hens hop down and go back out (%d/%d)" % [out_again, sat.size()])
+	for p: Pickup in laid:
+		p.queue_free()
+	coop.entry["egg"] = "taken"
+
 	# (8) Full at 8 hens: the next crate stays shut.
 	while Animals.count_at(h) < h.capacity():
 		Animals.release(&"chicken", h)
@@ -2035,6 +2297,7 @@ func _coop() -> void:
 	var dir := (h2.door_outside() - h2.door_inside()).normalized()
 	_check(coop2.is_built() and in_yard and absf(Vector2(dir.x, dir.z).angle_to(Vector2(sin(deg_to_rad(45.0)), cos(deg_to_rad(45.0))))) < 0.1,
 			"a coop turned 45°: yard points and the door follow the turn")
+	_check(coop2.filled_nests() == ChickenCoop.NESTS, "a coop from before bedding by hand keeps its straw")
 	FarmState.remove_placed(e2)
 	coop2.queue_free()
 
@@ -2245,28 +2508,41 @@ func _quests() -> void:
 	var on_chapter := func(i: int) -> void: begun[0] = i
 	Quests.chapter_started.connect(on_chapter)
 
-	# The chain: the first day by hand, in the user's order, each goal with a place for the dot.
+	# The chain: the first day by hand, in the user's order, each goal with a place for the dot;
+	# then the player is free until the next morning's stonework.
 	var day_one := ["door", "tools", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens",
 			"drive_home", "crates_in", "coop_wood", "coop_kit", "coop_place", "coop_built", "hens_in",
-			"harvest", "ship", "egg", "ship_egg", "sleep"]
+			"harvest", "ship", "egg", "ship_egg", "feed", "coop_water", "straw", "wood", "patch"]
 	var in_order := true
 	for i in day_one.size():
 		in_order = in_order and Quests.index_of(day_one[i]) == i
-	_check(in_order and Quests.day_two_step() == day_one.size() and Quests.TUTORIAL[Quests.day_two_step()]["id"] == "reap"
-			and int(Quests.TUTORIAL[Quests.day_two_step()]["chapter"]) == Quests.DAY_TWO_CHAPTER,
-			"the first day runs door, tools, soil, drawer, key, truck, hens, coop, harvest, bin, egg, sleep; day two opens with the reap")
+	var free_step := Quests.day_two_step()
+	_check(in_order and free_step == day_one.size() and Quests.TUTORIAL[free_step]["id"] == "free"
+			and int(Quests.TUTORIAL[free_step]["chapter"]) == Quests.DAY_TWO_CHAPTER
+			and Quests.TUTORIAL[free_step + 1]["id"] == "stone" and Quests.index_of("sleep") < 0,
+			"the first day runs door, tools, soil, drawer, key, truck, hens, coop, harvest, bin, egg, the coop's care and the mending (no bedtime); the stonework waits for day two")
+	var dropped: Array = []
+	for id: String in ["reap", "replant", "refill", "repair_warehouse", "store", "hay", "load", "order", "sell",
+			"workbench", "craft", "repair_house", "coop", "chickens", "eggs"]:
+		if Quests.index_of(id) >= 0:
+			dropped.append(id)
+	_check(dropped.is_empty(), "the old day-two goals are gone (left: %s)" % ", ".join(dropped))
+	var stone_need := int((RecipeTable.crafting(&"quern")["items"] as Dictionary)[&"stone"])
+	_check(int(Quests.TUTORIAL[Quests.index_of("stone")]["count"]) == stone_need,
+			"the stone goal asks for the millstone's stone (%d)" % stone_need)
 	var no_at: Array = []
 	var no_text: Array = []
 	for g: Dictionary in Quests.TUTORIAL:
-		if Quests.index_of(String(g["id"])) < Quests.day_two_step() and String(g.get("at", "")) == "":
+		if Quests.index_of(String(g["id"])) < free_step and String(g.get("at", "")) == "":
 			no_at.append(g["id"])
 		if String(g["arg"]) != "level" and Quests.goal_text(g).begins_with("QUEST_"):
 			no_text.append(g["id"])
-	_check(no_at.is_empty(), "every goal of the first day has a place for the dot (missing: %s)" % ", ".join(no_at))
+	_check(no_at.is_empty() and String(Quests.TUTORIAL[free_step].get("at", "")) == "",
+			"every goal of the first day has a place for the dot, the free evening none (missing: %s)" % ", ".join(no_at))
 	_check(no_text.is_empty(), "every goal has its text (missing: %s)" % ", ".join(no_text))
 	_check(int(Quests.TUTORIAL[Quests.index_of("tools")]["count"]) == FarmHouse.table_item_count(),
 			"the tools goal asks for everything on Grandpa's worktable (%d)" % FarmHouse.table_item_count())
-	for at: String in ["house_door", "table", "drawer", "truck", "stall", "warehouse", "bin", "bed", "well", "sign:house"]:
+	for at: String in ["house_door", "table", "drawer", "truck", "stall", "warehouse", "bin", "well", "market"]:
 		_check(Quests._target(at) != null, "the dot finds '%s'" % at)
 
 	# Homecoming: the door (a flag the house sets), then Grandpa's things off the worktable.
@@ -2468,10 +2744,22 @@ func _quests() -> void:
 		FarmState.remove_placed(made.entry)
 		made.queue_free()
 
-	# The first harvest, the bin, the first egg, the night.
+	# The first harvest, the bin, the first egg; then the coop's care.
 	var harvest_step := Quests.index_of("harvest")
 	Quests.step = harvest_step
 	Quests.step_count = 0
+	# Grandpa's beds gone by the time the harvest goal comes up: they come back ripe.
+	var first_field := Quests._first_field()
+	if first_field:
+		var plots_had: Array = first_field.plots.map(func(pl: FarmPlot) -> Dictionary: return pl.save_data())
+		for pl: FarmPlot in first_field.plots:
+			pl.load_data({})
+		Quests.tally = {}
+		Quests._keep_beds_for_harvest()
+		var ripe := first_field.plots.filter(func(pl: FarmPlot) -> bool: return pl.is_ready()).size()
+		_check(ripe == Quests.GRANDPA_BEDS, "no ripe beds at the harvest goal: Grandpa's come back ripe (%d)" % ripe)
+		for i in first_field.plots.size():
+			first_field.plots[i].load_data(plots_had[i])
 	Quests.tally = {"action:harvest": 3}
 	Quests._catch_up()
 	_check(Quests.current()["id"] == "ship", "harvests made before their goal came up complete it at once")
@@ -2485,67 +2773,197 @@ func _quests() -> void:
 	_check(Quests.current()["id"] == "egg", "carrots in the shipping bin complete it")
 	Events.item_picked_up.emit(&"egg", 1)
 	_check(Quests.current()["id"] == "ship_egg", "the first egg picked up moves on to shipping it")
+	# The egg thrown away with no other left: the story asks for an egg again. (Eggs
+	# earlier scenarios left in the warehouse or lying about would count as spares.)
+	var eggs_had := inv.count_item(&"egg")
+	inv.remove_item(&"egg", eggs_had)
+	var stock_had := FarmState.warehouse.to_dict()
+	for q in 4:
+		FarmState.warehouse.take(&"egg", 9999, q)
+	for n in tree.get_nodes_in_group(&"pickups"):
+		var loose := n as Pickup
+		if loose and loose.stack and loose.stack.item.id == &"egg":
+			loose.queue_free()
+	Events.egg_broken.emit(Vector3.ZERO)
+	_check(Quests.current()["id"] == "egg" and Quests.step_count == 0, "the egg broken with none left: the story asks for an egg again")
+	Events.item_picked_up.emit(&"egg", 1)
+	_check(Quests.current()["id"] == "ship_egg", "the next egg picked up moves on to shipping it again")
+	inv.add_item(&"egg", eggs_had)
+	FarmState.warehouse.from_dict(stock_had)
 	bin.add_item(&"egg", 1)
 	Quests._poll = 0.0
 	await _idle_frames(3)
-	_check(Quests.current()["id"] == "sleep" and begun[0] == int(Quests.TUTORIAL[Quests.index_of("sleep")]["chapter"])
-			and Game.hud._quest_note.visible and Game.hud._quest_note.text.contains(Quests.chapter_note(Quests.chapter())),
-			"the egg in the bin ends the harvest: the first night opens with Grandpa's note")
-	_check(is_equal_approx(Quests.pace_for(12.0), Quests.DUSK_PACE) and is_equal_approx(Quests.pace_for(20.0), 1.0),
-			"at bedtime evening comes on quickly, then the clock runs as usual")
-	Quests._count("slept", "", 1)
-	await _frames(2)
-	_check(Quests.current()["id"] == "reap" and begun[0] == Quests.DAY_TWO_CHAPTER
-			and Game.hud._quest_note.text.contains(Quests.chapter_note(Quests.DAY_TWO_CHAPTER)),
-			"a night's sleep ends the first day: the yard chapter opens with Grandpa's note")
-	# A night slept (or passed out) before the day's last goals were done counts at bedtime.
-	Quests.step = Quests.index_of("sleep")
-	Quests.step_count = 0
-	Quests.tally = {"slept:": 1}
-	Quests._catch_up()
-	_check(Quests.current()["id"] == "reap", "a night already slept counts when the bedtime goal comes up")
-	Quests.step = till_step
+	var care := int(Quests.TUTORIAL[Quests.index_of("feed")]["chapter"])
+	_check(Quests.current()["id"] == "feed" and begun[0] == care and Quests.first_day()
+			and Game.hud._quest_note.visible and Game.hud._quest_note.text.contains(Quests.chapter_note(care)),
+			"the egg in the bin ends the harvest: the coop's care opens with Grandpa's note (no bedtime)")
 	_check(is_equal_approx(Quests.pace_for(10.0), Quests.FIRST_DAY_PACE) and is_equal_approx(Quests.pace_for(17.0), Quests.LINGER_PACE),
 			"the first day runs at half speed and the late afternoon lingers")
 	bin.remove_item(&"carrot", 2)
 	bin.remove_item(&"egg", 1)
-
-	# Day two, the yard: picked-up goods count by item, and work done early counts when the goal comes up.
-	var wood_step := Quests.index_of("wood")
-	Quests.step = wood_step
-	Quests.step_count = 0
-	Quests.tally = {}
-	Events.item_picked_up.emit(&"wood", 4)
-	Events.item_picked_up.emit(&"stone", 3)
-	_check(Quests.step == wood_step and Quests.step_count == 4, "picked-up wood counts toward the wood goal, stone doesn't")
-	Quests.step = Quests.index_of("stone")
-	Quests.step_count = 0
+	# LMB with an egg in hand: it flies where the player looks and breaks where it lands.
+	var broke: Array = []
+	var on_broke := func(at: Vector3) -> void: broke.append(at)
+	Events.egg_broken.connect(on_broke)
+	var sel_had := PlayerState.selected
+	# The first hotbar slot for the eggs (earlier scenarios may have filled the hotbar).
+	var egg_slot := 0
+	var slot_had := inv.get_stack(egg_slot)
+	inv.set_stack(egg_slot, ItemStack.create(&"egg", 2))
+	PlayerState.selected = egg_slot
+	# On foot in the open yard, thrown a little down (earlier scenarios may leave the player
+	# at a wheel, by a wall or looking at the sky).
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(2)
+	if player.riding:
+		player.dismount()
+		await _frames(2)
+	var throw_from := player.global_transform
+	player.global_position = Vector3(-10, TerrainData.height(-10, 0) + 0.3, 0)
+	player.look_at_yaw_pitch(0.0, deg_to_rad(-25.0))
+	await _frames(3)
+	player._throw_egg()
+	await _seconds(0.3)
+	var in_air := tree.get_nodes_in_group(&"thrown_eggs").size()
+	await _seconds(2.2)
+	player.global_transform = throw_from
+	Events.egg_broken.disconnect(on_broke)
+	var left := inv.get_stack(egg_slot)
+	_check(broke.size() == 1 and left != null and left.count == 1 and (broke[0] as Vector3).distance_to(player.global_position) > 1.0,
+			"a thrown egg leaves the hand, flies off and breaks (%s; %d in the air, paused %s, ui %s)"
+			% [str(broke), in_air, tree.paused, Game.is_ui_open()])
+	inv.set_stack(egg_slot, slot_had)
+	PlayerState.selected = sel_had
+	# The dot fetches what the coop needs first: the feed from the warehouse, water from the
+	# well, hay from the grass; the boards need wood from the trees, the millstone stone.
+	var same := func(x: Variant, y: Variant) -> bool: return typeof(x) == typeof(y) and x == y
+	var feed_had := inv.count_item(&"feed")
+	inv.remove_item(&"feed", feed_had)
+	_check(same.call(Quests._target("feeder"), Quests._target("warehouse")), "no feed in the bag: the dot points at the warehouse")
+	inv.add_item(&"feed", 1)
+	_check(same.call(Quests._target("feeder"), Quests._anchor(&"coop_feeder", Quests._target("coop"))),
+			"feed in the bag: the dot points at the coop's feeder")
+	inv.remove_item(&"feed", 1)
+	inv.add_item(&"feed", feed_had)
+	var cans: Array[ItemStack] = []
+	var can_water: Array[int] = []
+	for st: ItemStack in inv.slots:
+		if st != null and st.item.water_capacity > 0:
+			cans.append(st)
+			can_water.append(st.water)
+			st.water = 0
+	_check(same.call(Quests._target("coop_water"), Quests._target("well")), "an empty watering can: the dot points at the well")
+	if not cans.is_empty():
+		cans[0].water = 3
+		_check(not same.call(Quests._target("coop_water"), Quests._target("well")), "water in the can: the dot leaves the well for the coop")
+	for i in cans.size():
+		cans[i].water = can_water[i]
+	var hay_had := inv.count_item(&"hay")
+	inv.remove_item(&"hay", hay_had)
+	var to_grass: Variant = Quests._target("nests")
+	_check(to_grass != null and not same.call(to_grass, Quests._anchor(&"coop_nest", Quests._target("coop"))),
+			"no hay for the nests: the dot points at grass to cut (%s)" % str(to_grass))
+	inv.add_item(&"hay", 3)
+	_check(same.call(Quests._target("nests"), Quests._anchor(&"coop_nest", Quests._target("coop"))), "hay in the bag: the dot points at the nests")
+	inv.remove_item(&"hay", 3)
+	inv.add_item(&"hay", hay_had)
+	var wood_had := inv.count_item(&"wood")
+	inv.remove_item(&"wood", wood_had)
+	_check(same.call(Quests._target("house_repair"), Quests._target("trees")), "no wood in the bag: the boards' dot points at the trees")
+	inv.add_item(&"wood", wood_had)
+	var stone_had := inv.count_item(&"stone")
+	inv.remove_item(&"stone", stone_had)
+	_check(same.call(Quests._target("quern"), Quests._target("rocks")), "short of stone for the millstone: the dot points at the rocks")
+	inv.add_item(&"stone", stone_had)
+	# The coop's care: the events of the feeder, the water trough and the nests.
+	money = Economy.money
+	Events.coop_fed.emit(null)
+	_check(Quests.current()["id"] == "coop_water" and Economy.money == money + int(Quests.TUTORIAL[Quests.index_of("feed")]["gold"]),
+			"feed in the coop's feeder completes the feeding goal (+%d gold)" % (Economy.money - money))
+	Events.coop_watered.emit(null)
+	_check(Quests.current()["id"] == "straw", "water in the coop's trough completes the watering goal")
+	Events.nest_filled.emit(null, 1)
+	Events.nest_filled.emit(null, 1)
+	_check(Quests.current()["id"] == "straw" and Quests.step_count == 1 and Game.hud._quest_count.text == "1/3",
+			"a nest with straw counts, the same nest filled again doesn't (%s)" % Game.hud._quest_count.text)
+	Events.nest_filled.emit(null, 2)
+	Events.nest_filled.emit(null, 3)
+	await _frames(2)
+	var mend := int(Quests.TUTORIAL[Quests.index_of("wood")]["chapter"])
+	_check(Quests.current()["id"] == "wood" and begun[0] == mend and Game.hud._quest_note.text.contains(Quests.chapter_note(mend)),
+			"three nests with straw end the coop's care: the mending opens with Grandpa's note")
+	# The mending: one tree's wood, counted from when the goal came up; then the house's boards.
+	Quests.tally["picked:wood"] = 20
 	Quests._catch_up()
-	_check(Quests.current()["id"] == "stone" and Quests.step_count == 3,
-			"stone picked up earlier counts as soon as the stone goal comes up (%d)" % Quests.step_count)
-	# The storing goal checks the warehouse.
-	begun[0] = -1
-	var store_step := Quests.index_of("store")
-	Quests.step = store_step
-	Quests.step_count = 0
-	Quests.tally = {}
-	FarmState.warehouse.add(&"wheat", 1)
+	_check(Quests.current()["id"] == "wood" and Quests.step_count == 0, "wood picked up before the goal came up doesn't count")
+	Events.item_picked_up.emit(&"wood", 2)
+	Events.item_picked_up.emit(&"stone", 2)
+	_check(Quests.current()["id"] == "wood" and Quests.step_count == 2, "picked-up wood counts toward the wood goal, stone doesn't")
+	Events.item_picked_up.emit(&"wood", 1)
+	_check(Quests.current()["id"] == "patch", "a tree's three logs complete it: on to the house's boards")
+	Events.wall_patched.emit(&"warehouse", 1, 6)
+	_check(Quests.current()["id"] == "patch" and Quests.step_count == 0, "boards renewed on the warehouse don't count toward the house")
+	for i in 3:
+		Events.wall_patched.emit(&"house", i + 1, 8)
+	await _frames(2)
+	_check(Quests.current()["id"] == "free" and begun[0] == Quests.DAY_TWO_CHAPTER and not Quests.first_day()
+			and Game.hud._quest_card.visible and not Game.hud._quest_count.visible
+			and Game.hud._quest_note.text.contains(Quests.chapter_note(Quests.DAY_TWO_CHAPTER)),
+			"three boards renewed end the first day's story: Grandpa's note lets the player go free")
+	Quests._wp_left = 0.0
+	await _idle_frames(2)
+	_check(Quests.waypoint() == null, "the free evening has no dot")
+	# Day two's stonework waits for the morning.
+	var day_was := GameClock.day
+	GameClock.day = 1
 	Quests._poll = 0.0
 	await _idle_frames(3)
-	_check(Quests.step == store_step + 1 and begun[0] == -1, "goods in the warehouse complete the storing goal")
-	FarmState.warehouse.take(&"wheat", 1)
-	# A chapter ends: the next begins with a line from Grandpa's notebook.
-	var hay_step := Quests.index_of("hay")
-	Quests.step = hay_step
+	_check(Quests.current()["id"] == "free", "on the first day the stonework waits for the next morning")
+	GameClock.day = maxi(day_was, 2)
+	Quests._nudge()
+	await _idle_frames(3)
+	var stonework := int(Quests.TUTORIAL[Quests.index_of("stone")]["chapter"])
+	_check(Quests.current()["id"] == "stone" and begun[0] == stonework and Game.hud._quest_note.text.contains(Quests.chapter_note(stonework)),
+			"the next morning the stonework opens with Grandpa's note")
+	GameClock.day = day_was
+	# A house repaired already passes the wood and the boards.
+	var house_built := FarmState.is_built(&"house_1")
+	FarmState.built[&"house_1"] = true
+	Quests.step = Quests.index_of("wood")
+	Quests.step_count = 0
+	for i in 6:
+		if Quests.passed("patch"):
+			break
+		Quests._poll = 0.0
+		await _idle_frames(2)
+	_check(Quests.passed("patch"), "a house repaired already passes the wood and the boards")
+	if not house_built:
+		FarmState.built.erase(&"house_1")
+	# The stonework: the millstone's stone, the millstone, the first flour.
+	Quests.step = Quests.index_of("stone")
+	Quests.step_count = 0
+	Quests.tally = {"picked:stone": 5}
+	Quests._catch_up()
+	_check(Quests.current()["id"] == "stone" and Quests.step_count == 5,
+			"stone picked up earlier counts as soon as the stone goal comes up (%d)" % Quests.step_count)
+	Events.item_picked_up.emit(&"stone", stone_need - 5)
+	_check(Quests.current()["id"] == "quern", "the millstone's stone moves on to making the millstone")
+	Events.crafted.emit(&"quern", 1)
+	_check(Quests.current()["id"] == "flour", "a millstone made at the workbench moves on to the flour")
+	inv.add_item(&"quern", 1)
+	Quests.step = Quests.index_of("stone")
 	Quests.step_count = 0
 	Quests.tally = {}
-	for i in 3:
-		Events.action_done.emit("cut", null)
-	await _frames(2)
-	var market_chapter := int(Quests.TUTORIAL[hay_step + 1]["chapter"])
-	_check(Quests.step == hay_step + 1 and begun[0] == market_chapter and Game.hud._quest_note.visible
-			and Game.hud._quest_note.text.contains(Quests.chapter_note(market_chapter)),
-			"cutting hay ends the yard chapter: the market chapter opens with Grandpa's note")
+	for i in 6:
+		if Quests.passed("quern"):
+			break
+		Quests._poll = 0.0
+		await _idle_frames(2)
+	_check(Quests.current()["id"] == "flour", "a millstone owned already passes the stone and the millstone")
+	inv.remove_item(&"quern", 1)
+	Events.product_made.emit(&"flour", 1)
+	_check(Quests.current()["id"] == "level_3", "the first flour ends the stonework: only the farm's milestones are left")
 	Quests.chapter_started.disconnect(on_chapter)
 	# Check goals of the later days: the next morning, the town, the pickup and its bed.
 	_check(Quests._check_progress("day:%d" % GameClock.day) == 1 and Quests._check_progress("day:%d" % (GameClock.day + 1)) == 0,
@@ -2565,38 +2983,48 @@ func _quests() -> void:
 	_check(Quests._check_progress("cargo") == 1, "goods in the bed count as a loaded pickup")
 	truck.cargo.take(&"wood", 1)
 
-	# Saves: the goal by id and the chain's format; older saves skip the first day.
+	# Saves: the goal by id and the chain's format; older saves skip the first day, chain 2
+	# saves go on at the nearest goal still here.
 	var saved := Quests.save_data()
 	var saved_orders: Array = saved["orders"]
 	_check(int(saved.get("chain", 0)) == Quests.CHAIN, "a save carries the chain's format")
 	var flags_now: Dictionary = FarmState.flags.duplicate(true)
 	Quests.load_data({"step": 5, "count": 0, "orders": saved_orders})
-	_check(Quests.current()["id"] == "load", "an index save on 'buy the pickup' goes on at loading Grandpa's pickup")
+	_check(Quests.current()["id"] == "quern", "an index save on 'buy the pickup' goes on at the millstone")
 	Quests.load_data({"step": 6, "count": 4, "orders": saved_orders})
-	_check(Quests.current()["id"] == "order" and int(Quests.tally.get("sold:", 0)) == 4 and int(Quests.tally.get("action:harvest", 0)) == 1,
+	_check(Quests.current()["id"] == "quern" and int(Quests.tally.get("sold:", 0)) == 4 and int(Quests.tally.get("action:harvest", 0)) == 1,
 			"an index save halfway through selling keeps its sales and harvest")
 	Quests.load_data({"step": 3, "count": 0, "orders": saved_orders})
-	_check(Quests.current()["id"] == "wood", "an index save waiting on the first harvest goes on in the yard")
+	_check(Quests.current()["id"] == "free", "an index save waiting on the first harvest goes on after the first day")
 	Quests.load_data({"step": 0, "count": 2, "orders": saved_orders})
-	_check(Quests.current()["id"] == "replant" and Quests.step_count == 0, "an index save at the very start skips the first day")
+	_check(Quests.current()["id"] == "free" and Quests.step_count == 0, "an index save at the very start skips the first day")
 	Quests.load_data({"step": 24, "count": 0, "orders": saved_orders})
 	_check(Quests.tutorial_done(), "an old save with the story done stays done")
 	Quests.load_data({"id": "till", "count": 2, "orders": saved_orders})
-	_check(Quests.current()["id"] == "replant" and not Quests.first_day(), "a save from before the first day's story on 'till' goes on in the yard")
+	_check(Quests.current()["id"] == "free" and not Quests.first_day(), "a save from before the first day's story on 'till' goes on after the first day")
 	Quests.load_data({"id": "sleep", "count": 0, "orders": saved_orders})
-	_check(Quests.current()["id"] == "flour", "an old save on the first night goes on at the flour")
+	_check(Quests.current()["id"] == "flour", "a save from before the first day's story on the first night goes on at the flour")
 	Quests.load_data({"id": "level_2", "count": 1, "orders": saved_orders})
-	_check(Quests.current()["id"] == "coop" and Quests.chapter() == Quests.CHAPTERS.find("home"),
-			"an old save waiting for level 2 goes on at the coop, in the home chapter")
-	Quests.load_data({"id": "hay", "count": 2, "orders": saved_orders})
-	_check(Quests.current()["id"] == "hay" and Quests.step_count == 2, "an old save on a goal this chain still has keeps it and its count")
+	_check(Quests.current()["id"] == "level_3" and Quests.chapter() == Quests.CHAPTERS.find("barn"),
+			"an old save waiting for level 2 goes on at level 3, in the barn chapter")
+	Quests.load_data({"id": "stone", "count": 7, "orders": saved_orders})
+	_check(Quests.current()["id"] == "stone" and Quests.step_count == 7, "an old save on a goal this chain still has keeps it and its count")
+	Quests.load_data({"chain": 2, "id": "sleep", "count": 0, "orders": saved_orders})
+	_check(Quests.current()["id"] == "feed" and Quests.first_day(), "a chain 2 save at bedtime goes on at the coop's care, still on the first day")
+	Quests.load_data({"chain": 2, "id": "hay", "count": 2, "orders": saved_orders})
+	_check(Quests.current()["id"] == "quern" and Quests.step_count == 0, "a chain 2 save on the yard's hay goes on at the millstone")
+	Quests.load_data({"chain": 2, "id": "eggs", "count": 1, "orders": saved_orders})
+	_check(Quests.current()["id"] == "level_3", "a chain 2 save on the old egg goal goes on at the farm's milestones")
+	Quests.load_data({"chain": 2, "id": "wood", "count": 12, "orders": saved_orders})
+	Quests._catch_up()
+	_check(Quests.current()["id"] == "patch", "a chain 2 save with more wood than this chain's goal asks passes it")
 	Quests.load_data({"chain": Quests.CHAIN, "id": "coop_built", "count": 0, "orders": saved_orders})
 	_check(Quests.current()["id"] == "coop_built", "a save of this chain on the first day stays on the first day")
 	_check(FarmState.flags == flags_now, "loading goals outside a real load leaves the farm's flags alone")
-	Quests.step = Quests.index_of("craft")
+	Quests.step = Quests.index_of("quern")
 	Quests.step_count = 0
 	Quests.load_data(Quests.save_data())
-	_check(Quests.current()["id"] == "craft", "a save keeps the goal by its id")
+	_check(Quests.current()["id"] == "quern", "a save keeps the goal by its id")
 	Quests.load_data(saved)
 	Quests.tally = {}
 	# Level, building and animal goals count up by themselves.
@@ -2613,12 +3041,6 @@ func _quests() -> void:
 	Quests._poll = 0.0
 	await _idle_frames(3)
 	_check(Quests.current()["id"] == "barn", "reaching level 3 moves on to building the barn")
-	var egg_step := Quests.index_of("eggs")
-	Quests.step = egg_step
-	Quests.step_count = 0
-	Events.item_picked_up.emit(&"egg", 2)
-	Events.item_picked_up.emit(&"wool", 1)
-	_check(Quests.step == egg_step and Quests.step_count == 2, "picked-up eggs count toward the egg goal, wool doesn't")
 	Progress.level = saved_level
 	# Seeds of crops the level hasn't opened yet can't be bought.
 	Progress.level = 1

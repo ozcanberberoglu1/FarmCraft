@@ -1,0 +1,17 @@
+# Nature models
+
+All from Poly Haven (CC0, public domain), fetched by `tools/fetch_models.py`. The
+game draws the simplified pieces `tools/bake_nature.gd` saves to `baked/` (re-run it
+after re-fetching); see `NatureModels.SCANS`.
+
+| Use | Model | Source |
+|---|---|---|
+| Breakable field rocks, forest-floor stones | Rock Moss Set 01 | https://polyhaven.com/a/rock_moss_set_01 |
+| Breakable field and quarry rocks, forest-floor stones | Rock Moss Set 02 | https://polyhaven.com/a/rock_moss_set_02 |
+| Breakable field and quarry rocks | Boulder 01 | https://polyhaven.com/a/boulder_01 |
+| Breakable quarry rocks | Rock 09 | https://polyhaven.com/a/rock_09 |
+| Ferns at the forest edges | Fern 02 | https://polyhaven.com/a/fern_02 |
+| Nettles at the forest edges | Nettle Plant | https://polyhaven.com/a/nettle_plant |
+| Fallen branches | Dry Branches Medium 01 | https://polyhaven.com/a/dry_branches_medium_01 |
+| Stumps in the woods | Tree Stump 01 | https://polyhaven.com/a/tree_stump_01 |
+| Fallen trunks in the woods | Dead Tree Trunk | https://polyhaven.com/a/dead_tree_trunk |

@@ -22,6 +22,8 @@ signal tool_impact(action_id: String, stroke: int, is_final: bool)
 
 ## Seconds between prompt rebuilds while the target stays the same (its state may change).
 const PROMPT_REFRESH := 0.1
+## Seconds an egg throw takes (wind-up, release, follow-through).
+const THROW_TIME := 0.55
 ## View punch spring (camera only; the aim ray sits on Head, so the target never moves):
 ## stiffness, damping (peaks ~70 ms after the hit, settled by ~0.4 s) and the impulse per
 ## degree (metre for the dip) of peak.
@@ -138,6 +140,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - dy, deg_to_rad(-88.0), deg_to_rad(88.0))
 		head.rotation.x = _pitch
 	elif event.is_action_pressed("interact"):
+		# Handled here: getting into a vehicle must not hand the same E press to it,
+		# which would read it as getting straight out again.
+		get_viewport().set_input_as_handled()
 		_interact()
 	elif event.is_action_pressed("animal_info"):
 		if target is Animal and not riding:
@@ -352,6 +357,10 @@ func _update_prompt() -> void:
 		var verb: String = target.interact_prompt(self)
 		if verb != "":
 			lines.append("%s (%s)" % [tr("KEY_E"), verb])
+	if target and is_instance_valid(target) and target.has_method("drop_prompt"):
+		var drop: String = target.drop_prompt()
+		if drop != "":
+			lines.append("Q (%s)" % drop)
 	if target and is_instance_valid(target) and target.has_method("info_prompt"):
 		var info: String = target.info_prompt()
 		if info != "":
@@ -406,7 +415,9 @@ func _update_action(delta: float) -> void:
 	if target and is_instance_valid(target) and target.has_method("use_action") and stack:
 		info = target.use_action(self, stack)
 	if info.is_empty():
-		if pressed_now and stack and not held.busy() and stack.item.category != "animal":
+		if pressed_now and stack and not held.busy() and stack.item.id == &"egg":
+			_throw_egg()
+		elif pressed_now and stack and not held.busy() and stack.item.category != "animal":
 			_swing_at_nothing(stack)
 		return
 	if info.get("wear", false) and stack.item.has_durability() and stack.durability <= 0:
@@ -452,6 +463,22 @@ func _swing_at_nothing(stack: ItemStack) -> void:
 	if p.get("whoosh", false) and impact > 0.0:
 		get_tree().create_timer(maxf(length * impact - ToolAnim.WHOOSH_LEAD, 0.0), false, true).timeout.connect(
 				func() -> void: Audio.swing(tool, camera.global_position - camera.global_basis.z * 0.6))
+
+
+## LMB with an egg in hand: it is thrown where the player looks and breaks where it lands.
+func _throw_egg() -> void:
+	held.play(&"throw", THROW_TIME, 1, false)
+	var release := THROW_TIME * float(ToolAnim.PROFILES[&"throw"]["release"])
+	get_tree().create_timer(release, false, true).timeout.connect(func() -> void:
+		var s := PlayerState.selected_stack()
+		if s == null or s.item.id != &"egg" or riding != null:
+			return
+		if PlayerState.inventory.take_from(PlayerState.selected, 1) == null:
+			return
+		var fwd := -camera.global_basis.z
+		var from := camera.global_position + fwd * 0.45 + camera.global_basis.x * 0.12 - camera.global_basis.y * 0.06
+		ThrownEgg.launch(from, fwd * 13.0 + Vector3.UP * 1.2, self)
+		Audio.play("swoosh", from, -14.0, 0.1, &"Effects", 5.0, 1.4))
 
 
 func _fire_cue(cue: Array) -> void:
@@ -584,6 +611,9 @@ func wear_tool(stack: ItemStack, amount := 1) -> void:
 func _drop_selected(whole_stack: bool) -> void:
 	var s := PlayerState.selected_stack()
 	if s == null:
+		return
+	# Somewhere that takes what is in hand (crates back into the warehouse bay).
+	if target and is_instance_valid(target) and target.has_method("drop_held") and target.drop_held():
 		return
 	drop_stack(PlayerState.inventory.take_from(PlayerState.selected, s.count if whole_stack else 1))
 

@@ -11,13 +11,23 @@ const VEHICLES := {
 		"desc_key": "VEHICLE_PICKUP_90_DESC",
 		"model": "res://art/models/vehicles/pickup_90/scene.gltf",
 		"price": 1800,
-		## vehicle_paint.gdshader parameters (the rest keep the shader's defaults).
-		"paint": {"paint": Color(0.07, 0.12, 0.26)},
+		## vehicle_paint.gdshader parameters (the rest keep the shader's defaults): a
+		## metallic navy under a deep clear coat, only road dust low down.
+		"paint": {"paint": Color(0.07, 0.12, 0.26), "metallic": 0.5, "roughness": 0.36, "clearcoat": 1.0,
+			"clearcoat_roughness": 0.035, "wear": 0.22},
+		## vehicle_trim.gdshader (bumpers, bull bar, underbody) and vehicle_wheel.gdshader.
+		"trim": {"wear": 0.25},
+		"wheel": {"wear": 0.08, "rubber": Color(0.14, 0.14, 0.14)},
+		## Number plate drawn over the model's own (tools/make_vehicle_plates.py).
+		"plate": "res://art/models/vehicles/plates/pickup_90.png",
+		## Windows (vehicle_glass.gdshader) and lamp lenses: clean, a trace of dust.
+		"glass": {"grime": 0.1, "panes": ["Windshield", "Glass_Rear", "Glass_Driver", "Glass_Passenger"],
+			"covers": ["Headlights_Glass", "Taillights_Glass"]},
 		"mass": 1450.0,
 		"engine_force": 4300.0,
 		"reverse_force": 2600.0,
 		"brake_force": 85.0,
-		"max_speed": 110.0,
+		"max_speed": 50.0,
 		"max_reverse": 22.0,
 		"steer_deg": 34.0,
 		## Per wheel. VehicleWheel3D scales spring and damper forces by the chassis
@@ -68,7 +78,7 @@ const VEHICLES := {
 		"engine_force": 3500.0,
 		"reverse_force": 2200.0,
 		"brake_force": 70.0,
-		"max_speed": 85.0,
+		"max_speed": 45.0,
 		"max_reverse": 18.0,
 		"steer_deg": 32.0,
 		"fuel_capacity": 40.0,
@@ -76,17 +86,23 @@ const VEHICLES := {
 		## Once sage green, now chalky where the sun hits it, rust through the sills and
 		## wheel arches, dust and grime streaks down the doors.
 		"paint": {"paint": Color(0.21, 0.31, 0.25), "fade": 0.62, "rust": 0.68, "streaks": 0.7, "wear": 0.9,
-			"roughness": 0.58, "metallic": 0.1, "clearcoat": 0.04, "dirt_color": Color(0.45, 0.38, 0.29)},
-		## Bumpers, bull bar, underbody and bed trim (UCB_BOTTOM): dull and rust-brown.
-		"trim_tint": Color(0.7, 0.56, 0.45),
-		"trim_metallic": 0.45,
+			"roughness": 0.52, "metallic": 0.08, "clearcoat": 0.25, "clearcoat_roughness": 0.22,
+			"dirt_color": Color(0.45, 0.38, 0.29)},
+		## Bumpers, bull bar, underbody and bed trim: hazy, pitted chrome and steel
+		## rusting from the lower edges. Steel wheels in old cream paint gone grey with
+		## brake dust, rust round the nuts; tyres faded with age, dust caked on the tread.
+		"trim": {"wear": 0.9, "rust": 0.55, "chrome_dull": 0.35, "tint": Color(0.92, 0.9, 0.86)},
+		"wheel": {"wear": 0.85, "rim_paint": 1.0, "rim_color": Color(0.58, 0.56, 0.5), "rust": 0.5,
+			"rubber": Color(0.18, 0.175, 0.17)},
 		## Windows (vehicle_glass.gdshader): a film of dust, thickest along the seals,
-		## wiped in two arcs on the windshield, which also carries a stone-chip crack on
-		## the passenger side (crack_at: pane fraction from the left edge and the bottom).
-		## Lamp covers go yellow and hazy.
-		"glass": {"grime": 0.62, "panes": ["Windshield", "Glass_Rear", "Glass_Driver", "Glass_Passenger"],
-			"wiped": "Windshield", "cracked": "Windshield", "crack_at": Vector2(0.7, 0.32),
-			"covers": ["Headlights_Glass", "Taillights_Glass"], "cover_tint": Color(0.93, 0.85, 0.66)},
+		## wiped in two arcs on the windshield, which also carries a stone chip low on
+		## the passenger side with a crack running up from it (crack_at: pane fraction
+		## from the left edge and the bottom). Lamp covers go yellow and hazy.
+		"glass": {"grime": 0.8, "clarity_loss": 0.3, "panes": ["Windshield", "Glass_Rear", "Glass_Driver", "Glass_Passenger"],
+			"wiped": "Windshield", "cracked": "Windshield", "crack_at": Vector2(0.8, 0.3),
+			"covers": ["Headlights_Glass", "Taillights_Glass"], "cover_tint": Color(0.93, 0.85, 0.66),
+			"cover_haze": 0.3},
+		"plate": "res://art/models/vehicles/plates/pickup_old.png",
 		## Old sealed-beam headlamps: warmer and weaker.
 		"lamp_color": Color(1.0, 0.84, 0.6),
 		"lamp_energy": 0.75,

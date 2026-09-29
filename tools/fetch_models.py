@@ -31,6 +31,35 @@ MODELS = {
     # Farm goods: milk can (milk) and a compost bag (fertilizer).
     "metal_jug": ("items", "1k"),
     "compost_bag_02": ("items", "1k"),
+    # Town of Yeşilova (realism pass): street furniture and clutter.
+    "water_manhole_cover": ("town", "1k"),
+    "utility_box_02": ("town", "1k"),
+    "barrel_03": ("town", "1k"),
+    "propane_tank": ("town", "1k"),
+    "old_tyre": ("town", "1k"),
+    "cement_bag": ("town", "1k"),
+    "plastic_monobloc_chair_01": ("town", "1k"),
+    "trashbag": ("town", "1k"),
+    "planter_pot_clay": ("town", "1k"),
+    # Nature: boulders for the breakable rocks and the scattered stones, forest-floor
+    # undergrowth (ferns, nettles, fallen branches, stumps, a fallen trunk).
+    "rock_moss_set_01": ("nature", "2k"),
+    "rock_moss_set_02": ("nature", "2k"),
+    "boulder_01": ("nature", "2k"),
+    "rock_09": ("nature", "1k"),
+    "fern_02": ("nature", "1k"),
+    "nettle_plant": ("nature", "1k"),
+    "dry_branches_medium_01": ("nature", "1k"),
+    "tree_stump_01": ("nature", "1k"),
+    "dead_tree_trunk": ("nature", "1k"),
+}
+
+
+# Maps the glTF leaves out (its leaf cards need their cut-out): asset -> [map key].
+# Saved as textures/<asset>_<key>_<res>.jpg beside the model's own textures.
+EXTRA_MAPS = {
+    "fern_02": ["Alpha"],
+    "nettle_plant": ["Alpha"],
 }
 
 
@@ -59,6 +88,9 @@ def main():
         total += download(entry["url"], os.path.join(folder, os.path.basename(entry["url"])))
         for rel, inc in entry.get("include", {}).items():
             total += download(inc["url"], os.path.join(folder, rel))
+        for key in EXTRA_MAPS.get(asset, []):
+            url = fetch_json(asset)[key][res]["jpg"]["url"]
+            total += download(url, os.path.join(folder, "textures", f"{asset}_{key.lower()}_{res}.jpg"))
         print(f"{asset}: ok")
     print(f"downloaded {total / 1e6:.1f} MB")
 

@@ -3,7 +3,8 @@ class_name FarmHouse
 extends Node3D
 ## The player's log house. A new farm finds Grandpa's house run down (level 0): grey
 ## rotting boards, holes in the walls and the roof, boarded windows, a crooked old
-## door. The construction board repairs it (level 1) and then it grows with upgrades
+## door. Nailing new boards over the holes in its walls (RepairSpot, wood in hand)
+## repairs it (level 1), and then it grows with the construction board's upgrades
 ## (levels 2-3): the east and front walls and the front door stay where they are while
 ## the house extends west and north. Level 2 adds a kitchen with a pantry, level 3 a
 ## separate bedroom. The node sits at the footprint center; the door faces +Z.
@@ -22,6 +23,8 @@ const EAVE := 0.55
 const GABLE_OVERHANG := 0.45
 
 const LOG := Color(0.5, 0.49, 0.48)
+## The repaired house's siding: a shade up on LOG, as its boards vary darker from it.
+const SIDING := Color(0.55, 0.535, 0.52)
 const LOG_DARK := Color(0.36, 0.33, 0.31)
 const TRIM := Color(0.92, 0.9, 0.86)
 const ROOF := Color(0.5, 0.48, 0.47)
@@ -117,10 +120,15 @@ var _ready_done := false
 var _lamp: OmniLight3D
 var _fire: OmniLight3D
 var _flicker := 0.0
+## The ruin's holes in the walls, the RepairSpots' places: [{xf, size}] (see _ruin_wall).
+var _spots: Array[Dictionary] = []
 ## The ruin's roof: slope angle, ridge height and slope length (set by _ruin_roof).
 var _theta := 0.0
 var _ridge_y := 0.0
 var _slab_len := 1.0
+## Small trim of the repaired house (sash bars, curtains, rafter tails, balusters,
+## downpipe brackets): its own mesh, drawn without shadows and only near by.
+var _detail: MeshBuilder
 
 
 func _ready() -> void:
@@ -137,6 +145,7 @@ func build() -> void:
 		remove_child(c)
 		c.queue_free()
 	_colliders.clear()
+	_spots.clear()
 	var rect := WorldLayout.house_rect(level)
 	W = rect.size.x
 	D = rect.size.y
@@ -151,6 +160,7 @@ func build() -> void:
 	# Small clutter of the ruin (cobwebs, dust, the lantern): casts no shadow and stays
 	# off visual layer 1, so the lamp and the rain map ignore it.
 	var clutter := MeshBuilder.new()
+	_detail = MeshBuilder.new()
 	_build_base(mb)
 	if level == 0:
 		var rng := RandomNumberGenerator.new()
@@ -178,8 +188,14 @@ func build() -> void:
 		cm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		cm.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		add_child(cm)
+	if not _detail.is_empty():
+		add_child(BuildingKit.detail_instance(_detail.build()))
+	_detail = null
 	_build_collision()
 	_place_furniture_nodes()
+	# The holes in the old walls are mended by hand, with wood (RepairSpot).
+	if level == 0 and not Engine.is_editor_hint():
+		RepairSpot.add_all(self, &"house", _spots, mi)
 
 	# The old house's hearth is cold.
 	_fire = null
@@ -556,11 +572,24 @@ func _desk(mb: MeshBuilder, worn: bool) -> void:
 ## Stone base (the floor's collision) and, once repaired, the plank floor. The ruin
 ## lays its own loose boards (_ruin_floor).
 func _build_base(mb: MeshBuilder) -> void:
-	if level == 0:
+	var old := level == 0
+	if old:
 		mb.box_at(&"stone_old", Vector3(0, 0.2, 0), Vector3(W + 0.4, 0.6, D + 0.4), STONE_OLD)
 	else:
-		mb.box_at(&"stone", Vector3(0, 0.2, 0), Vector3(W + 0.4, 0.6, D + 0.4), STONE)
+		mb.box_at(&"stone_ext", Vector3(0, 0.2, 0), Vector3(W + 0.4, 0.6, D + 0.4), STONE)
 		mb.box_at(&"floor", Vector3(0, FLOOR_Y - 0.03, 0), Vector3(W - 0.1, 0.06, D - 0.1), FLOOR)
+	# Mortared cap along the plinth's edge and the sill beam the walls stand on (its
+	# grain along it).
+	var cap_key: StringName = &"stone_old" if old else &"stone_ext"
+	var sill_key: StringName = &"wood_old" if old else &"wood_ext"
+	var sill_c := _shade(LOG_DARK, 0.95 if old else 0.85)
+	for sz: float in [-1.0, 1.0]:
+		mb.box_at(cap_key, Vector3(0, 0.515, sz * (D * 0.5 + 0.1)), Vector3(W + 0.44, 0.05, 0.24), _shade(STONE_OLD if old else STONE, 0.9))
+		mb.box_at(sill_key, Vector3(0, 0.555, sz * (D * 0.5 - 0.06)), Vector3(W + 0.04, 0.13, 0.16), sill_c, Vector3.ZERO, true)
+	for sx: float in [-1.0, 1.0]:
+		mb.box_at(cap_key, Vector3(sx * (W * 0.5 + 0.1), 0.515, 0), Vector3(0.24, 0.05, D), _shade(STONE_OLD if old else STONE, 0.9))
+		BuildingKit.beam(mb, sill_key, Vector3(sx * (W * 0.5 - 0.06), 0.555, -D * 0.5 + 0.05), Vector3(sx * (W * 0.5 - 0.06), 0.555, D * 0.5 - 0.05),
+				Vector2(0.13, 0.16), sill_c, true)
 	_add_collider(Vector3(0, (FLOOR_Y - 0.2) * 0.5, 0), Vector3(W + 0.4, FLOOR_Y + 0.2, D + 0.4))
 
 
@@ -583,8 +612,10 @@ func _build_walls(mb: MeshBuilder) -> void:
 	var hw := W * 0.5 - T * 0.5
 	var hd := D * 0.5 - T * 0.5
 	var window := {"w": 1.2, "bottom": 1.0, "top": 2.1}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = RUIN_SEED + 11 * level
 	# Back (north) wall, windows avoiding the chimney.
-	_wall_x(mb, -hd, _windows_along(W - 1.0, [fireplace_x]), -1)
+	_wall_x(mb, -hd, _windows_along(W - 1.0, [fireplace_x]), -1, rng)
 	# Front (south) wall: the doorway plus windows on either side.
 	var front: Array = [{"at": door_x, "w": 1.3, "bottom": 0.0, "top": 2.3}]
 	for wx: float in [door_x - 2.9, door_x + 2.9, door_x - 6.2]:
@@ -592,11 +623,11 @@ func _build_walls(mb: MeshBuilder) -> void:
 			front.append(_op(wx, window))
 	if level >= 3:
 		front.append(_op((partition_x - W * 0.5) * 0.5, window))
-	_wall_x(mb, hd, front, 1)
+	_wall_x(mb, hd, front, 1, rng)
 	# Side walls.
 	var side := [_op(0.0, window)] if D < 8.5 else [_op(-D * 0.22, window), _op(D * 0.22, window)]
-	_wall_z(mb, -hw, side, -1)
-	_wall_z(mb, hw, [_op(0.6, window)] if D < 8.5 else [_op(-D * 0.2, window)], 1)
+	_wall_z(mb, -hw, side, -1, rng)
+	_wall_z(mb, hw, [_op(0.6, window)] if D < 8.5 else [_op(-D * 0.2, window)], 1, rng)
 	# Bedroom partition with a doorway (level 3).
 	if level >= 3:
 		var from := -D * 0.5 + 0.15
@@ -607,12 +638,8 @@ func _build_walls(mb: MeshBuilder) -> void:
 			var s := Vector3(0.14, seg.w - seg.z, seg.y - seg.x)
 			mb.box_at(&"wood_in", c, s, LOG)
 			_add_collider(c, s)
-		_opening_trim(mb, Vector3(partition_x, 0, door["at"]), door, false, 1)
-	# Corner logs.
-	for sx: float in [-1.0, 1.0]:
-		for sz: float in [-1.0, 1.0]:
-			mb.box_at(&"wood", Vector3(sx * (W * 0.5 - 0.05), FLOOR_Y + WALL_H * 0.5, sz * (D * 0.5 - 0.05)),
-					Vector3(0.34, WALL_H + 0.1, 0.34), LOG_DARK, Vector3.ZERO, true)
+		_opening_trim(mb, Vector3(partition_x, 0, door["at"]), door, false, 1, 0.14)
+	_corner_boards(mb, &"paint_ext", TRIM)
 	# The door leaf is a node of its own (see _place_front_door): it swings.
 
 
@@ -623,29 +650,67 @@ func _op(at: float, template: Dictionary) -> Dictionary:
 
 
 ## Wall along X at z = `z`, spanning the full width. `outward` = sign of the outer face.
-func _wall_x(mb: MeshBuilder, z: float, openings: Array, outward: int) -> void:
+## Lap siding on a closed wall, lined inside with boards (the colliders are the wall's
+## plain stretches).
+func _wall_x(mb: MeshBuilder, z: float, openings: Array, outward: int, rng: RandomNumberGenerator) -> void:
 	var from := -W * 0.5 + 0.15
 	var to := W * 0.5 - 0.15
 	for seg in _wall_segments(from, to, openings):
-		var center := Vector3((seg.x + seg.y) * 0.5, FLOOR_Y + (seg.z + seg.w) * 0.5, z)
-		var size := Vector3(seg.y - seg.x, seg.w - seg.z, T)
-		mb.box_at(&"planks", center, size, LOG)
-		_add_collider(center, size)
+		_add_collider(Vector3((seg.x + seg.y) * 0.5, FLOOR_Y + (seg.z + seg.w) * 0.5, z), Vector3(seg.y - seg.x, seg.w - seg.z, T))
+	_siding(mb, true, z, openings, outward, rng)
 	for o in openings:
 		_opening_trim(mb, Vector3(o["at"], 0, z), o, true, outward)
 
 
 ## Wall along Z at x = `x`.
-func _wall_z(mb: MeshBuilder, x: float, openings: Array, outward: int) -> void:
+func _wall_z(mb: MeshBuilder, x: float, openings: Array, outward: int, rng: RandomNumberGenerator) -> void:
 	var from := -D * 0.5 + 0.15
 	var to := D * 0.5 - 0.15
 	for seg in _wall_segments(from, to, openings):
-		var center := Vector3(x, FLOOR_Y + (seg.z + seg.w) * 0.5, (seg.x + seg.y) * 0.5)
-		var size := Vector3(T, seg.w - seg.z, seg.y - seg.x)
-		mb.box_at(&"planks", center, size, LOG)
-		_add_collider(center, size)
+		_add_collider(Vector3(x, FLOOR_Y + (seg.z + seg.w) * 0.5, (seg.x + seg.y) * 0.5), Vector3(T, seg.w - seg.z, seg.y - seg.x))
+	_siding(mb, false, x, openings, outward, rng)
 	for o in openings:
 		_opening_trim(mb, Vector3(x, 0, o["at"]), o, false, outward)
+
+
+## A house wall's ends and openings as BuildingKit.board_wall() takes them: along X at
+## z = `fixed` or along Z at x = `fixed`, outer face toward `outward`. Returns [a, b,
+## openings with "at" measured from a].
+func _board_wall_frame(along_x: bool, fixed: float, openings: Array, outward: int) -> Array:
+	var span := (W if along_x else D) * 0.5 - 0.15
+	# BuildingKit walls face basis.z of the direction a -> b: +X walls run east to face
+	# south, Z walls run north to face east.
+	var forward := outward > 0 if along_x else outward < 0
+	var from := -span if forward else span
+	var a := Vector2(from, fixed) if along_x else Vector2(fixed, from)
+	var b := Vector2(-from, fixed) if along_x else Vector2(fixed, -from)
+	var ops := []
+	for o: Dictionary in openings:
+		var k := o.duplicate()
+		k["at"] = absf(float(o["at"]) - from)
+		ops.append(k)
+	return [a, b, ops]
+
+
+## The repaired house's lap siding over a closed wall lined with boards inside.
+func _siding(mb: MeshBuilder, along_x: bool, fixed: float, openings: Array, outward: int, rng: RandomNumberGenerator) -> void:
+	var f := _board_wall_frame(along_x, fixed, openings, outward)
+	BuildingKit.board_wall(mb, [], f[0], f[1], FLOOR_Y, WALL_H, T, &"planks_ext", SIDING, f[2], rng, 0.0, &"wood_in", 0.6, true)
+
+
+## Corner boards over the siding's ends (and a post filling the corner behind them),
+## their grain running up them (`key` is a rough_wood key).
+func _corner_boards(mb: MeshBuilder, key: StringName, color: Color, rng: RandomNumberGenerator = null) -> void:
+	for sx: float in [-1.0, 1.0]:
+		for sz: float in [-1.0, 1.0]:
+			var c := _shade(color, rng.randf_range(0.88, 1.05)) if rng else color
+			var y := FLOOR_Y + WALL_H * 0.5 - 0.03
+			var h := WALL_H + 0.06
+			mb.box_at(&"wood_in", Vector3(sx * (W * 0.5 - 0.08), y, sz * (D * 0.5 - 0.08)), Vector3(0.16, h, 0.16), LOG_DARK)
+			BuildingKit.plank(mb, key, Transform3D(Basis(), Vector3(sx * (W * 0.5 - 0.0525), y, sz * (D * 0.5 + 0.028))),
+					Vector3(0.195, h, 0.034), c, Vector2(0.3 + sx * 0.2 + sz * 0.45, 0.0))
+			BuildingKit.plank(mb, key, Transform3D(Basis(), Vector3(sx * (W * 0.5 + 0.028), y, sz * (D * 0.5 - 0.0695))),
+					Vector3(0.034, h, 0.161), c, Vector2(0.9 + sx * 0.2 + sz * 0.45, 0.4))
 
 
 ## Splits a wall span into solid boxes around openings.
@@ -670,74 +735,147 @@ func _wall_segments(from: float, to: float, openings: Array) -> Array[Vector4]:
 	return result
 
 
-## Frames around a window or door; windows also get glass and a cross mullion.
-func _opening_trim(mb: MeshBuilder, center: Vector3, o: Dictionary, along_x: bool, outward: int) -> void:
+## Trim of a window or doorway in a repaired wall `thick` deep: casings on both faces,
+## linings through the wall and, for a window, a sill with its apron, a drip cap over
+## the head, a stool inside, a double-hung sash (the upper one a little further out)
+## with its panes, and curtains drawn back inside. A doorway gets a threshold.
+func _opening_trim(mb: MeshBuilder, center: Vector3, o: Dictionary, along_x: bool, outward: int, thick := T) -> void:
 	var w: float = o["w"]
 	var bottom: float = o["bottom"]
 	var top: float = o["top"]
-	var fw := 0.1
-	var depth := T + 0.08
-	var mid_y := FLOOR_Y + (bottom + top) * 0.5
-	var h := top - bottom
-	var pieces: Array[Array] = [
-		[Vector3(-w * 0.5 - fw * 0.5, mid_y, 0), Vector3(fw, h + fw * 2.0, depth)],
-		[Vector3(w * 0.5 + fw * 0.5, mid_y, 0), Vector3(fw, h + fw * 2.0, depth)],
-		[Vector3(0, FLOOR_Y + top + fw * 0.5, 0), Vector3(w + fw * 2.0, fw, depth)],
-	]
 	var is_window := bottom > 0.01
+	var y0 := FLOOR_Y + bottom
+	var y1 := FLOOR_Y + top
+	var h := top - bottom
+	var cw := 0.1
+	var ct := 0.028
+	var paint := _shade(TRIM, 0.97)
+	var o_sign := float(outward)
+	var pieces: Array[Array] = []
+	# Casings, outside and in, standing proud of the siding / lining.
+	var foot := y0 if is_window else FLOOR_Y
+	for face: float in [1.0, -1.0]:
+		var z := o_sign * face * (thick * 0.5 + 0.012 + ct * 0.5)
+		for sx: float in [-1.0, 1.0]:
+			pieces.append([Vector3(sx * (w * 0.5 + cw * 0.5), (foot + y1 + cw) * 0.5, z), Vector3(cw, y1 + cw - foot, ct)])
+		pieces.append([Vector3(0, y1 + cw * 0.5, z), Vector3(w + cw * 2.0, cw, ct)])
+	# Linings through the wall.
+	for sx: float in [-1.0, 1.0]:
+		pieces.append([Vector3(sx * (w * 0.5 - 0.012), (y0 + y1) * 0.5, 0), Vector3(0.024, h, thick + 0.02)])
+	pieces.append([Vector3(0, y1 - 0.012, 0), Vector3(w, 0.024, thick + 0.02)])
 	if is_window:
-		pieces.append([Vector3(0, FLOOR_Y + bottom - fw * 0.5, outward * 0.06), Vector3(w + fw * 3.0, fw, depth + 0.12)])
-		pieces.append([Vector3(0, mid_y, 0), Vector3(0.05, h, 0.06)])
-		pieces.append([Vector3(0, mid_y, 0), Vector3(w, 0.05, 0.06)])
+		pieces.append([Vector3(0, y0 + 0.012, 0), Vector3(w, 0.024, thick + 0.02)])
+		# Sill with its nose out over the siding, the apron under it, the drip cap, the stool.
+		pieces.append([Vector3(0, y0 - 0.02, o_sign * (thick * 0.5 + 0.055)), Vector3(w + cw * 2.0 + 0.1, 0.045, 0.17)])
+		pieces.append([Vector3(0, y0 - 0.085, o_sign * (thick * 0.5 + 0.025)), Vector3(w + cw * 2.0, 0.09, 0.026)])
+		pieces.append([Vector3(0, y1 + cw + 0.018, o_sign * (thick * 0.5 + 0.04)), Vector3(w + cw * 2.0 + 0.06, 0.036, 0.07)])
+		pieces.append([Vector3(0, y0 - 0.012, -o_sign * (thick * 0.5 + 0.04)), Vector3(w + cw * 2.0 + 0.06, 0.03, 0.1)])
+	else:
+		pieces.append([Vector3(0, FLOOR_Y + 0.006, 0), Vector3(w, 0.012, thick + 0.06)])
 	for p in pieces:
-		_trim_box(mb, &"paint", center, p[0], p[1], along_x, TRIM)
-	if is_window:
-		var glass_size := Vector3(w, h, 0.02) if along_x else Vector3(0.02, h, w)
-		mb.box_at(&"glass", center + Vector3(0, mid_y, 0), glass_size, Color.WHITE)
+		_trim_box(mb, &"paint_ext", center, p[0], p[1], along_x, paint)
+	if not is_window:
+		return
+	# Double-hung sash: the upper one 4 cm further out, meeting at a rail in the middle.
+	var mid := (y0 + y1) * 0.5
+	var inner_w := w - 0.048
+	for upper: bool in [false, true]:
+		var z := o_sign * (0.022 if upper else -0.022)
+		var s0 := mid - 0.012 if upper else y0 + 0.024
+		var s1 := y1 - 0.024 if upper else mid + 0.012
+		var sc := _shade(TRIM, 0.9)
+		var frame: Array[Array] = [
+			[Vector3(-inner_w * 0.5 + 0.025, (s0 + s1) * 0.5, z), Vector3(0.05, s1 - s0, 0.04)],
+			[Vector3(inner_w * 0.5 - 0.025, (s0 + s1) * 0.5, z), Vector3(0.05, s1 - s0, 0.04)],
+			[Vector3(0, s1 - 0.03, z), Vector3(inner_w, 0.06 if upper else 0.035, 0.04)],
+			[Vector3(0, s0 + 0.035, z), Vector3(inner_w, 0.035 if upper else 0.07, 0.04)],
+			[Vector3(0, (s0 + s1) * 0.5, z), Vector3(0.022, s1 - s0, 0.03)],
+		]
+		for i in frame.size():
+			# The middle glazing bar is detail.
+			_trim_box(_detail if i == 4 else mb, &"paint_ext", center, frame[i][0], frame[i][1], along_x, sc)
+		var gy := (s0 + s1) * 0.5 + (0.0125 if upper else 0.0175)
+		_trim_box(mb, &"window_glass", center, Vector3(0, gy, z), Vector3(inner_w - 0.09, s1 - s0 - 0.095, 0.006), along_x, Color.WHITE)
+	# Linen curtains drawn back on a rod inside, three folds each.
+	var cz := -o_sign * (thick * 0.5 + 0.075)
+	var linen := Color(0.74, 0.68, 0.58)
+	_trim_box(_detail, &"wood_in", center, Vector3(0, y1 + 0.16, cz), Vector3(w + 0.46, 0.022, 0.022), along_x, Color(0.3, 0.26, 0.22))
+	for sx: float in [-1.0, 1.0]:
+		for k in 3:
+			var fx := sx * (w * 0.5 + 0.1 - k * 0.085)
+			var fz := cz + o_sign * (0.018 if k % 2 == 0 else -0.012)
+			_trim_box(_detail, &"cloth", center, Vector3(fx, (y0 - 0.12 + y1 + 0.15) * 0.5, fz), Vector3(0.1, y1 - y0 + 0.27, 0.012),
+					along_x, _shade(linen, 0.93 + 0.05 * k))
 
 
-## One trim piece given along an X wall; walls along Z get it turned a quarter.
+## One trim piece given along an X wall; walls along Z get it turned a quarter. The
+## rough_wood grain runs along a piece that lies along the wall (wider than tall).
 func _trim_box(mb: MeshBuilder, key: StringName, center: Vector3, local_pos: Vector3, size: Vector3, along_x: bool,
 		color: Color) -> void:
+	var lying := size.x > size.y
 	if along_x:
-		mb.box_at(key, center + local_pos, size, color)
+		mb.box_at(key, center + local_pos, size, color, Vector3.ZERO, lying)
 	else:
-		mb.box_at(key, center + Vector3(local_pos.z, local_pos.y, local_pos.x), Vector3(size.z, size.y, size.x), color)
+		mb.box(key, Transform3D(Basis(Vector3.UP, PI * 0.5), center + Vector3(local_pos.z, local_pos.y, local_pos.x)), size, color, lying)
 
 
+## The repaired roof: tiles laid in courses over a board deck on exposed rafter tails,
+## painted fascia and barge boards, half-round ridge tiles, gutters with a downpipe at
+## the east end in front and the west end at the back; lap-sided gables over the
+## gable walls; a stone chimney up the back wall with a cap and a clay pot.
 func _build_roof(mb: MeshBuilder) -> void:
 	var wall_top := FLOOR_Y + WALL_H
 	var ridge_y := wall_top + RISE
 	var theta := atan2(RISE, D * 0.5)
 	var run := D * 0.5 + EAVE
 	var slab_len := run / cos(theta)
-	var thickness := 0.16
+	var deck := 0.12
 	var length_x := W + GABLE_OVERHANG * 2.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 610 + level
+	# The deck's top passes over the ridge so that its underside meets the walls' tops.
+	var apex := Vector3(0, ridge_y + deck / cos(theta), 0)
 	for side: float in [1.0, -1.0]:
-		var basis := Basis(Vector3.RIGHT, theta * side)
-		var normal := basis.y
-		var center := Vector3(0, ridge_y - tan(theta) * run * 0.5, side * run * 0.5) + normal * thickness * 0.5
-		# The photo's tiles lap toward +V: turn the front slab so V runs down its slope too.
-		var tiles := basis * Basis(Vector3.UP, PI) if side > 0.0 else basis
-		mb.box(&"roof", Transform3D(tiles, center), Vector3(length_x, thickness, slab_len), ROOF)
-		# Board ceiling under the tiles (seen from inside and under the eaves).
-		var plane := Vector3(0, ridge_y - tan(theta) * run * 0.5, side * run * 0.5)
-		mb.box(&"wood_in", Transform3D(basis, plane - normal * 0.013), Vector3(length_x - 0.02, 0.02, slab_len - 0.02), LOG, true)
-		var eave_pos := Vector3(0, ridge_y - tan(theta) * run, side * run)
-		mb.box(&"wood", Transform3D(basis, eave_pos + normal * 0.02), Vector3(length_x + 0.02, 0.22, 0.06), LOG_DARK)
+		var frame := BuildingKit.slope_frame(apex, theta, side)
+		var edge := BuildingKit.roof_trim(mb, frame, length_x, 0.0, slab_len, D * 0.5 / cos(theta), &"paint_ext", TRIM,
+				&"wood_in", LOG, deck, -1.0, _detail)
+		BuildingKit.roof_courses(mb, &"roof", frame, length_x + 0.06, 0.0, slab_len + 0.06, ROOF, rng)
+		var out := Vector3(0, 0, side)
+		var g := edge + out * 0.075 + Vector3(0, -0.035, 0)
+		BuildingKit.gutter(mb, g - Vector3(length_x * 0.5 - 0.02, 0, 0), g + Vector3(length_x * 0.5 - 0.02, 0, 0), out)
+		var px := (W * 0.5 - 0.32) * side
+		var wall := Vector3(px, 0, side * (D * 0.5 + 0.012))
+		# Down to the plinth, out over it (it stands 0.21 proud of the siding), on to the ground.
+		BuildingKit.downpipe(mb, Vector3(px, g.y - 0.05, g.z), wall, out, _ground(px, side * (D * 0.5 + 0.35)), BuildingKit.GALV,
+				0.07, 0.78, 0.21)
+		# Frieze board along the wall's top, under the rafter tails.
+		mb.box_at(&"paint_ext", Vector3(0, wall_top - 0.08, side * (D * 0.5 + 0.026)), Vector3(W + 0.04, 0.16, 0.03), TRIM, Vector3.ZERO, true)
+	BuildingKit.ridge_tiles(mb, &"roof", apex + Vector3(-length_x * 0.5 - 0.02, 0.045, 0), apex + Vector3(length_x * 0.5 + 0.02, 0.045, 0),
+			_shade(ROOF, 0.95), rng)
 	for sx: float in [-1.0, 1.0]:
 		var xf := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(sx * (W * 0.5 - T * 0.5), wall_top, 0))
-		mb.prism(&"planks", xf, D, RISE, T, LOG, false)
-	mb.box_at(&"wood", Vector3(0, ridge_y + 0.1, 0), Vector3(length_x + 0.1, 0.2, 0.26), LOG_DARK)
+		mb.prism(&"planks_ext", xf, D, RISE, T, LOG, false)
+		var gable := Transform3D(Basis(Vector3(0, 0, -sx), Vector3.UP, Vector3(sx, 0, 0)), Vector3(sx * W * 0.5, wall_top, 0))
+		BuildingKit.gable_siding(mb, &"planks_ext", gable, D, RISE, SIDING, rng)
+		# A belt board where the gable meets the wall.
+		mb.box(&"paint_ext", Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(sx * (W * 0.5 + 0.026), wall_top, 0)), Vector3(D + 0.02, 0.14, 0.03),
+				TRIM, true)
+	# Tie beams inside, the grain along them. (No ridge beam: tucked up under the ridge,
+	# global illumination leaks the sky onto it through the thin roof.)
 	var beams := maxi(2, int(W / 3.0))
 	for i in beams:
 		var bx := -W * 0.5 + W * (i + 0.5) / beams
-		mb.box_at(&"wood_in", Vector3(bx, wall_top - 0.1, 0), Vector3(0.18, 0.2, D - 0.2), LOG_DARK)
+		BuildingKit.beam(mb, &"wood_in", Vector3(bx, wall_top - 0.1, -D * 0.5 + 0.1), Vector3(bx, wall_top - 0.1, D * 0.5 - 0.1), Vector2(0.2, 0.18),
+				LOG_DARK, true, 0.0, Vector2(i * 0.43, i * 0.71))
 	# Stone chimney: outside stack up the back wall past the ridge, inside flue.
 	var chimney_top := ridge_y + 0.9
 	var outside_z := -D * 0.5 - 0.12
-	mb.box_at(&"stone", Vector3(fireplace_x, chimney_top * 0.5, outside_z), Vector3(0.95, chimney_top, 0.62), STONE)
-	mb.box_at(&"stone", Vector3(fireplace_x, chimney_top + 0.05, outside_z), Vector3(1.1, 0.12, 0.76), STONE.darkened(0.15))
+	mb.box_at(&"stone_ext", Vector3(fireplace_x, chimney_top * 0.5, outside_z), Vector3(0.95, chimney_top, 0.62), STONE)
+	mb.box_at(&"stone_ext", Vector3(fireplace_x, chimney_top + 0.05, outside_z), Vector3(1.1, 0.12, 0.76), STONE.darkened(0.15))
+	var pot := Transform3D(Basis(), Vector3(fireplace_x + 0.12, chimney_top + 0.11, outside_z))
+	mb.cylinder(&"clay", pot, 0.13, 0.11, 0.34, 10, Color(0.56, 0.35, 0.26))
+	mb.ring(&"clay", pot * Transform3D(Basis(), Vector3(0, 0.34, 0)), 0.13, 0.09, 0.04, 10, Color(0.5, 0.32, 0.24))
+	mb.disc(&"paint_in", pot * Transform3D(Basis(), Vector3(0, 0.3, 0)), 0.1, 10, Color(0.05, 0.045, 0.04))
 	_add_collider(Vector3(fireplace_x, 1.5, outside_z), Vector3(0.95, 3.0, 0.62))
 	_build_flue(mb, ridge_y, theta)
 
@@ -781,27 +919,77 @@ func _porch_colliders(front: float, depth: float, width: float, px: float) -> vo
 		_add_collider(Vector3(x, FLOOR_Y + 0.5, front + depth * 0.5 - 0.1), Vector3(0.1, 1.0, depth - 0.2))
 
 
+## The repaired porch: a deck of boards on a stone footing with rim joists round it,
+## box steps of treads and risers, posts on base blocks under a header beam with knee
+## braces, side railings with balusters, and a tiled lean-to roof on exposed rafters.
 func _build_porch(mb: MeshBuilder) -> void:
 	var front := D * 0.5
 	var depth := 1.8
 	var width := _porch_width()
 	var px := door_x
 	_porch_colliders(front, depth, width, px)
-	mb.box_at(&"stone", Vector3(px, (FLOOR_Y - 0.16) * 0.5, front + depth * 0.5), Vector3(width, FLOOR_Y - 0.16, depth), STONE)
-	mb.box_at(&"floor", Vector3(px, FLOOR_Y - 0.08, front + depth * 0.5), Vector3(width, 0.16, depth), FLOOR)
-	mb.box_at(&"wood", Vector3(px, 0.19, front + depth + 0.19), Vector3(1.8, 0.38, 0.38), Color(0.46, 0.44, 0.42))
-	mb.box_at(&"wood", Vector3(px, 0.095, front + depth + 0.57), Vector3(1.8, 0.19, 0.38), Color(0.44, 0.42, 0.4))
-	# Turned half round so the tiles' V runs down the slope (see _build_roof).
-	var awning_basis := Basis(Vector3.RIGHT, atan2(0.5, depth)) * Basis(Vector3.UP, PI)
-	mb.box(&"roof", Transform3D(awning_basis, _awning_center(front, depth)), Vector3(width + 0.4, 0.12, depth + 0.5), ROOF)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77 + level
+	var dark := LOG_DARK
+	mb.box_at(&"stone_ext", Vector3(px, (FLOOR_Y - 0.2) * 0.5, front + depth * 0.5 - 0.03), Vector3(width - 0.1, FLOOR_Y - 0.2, depth - 0.1), STONE)
+	# Rim joists, the grain along them.
+	mb.box_at(&"wood_ext", Vector3(px, FLOOR_Y - 0.13, front + depth - 0.02), Vector3(width, 0.2, 0.04), dark, Vector3.ZERO, true)
 	for sx: float in [-1.0, 1.0]:
-		var p := Vector3(px + sx * (width * 0.5 - 0.15), 0, front + depth - 0.15)
-		var post_h := _post_top(front, depth, p.z) - FLOOR_Y
-		mb.box_at(&"wood", p + Vector3(0, FLOOR_Y + post_h * 0.5, 0), Vector3(0.16, post_h, 0.16), LOG_DARK, Vector3.ZERO, true)
+		var rx := px + sx * (width * 0.5 - 0.02)
+		BuildingKit.beam(mb, &"wood_ext", Vector3(rx, FLOOR_Y - 0.13, front), Vector3(rx, FLOOR_Y - 0.13, front + depth), Vector2(0.2, 0.04),
+				dark, true)
+	# Deck boards running out from the house.
+	var count := int(width / 0.14)
+	var bw := width / count
+	for k in count:
+		var bx := px - width * 0.5 + (k + 0.5) * bw
+		BuildingKit.plank(mb, &"floor", Transform3D(Basis(), Vector3(bx, FLOOR_Y - 0.02, front + depth * 0.5 + 0.01)),
+				Vector3(bw - 0.008, 0.04, depth + 0.02), _shade(FLOOR, rng.randf_range(0.86, 1.06)),
+				Vector2(rng.randf() * 1.8, rng.randf() * 1.8), true)
+	# Two box steps: treads with a nose over the risers, closed at the sides.
+	for st: Array in [[0.38, 0.0], [0.19, 0.38]]:
+		var top: float = st[0]
+		var z0: float = front + depth + float(st[1])
+		BuildingKit.plank(mb, &"floor", Transform3D(Basis(), Vector3(px, top - 0.02, z0 + 0.21)), Vector3(1.84, 0.04, 0.42),
+				_shade(FLOOR, rng.randf_range(0.9, 1.05)), Vector2(rng.randf(), rng.randf()), false)
+		mb.box_at(&"wood_ext", Vector3(px, (top - 0.04) * 0.5, z0 + 0.38), Vector3(1.76, top - 0.04, 0.025), dark, Vector3.ZERO, true)
+		for sx: float in [-1.0, 1.0]:
+			BuildingKit.beam(mb, &"wood_ext", Vector3(px + sx * 0.88, (top - 0.04) * 0.5, z0 - 0.01), Vector3(px + sx * 0.88, (top - 0.04) * 0.5, z0 + 0.39),
+					Vector2(top - 0.04, 0.04), dark, true)
+	# Posts on base blocks, a header beam over them with knee braces.
+	var post_z := front + depth - 0.15
+	var beam_top := _post_top(front, depth, post_z)
+	var beam_h := 0.16
+	for sx: float in [-1.0, 1.0]:
+		var p := Vector3(px + sx * (width * 0.5 - 0.15), 0, post_z)
+		var h := beam_top - beam_h - FLOOR_Y
+		mb.box_at(&"wood_ext", p + Vector3(0, FLOOR_Y + h * 0.5, 0), Vector3(0.14, h, 0.14), dark)
+		mb.box_at(&"wood_ext", p + Vector3(0, FLOOR_Y + 0.04, 0), Vector3(0.2, 0.08, 0.2), _shade(dark, 0.9))
+		mb.box_at(&"wood_ext", p + Vector3(0, beam_top - beam_h - 0.025, 0), Vector3(0.19, 0.05, 0.19), _shade(dark, 0.9))
+		BuildingKit.beam(mb, &"wood_ext", p + Vector3(-sx * 0.05, beam_top - beam_h - 0.5, 0), p + Vector3(-sx * 0.5, beam_top - beam_h - 0.03, 0),
+				Vector2(0.09, 0.07), dark, true)
+	mb.box_at(&"wood_ext", Vector3(px, beam_top - beam_h * 0.5, post_z), Vector3(width + 0.1, beam_h, 0.14), dark, Vector3.ZERO, true)
+	# Side railings: top and bottom rail, balusters between.
 	for sx: float in [-1.0, 1.0]:
 		var x := px + sx * (width * 0.5 - 0.08)
-		mb.box_at(&"wood", Vector3(x, FLOOR_Y + 0.85, front + depth * 0.5 - 0.1), Vector3(0.08, 0.08, depth - 0.2), LOG_DARK)
-		mb.box_at(&"wood", Vector3(x, FLOOR_Y + 0.45, front + depth * 0.5 - 0.1), Vector3(0.06, 0.06, depth - 0.2), LOG_DARK)
+		var z0 := front + 0.02
+		var z1 := post_z - 0.07
+		BuildingKit.beam(mb, &"wood_ext", Vector3(x, FLOOR_Y + 0.93, z0), Vector3(x, FLOOR_Y + 0.93, z1), Vector2(0.05, 0.09), dark, true)
+		BuildingKit.beam(mb, &"wood_ext", Vector3(x, FLOOR_Y + 0.12, z0), Vector3(x, FLOOR_Y + 0.12, z1), Vector2(0.05, 0.06), dark, true)
+		var n := int((z1 - z0) / 0.13)
+		for k in range(1, n):
+			BuildingKit.plank(_detail, &"wood_in", Transform3D(Basis(), Vector3(x, FLOOR_Y + 0.525, z0 + (z1 - z0) * k / n)), Vector3(0.035, 0.76, 0.035),
+					_shade(dark, 1.08), Vector2(k * 0.31, k * 0.57))
+	# The lean-to roof: its deck's top where the old slab's was.
+	var theta := atan2(0.5, depth)
+	var ad := depth + 0.5
+	var aw := width + 0.4
+	var back_top := _awning_center(front, depth) + Basis(Vector3.RIGHT, theta) * Vector3(0, 0.06, -ad * 0.5)
+	var frame := BuildingKit.slope_frame(back_top, theta, 1.0)
+	BuildingKit.roof_trim(mb, frame, aw, 0.0, ad, 0.2, &"paint_ext", TRIM, &"wood_in", LOG, 0.12, -1.0, _detail)
+	BuildingKit.roof_courses(mb, &"roof", frame, aw + 0.06, 0.0, ad + 0.06, ROOF, rng)
+	# Flashing board where it meets the wall.
+	mb.box_at(&"paint_ext", Vector3(back_top.x, back_top.y + 0.07, front + 0.016), Vector3(aw, 0.14, 0.03), TRIM, Vector3.ZERO, true)
 
 
 ## The hearth; a cold one (the ruin's) has grey ash and charred logs instead of a fire.
@@ -968,13 +1156,14 @@ func _ground(x: float, z: float) -> float:
 	return TerrainData.height(position.x + x, position.z + z) - position.y
 
 
+## A hole broken through an old wall: a RepairSpot's place.
 func _hole_op(at: float, w: float, bottom: float, top: float) -> Dictionary:
-	return {"at": at, "w": w, "bottom": bottom, "top": top, "hole": true}
+	return {"at": at, "w": w, "bottom": bottom, "top": top, "hole": true, "spot": true}
 
 
-## The level-1 walls gone to ruin: board walls with the same openings, three holes
-## broken through, peeling trim and boarded front windows (the old door is a node of
-## its own, see _place_front_door).
+## The level-1 walls gone to ruin: board walls with the same openings, eight holes
+## broken through (two a wall, each a RepairSpot), peeling trim and boarded front
+## windows (the old door is a node of its own, see _place_front_door).
 func _ruin_walls(mb: MeshBuilder, rng: RandomNumberGenerator) -> void:
 	var hw := W * 0.5 - T * 0.5
 	var hd := D * 0.5 - T * 0.5
@@ -985,10 +1174,10 @@ func _ruin_walls(mb: MeshBuilder, rng: RandomNumberGenerator) -> void:
 		front.append(_op(wx, window))
 	var west := [_op(0.0, window)]
 	var east := [_op(0.6, window)]
-	_ruin_wall(mb, true, -hd, back + [_hole_op(0.8, 0.75, 1.8, 2.55)], -1, rng)
-	_ruin_wall(mb, true, hd, front + [_hole_op(door_x - 1.45, 0.55, 0.25, 0.85)], 1, rng)
-	_ruin_wall(mb, false, -hw, west + [_hole_op(-2.3, 0.8, 1.5, 2.3)], -1, rng)
-	_ruin_wall(mb, false, hw, east, 1, rng)
+	_ruin_wall(mb, true, -hd, back + [_hole_op(0.8, 0.75, 1.8, 2.55), _hole_op(-3.5, 0.6, 0.35, 1.05)], -1, rng)
+	_ruin_wall(mb, true, hd, front + [_hole_op(door_x - 1.45, 0.55, 0.25, 0.85), _hole_op(door_x + 1.55, 0.6, 1.25, 1.95)], 1, rng)
+	_ruin_wall(mb, false, -hw, west + [_hole_op(-2.3, 0.8, 1.5, 2.3), _hole_op(1.9, 0.7, 0.3, 1.0)], -1, rng)
+	_ruin_wall(mb, false, hw, east + [_hole_op(-2.0, 0.8, 0.5, 1.3), _hole_op(2.4, 0.6, 1.4, 2.1)], 1, rng)
 	for o: Dictionary in back:
 		_ruin_trim(mb, Vector3(o["at"], 0, -hd), o, true, -1, rng, 1)
 	for o: Dictionary in front:
@@ -997,31 +1186,24 @@ func _ruin_walls(mb: MeshBuilder, rng: RandomNumberGenerator) -> void:
 		_ruin_trim(mb, Vector3(-hw, 0, o["at"]), o, false, -1, rng, 1)
 	for o: Dictionary in east:
 		_ruin_trim(mb, Vector3(hw, 0, o["at"]), o, false, 1, rng, 1)
-	# Corner logs, split and grey.
-	for sx: float in [-1.0, 1.0]:
-		for sz: float in [-1.0, 1.0]:
-			mb.box_at(&"wood_old", Vector3(sx * (W * 0.5 - 0.05), FLOOR_Y + WALL_H * 0.5, sz * (D * 0.5 - 0.05)),
-					Vector3(0.34, WALL_H + 0.1, 0.34), _shade(LOG_DARK, rng.randf_range(0.95, 1.12)), Vector3.ZERO, true)
+	# Corner boards, their paint long gone.
+	_corner_boards(mb, &"paint_old", TRIM_OLD, rng)
 
 
 ## One board wall of the ruin from FarmHouse openings ("at" along the wall's axis): along
 ## X at z = `fixed` or along Z at x = `fixed`, its outer face toward `outward`.
 func _ruin_wall(mb: MeshBuilder, along_x: bool, fixed: float, openings: Array, outward: int,
 		rng: RandomNumberGenerator) -> void:
-	var span := (W if along_x else D) * 0.5 - 0.15
-	# BuildingKit walls face basis.z of the direction a -> b: +X walls run east to face
-	# south, Z walls run north to face east.
-	var forward := outward > 0 if along_x else outward < 0
-	var from := -span if forward else span
-	var a := Vector2(from, fixed) if along_x else Vector2(fixed, from)
-	var b := Vector2(-from, fixed) if along_x else Vector2(fixed, -from)
-	var ops := []
-	for o: Dictionary in openings:
-		var k := o.duplicate()
-		k["at"] = absf(float(o["at"]) - from)
-		ops.append(k)
+	var f := _board_wall_frame(along_x, fixed, openings, outward)
+	var a: Vector2 = f[0]
+	var b: Vector2 = f[1]
+	var ops: Array = f[2]
 	var cols := []
-	BuildingKit.board_wall(mb, cols, a, b, FLOOR_Y, WALL_H, T, &"planks_old", LOG_OLD, ops, rng, 0.14, &"wood_old_in")
+	BuildingKit.board_wall(mb, cols, a, b, FLOOR_Y, WALL_H, T, &"planks_old", LOG_OLD, ops, rng, 0.14, &"wood_old_in", 0.6, true)
+	for o: Dictionary in ops:
+		if o.get("spot", false):
+			_spots.append({"xf": BuildingKit.opening_frame(a, b, FLOOR_Y, T, o),
+					"size": Vector2(float(o["w"]), float(o["top"]) - float(o["bottom"]))})
 	for c: Array in cols:
 		_colliders.append({"xf": Transform3D(Basis(Vector3.UP, float(c[2])), c[0]), "size": c[1]})
 
@@ -1174,6 +1356,16 @@ func _ruin_roof(mb: MeshBuilder, rng: RandomNumberGenerator) -> void:
 	for sx: float in [-1.0, 1.0]:
 		var xf := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(sx * (W * 0.5 - T * 0.5), wall_top, 0))
 		mb.prism(&"planks_old", xf, D, RISE, T, LOG_OLD, false)
+	# What is left of the front gutter east of the porch: rusted through at a joint, its
+	# end length hanging from one bracket; the downpipe lies in the weeds by the corner.
+	var rust := Color(0.36, 0.27, 0.21)
+	var g0 := _roof_at(1.0, door_x + _porch_width() * 0.5 + 0.35, _slab_len, 0.0) + Vector3(0, -0.14, 0.1)
+	var brk := _roof_at(1.0, door_x + _porch_width() * 0.5 + 1.3, _slab_len, 0.0) + Vector3(0, -0.14, 0.1)
+	BuildingKit.gutter(mb, g0, brk, Vector3.BACK, 0.065, rust, &"rusty")
+	BuildingKit.gutter(mb, brk + Vector3(0.03, -0.02, 0.01), Vector3(lx - 0.1, brk.y - 1.1, brk.z + 0.14), Vector3.BACK, 0.065,
+			rust * 0.95, &"rusty")
+	mb.cylinder_between(&"rusty", Vector3(4.95, _ground(4.95, 3.3) + 0.04, 3.3), Vector3(6.1, _ground(6.1, 4.5) + 0.05, 4.5), 0.04, 0.04, 8,
+			rust * 0.9)
 	# Tie beams; the west one has snapped and its south half hangs down.
 	var beams := maxi(2, int(W / 3.0))
 	for i in beams:
@@ -1268,10 +1460,27 @@ func _ruin_porch(mb: MeshBuilder, rng: RandomNumberGenerator) -> void:
 		var warp := Basis(Vector3.BACK, deg_to_rad(rng.randf_range(-1.2, 1.2)))
 		BuildingKit.plank(mb, &"floor_old", Transform3D(warp, Vector3(bx, FLOOR_Y - 0.025, front + depth * 0.5)),
 				Vector3(bw - 0.012, 0.05, depth), c, uv, true)
-	# Steps: the top one split, its west half sunk and tipped; the lower one darker.
-	mb.box_at(&"wood_old", Vector3(px - 0.45, 0.15, front + depth + 0.19), Vector3(0.88, 0.36, 0.38), Color(0.4, 0.38, 0.36), Vector3(6, 0, -3))
-	mb.box_at(&"wood_old", Vector3(px + 0.45, 0.19, front + depth + 0.19), Vector3(0.88, 0.38, 0.38), Color(0.46, 0.44, 0.42))
-	mb.box_at(&"wood_old", Vector3(px, 0.095, front + depth + 0.57), Vector3(1.8, 0.19, 0.38), Color(0.36, 0.34, 0.32))
+	# Box steps of rotten boards: the top tread split, its west half sunk and tipped;
+	# the lower one darker from the wet.
+	for st: Array in [[0.38, 0.0], [0.19, 0.38]]:
+		var top: float = st[0]
+		var z0: float = front + depth + float(st[1])
+		var dark := _shade(LOG_DARK, 0.9 if top < 0.3 else 1.0)
+		mb.box_at(&"wood_old", Vector3(px, (top - 0.04) * 0.5, z0 + 0.38), Vector3(1.76, top - 0.04, 0.025), dark, Vector3.ZERO, true)
+		for sx: float in [-1.0, 1.0]:
+			BuildingKit.beam(mb, &"wood_old", Vector3(px + sx * 0.88, (top - 0.04) * 0.5, z0 - 0.01), Vector3(px + sx * 0.88, (top - 0.04) * 0.5, z0 + 0.39),
+					Vector2(top - 0.04, 0.04), dark, true)
+		# Treads of the old siding boards, grey, grimy and mossy from the wet.
+		var tc := _shade(LOG_OLD, 0.64 if top < 0.3 else 0.74)
+		if top > 0.3:
+			var tip := Basis.from_euler(Vector3(deg_to_rad(6.0), 0.0, deg_to_rad(-4.0)))
+			BuildingKit.plank(mb, &"planks_old", Transform3D(tip, Vector3(px - 0.45, top - 0.065, z0 + 0.21)), Vector3(0.86, 0.04, 0.42),
+					_shade(tc, 0.9), Vector2(rng.randf(), rng.randf()), false)
+			BuildingKit.plank(mb, &"planks_old", Transform3D(Basis(), Vector3(px + 0.46, top - 0.02, z0 + 0.21)), Vector3(0.9, 0.04, 0.42), tc,
+					Vector2(rng.randf(), rng.randf()), false)
+		else:
+			BuildingKit.plank(mb, &"planks_old", Transform3D(Basis(Vector3.UP, deg_to_rad(1.5)), Vector3(px, top - 0.02, z0 + 0.21)),
+					Vector3(1.84, 0.04, 0.42), tc, Vector2(rng.randf(), rng.randf()), false)
 	# Awning in two pieces, the east one sagging further, a rafter across the gap.
 	var theta := atan2(0.5, depth)
 	var center := _awning_center(front, depth)

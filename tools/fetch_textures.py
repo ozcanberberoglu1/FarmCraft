@@ -15,7 +15,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..", "art", "textures")
 API = "https://api.polyhaven.com/files/"
 HEADERS = {"User-Agent": "FarmCraft-texture-fetcher/1.0"}
 
-# name -> resolution
+# name -> resolution, or (resolution, maps) to fetch only some of "diff", "nor", "arm"
 SURFACES = {
     "leafy_grass": "2k",
     "aerial_grass_rock": "1k",
@@ -38,6 +38,14 @@ SURFACES = {
     "painted_plaster_wall": "1k",
     "red_brick_03": "1k",
     "corrugated_iron_02": "1k",
+    # Farm structures (realism pass): the rusted tin of Grandpa's old roofs.
+    "rusty_corrugated_iron": "1k",
+    # Town (realism pass): interlocking concrete pavers on the pavements.
+    "patterned_concrete_pavers": "1k",
+    # Vehicles: pitting and blistered paint on painted steel (rust mask and bumps),
+    # coarse rust where the paint is gone.
+    "rusty_metal_02": ("1k", ("diff", "nor")),
+    "rust_coarse_01": ("1k", ("diff", "nor")),
 }
 
 # model asset -> (output folder, [(map key, format, output suffix)], resolution)
@@ -46,7 +54,28 @@ FOLIAGE = {
                                        ("leaves_nor_gl", "jpg", "src/nor.jpg")], "2k"),
     "fir_tree_01": ("leaves_fir", [("twig_diff", "jpg", "src/diff.jpg"), ("twig_alpha", "png", "src/alpha.png"),
                                    ("twig_nor_gl", "jpg", "src/nor.jpg")], "2k"),
+    # Single scanned leaves: tools/build_foliage.gd arranges them into the leaf-cluster
+    # atlas of the broadleaf trees and bushes (art/textures/leaves_cluster).
+    "island_tree_02": ("leaves_island", [("leaves_diff", "jpg", "src/diff.jpg"), ("leaves_alpha", "png", "src/alpha.png"),
+                                         ("leaves_nor_gl", "jpg", "src/nor.jpg")], "2k"),
 }
+
+# Ground overhaul: terrain layers (meadow litter / forest floor, gravel lanes, packed
+# yard dirt, pond-shore mud) and tilled bed soil. Colour and normal maps only: the
+# ground shaders derive roughness themselves. name -> resolution.
+GROUND = {
+    "forrest_ground_01": "2k",
+    "gravel_ground_01": "2k",
+    "dirt": "2k",
+    "brown_mud_03": "1k",
+    "farm_soil": "2k",
+}
+
+# Photo grass tufts for the meadow cards: the green and the dry colour map and the alpha
+# of grass_medium_01's atlas, cropped and packed by tools/build_grass_cards.gd.
+GRASS_CARDS = ("grass_medium_01", "grass_cards", [("Diffuse", "jpg", "src/diff.jpg"),
+                                                  ("dry_diff", "jpg", "src/dry.jpg"),
+                                                  ("Alpha", "png", "src/alpha.png")], "2k")
 
 
 def fetch_json(asset):
@@ -68,9 +97,12 @@ def download(url, path):
 
 def main():
     total = 0
-    for name, res in SURFACES.items():
+    for name, spec in SURFACES.items():
+        res, maps = (spec, ("diff", "nor", "arm")) if isinstance(spec, str) else spec
         files = fetch_json(name)
         for key, suffix in (("Diffuse", "diff"), ("nor_gl", "nor"), ("arm", "arm")):
+            if suffix not in maps:
+                continue
             url = files[key][res]["jpg"]["url"]
             total += download(url, os.path.join(ROOT, name, f"{name}_{suffix}.jpg"))
         print(f"ok  {name} ({res})")
@@ -80,6 +112,19 @@ def main():
             url = files[key][res][fmt]["url"]
             total += download(url, os.path.join(ROOT, folder, out))
         print(f"ok  {folder} <- {asset} ({res})")
+    for name, res in GROUND.items():
+        files = fetch_json(name)
+        for key, suffix in (("Diffuse", "diff"), ("nor_gl", "nor")):
+            url = files[key][res]["jpg"]["url"]
+            total += download(url, os.path.join(ROOT, name, f"{name}_{suffix}.jpg"))
+        print(f"ok  {name} ({res})")
+    asset, folder, maps, res = GRASS_CARDS
+    files = fetch_json(asset)
+    for key, fmt, out in maps:
+        total += download(files[key][res][fmt]["url"], os.path.join(ROOT, folder, out))
+    # The sources are combined into one atlas; Godot must not import them.
+    open(os.path.join(ROOT, folder, "src", ".gdignore"), "a").close()
+    print(f"ok  {folder} <- {asset} ({res})")
     print(f"downloaded {total / 1e6:.1f} MB")
 
 

@@ -5,6 +5,8 @@ extends StaticBody3D
 ## the rain.
 
 signal changed
+## The farmer filled it (feed or water poured in by hand).
+signal filled
 
 enum Kind { FEED, WATER }
 
@@ -81,6 +83,8 @@ func _build_fill() -> void:
 	var inner := Vector2(_width - 0.12, _length - 0.12)
 	if kind == Kind.WATER:
 		fb.box_at(&"water_still", Vector3(0, -0.01, 0), Vector3(inner.x, 0.02, inner.y), Color(0.2, 0.32, 0.36))
+	elif &"feed" in accepts:
+		_grain(fb, inner)
 	else:
 		fb.box(&"straw", Transform3D(Basis(), Vector3(0, -0.06, 0)), Vector3(inner.x, 0.12, inner.y), Color(0.76, 0.62, 0.34))
 		var rng := RandomNumberGenerator.new()
@@ -97,6 +101,24 @@ func _build_fill() -> void:
 	cs.shape = box
 	cs.position.y = box.size.y * 0.5
 	add_child(cs)
+
+
+## Chicken feed in a coop feeder: a bed of crumbled mash heaped in little mounds, with
+## loose grains and pellets on top.
+func _grain(fb: MeshBuilder, inner: Vector2) -> void:
+	var mash := Color(0.62, 0.5, 0.3)
+	fb.box_at(&"veg_rough", Vector3(0, -0.04, 0), Vector3(inner.x, 0.08, inner.y), mash)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	for i in 5:
+		var p := Vector3(rng.randf_range(-0.4, 0.4) * inner.x, 0.0, rng.randf_range(-0.4, 0.4) * inner.y)
+		var r := rng.randf_range(0.05, 0.09)
+		fb.sphere(&"veg_rough", Transform3D(Basis(), p), Vector3(r * 1.3, r * 0.35, r), 7, 3, mash.lightened(rng.randf_range(-0.08, 0.06)))
+	for i in 46:
+		var p := Vector3(rng.randf_range(-0.46, 0.46) * inner.x, rng.randf_range(0.0, 0.012), rng.randf_range(-0.46, 0.46) * inner.y)
+		var b := Basis(Vector3.UP, rng.randf() * TAU)
+		var col := Color(0.78, 0.64, 0.34) if i % 3 != 0 else Color(0.5, 0.4, 0.26)
+		fb.box(&"veg", Transform3D(b, p), Vector3(0.016, 0.008, 0.008), col.lightened(rng.randf_range(-0.1, 0.1)))
 
 
 func set_amount(value: float) -> void:
@@ -187,6 +209,7 @@ func complete_use(_player: Node, stack: ItemStack, action: Dictionary) -> void:
 		PlayerState.inventory.remove_item(stack.item.id, used)
 		set_amount(amount + used)
 		Game.notify(tr("MSG_TROUGH_FILLED") % used)
+	filled.emit()
 
 
 func save_data() -> Dictionary:

@@ -21,6 +21,8 @@ const BAKED_W := "res://art/models/crops/baked/%s_%d_w.res"
 ## Plants heavier than this get LODs (a bed draws 9 to 36 of them, and the far ones
 ## need far fewer triangles).
 const UNIT_LOD_TRIANGLES := 1500
+## Leaf-card surfaces whose material comes from Mats even in baked plants.
+const LEAF_SURFACES: Array[StringName] = [&"crop_leaves", &"crop_feathery"]
 const MAIZE := "res://art/models/crops/maize/scene.gltf"
 const WHEAT := "res://art/models/crops/wheat/scene.gltf"
 const TOMATO := "res://art/models/crops/tomato_plant/scene.gltf"
@@ -63,7 +65,11 @@ static func multimesh(crop: StringName, stage: int, variant := 0, withered := fa
 	mm.instance_count = spots.size()
 	for i in spots.size():
 		var s := rng.randf_range(0.88, 1.1)
-		mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s), spots[i]))
+		# Each plant stands in the hoed soil where it is (on a ridge or down a furrow),
+		# a little sunk in, not on a flat plane above it.
+		var at := spots[i]
+		at.y = FarmPlot.soil_surface(at.x, at.z) - (FarmPlot.SOIL_Y + 0.03) - 0.012
+		mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s), at))
 	_beds[key] = mm
 	return mm
 
@@ -106,6 +112,13 @@ static func _baked(path: String) -> ArrayMesh:
 		mesh = ResourceLoader.load_threaded_get(path) as ArrayMesh
 	if mesh == null and ResourceLoader.exists(path):
 		mesh = load(path) as ArrayMesh
+	if mesh != null:
+		# A bake keeps a copy of the leaf-card material it was made with: point those
+		# surfaces at the current (shared) one, so the look is set in Mats alone.
+		for si in mesh.get_surface_count():
+			var surface := StringName(mesh.surface_get_name(si))
+			if surface in LEAF_SURFACES:
+				mesh.surface_set_material(si, Mats.get_mat(surface))
 	return mesh
 
 

@@ -42,23 +42,34 @@ func _ready() -> void:
 
 
 func open(focus: StringName = &"") -> void:
-	_selected = focus if focus != &"" else _first_open()
+	_selected = focus if focus != &"" and on_board(focus) else _first_open()
 	_refresh()
 	show_screen()
 
 
-## The first project on the board that can be built now (the repairs on a new farm),
-## else the first one not built yet.
+## Whether the board shows `id`: listed for this farm and not built by hand (the
+## repairs of Grandpa's house and warehouse, see RepairSpot).
+static func on_board(id: StringName) -> bool:
+	return FarmState.is_listed(id) and not ProjectTable.is_hands_on(id)
+
+
+## The first project on the board that can be built now, else the first one not built
+## yet.
 func _first_open() -> StringName:
 	var fallback: StringName = &""
+	var first: StringName = &""
 	for id: StringName in ProjectTable.ORDER:
-		if FarmState.is_built(id) or not FarmState.is_listed(id):
+		if not on_board(id):
+			continue
+		if first == &"":
+			first = id
+		if FarmState.is_built(id):
 			continue
 		if FarmState.can_build(id):
 			return id
 		if fallback == &"":
 			fallback = id
-	return fallback if fallback != &"" else ProjectTable.ORDER[0]
+	return fallback if fallback != &"" else first
 
 
 func close_screen() -> void:
@@ -70,7 +81,7 @@ func _refresh() -> void:
 		c.queue_free()
 	var group := ""
 	for id: StringName in ProjectTable.ORDER:
-		if not FarmState.is_listed(id):
+		if not on_board(id):
 			continue
 		var p := ProjectTable.get_project(id)
 		if p["group"] != group:
@@ -175,8 +186,12 @@ func _show_detail(id: StringName) -> void:
 			_detail.add_child(r)
 		for req: StringName in reqs:
 			var ok := FarmState.is_built(req)
+			var req_name := tr("PROJECT_" + String(req).to_upper())
+			if not ok and ProjectTable.is_hands_on(req):
+				# Not sold here: say how it is done.
+				req_name += " (%s)" % tr("SIGN_REPAIR_WALLS")
 			var r := UiTheme.icon_row(UiTheme.glyph("check" if ok else "close"),
-					tr("PROJECT_" + String(req).to_upper()), UiTheme.GREEN if ok else UiTheme.RED, 20, 20)
+					req_name, UiTheme.GREEN if ok else UiTheme.RED, 20, 20)
 			(r.get_child(0) as TextureRect).modulate = UiTheme.GREEN if ok else UiTheme.RED
 			_detail.add_child(r)
 	var kit := ProjectTable.kit_of(id)

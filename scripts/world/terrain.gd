@@ -9,6 +9,9 @@ extends Node3D
 const CHUNK := 50
 ## Marching-squares cell size for the boundary wall.
 const WALL_CELL := 2.0
+## Ground layers of the terrain shader: [uniform prefix, texture folder in art/textures].
+const LAYERS := [["grass", "leafy_grass"], ["litter", "forrest_ground_01"], ["path", "gravel_ground_01"],
+		["dirt", "dirt"], ["mud", "brown_mud_03"], ["rock", "rock_face_03"]]
 
 @export var rebuild := false:
 	set(value):
@@ -46,14 +49,10 @@ func _build_meshes() -> void:
 
 	var material := ShaderMaterial.new()
 	material.shader = load("res://shaders/terrain.gdshader")
-	material.set_shader_parameter("water_level", WorldLayout.WATER_LEVEL)
-	material.set_shader_parameter("mask_tex", TerrainData.mask_texture())
-	material.set_shader_parameter("map_min", Vector2(TerrainData.MIN_X, TerrainData.MIN_Z))
-	material.set_shader_parameter("map_size", Vector2(WorldLayout.MAP_W, WorldLayout.MAP_D))
+	TerrainData.apply_ground_fields(material)
 	material.set_shader_parameter("town_center", WorldLayout.TOWN_CENTER)
 	material.set_shader_parameter("town_scale", WorldLayout.VALLEY_RADIUS / WorldLayout.TOWN_VALLEY_RADIUS)
-	for layer in [["grass", "leafy_grass"], ["hill", "aerial_grass_rock"], ["path", "rocky_trail"],
-			["dirt", "rocky_trail_02"], ["sand", "coast_sand_01"], ["rock", "rock_face_03"]]:
+	for layer in LAYERS:
 		material.set_shader_parameter(layer[0] + "_diff", Mats.texture(layer[1], "diff.jpg"))
 		material.set_shader_parameter(layer[0] + "_nor", Mats.texture(layer[1], "nor.jpg"))
 	for z0 in range(0, nz - 1, CHUNK):

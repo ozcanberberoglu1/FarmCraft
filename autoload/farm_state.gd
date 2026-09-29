@@ -16,6 +16,8 @@ var warehouse := Stockpile.new(ProjectTable.WAREHOUSE_CAPACITY[0])
 ## Manure on the heap by the barn (fills overnight from the animals' bedding).
 var manure := 0.0
 const MANURE_MAX := ManureMound.MAX
+## Rations of chicken feed Grandpa left in the warehouse (a new game's first hens eat it).
+const STARTER_FEED := 20
 ## Things put down on the farm: [{id, pos, yaw, ...their own state}].
 var placed: Array = []
 ## One-off states of the farm (the house door, the desk drawer, what was taken from the
@@ -28,6 +30,18 @@ func _ready() -> void:
 		if id == &"warehouse_1" or id == &"warehouse_2":
 			warehouse.capacity = ProjectTable.WAREHOUSE_CAPACITY[warehouse_level()]
 			warehouse.changed.emit())
+	# The first "New Game" after launch plays on the farm built at launch, which never
+	# went through new_game(): stock its warehouse the same way. Deferred, so DebugTools
+	# has read its arguments (automated runs keep an empty warehouse).
+	_stock_fresh_farm.call_deferred()
+
+
+func _stock_fresh_farm() -> void:
+	if DebugTools.is_automated() or SaveGame.loading:
+		return
+	if not flags.has("legacy") and not flags.has("starter_feed") and warehouse.total() == 0:
+		warehouse.add(&"feed", STARTER_FEED)
+	flags["starter_feed"] = true
 
 
 func is_built(id: StringName) -> bool:
@@ -177,6 +191,9 @@ func new_game() -> void:
 	placed.clear()
 	flags.clear()
 	warehouse.from_dict({"capacity": ProjectTable.WAREHOUSE_CAPACITY[0], "items": {}})
+	# Automated runs keep an empty warehouse (like the farm built at launch).
+	if not DebugTools.is_automated():
+		warehouse.add(&"feed", STARTER_FEED)
 
 
 func save_data() -> Dictionary:

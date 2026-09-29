@@ -2,7 +2,8 @@ class_name Farm
 extends Node3D
 ## Creates everything the player owns from FarmState (garden lots, animal housing,
 ## house level) and adds new projects the moment they are built. Unbuilt lots get
-## a "for sale" sign, Grandpa's run-down house and warehouse a "needs repair" one.
+## a "for sale" sign, Grandpa's run-down house and warehouse a "needs repair" one
+## (mended by hand with wood, see RepairSpot).
 ## Coops are put up from kits (ChickenCoop, among the placed things); Grandpa's fixed
 ## chicken run stays only on the farms that built it.
 
@@ -142,10 +143,17 @@ func _lot_sign_point(lot_id: StringName) -> Vector3:
 
 
 ## A sign for `project_id` at `at`, facing `face` (world XZ; the farmhouse door when
-## left out). `header_key` is its header ("SIGN_FOR_SALE" or "SIGN_REPAIR").
+## left out). `header_key` is its header ("SIGN_FOR_SALE" or "SIGN_REPAIR"); a repair
+## sign says to mend the walls with wood and counts the holes done (RepairSpot.Sign).
 func _add_sign(project_id: StringName, at: Vector3, header_key := "SIGN_FOR_SALE",
 		face := Vector2(WorldLayout.HOUSE_DOOR_X, WorldLayout.HOUSE_FRONT_Z)) -> void:
-	var board := ForSaleSign.new()
+	var board: ForSaleSign
+	if header_key == "SIGN_REPAIR":
+		var repair := RepairSpot.Sign.new()
+		repair.building_id = RepairSpot.building_of(project_id)
+		board = repair
+	else:
+		board = ForSaleSign.new()
 	board.project_id = project_id
 	board.name = "Sign_%s" % project_id
 	board.header_key = header_key

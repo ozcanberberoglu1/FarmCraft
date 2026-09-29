@@ -3,9 +3,10 @@ extends AnimatableBody3D
 ## A farm animal in the world. Its persistent state lives in `data` (simulated by
 ## the Animals autoload); this node handles the body: AI (wander, graze, eat and
 ## drink at the troughs, shelter in bad weather and at night, sleep, follow food),
-## player interaction and status badges.
+## player interaction and status badges. A hen of a kit-built coop with an egg due walks
+## to a bedded nest box, hops in, sits on it a while, lays and goes back out.
 
-enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN }
+enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN, GO_NEST, NEST }
 
 const BADGES := {
 	"sick": preload("res://art/icons/ui/badge_sick.svg"), "wet": preload("res://art/icons/ui/badge_rain.svg"),
@@ -14,6 +15,9 @@ const BADGES := {
 	"wool": preload("res://art/icons/ui/badge_wool.svg"),
 }
 const HEART := preload("res://art/icons/ui/heart.svg")
+## Seconds of a hen's hop up into a nest box (and down again), and of sitting on it.
+const NEST_HOP := 0.5
+const NEST_SIT := Vector2(16.0, 26.0)
 
 var data: AnimalData
 var housing: AnimalHousing
@@ -38,6 +42,11 @@ var _shape: CollisionShape3D
 var _age_shown := -1.0
 var _wet_shown := -1.0
 var _radius := 0.5
+## The nest box she is bound for or sitting in (ChickenCoop), -1 for none; where she
+## hopped up from, and whether the egg is laid yet.
+var _nest := -1
+var _nest_from := Vector3.ZERO
+var _laid := false
 
 
 func setup(animal_data: AnimalData, home: AnimalHousing) -> void:
@@ -180,15 +189,21 @@ func _physics_process(delta: float) -> void:
 	if _think <= 0.0:
 		_think = _rng.randf_range(0.8, 2.0)
 		_decide()
-	if _attention > 0.0 and state != State.SLEEP:
+	if state == State.NEST:
+		_sit_nest()
+	elif _attention > 0.0 and state != State.SLEEP:
 		_speed = move_toward(_speed, 0.0, delta * 3.0)
 	else:
 		match state:
-			State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW:
+			State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST:
 				_move(delta)
 			_:
 				_speed = move_toward(_speed, 0.0, delta * 2.0)
 	match state:
+		State.NEST:
+			# Settled down on the straw between the hops (standing up a moment before).
+			var t := _state_time
+			_mode = AnimalRig.Mode.SLEEP if t > NEST_HOP and t < _state_len - NEST_HOP - 1.3 else AnimalRig.Mode.IDLE
 		State.GRAZE:
 			_mode = AnimalRig.Mode.GRAZE
 		State.EAT, State.DRINK:
@@ -209,6 +224,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _set_state(s: int, length := 3.0) -> void:
+	if _nest >= 0 and s != State.GO_NEST and s != State.NEST:
+		_drop_nest()
 	state = s
 	_state_time = 0.0
 	_state_len = length
@@ -224,13 +241,16 @@ func _decide() -> void:
 		if state != State.AWAY:
 			_set_state(State.AWAY, 1e9)
 		return
+	# On a nest: nothing else until she has laid and hopped down.
+	if state == State.NEST:
+		return
 	var night := GameClock.is_night()
 	var want_inside := housing.has_shelter() and (night or Weather.is_precipitating())
-	var moving := state in [State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW]
-	# Shelter comes first: interrupt anything else.
+	var moving := state in [State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST]
+	# Shelter comes first: interrupt anything else (a hen bound for a nest is going in).
 	if want_inside and not indoors:
 		if housing.can_pass():
-			if state != State.SHELTER:
+			if state != State.SHELTER and state != State.GO_NEST:
 				_go(housing.random_indoor_point(_rng), true, State.SHELTER)
 			return
 		# Shut out (the coop door is closed): she waits by the ramp in the wet and the dark.
@@ -258,6 +278,8 @@ func _decide() -> void:
 		_set_state(State.IDLE, _rng.randf_range(2.0, 5.0))
 		return
 	if _busy():
+		return
+	if _try_nest():
 		return
 	# Leave the barn when the weather is fine (not through a shut coop door).
 	if indoors and not want_inside and housing.can_pass() and _rng.randf() < 0.45:
@@ -399,11 +421,85 @@ func _arrived() -> void:
 				_face(housing.water.global_position)
 		State.SHELTER:
 			_set_state(State.SLEEP if GameClock.is_night() else State.IDLE, _rng.randf_range(4.0, 10.0))
+		State.GO_NEST:
+			var coop := ChickenCoop.of(housing)
+			if coop == null or not coop.nest_filled(_nest):
+				_set_state(State.IDLE, 2.0)
+				return
+			_nest_from = global_position
+			_laid = false
+			_face(coop.nest_seat(_nest))
+			_set_state(State.NEST, NEST_HOP * 2.0 + _rng.randf_range(NEST_SIT.x, NEST_SIT.y))
 		State.FOLLOW:
 			pass
 		_:
 			var graze := not indoors and _grazing_ok() and _rng.randf() < 0.6
 			_set_state(State.GRAZE if graze else State.IDLE, _rng.randf_range(4.0, 10.0))
+
+
+# --- Laying in a nest box -----------------------------------------------------------------
+
+## An egg due and a bedded box free: off to it (through the door when she is out).
+func _try_nest() -> bool:
+	var coop := ChickenCoop.of(housing)
+	if coop == null or not coop.wants_to_lay(data.id):
+		return false
+	if not indoors and not housing.can_pass():
+		return false
+	var i := coop.claim_nest(self)
+	if i < 0:
+		return false
+	_nest = i
+	_go(coop.nest_front(i), true, State.GO_NEST)
+	return true
+
+
+## The hop up, sitting (the egg comes three quarters of the way through), the hop down
+## and out into the yard.
+func _sit_nest() -> void:
+	var coop := ChickenCoop.of(housing)
+	if coop == null or _nest < 0:
+		_set_state(State.IDLE, 1.0)
+		return
+	_speed = 0.0
+	var seat := coop.nest_seat(_nest)
+	var t := _state_time
+	var down_at := _state_len - NEST_HOP
+	if t < NEST_HOP:
+		global_position = _hop(_nest_from, seat, t / NEST_HOP)
+		return
+	if t < down_at:
+		global_position = seat
+		var out := coop.nest_out()
+		rotation.y = lerp_angle(rotation.y, atan2(-out.x, -out.z), 0.06)
+		if not _laid and t >= NEST_HOP + (down_at - NEST_HOP) * 0.75:
+			_laid = true
+			coop.lay_in_nest(self, _nest)
+		return
+	if not _laid:
+		_laid = true
+		coop.lay_in_nest(self, _nest)
+	if t < _state_len:
+		global_position = _hop(seat, _nest_from, (t - down_at) / NEST_HOP)
+		return
+	global_position = _nest_from
+	_set_state(State.IDLE, _rng.randf_range(1.0, 2.0))
+	# Back out into the yard, unless it is night or wet (or the door is shut).
+	if housing.can_pass() and not GameClock.is_night() and not Weather.is_precipitating():
+		_go(housing.random_outdoor_point(_rng), false, State.WANDER)
+
+
+## A hop from `a` to `b`, `u` 0..1 of the way, in a little arc.
+func _hop(a: Vector3, b: Vector3, u: float) -> Vector3:
+	var k := clampf(u, 0.0, 1.0)
+	return a.lerp(b, smoothstep(0.0, 1.0, k)) + Vector3(0, sin(k * PI) * 0.3, 0)
+
+
+func _drop_nest() -> void:
+	var coop := ChickenCoop.of(housing)
+	if coop:
+		coop.release_nest(self)
+	_nest = -1
 
 
 func _face(p: Vector3) -> void:

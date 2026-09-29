@@ -1,5 +1,7 @@
-// Grass blades rendered with MultiMesh. UV.y = height along the blade (0 root, 1 tip),
-// UV.x = blade height in meters (used to shrink blades into the ground far away).
+// Geometry grass blades (tall wild grass patches, pond reeds) rendered with MultiMesh.
+// UV.y = height along the blade (0 root, 1 tip), UV.x = blade height in meters (used
+// to shrink blades into the ground far away). Vertex COLOR tints a blade (white = as
+// is; the reeds' cattail heads are brown).
 shader_type spatial;
 render_mode cull_disabled, diffuse_burley, specular_schlick_ggx, world_vertex_coords;
 
@@ -8,12 +10,17 @@ render_mode cull_disabled, diffuse_burley, specular_schlick_ggx, world_vertex_co
 uniform float fade_start = 30.0;
 uniform float fade_end = 42.0;
 uniform float bend = 0.16;
+// Kept for the materials that set it; the colour now comes from blade_color.
 uniform sampler2D ground_tex : source_color, filter_linear_mipmap, repeat_enable;
-uniform float ground_scale = 0.33;
-uniform vec3 ground_tint : source_color = vec3(0.7, 1.0, 0.52);
+// Mid-blade colour of a lush clump (sRGB); tips are paler and a little dry, roots dark.
+uniform vec3 blade_color : source_color = vec3(0.34, 0.4, 0.17);
+uniform vec3 tip_color : source_color = vec3(0.54, 0.51, 0.3);
+// How far toward straw the tips of a clump can go (0..1).
+uniform float dry_tips = 0.55;
 
 varying float v_h;
 varying vec3 v_base;
+varying vec3 v_tip;
 
 void vertex() {
 	v_h = UV.y;
@@ -26,6 +33,7 @@ void vertex() {
 		// Fully shrunk: every vertex sits on the root, so the wind and colour work is skipped.
 		VERTEX = root;
 		v_base = vec3(0.0);
+		v_tip = vec3(0.0);
 	} else {
 		vec3 wp = VERTEX;
 		float t = TIME;
@@ -37,27 +45,28 @@ void vertex() {
 		VERTEX.xz += disp;
 		VERTEX.y -= length(disp) * 0.35;
 		VERTEX = mix(root, VERTEX, keep);
-		// Blades take the (blurred) color of the ground texture under them so meadow and
-		// terrain match; a hue jitter per clump adds variety.
-		vec3 ground = textureLod(ground_tex, root.xz * ground_scale, 6.0).rgb * ground_tint;
+		// Each clump and each blade its own shade; some clumps drier than others.
 		float jitter = hash12(root.xz * 1.37);
-		v_base = mix(ground, grass_base_color(root.xz), 0.35) * (0.85 + 0.3 * jitter);
+		float blade = hash12(vec2(UV.x * 37.0, jitter * 11.0));
+		v_base = blade_color * COLOR.rgb * (0.8 + 0.3 * jitter) * (0.85 + 0.3 * blade);
+		v_tip = mix(blade_color, tip_color, dry_tips * (0.4 + 0.6 * jitter)) * COLOR.rgb;
 		// Autumn and winter dry the grass to straw.
-		vec3 straw = srgb(vec3(0.62, 0.55, 0.3)) * (0.8 + 0.4 * jitter);
+		vec3 straw = srgb(vec3(0.58, 0.52, 0.32)) * (0.8 + 0.4 * jitter) * COLOR.rgb;
 		v_base = mix(v_base, straw, autumn_amount * 0.6);
+		v_tip = mix(v_tip, straw, autumn_amount * 0.7);
 	}
 }
 
 void fragment() {
-	vec3 tip = v_base * 1.3 + srgb(vec3(0.05, 0.06, 0.0));
-	vec3 col = mix(v_base * 0.6, tip, v_h);
+	vec3 col = mix(v_base * 0.55, v_base, smoothstep(0.0, 0.45, v_h));
+	col = mix(col, v_tip, smoothstep(0.55, 1.0, v_h));
 	col = mix(col, snow_color(), snow_amount * smoothstep(0.35, 1.0, v_h));
 	ALBEDO = col;
-	ROUGHNESS = 0.8;
+	ROUGHNESS = mix(0.78, 0.45, wetness);
 	SPECULAR = 0.25;
-	AO = mix(0.6, 1.0, v_h);
+	AO = mix(0.55, 1.0, v_h);
 	AO_LIGHT_AFFECT = 0.2;
-	BACKLIGHT = col * 0.3;
+	BACKLIGHT = col * 0.35;
 	// Blades use an up-facing normal on both sides for soft, even lighting.
 	NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
 }

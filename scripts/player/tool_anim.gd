@@ -105,6 +105,13 @@ const PROFILES := {
 		[0.25, Vector3(0.05, 0.01, -0.05), Vector3(0, -10, -6), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
 		[0.75, Vector3(-0.07, -0.01, -0.07), Vector3(-4, 14, 8), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# Drawn back by the ear, then flung forward and down (an egg thrown); lets go at "release".
+	&"throw": {"release": 0.46, "keys": [
+		[0.0, Vector3.ZERO, Vector3.ZERO],
+		[0.32, Vector3(0.06, 0.12, 0.14), Vector3(38, -12, -10), Tween.TRANS_SINE, Tween.EASE_OUT],
+		[0.46, Vector3(-0.04, 0.02, -0.2), Vector3(-34, 8, 6), Tween.TRANS_EXPO, Tween.EASE_IN],
+		[0.6, Vector3(-0.05, -0.04, -0.18), Vector3(-40, 10, 8), Tween.TRANS_SINE, Tween.EASE_OUT],
+		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
 	# A short push forward and back (milking, feeding, medicine, anything else).
 	&"work": {"impact": 0.5, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
