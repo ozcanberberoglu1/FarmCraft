@@ -40,6 +40,16 @@ signal wall_patched(building_id: StringName, done: int, total: int)
 signal building_repaired(building_id: StringName)
 # An egg thrown from the hand broke where it landed
 signal egg_broken(at: Vector3)
+# Fishing, the campfire and eating (the tutorial and achievements listen to these)
+signal line_cast
+signal fish_caught(item_id: StringName)
+signal campfire_lit(fire: Node)
+signal campfire_out(fire: Node)
+signal food_cooked(item_id: StringName)
+signal food_eaten(item_id: StringName)
+# A sapling put in the ground, and one that has grown into a tree
+signal sapling_planted(sapling: Node)
+signal sapling_grown(tree: Node)
 
 # Player feedback
 signal notification_requested(text: String, color: Color)

@@ -194,6 +194,12 @@ func _next_shot() -> void:
 				if state == "site":
 					e["stage"] = "site"
 					e["build_left"] = 120.0
+			elif state != "" and String(PlaceableTable.get_info(StringName(p[0])).get("kind", "")) == "campfire":
+				# A campfire's state: "laid", "lit", "embers" or "ash" (and how burnt).
+				e["state"] = state
+				e["char"] = float(p[5]) if p.size() > 5 else (0.0 if state == "laid" else 0.4)
+				if state == "lit":
+					e["burn_left"] = 240.0
 			elif state != "":
 				var recipe: Dictionary = RecipeTable.processing(StringName(p[0]))[0]
 				e["out"] = String(recipe["out"])

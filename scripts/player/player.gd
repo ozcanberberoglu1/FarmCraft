@@ -54,6 +54,8 @@ var placer: Placer
 var riding: Animal = null
 ## The vehicle being driven, if any.
 var driving: Vehicle = null
+## The fishing rod's casting, bite and catch (it takes LMB while the rod is in hand).
+var angler: Angler
 ## Physics frames left before collisions come back after getting out of a vehicle.
 var _exit_frames := 0
 var _ride_saved := {}
@@ -112,6 +114,9 @@ func _ready() -> void:
 	# Grid-snapped and shown in one jump: interpolating it would only streak it in.
 	placer.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(placer)
+	angler = Angler.new()
+	angler.name = "Angler"
+	add_child(angler)
 	footstep.connect(func() -> void:
 		if riding == null and driving == null:
 			Audio.footstep(self, Vector2(velocity.x, velocity.z).length() > walk_speed + 0.5))
@@ -155,8 +160,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		PlayerState.select(PlayerState.selected - 1)
 	elif event.is_action_pressed("rotate") and placer.active:
 		placer.rotate_step()
+	elif event.is_action_pressed("rotate") and angler.holding_rod():
+		angler.cycle_bait()
 	elif event.is_action_pressed("drop"):
 		_drop_selected(Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META))
+	elif event.is_action_pressed("secondary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and Eating.try_eat(self):
+		# RMB with food in hand eats it (scripts/camp/eating.gd).
+		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.is_pressed() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Game.capture_mouse()
 	else:
@@ -190,7 +200,9 @@ func _physics_process(delta: float) -> void:
 		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		if on_floor and Input.is_action_just_pressed("jump"):
 			velocity.y = jump_velocity
-	var sprinting := can_move and Input.is_action_pressed("sprint") and input.y < -0.1
+	# A starving or exhausted farmer can't run (a horse still can).
+	var sprinting := can_move and Input.is_action_pressed("sprint") and input.y < -0.1 \
+			and (riding != null or PlayerState.needs.can_sprint())
 	var speed := sprint_speed if sprinting else walk_speed
 	var wish := global_basis * Vector3(input.x, 0.0, input.y)
 	wish.y = 0.0
@@ -287,6 +299,9 @@ func _update_target(delta: float) -> void:
 		ray.force_raycast_update()
 		if ray.is_colliding():
 			new_target = _find_interactable(ray.get_collider())
+			if new_target == null:
+				# Open ground, with a sapling in hand: the spot to plant it.
+				new_target = SaplingGrove.ground_target(self, ray)
 	if new_target != target:
 		if target and is_instance_valid(target) and target.has_method("set_highlight"):
 			target.set_highlight(false)
@@ -370,6 +385,11 @@ func _update_prompt() -> void:
 		var hint: String = target.hint_prompt()
 		if hint != "":
 			lines.append(hint)
+	# Food in hand: right click eats it.
+	var eat := Eating.prompt_line(self, stack)
+	if eat != "":
+		lines.append(eat)
+	lines.append_array(angler.prompt_lines())
 	if lines != _last_prompt:
 		_last_prompt = lines
 		Events.interaction_prompt_changed.emit(lines)
@@ -392,6 +412,12 @@ func _update_action(delta: float) -> void:
 			placer.place()
 		return
 	var stack := PlayerState.selected_stack()
+	if angler.holding_rod():
+		# The rod casts, strikes and reels on its own (Angler).
+		if not _action.is_empty():
+			_end_action(false)
+		angler.use_input(down, pressed_now)
+		return
 	if not _action.is_empty():
 		# Until the final stroke lands the button must stay down on the same target with the
 		# same item; after that the follow-through always plays out.
@@ -433,6 +459,11 @@ func _update_action(delta: float) -> void:
 	if stack.item.is_tool() and stack.upgrade > 0:
 		info = info.duplicate()
 		info["duration"] = float(info["duration"]) * stack.speed_factor()
+	# Starving or exhausted hands work slower (PlayerState.needs).
+	var slow := PlayerState.needs.work_factor()
+	if slow > 1.0:
+		info = info.duplicate()
+		info["duration"] = float(info["duration"]) * slow
 	_action = info
 	_action_target = target
 	_action_stack = stack

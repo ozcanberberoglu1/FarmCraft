@@ -43,6 +43,9 @@ const MODELS := {
 	&"manure": {"path": GOODS + "burlap_sack/scene.gltf", "size": 0.3, "yaw": 60.0, "tint": Color(0.55, 0.44, 0.34)},
 	&"fertilizer": {"path": "res://art/models/items/compost_bag_02/compost_bag_02_1k.gltf", "size": 0.26},
 	&"hay": {"path": GOODS + "hay_bales/scene.gltf", "island": true, "size": 0.42},
+	# Scans the workbench's bait and nails are built on (CraftModels; not items themselves).
+	&"nails_tin": {"path": "res://art/models/items/can_rusted/can_rusted_1k.gltf", "size": 0.1},
+	&"dough_bowl": {"path": "res://art/models/items/wooden_bowl_01/wooden_bowl_01_1k.gltf", "size": 0.17},
 }
 ## Scans heavier than this get LODs.
 const LOD_TRIANGLES := 12000

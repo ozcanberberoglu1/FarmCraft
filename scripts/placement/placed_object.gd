@@ -23,14 +23,29 @@ static func create(e: Dictionary) -> PlacedObject:
 			node = Workbench.new()
 		"coop":
 			node = ChickenCoop.new()
+		"campfire":
+			node = Campfire.new()
 		_:
-			node = PlacedObject.new()
+			node = _by_kind(String(PlaceableTable.get_info(id).get("kind", "")))
 	node.item_id = id
 	node.entry = e
 	node.name = "%s_%d" % [id, absi(hash(e["pos"])) % 100000]
 	node.position = e["pos"]
 	node.rotation.y = float(e.get("yaw", 0.0))
 	return node
+
+
+## Kinds without a case above (the campfire) bring their own script,
+## res://scripts/placement/<kind>.gd (extending PlacedObject); else a plain one.
+static func _by_kind(kind: String) -> PlacedObject:
+	var path := "res://scripts/placement/%s.gd" % kind
+	if kind != "" and ResourceLoader.exists(path):
+		var node: Variant = (load(path) as Script).new()
+		if node is PlacedObject:
+			return node
+		if node is Node:
+			(node as Node).free()
+	return PlacedObject.new()
 
 
 func _ready() -> void:

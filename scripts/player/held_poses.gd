@@ -36,8 +36,22 @@ const POSES := {
 	# Wood and stone: one piece in the hand, not the whole pile.
 	&"wood": [Vector3(0.3, -0.4, -0.6), Vector3(12, 62, 6), 0.4],
 	&"stone": [Vector3(0.3, -0.38, -0.58), Vector3(10, 30, 0), 0.5],
+	# The fishing rod: held at the reel seat, low on the right, the rod rising ahead to the
+	# left of centre, the reel hanging under it.
+	&"fishing_rod": [Vector3(0.24, -0.34, -0.44), Vector3(0, -82, 55), 1.0, Vector3.ZERO],
 	# A crate of hens is carried in front with both hands, its long side across the view.
 	&"chicken_crate": [Vector3(0.02, -0.46, -0.64), Vector3(4, 90, 0), 0.95],
+	# The knife point ahead and a little up and in, the flat of the blade to the side.
+	&"knife": [Vector3(0.19, -0.19, -0.4), Vector3(-19.2, 95.3, -64.9), 1.0],
+	# The bow in the left hand, upright and canted, turned to show its curve and string.
+	&"bow": [Vector3(-0.17, -0.12, -0.62), Vector3(12.6, 59.3, -0.9), 0.62],
+	# Small goods carried in the palm.
+	&"rope": [Vector3(0.28, -0.3, -0.55), Vector3(24, 25, 0), 0.8],
+	&"dough": [Vector3(0.27, -0.28, -0.5), Vector3(18, 25, 0), 0.9],
+	&"worm": [Vector3(0.26, -0.26, -0.48), Vector3(22, 25, 0), 1.0],
+	&"nails": [Vector3(0.26, -0.27, -0.48), Vector3(14, 25, 0), 1.0],
+	# A sapling is carried upright by its root ball.
+	&"sapling": [Vector3(0.28, -0.46, -0.62), Vector3(0, 20, 6), 0.85],
 }
 const DEFAULT_POSE := [Vector3(0.25, -0.24, -0.46), Vector3(12, 30, 0), 1.0]
 const DEG := PI / 180.0

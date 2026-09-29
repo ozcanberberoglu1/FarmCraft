@@ -3,7 +3,7 @@
 // and fragment, shaders/include/tree_impostor.gdshaderinc), drawn with the backdrop's
 // depth squeeze so the ones beyond the far plane are never clipped.
 shader_type spatial;
-render_mode cull_disabled, world_vertex_coords, diffuse_burley, specular_schlick_ggx;
+render_mode cull_disabled, world_vertex_coords, diffuse_burley, specular_schlick_ggx, alpha_to_coverage;
 
 #include "res://shaders/include/nature.gdshaderinc"
 #include "res://shaders/include/backdrop.gdshaderinc"

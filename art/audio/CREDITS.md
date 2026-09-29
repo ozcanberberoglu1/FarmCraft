@@ -80,3 +80,45 @@ All are public domain / CC0 or Mixkit's free licence: none needs attribution or 
 | scythe_2-4, harvest_*, pick_crop_* | Handling grass (1925), Footsteps on hay loop (541) | Mixkit | Mixkit free licence |
 | hoe_*, harvest_*, plant_* | Hard shovel stab (1923), Garden shovel stab (1918), Digging in the garden (1915), Garden digging (1917), Garden digging single (1916), Dirt debris falling (402) | Mixkit | Mixkit free licence |
 | pick_*, rock_break_*, tree_fall_*, plant_* | Falling hit on gravel (756), Small stone avalanche (1272), Stones falling down the mountain (1271), Body impact falling into the sand (2498), Falling into mud surface (385), Boot stomp on mud surface (3058), Falling on tree leaves (751) | Mixkit | Mixkit free licence |
+
+## Campfire, cooking and eating sounds (`sfx/camp/`)
+
+Cut, looped and levelled from Mixkit recordings by `tools/build_camp_audio.py` (Mixkit Sound Effects Free
+License: free for commercial use in games, no attribution required).
+
+| File | Mixkit title | Mixkit id |
+|---|---|---|
+| sfx/camp/fire_loop.ogg | Campfire crackles | 1330 |
+| sfx/camp/fire_pop_*.ogg | Campfire burning crackles | 1329 |
+| sfx/camp/match.ogg | Fire match lighting | 2590 |
+| sfx/camp/ignite.ogg | Fire swoosh burning | 1328 |
+| sfx/camp/sizzle_loop.ogg | Frying fish on a hot pan | 123 |
+| sfx/camp/douse.ogg | Volcano lava hiss, Steam swoosh, Water splash | 2447, 1458, 1311 |
+| sfx/camp/bite_0.ogg, bite_1.ogg | Human bites a juicy sausage, Hungry man eating | 117, 2252 |
+| sfx/camp/chew_0.ogg, chew_1.ogg | Chewing something crunchy, Human eating tasty food with mouth open | 2244, 114 |
+| sfx/camp/yawn.ogg | Male tired yawn | 2272 |
+## Fishing sounds (`sfx/fishing/*`)
+
+Cut, cleaned and levelled from these recordings by `tools/fetch_fishing.py` (the recipe of every take is in the
+script). All are CC0 or Mixkit's free licence: none needs attribution or share-alike.
+
+| Used for | Recording | Author / source | Licence |
+|---|---|---|---|
+| cast_0 | *Casting Fishing Rod for Game Fishing SFX* | el_boss, https://freesound.org/people/el_boss/sounds/853287/ | CC0 |
+| cast_1 | *Fishing Rod Cast - Swoosh* | mwchristian95, https://freesound.org/people/mwchristian95/sounds/725426/ | CC0 |
+| cast_2 | *fishingreel_throw.wav* | BranndyBottle, https://freesound.org/people/BranndyBottle/sounds/464697/ | CC0 |
+| plop_0 | *Fishing Lure Plop Water - Game SFX* | el_boss, https://freesound.org/people/el_boss/sounds/853279/ | CC0 |
+| plop_1, nibble_2 | Water bubble (1317) | Mixkit | Mixkit free licence |
+| plop_2 | *Tiny Splash* | dslrguide, https://freesound.org/people/dslrguide/sounds/321490/ | CC0 |
+| nibble_0 | *Quick Water Droplet* | qubodup, https://freesound.org/people/qubodup/sounds/792931/ | CC0 |
+| nibble_1 | *Water drop (splash)* | bolkmar, https://freesound.org/people/bolkmar/sounds/451126/ | CC0 |
+| bite_0 | *Fish Splashing Release 1* | paulprit, https://freesound.org/people/paulprit/sounds/507094/ | CC0 |
+| bite_1, splash_1 | *Fish Splashing Release 2* | paulprit, https://freesound.org/people/paulprit/sounds/507093/ | CC0 |
+| bite_2 | Fish moving in water (2921) | Mixkit | Mixkit free licence |
+| splash_0 | Sea water splash (1198) | Mixkit | Mixkit free licence |
+| reel_0 | *Spinning reel.wav* | tosha73, https://freesound.org/people/tosha73/sounds/509902/ | CC0 |
+| reel_1 | *Fishing reel winding* | 1bob, https://freesound.org/people/1bob/sounds/831928/ | CC0 |
+| reel_2 | *Fishing Reel* | mwchristian95, https://freesound.org/people/mwchristian95/sounds/725424/ | CC0 |
+| flop_0 | Fish flapping (2457) | Mixkit | Mixkit free licence |
+| flop_1-3, flop_5 | *fish slaps on snow writhing after caught +unhook* | kyles, https://freesound.org/people/kyles/sounds/450829/ | CC0 |
+| flop_4 | *Fish flopping over on sand* | adviseme333, https://freesound.org/people/adviseme333/sounds/679389/ | CC0 |

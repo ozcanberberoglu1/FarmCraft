@@ -12,6 +12,10 @@ uniform sampler2D normal_atlas : hint_normal, filter_linear_mipmap_anisotropic, 
 uniform float rows = 9.0;
 uniform float views = 8.0;
 uniform float alpha_cut = 0.5;
+// How fast the cut-out thickens with distance (mip level): the atlas' mips average a
+// crown's gaps into a thin, lacy alpha that would break far trees into sparkling
+// specks; lifted with the mip level they stay solid, soft-edged shapes.
+uniform float mip_alpha = 0.2;
 uniform float brightness = 1.0;
 uniform float translucency : hint_range(0.0, 1.0) = 0.4;
 // Share of a rounded crown normal in the lighting normal.
@@ -65,7 +69,11 @@ void impostor_fragment(vec2 uv, mat4 view_matrix, vec3 right, vec3 to_cam, vec4 
 	vec3 col = c.rgb * brightness * tint;
 	// Leaves are greener than bark: only they take autumn colour, fall and snow.
 	float leafy = smoothstep(0.0, 0.04, col.g - col.r * 0.95);
-	alpha = c.a;
+	vec2 texel = uv * vec2(textureSize(atlas, 0)) / vec2(views, rows);
+	vec2 dx = dFdx(texel);
+	vec2 dy = dFdy(texel);
+	float lod = max(0.0, 0.5 * log2(max(dot(dx, dx), dot(dy, dy))));
+	alpha = c.a * (1.0 + lod * mip_alpha);
 	if (broad > 0.5 && leafy > 0.5 && hash12(floor(uv * vec2(700.0, 1400.0)) + rnd * 37.0) < leaf_drop) {
 		alpha = 0.0;
 	}

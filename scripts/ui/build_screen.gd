@@ -5,7 +5,7 @@ extends ModalScreen
 ## right, and the build button. Kit projects (the chicken coop) are cut and bundled
 ## here and go into the bag; the player puts them up wherever they like.
 
-const GROUP_ICONS := {"field": "wheat", "animals": "paw", "house": "home", "storage": "warehouse"}
+const GROUP_ICONS := {"field": "wheat", "animals": "paw", "house": "home", "storage": "warehouse", "workshop": "hammer"}
 
 var _list: VBoxContainer
 var _detail: VBoxContainer

@@ -115,7 +115,7 @@ func is_built() -> bool:
 
 ## Real seconds the whole construction takes.
 func build_seconds() -> float:
-	return float(PlaceableTable.get_info(item_id).get("build_seconds", 180.0))
+	return PlaceableTable.build_seconds(item_id)
 
 
 ## Real seconds of play until it is finished (0 once it is).

@@ -7,7 +7,7 @@
 // a growing share of clumps shrinks away while the rest widen, and everything has
 // shrunk into its roots by fade_end, where the chunk is cut off.
 shader_type spatial;
-render_mode cull_disabled, diffuse_burley, specular_schlick_ggx, world_vertex_coords;
+render_mode cull_disabled, diffuse_burley, specular_schlick_ggx, world_vertex_coords, alpha_to_coverage;
 
 #include "res://shaders/include/nature.gdshaderinc"
 #include "res://shaders/include/ground.gdshaderinc"
@@ -98,8 +98,9 @@ void fragment() {
 	ALBEDO = col * (1.0 - wetness * 0.2);
 	ALPHA = tex.a * (1.0 + lod * 0.35);
 	ALPHA_SCISSOR_THRESHOLD = alpha_cut;
-	// Crisp, antialiased blade edges (alpha to coverage with MSAA).
-	ALPHA_ANTIALIASING_EDGE = alpha_cut;
+	// Antialiased blade edges (alpha to coverage with MSAA): the edge is added to the
+	// cut, so 0 centres the coverage ramp on it and the blades keep their width.
+	ALPHA_ANTIALIASING_EDGE = 0.0;
 	ALPHA_TEXTURE_COORDINATE = UV * vec2(tex_size, tex_size * 0.5);
 	// Little sheen: at grazing angles a glossier sward turns milky with sky light.
 	ROUGHNESS = mix(0.85, 0.5, wetness);

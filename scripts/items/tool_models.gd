@@ -9,7 +9,8 @@ extends RefCounted
 ##   containers stand on their base at the origin, `size` across their longest side.
 ## The handle axis comes from the principal axis of the vertices; the head is the end
 ## where the geometry spreads out most. `fix` (degrees) turns the result afterwards.
-## Heavy scans get automatic LODs. tools/bake_tools.gd saves the results to BAKED so
+## "narrow_head": the head is the thinner end instead (a knife's blade). Heavy scans get
+## automatic LODs. tools/bake_tools.gd saves the results to BAKED so
 ## the game only loads them (building the shears takes ~130 ms); rerun it after
 ## changing MODELS.
 
@@ -32,6 +33,9 @@ const MODELS := {
 		"kind": "upright", "size": 0.59},
 	&"milk_pail": {"path": "res://art/models/tools/wooden_bucket_01/wooden_bucket_01_1k.gltf",
 		"kind": "upright", "size": 0.37},
+	# The knife made at the workbench: a fish knife, blade up, the flat of it facing +Z.
+	&"knife": {"path": "res://art/models/tools/fish_knife/fish_knife_1k.gltf", "kind": "long",
+		"length": 0.24, "bottom": -0.1, "flat": Vector3.BACK, "narrow_head": true},
 }
 ## Scans heavier than this get LODs for distant pickups.
 const LOD_TRIANGLES := 20000
@@ -87,6 +91,9 @@ static func _long_frame(points: PackedVector3Array, cfg: Dictionary) -> Transfor
 	var low := float(spread[0]) / maxf(counts[0], 1)
 	var high := float(spread[1]) / maxf(counts[1], 1)
 	var head_end := 1 if high >= low else 0
+	# A knife's head is its blade, thinner than the handle.
+	if cfg.get("narrow_head", false):
+		head_end = 1 - head_end
 	if head_end == 0:
 		axis = -axis
 		var t_swap := -t_max

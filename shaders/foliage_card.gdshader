@@ -3,7 +3,7 @@
 // Normals come from the mesh (pointing out of the crown) on both faces, which gives
 // soft, volumetric-looking lighting; the atlas normal map adds leaf detail.
 shader_type spatial;
-render_mode cull_disabled, world_vertex_coords, diffuse_burley, specular_schlick_ggx;
+render_mode cull_disabled, world_vertex_coords, diffuse_burley, specular_schlick_ggx, alpha_to_coverage;
 
 #include "res://shaders/include/nature.gdshaderinc"
 

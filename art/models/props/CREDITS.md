@@ -1,6 +1,6 @@
 # Prop models
 
-All from Poly Haven (CC0, public domain), fetched by `tools/fetch_models.py`.
+All from Poly Haven (CC0, public domain), fetched by `tools/fetch_models.py` (the workbench's saw, hammer and plane by `tools/fetch_progression_models.py`).
 
 | Use | Model | Source |
 |---|---|---|
@@ -10,3 +10,6 @@ All from Poly Haven (CC0, public domain), fetched by `tools/fetch_models.py`.
 | Pickle barrel | Wine Barrel 01 | https://polyhaven.com/a/wine_barrel_01 |
 | Order board | Standing Chalkboard 01 | https://polyhaven.com/a/standing_chalkboard_01 |
 | Jam and paste kettle stove | Barrel Stove | https://polyhaven.com/a/barrel_stove |
+| Workbench saw (back board) | Handsaw Wood | https://polyhaven.com/a/handsaw_wood |
+| Workbench hammer | Wooden Hammer 01 | https://polyhaven.com/a/wooden_hammer_01 |
+| Workbench plane | Hand Plane No4 | https://polyhaven.com/a/hand_plane_no4 |

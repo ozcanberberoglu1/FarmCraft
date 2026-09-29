@@ -18,6 +18,10 @@ const SCANS := {
 	"barrel": "res://art/models/props/wine_barrel_01/wine_barrel_01_1k.gltf",
 	"chalkboard": "res://art/models/props/standing_chalkboard_01/standing_chalkboard_01_1k.gltf",
 	"stove": "res://art/models/props/barrel_stove/barrel_stove_1k.gltf",
+	# The workbench's tools (tools/fetch_progression_models.py).
+	"handsaw": "res://art/models/props/handsaw_wood/handsaw_wood_1k.gltf",
+	"hammer": "res://art/models/props/wooden_hammer_01/wooden_hammer_01_1k.gltf",
+	"plane": "res://art/models/props/hand_plane_no4/hand_plane_no4_1k.gltf",
 }
 const BAKED := "res://art/models/props/baked/%s_%s.res"
 const MOVING: Array[StringName] = [&"quern", &"sprinkler"]
@@ -62,7 +66,7 @@ static func build(id: StringName) -> Dictionary:
 	var moving := []
 	match id:
 		&"workbench":
-			_workbench(body)
+			_workbench(body, WORKBENCH_STAGES)
 		&"cheese_press":
 			_cheese_press(body)
 		&"spinning_wheel":
@@ -79,6 +83,9 @@ static func build(id: StringName) -> Dictionary:
 			_scan(body, "chalkboard", Transform3D.IDENTITY, 1.51)
 		&"coop_kit":
 			_coop_kit(body)
+		&"campfire":
+			# Stones and laid logs (scripts/camp/campfire_model.gd).
+			MeshMerge.add_mesh(body, CampfireModel.whole_mesh())
 	var out := {"body": MeshMerge.build(body), "moving": null}
 	var whole := body.duplicate()
 	if not moving.is_empty():
@@ -107,40 +114,89 @@ static func _add(out: Array, mb: MeshBuilder, xf := Transform3D.IDENTITY) -> voi
 	MeshMerge.add_mesh(out, mb.build(), xf)
 
 
+## A scanned piece turned by `rot`, scaled so its longest side is `longest` metres,
+## set down with the middle of its base at `at`.
+static func _scan_fit(out: Array, scan: String, rot: Basis, at: Vector3, longest: float) -> void:
+	var parts := MeshMerge.scene_parts(load(SCANS[scan]) as PackedScene)
+	var box := MeshMerge.bounds(parts, Transform3D(rot))
+	var s := longest / maxf(maxf(box.size.x, box.size.y), maxf(box.size.z, 0.001))
+	var base := Vector3(box.get_center().x, box.position.y, box.get_center().z)
+	MeshMerge.add_parts(out, parts, Transform3D(Basis.from_scale(Vector3.ONE * s), at) * Transform3D(rot, -base))
+
+
 # --- Workbench ------------------------------------------------------------------------
 
+## Stages the workbench goes up in on its site (Workbench); WORKBENCH_STAGES is the
+## finished bench with its tools.
+const WORKBENCH_STAGES := 3
+static var _bench_stages := {}
+
+
+## The bench part-built on its site: 0 legs and lower rails, 1 the frame and the shelf,
+## 2 the top on (no tools yet).
+static func workbench_stage(stage: int) -> ArrayMesh:
+	if not _bench_stages.has(stage):
+		var out := []
+		_workbench(out, stage)
+		_bench_stages[stage] = MeshMerge.build(out)
+	return _bench_stages[stage]
+
+
 ## A heavy joiner's bench: plank top, square legs with rails, a lower shelf with a box
-## of offcuts, and the scanned vice bolted to the front right corner.
-static func _workbench(out: Array) -> void:
+## of offcuts, a back board with the scanned saw hanging on its pegs, the scanned vice
+## bolted to the front right corner and a hammer and a plane on the top. Built up to
+## `stage` (see workbench_stage; WORKBENCH_STAGES: all of it).
+static func _workbench(out: Array, stage: int) -> void:
 	var mb := MeshBuilder.new()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5
 	var top := 0.9
-	for i in 3:
-		var z := -0.27 + i * 0.27
-		mb.box_at(&"wood", Vector3(0, top - 0.035, z), Vector3(1.9, 0.07, 0.26), WOOD.lightened(rng.randf_range(-0.05, 0.05)))
+	# Legs, the lower rails and the stretchers.
 	for x: float in [-0.84, 0.84]:
 		for z: float in [-0.32, 0.32]:
 			mb.box_at(&"wood", Vector3(x, (top - 0.07) * 0.5, z), Vector3(0.09, top - 0.07, 0.09), WOOD_DARK)
 	for z: float in [-0.32, 0.32]:
-		mb.box_at(&"wood", Vector3(0, top - 0.13, z), Vector3(1.6, 0.1, 0.05), WOOD_DARK)
 		mb.box_at(&"wood", Vector3(0, 0.2, z), Vector3(1.6, 0.07, 0.05), WOOD_DARK)
 	for x: float in [-0.84, 0.84]:
 		mb.box_at(&"wood", Vector3(x, 0.2, 0), Vector3(0.05, 0.07, 0.6), WOOD_DARK)
-	for i in 4:
-		mb.box_at(&"planks", Vector3(-0.6 + i * 0.4, 0.25, 0), Vector3(0.38, 0.025, 0.66), WOOD.darkened(0.08))
+	if stage >= 1:
+		# Aprons under the top and the shelf's boards.
+		for z: float in [-0.32, 0.32]:
+			mb.box_at(&"wood", Vector3(0, top - 0.13, z), Vector3(1.6, 0.1, 0.05), WOOD_DARK)
+		for i in 4:
+			mb.box_at(&"planks", Vector3(-0.6 + i * 0.4, 0.25, 0), Vector3(0.38, 0.025, 0.66), WOOD.darkened(0.08))
+	if stage >= 2:
+		for i in 3:
+			var z := -0.27 + i * 0.27
+			mb.box_at(&"wood", Vector3(0, top - 0.035, z), Vector3(1.9, 0.07, 0.26), WOOD.lightened(rng.randf_range(-0.05, 0.05)))
+	if stage < WORKBENCH_STAGES:
+		_add(out, mb)
+		return
 	# Box of offcuts on the shelf.
 	var bx := Vector3(-0.45, 0.26, 0.02)
 	mb.box_at(&"planks", bx + Vector3(0, 0.1, 0), Vector3(0.44, 0.2, 0.32), WOOD.lightened(0.05))
 	for i in 5:
 		mb.box_at(&"wood", bx + Vector3(rng.randf_range(-0.14, 0.14), 0.2 + rng.randf() * 0.06, rng.randf_range(-0.08, 0.08)),
 				Vector3(rng.randf_range(0.2, 0.34), 0.03, 0.05), WOOD.lightened(0.1), Vector3(rng.randf_range(-8, 8), rng.randf_range(-20, 20), 0))
-	# A mallet and a few boards on the top.
-	mb.box_at(&"wood", Vector3(-0.3, top + 0.05, -0.1), Vector3(0.14, 0.1, 0.09), WOOD_DARK)
-	mb.cylinder_between(&"wood", Vector3(-0.3, top + 0.05, -0.05), Vector3(-0.3, top + 0.03, 0.22), 0.014, 0.012, 8, WOOD)
+	# The back board on two posts, with pegs for the saw and a coil of string.
+	var bz := -0.43
+	for x: float in [-0.84, 0.84]:
+		mb.box_at(&"wood", Vector3(x, (top + 1.55) * 0.5, bz), Vector3(0.07, 1.55 - top, 0.06), WOOD_DARK)
+	mb.box_at(&"planks", Vector3(0, 1.3, bz + 0.01), Vector3(1.75, 0.4, 0.025), WOOD.lightened(0.04), Vector3.ZERO, true)
+	mb.box_at(&"wood", Vector3(0, 1.52, bz + 0.01), Vector3(1.8, 0.05, 0.05), WOOD_DARK)
+	for x: float in [-0.52, -0.1, 0.45, 0.62]:
+		mb.cylinder_between(&"wood", Vector3(x, 1.4, bz + 0.02), Vector3(x, 1.41, bz + 0.1), 0.009, 0.008, 6, WOOD_DARK)
+	mb.ring(&"cloth", Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.62, 1.33, bz + 0.05)), 0.06, 0.035, 0.03, 14, Color(0.72, 0.62, 0.45))
+	# A board being worked on the top.
 	mb.box_at(&"planks", Vector3(0.1, top + 0.012, -0.22), Vector3(0.7, 0.024, 0.16), WOOD.lightened(0.08), Vector3(0, 6, 0))
 	_add(out, mb)
 	_scan(out, "vice", Transform3D(Basis(Vector3.UP, PI), Vector3(0.66, top, 0.28)), 0.29)
+	# The saw hanging flat on the back board, its handle on the left peg.
+	_scan_fit(out, "handsaw", Basis(Vector3.UP, PI * 0.5), Vector3(-0.28, 1.19, bz + 0.035), 0.6)
+	# The claw hammer lying on its side, and the plane on its sole.
+	_scan_fit(out, "hammer", Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0)).rotated(Vector3.UP, 0.35),
+			Vector3(-0.45, top, 0.05), 0.3)
+	_scan_fit(out, "plane", Basis(Vector3.UP, -0.2), Vector3(0.2, top + 0.024, -0.2), 0.25)
 
 
 # --- Cheese press ------------------------------------------------------------------------

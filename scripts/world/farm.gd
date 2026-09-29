@@ -48,6 +48,10 @@ func _ready() -> void:
 	add_child(placed_root)
 	for e: Dictionary in FarmState.placed:
 		spawn_placed(e)
+	# The saplings the player planted and the trees they grew into.
+	var grove := SaplingGrove.new()
+	grove.name = "Saplings"
+	add_child(grove)
 	Animals.spawn_all.call_deferred()
 
 

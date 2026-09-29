@@ -7,8 +7,8 @@ extends SceneTree
 ## Run: godot --headless --path . -s res://tools/balance_sim.gd [-- --days=40 --seed=1]
 ##
 ## The player model: a new farm has Economy.STARTING_MONEY and Grandpa's pickup; the
-## first day's story buys two hens and the coop kit, the second day's a workbench for
-## the millstone. A day has ACTIONS actions (hoe, plant, water, harvest, care); beds are
+## first day's story buys two hens and the coop kit, the second day's the workbench kit
+## and the fishing rod's rope and bait. A day has ACTIONS actions (hoe, plant, water, harvest, care); beds are
 ## replanted with the crop that earns most per day in the season; sprinklers (from
 ## level 3) take watering off their hands; goods go through the shipping bin (75%) on
 ## the first two days, then to the town market every other day in the pickup; the
@@ -116,11 +116,13 @@ func _day() -> void:
 	var feed_need: float = animals[&"chicken"] * (1.0 if winter else 0.4)
 	money -= roundi(hay_need * _db.get_item(&"hay").buy_price + feed_need * _db.get_item(&"feed").buy_price)
 	_gain_xp(care * 1)
-	# The second day's story: a workbench from the market for the millstone.
+	# The second day's story: the workbench kit from the construction board (the wood is
+	# gathered), then the fishing rod's rope and a bait from the market; the millstone is
+	# made at the bench from gathered stone and wood.
 	if day == 2:
-		money -= _db.get_item(&"workbench").buy_price
+		money -= _cost(&"workbench") + 2 * _db.get_item(&"rope").buy_price + _db.get_item(&"worm").buy_price
 		machines[&"quern"] = 1
-		_mark("workbench + millstone (money left %d)" % money)
+		_mark("workbench kit, rope and bait (money left %d)" % money)
 	# Crops: harvest ripe beds, water growing ones, replant empty ones.
 	var watered := sprinklers * BEDS_PER_SPRINKLER
 	for b: Dictionary in beds:

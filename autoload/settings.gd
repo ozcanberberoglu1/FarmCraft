@@ -19,6 +19,17 @@ enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 ## window on a Retina or 4K screen is 8-10 million pixels; drawing GI, fog and MSAA
 ## at that size costs 3x the frame time for detail the eye can barely see.
 const MAX_3D_PIXELS := 2560 * 1440
+## Upscaler sharpening (Viewport.fsr_sharpness: 0 sharpest .. 2 none). The temporal
+## upscalers get none: their output is as sharp as the scene, and sharpening on top
+## only draws halos round far branches and crackles on foliage. FSR 1's spatial
+## upscale (LOW and MEDIUM in big windows) gets a light touch.
+const SHARPNESS_TEMPORAL := 2.0
+const SHARPNESS_SPATIAL := 1.2
+## Texture mip bias per anti-aliasing kind. Godot sharpens textures under temporal AA
+## and FXAA with a negative bias of its own; these take most of it back, so ground,
+## bark and far leaves do not glitter in motion.
+const MIP_BIAS_TEMPORAL := 0.35
+const MIP_BIAS_FXAA := 0.25
 
 ## First launch follows the system language (see detect_language).
 var language := ""
@@ -63,6 +74,9 @@ func apply() -> void:
 		# ... and the graphics preset: -- --quality=high
 		elif a.begins_with("--quality=") and Quality.has(a.substr(10).to_upper()):
 			quality = Quality[a.substr(10).to_upper()]
+		# ... and the 3D resolution scale, to see the upscalers: -- --render-scale=0.6
+		elif a.begins_with("--render-scale="):
+			render_scale = clampf(a.substr(15).to_float(), 0.5, 1.0)
 	if language == "":
 		language = detect_language()
 	TranslationServer.set_locale(language)
@@ -73,9 +87,7 @@ func apply() -> void:
 		var idx := AudioServer.get_bus_index(bus_name)
 		if idx >= 0:
 			AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(float(get(BUS_VOLUMES[bus_name])), 0.0001)))
-	var root := get_tree().root
 	_apply_3d_scale()
-	root.msaa_3d = Viewport.MSAA_4X if quality >= Quality.HIGH else (Viewport.MSAA_2X if quality == Quality.MEDIUM else Viewport.MSAA_DISABLED)
 	# The window is left alone in automated runs and headless tests.
 	if DisplayServer.get_name() != "headless" and not _automated():
 		var want := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
@@ -85,24 +97,51 @@ func apply() -> void:
 	changed.emit()
 
 
-## 3D resolution: render_scale, further lowered so big windows stay within
-## MAX_3D_PIXELS. Upscaled with MetalFX on Metal, FSR elsewhere.
+## 3D resolution and anti-aliasing. The resolution is render_scale, further lowered
+## so big windows stay within MAX_3D_PIXELS.
+## HIGH and ULTRA resolve edges over several frames (uses_temporal_aa): MetalFX
+## temporal on Macs, FSR 2 elsewhere, at native resolution too. Alpha-cut leaves,
+## grass blades and far tree pictures then read soft and still instead of crunchy and
+## shimmering, and the upscale from a capped resolution stays clean. It replaces MSAA
+## (MetalFX temporal cannot combine with it, FSR 2 has no use for it).
+## MEDIUM: 2x MSAA (foliage shaders turn their cut-outs into coverage with it) and
+## FXAA; LOW: FXAA only. Both upscale with MetalFX spatial or FSR 1 when capped.
 func _apply_3d_scale() -> void:
 	var root := get_tree().root
 	var px := maxf(float(root.size.x * root.size.y), 1.0)
 	var s := clampf(render_scale * minf(1.0, sqrt(MAX_3D_PIXELS / px)), 0.5, 1.0)
 	root.scaling_3d_scale = s
+	root.use_taa = false
+	if uses_temporal_aa():
+		# MSAA off first: MetalFX temporal refuses to start with it on.
+		root.msaa_3d = Viewport.MSAA_DISABLED
+		root.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+		root.scaling_3d_mode = Viewport.SCALING_3D_MODE_METALFX_TEMPORAL if _has_rd_feature(RenderingDevice.SUPPORTS_METALFX_TEMPORAL) \
+				else Viewport.SCALING_3D_MODE_FSR2
+		root.fsr_sharpness = SHARPNESS_TEMPORAL
+		root.texture_mipmap_bias = MIP_BIAS_TEMPORAL
+		return
 	if s >= 0.99:
 		root.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-	elif _has_metalfx_spatial():
+	elif _has_rd_feature(RenderingDevice.SUPPORTS_METALFX_SPATIAL):
 		root.scaling_3d_mode = Viewport.SCALING_3D_MODE_METALFX_SPATIAL
 	else:
 		root.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
+	root.fsr_sharpness = SHARPNESS_SPATIAL
+	root.msaa_3d = Viewport.MSAA_2X if quality == Quality.MEDIUM else Viewport.MSAA_DISABLED
+	root.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+	root.texture_mipmap_bias = MIP_BIAS_FXAA
 
 
-func _has_metalfx_spatial() -> bool:
+## Whether the graphics preset anti-aliases over time (HIGH and ULTRA): DayNightCycle
+## then lets the sky's cloud dithering vary from frame to frame, to be averaged away.
+func uses_temporal_aa() -> bool:
+	return quality >= Quality.HIGH
+
+
+func _has_rd_feature(feature: RenderingDevice.Features) -> bool:
 	var rd := RenderingServer.get_rendering_device()
-	return rd != null and rd.has_feature(RenderingDevice.SUPPORTS_METALFX_SPATIAL)
+	return rd != null and rd.has_feature(feature)
 
 
 func _automated() -> bool:

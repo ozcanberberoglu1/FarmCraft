@@ -27,12 +27,17 @@ const ICON_ROTATION := {
 	&"wheat": Vector3(0, 0, -25), &"carrot": Vector3(0, 0, -50), &"corn": Vector3(0, 0, -45),
 	&"eggplant": Vector3(0, 0, -40), &"wood": Vector3(15, 30, 0), &"hay": Vector3(0, 0, -30),
 	&"cheese": Vector3(22, -35, 0), &"truck_key": Vector3(64, 0, -30), &"chicken_crate": Vector3(16, -34, 0),
+	&"knife": Vector3(0, 0, -45), &"bow": Vector3(40, 90, 0), &"fishing_rod": Vector3(12, 150, -38),
+	&"rope": Vector3(28, 20, 0), &"nails": Vector3(18, 25, 0), &"worm": Vector3(32, 20, 0), &"dough": Vector3(30, 20, 0),
+	&"sapling": Vector3(0, 30, -8), &"campfire": Vector3(20, 20, 0),
 }
 
 ## Long tools are framed on their working end: model-space focus point and view radius.
 const ICON_FRAME := {
 	&"hoe": [Vector3(0, 0.66, 0.0), 0.52], &"scythe": [Vector3(0.16, 0.5, 0.0), 0.56],
 	&"pitchfork": [Vector3(0, 0.84, 0.0), 0.5],
+	# The rod on its grip and reel (the tip runs out of the picture).
+	&"fishing_rod": [Vector3(0, 0.3, 0.0), 0.42],
 }
 
 static var _cache: Dictionary = {}
@@ -48,6 +53,11 @@ static func mesh(id: StringName) -> ArrayMesh:
 		m = ToolModels.mesh(id)
 	elif GoodsModels.has(id):
 		m = GoodsModels.mesh(id)
+	elif FishModels.has(id):
+		# The fish, the fishing rod and the old boot (art/models/fish).
+		m = FishModels.mesh(id)
+	elif CraftModels.has(id):
+		m = CraftModels.mesh(id)
 	elif PlaceableTable.is_placeable(id):
 		m = PlaceableModels.mesh(id, "whole")
 	else:

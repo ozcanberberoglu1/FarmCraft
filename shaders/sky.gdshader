@@ -51,6 +51,10 @@ uniform int cloud_quality = 2;
 uniform float moon_phase = 3.14159;
 uniform sampler2D moon_albedo : source_color, filter_linear_mipmap, repeat_disable;
 uniform float star_brightness = 1.0;
+// Set with temporal anti-aliasing (HIGH, ULTRA; Settings.uses_temporal_aa): the clouds'
+// ray-march dithering moves on every frame, so it averages out into smooth cloud edges
+// instead of standing as a fixed grain.
+uniform bool temporal_jitter = false;
 uniform float flash = 0.0;
 
 // The real sun is 0.53 degrees across; a touch larger reads better on screen.
@@ -310,7 +314,14 @@ void sky() {
 	} else if (AT_HALF_RES_PASS) {
 		vec4 cl = vec4(0.0);
 		if (cloud_quality > 0) {
-			float jitter = texelFetch(blue_noise, ivec2(mod(FRAGCOORD.xy, 64.0)), 0).r;
+			vec2 cell = FRAGCOORD.xy;
+			float turn = 0.0;
+			if (temporal_jitter) {
+				float frame = floor(sky_time * 60.0);
+				cell += floor(fract(frame * vec2(0.7548777, 0.5698403)) * 64.0);
+				turn = frame * 0.618034;
+			}
+			float jitter = fract(texelFetch(blue_noise, ivec2(mod(cell, 64.0)), 0).r + turn);
 			if (cloud_quality >= 2) {
 				cl = volumetric_clouds(dir, POSITION, sd, md, 48, 0.035, 6, true, jitter);
 			} else {

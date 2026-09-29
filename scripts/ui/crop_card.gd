@@ -37,7 +37,8 @@ var _time_icon: TextureRect
 var _time: Label
 var _hint_icon: TextureRect
 var _hint: Label
-var _plot: FarmPlot = null
+## The bed (or sapling: anything with growth_info) shown.
+var _plot: Node = null
 var _wait := 0.0
 var _lost := 0.0
 var _snap := true
@@ -93,11 +94,12 @@ func _init() -> void:
 ## A cast and a few checks a frame; the bed itself is read every REFRESH.
 func _process(delta: float) -> void:
 	var p := _on_foot_player()
-	var plot: FarmPlot = null
-	if p != null and is_instance_valid(p.target):
-		plot = p.target as FarmPlot
+	var plot: Node = null
+	if p != null and is_instance_valid(p.target) and p.target.has_method("growth_info"):
+		plot = p.target
 	# Grandpa's beds wait for their goal without a card (FarmPlot.held_back).
-	if plot == null or plot.crop == &"" or plot.held_back():
+	var bed := plot as FarmPlot
+	if plot == null or (bed != null and (bed.crop == &"" or bed.held_back())):
 		if visible:
 			_lost += delta
 			# At once in a menu, while driving or on a bed just harvested or cleared;
@@ -147,7 +149,8 @@ func _show(info: Dictionary) -> void:
 	var regrow := bool(info["regrow"])
 	var ratio := 1.0 if kind == "ready" else float(info["ratio"])
 	var wet := float(info["wet_hours"])
-	var stage_text := tr(String(STAGE_KEYS[clampi(int(info["stage"]), 0, 3)]))
+	# A sapling (Sapling.growth_info) brings its own name, stage line and dry hint.
+	var stage_text: String = info.get("stage_text", tr(String(STAGE_KEYS[clampi(int(info["stage"]), 0, 3)])))
 	if regrow and kind != "ready":
 		stage_text = tr("CROP_STAGE_REGROW")
 	var ring_col := UiTheme.GREEN
@@ -178,8 +181,8 @@ func _show(info: Dictionary) -> void:
 			glow = Color(AMBER, 0.12)
 			time_text = tr("CROP_PAUSED")
 			time_col = AMBER
-			hint_text = tr("CROP_NEEDS_WATER") % ceili(left)
-			hint_col = UiTheme.RED if left < URGENT_HOURS else AMBER
+			hint_text = info["dry_hint"] if info.has("dry_hint") else tr("CROP_NEEDS_WATER") % ceili(left)
+			hint_col = UiTheme.RED if left < URGENT_HOURS and not info.has("dry_hint") else AMBER
 		"withered":
 			ring_col = UiTheme.RED
 			icon_col = Color(0.64, 0.5, 0.38, 0.85)
@@ -202,7 +205,7 @@ func _show(info: Dictionary) -> void:
 	var key := "%s|%s|%s|%s|%s|%s" % [kind, crop_id, stage_line, time_text, hint_text, hint_col.to_html()]
 	if key != _key:
 		_key = key
-		_name.text = UiTheme.caps(item.display_name()) if item else ""
+		_name.text = UiTheme.caps(String(info.get("name", item.display_name() if item else "")))
 		_stage.text = UiTheme.caps(stage_line)
 		_time_row.visible = time_text != ""
 		_time_icon.texture = UiTheme.glyph(time_glyph)

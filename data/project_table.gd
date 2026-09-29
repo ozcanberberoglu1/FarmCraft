@@ -16,6 +16,8 @@ const PROJECTS := {
 	&"field_2": {"cost": 900, "items": {&"wood": 30}, "requires": [&"field_1"], "group": "field"},
 	&"field_3": {"cost": 2400, "items": {&"wood": 60, &"stone": 30}, "requires": [&"field_2"], "group": "field"},
 	&"coop_kit": {"cost": 25, "items": {&"wood": 15}, "requires": [], "group": "animals", "kit": &"coop_kit"},
+	# The second day's workbench: a kit like the coop's, put up near the house in a minute.
+	&"workbench": {"cost": 40, "items": {&"wood": 10}, "requires": [], "group": "workshop", "kit": &"workbench"},
 	# Grandpa's fixed chicken run by the fields: no longer sold, kept for the farms that have it.
 	&"coop_1": {"cost": 125, "items": {&"wood": 30}, "requires": [], "group": "animals"},
 	&"coop_2": {"cost": 600, "items": {&"wood": 80, &"stone": 40}, "requires": [&"coop_1"], "group": "animals"},
@@ -30,7 +32,7 @@ const PROJECTS := {
 }
 
 ## Order shown on the board (hands-on projects are left off it).
-const ORDER := [&"house_1", &"house_2", &"house_3", &"warehouse_1", &"warehouse_2", &"field_1", &"field_2", &"field_3",
+const ORDER := [&"workbench", &"house_1", &"house_2", &"house_3", &"warehouse_1", &"warehouse_2", &"field_1", &"field_2", &"field_3",
 	&"barn_1", &"barn_2", &"coop_kit", &"coop_1", &"coop_2"]
 ## Warehouse capacity in units per level (0 = Grandpa's run-down shed, half its racks
 ## rotten; 1 = repaired; 2 = bigger).

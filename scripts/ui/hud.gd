@@ -2,8 +2,9 @@ class_name HUD
 extends CanvasLayer
 ## In-game overlay: money, clock and weather, crosshair with the hold-action ring,
 ## the crop growth card beside it, key-cap interaction prompts, toast notifications,
-## the story's waypoint dot, achievement banners, the morning sale badge and the
-## hotbar (hidden on a new farm until the first item comes into the bag); owns every
+## the story's waypoint dot, achievement banners, the morning sale badge, the hotbar
+## (hidden on a new farm until the first item comes into the bag) with the hunger and
+## energy bars beside it, and the countdowns over fish cooking on a campfire; owns every
 ## menu screen (inventory, shops, construction, animals, pause and settings).
 
 const MAX_TOASTS := 5
@@ -72,6 +73,10 @@ var crop_card: CropCard
 var waypoint: WaypointMarker
 ## Top-centre banner for unlocked achievements.
 var achievement_toast: AchievementToast
+## Hunger and energy at the bottom left (PlayerState.needs).
+var needs_bars: NeedsBars
+## Countdown rings over fish cooking on a campfire.
+var cook_rings: CookRings
 
 var _root: Control
 var _money_label: Label
@@ -135,6 +140,8 @@ func _ready() -> void:
 	# Under the crosshair, the prompts and every menu.
 	waypoint = WaypointMarker.new()
 	_root.add_child(waypoint)
+	cook_rings = CookRings.new()
+	_root.add_child(cook_rings)
 	_build_center()
 	_build_toasts()
 	achievement_toast = AchievementToast.new()
@@ -142,6 +149,9 @@ func _ready() -> void:
 	hotbar = HotbarUI.new()
 	_root.add_child(hotbar)
 	hotbar.visible = PlayerState.hotbar_unlocked
+	needs_bars = NeedsBars.new()
+	_root.add_child(needs_bars)
+	needs_bars.visible = PlayerState.hotbar_unlocked
 	vehicle_hud = VehicleHUD.new()
 	_root.add_child(vehicle_hud)
 	title_screen = TitleScreen.new()
@@ -442,6 +452,11 @@ func _sync_hud_visibility() -> void:
 	_crosshair.visible = not menu and not driving
 	_prompts.visible = not menu
 	hotbar.visible = not menu and _hotbar_wanted()
+	if needs_bars:
+		# The needs come with the bag (a new farm's first minutes show neither).
+		needs_bars.visible = not menu and PlayerState.hotbar_unlocked and not title_screen.visible
+	if cook_rings:
+		cook_rings.visible = not menu and not driving
 	var title := title_screen.visible
 	_money_pill.visible = not title
 	_clock_card.visible = not title
@@ -593,7 +608,8 @@ func _on_prompt_changed(lines: PackedStringArray) -> void:
 		if m:
 			var key := m.get_string(1)
 			action = m.get_string(2)
-			row.add_child(UiTheme.keycap("LMB" if key == tr("KEY_LMB") else key, 20))
+			var cap := "LMB" if key == tr("KEY_LMB") else ("RMB" if key == tr("KEY_RMB") else key)
+			row.add_child(UiTheme.keycap(cap, 20))
 		var l := UiTheme.make_label(UiTheme.caps(action), UiTheme.heading(24, UiTheme.TEXT, 700, 2, true))
 		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(l)

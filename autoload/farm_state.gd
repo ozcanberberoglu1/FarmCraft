@@ -12,6 +12,11 @@ var storage := {}
 var depleted := {}
 ## Felled trees' stumps by id -> [cut height over the tree's origin (m), notch yaw].
 var stumps := {}
+## Saplings the player planted and the trees they grew into (SaplingGrove):
+## [{id, kind, variant, pos, yaw, scale, growth, wet, grown}]. Ids "planted_<n>" never
+## meet the valley's generated "tree_<n>".
+var saplings: Array = []
+var sapling_serial := 0
 ## The farm warehouse: produce and materials stocked by the unit. Its capacity follows
 ## warehouse_level() (a new farm starts with Grandpa's run-down shed).
 var warehouse := Stockpile.new(ProjectTable.WAREHOUSE_CAPACITY[0])
@@ -190,6 +195,8 @@ func new_game() -> void:
 	storage.clear()
 	depleted.clear()
 	stumps.clear()
+	saplings.clear()
+	sapling_serial = 0
 	manure = 0.0
 	placed.clear()
 	flags.clear()
@@ -204,7 +211,8 @@ func save_data() -> Dictionary:
 	for id in storage:
 		inv[id] = (storage[id] as Inventory).to_array()
 	return {"built": built.keys().map(func(k): return String(k)), "storage": inv, "depleted": depleted,
-		"stumps": stumps.duplicate(true), "warehouse": warehouse.to_dict(), "manure": manure,
+		"stumps": stumps.duplicate(true), "saplings": saplings.duplicate(true), "sapling_serial": sapling_serial,
+		"warehouse": warehouse.to_dict(), "manure": manure,
 		"placed": placed.duplicate(true), "flags": flags.duplicate(true)}
 
 
@@ -215,6 +223,8 @@ func load_data(d: Dictionary) -> void:
 	storage.clear()
 	depleted = d.get("depleted", {})
 	stumps = (d.get("stumps", {}) as Dictionary).duplicate(true)
+	saplings = (d.get("saplings", []) as Array).duplicate(true)
+	sapling_serial = int(d.get("sapling_serial", saplings.size()))
 	var inv: Dictionary = d.get("storage", {})
 	for id in inv:
 		var arr: Array = inv[id]

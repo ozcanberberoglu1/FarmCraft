@@ -123,6 +123,65 @@ const PROFILES := {
 		[0.46, Vector3(-0.04, 0.02, -0.2), Vector3(-34, 8, 6), Tween.TRANS_EXPO, Tween.EASE_IN],
 		[0.6, Vector3(-0.05, -0.04, -0.18), Vector3(-40, 10, 8), Tween.TRANS_SINE, Tween.EASE_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# Food brought up to the mouth, two bites, back down (Eating: RMB with food in hand).
+	&"eat": {"keys": [
+		[0.0, Vector3.ZERO, Vector3.ZERO],
+		[0.3, Vector3(-0.26, 0.13, 0.26), Vector3(18, 24, 8), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.38, Vector3(-0.25, 0.115, 0.285), Vector3(10, 24, 8), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.5, Vector3(-0.26, 0.13, 0.25), Vector3(18, 24, 8), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.6, Vector3(-0.25, 0.115, 0.285), Vector3(10, 24, 8), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.72, Vector3(-0.22, 0.09, 0.22), Vector3(12, 20, 6), Tween.TRANS_SINE, Tween.EASE_OUT],
+		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# The fishing rod (Angler drives these through HeldItem.debug_pose, u from its own
+	# clock). Every profile starts where the one before it ends: rest -> cast -> wait/bite
+	# (the rod lowered toward the float, "F") -> strike or retrieve -> rest.
+	# Cast: drawn back over the shoulder while the power builds (u 0..0.55, held), a hang,
+	# then a whip forward that lets the float go at "release" and settles at F.
+	&"rod_cast": {"release": 0.7, "keys": [
+		[0.0, Vector3.ZERO, Vector3.ZERO],
+		[0.3, Vector3(0.03, 0.1, 0.08), Vector3(58, 0, 4), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.55, Vector3(0.04, 0.12, 0.1), Vector3(66, 0, 6), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.6, Vector3(0.04, 0.125, 0.105), Vector3(68, 0, 6), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.72, Vector3(-0.02, 0.0, -0.12), Vector3(-30, 0, -2), Tween.TRANS_EXPO, Tween.EASE_IN],
+		[0.86, Vector3(0.0, -0.03, -0.08), Vector3(-17, 0, 0), Tween.TRANS_BACK, Tween.EASE_OUT],
+		[1.0, Vector3(0.0, -0.03, -0.08), Vector3(-18, 0, 0), Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# Waiting at F, the tip breathing a little (looped).
+	&"rod_wait": {"keys": [
+		[0.0, Vector3(0.0, -0.03, -0.08), Vector3(-18, 0, 0)],
+		[0.5, Vector3(0.0, -0.025, -0.08), Vector3(-15.5, 0, 0.6), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[1.0, Vector3(0.0, -0.03, -0.08), Vector3(-18, 0, 0), Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# A fish on: the tip yanked down in jerks (looped over the bite).
+	&"rod_bite": {"keys": [
+		[0.0, Vector3(0.0, -0.03, -0.08), Vector3(-18, 0, 0)],
+		[0.18, Vector3(0.0, -0.06, -0.11), Vector3(-31, 2, -2), Tween.TRANS_EXPO, Tween.EASE_OUT],
+		[0.45, Vector3(0.0, -0.035, -0.085), Vector3(-20, -1, 1), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.6, Vector3(0.0, -0.055, -0.1), Vector3(-28, -2, 2), Tween.TRANS_EXPO, Tween.EASE_OUT],
+		[1.0, Vector3(0.0, -0.03, -0.08), Vector3(-18, 0, 0), Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# The strike: the rod swept up hard, held as the fish comes out, then brought home.
+	&"rod_strike": {"keys": [
+		[0.0, Vector3(0.0, -0.03, -0.08), Vector3(-18, 0, 0)],
+		[0.18, Vector3(0.03, 0.1, 0.06), Vector3(40, 0, 5), Tween.TRANS_EXPO, Tween.EASE_OUT],
+		[0.6, Vector3(0.03, 0.09, 0.05), Vector3(34, 0, 4), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# Reeling in an empty line: lifted a little from F, the hand turning the crank (small
+	# rolls), then home to rest.
+	&"rod_retrieve": {"keys": [
+		[0.0, Vector3(0.0, -0.03, -0.08), Vector3(-18, 0, 0)],
+		[0.12, Vector3(0.0, -0.02, -0.06), Vector3(-8, 0, 0), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.25, Vector3(0.004, -0.018, -0.06), Vector3(-7, 0, 2.5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.38, Vector3(-0.004, -0.022, -0.06), Vector3(-9, 0, -2.5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.51, Vector3(0.004, -0.018, -0.06), Vector3(-7, 0, 2.5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.64, Vector3(-0.004, -0.022, -0.06), Vector3(-9, 0, -2.5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.77, Vector3(0.004, -0.018, -0.06), Vector3(-7, 0, 2.5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# A sapling lowered to the ground and pressed down into the dug hole, twice (the
+	# head dips with each press).
+	&"dig": {"impact": 0.56, "kick": Vector4(-0.9, 0.0, 0.3, -0.03), "trauma": 0.04, "keys": [
+		[0.0, Vector3.ZERO, Vector3.ZERO],
+		[0.3, Vector3(0.0, 0.04, 0.03), Vector3(8, 0, -2), Tween.TRANS_SINE, Tween.EASE_OUT],
+		[0.56, Vector3(-0.07, -0.22, -0.14), Vector3(-26, 6, 8), Tween.TRANS_EXPO, Tween.EASE_IN],
+		[0.68, Vector3(-0.07, -0.23, -0.14), Vector3(-27, 6, 8), Tween.TRANS_LINEAR, Tween.EASE_IN],
+		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
 	# A short push forward and back (milking, feeding, medicine, anything else).
 	&"work": {"impact": 0.5, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
@@ -135,7 +194,8 @@ const ACTIONS := {
 	"hoe": [&"hoe", 2], "clear": [&"", 1], "chop": [&"axe", 1], "break": [&"pickaxe", 1],
 	"cut": [&"scythe", 1], "harvest": [&"scythe", 1], "water": [&"can_pour", 1], "fill_water": [&"can_pour", 1],
 	"refill": [&"can_dip", 1], "plant": [&"scatter", 1], "fertilize": [&"sack", 1], "fill_feed": [&"sack", 1],
-	"muck": [&"fork", 1], "brush": [&"brush", 0], "shear": [&"brush", 0],
+	"muck": [&"fork", 1], "brush": [&"brush", 0], "shear": [&"brush", 0], "douse": [&"can_pour", 1],
+	"plant_sapling": [&"dig", 2],
 }
 ## A tool's own stroke (clearing a bed, swinging at nothing).
 const TOOL_PROFILES := {&"axe": &"axe", &"pickaxe": &"pickaxe", &"hoe": &"hoe", &"scythe": &"scythe", &"pitchfork": &"fork"}

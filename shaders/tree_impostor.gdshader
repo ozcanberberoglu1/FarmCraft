@@ -2,7 +2,7 @@
 // (see shaders/include/tree_impostor.gdshaderinc), lit with their normal maps; autumn,
 // falling leaves, snow and rain follow the same world globals as the near trees.
 shader_type spatial;
-render_mode cull_disabled, world_vertex_coords, diffuse_burley, specular_schlick_ggx;
+render_mode cull_disabled, world_vertex_coords, diffuse_burley, specular_schlick_ggx, alpha_to_coverage;
 
 #include "res://shaders/include/nature.gdshaderinc"
 #include "res://shaders/include/tree_impostor.gdshaderinc"

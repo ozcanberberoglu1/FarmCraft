@@ -1,6 +1,8 @@
 extends Node
 ## The player's persistent state: inventory (first 8 slots = hotbar), the selected
-## hotbar slot, and whether the hotbar and inventory have opened yet.
+## hotbar slot, whether the hotbar and inventory have opened yet, and the farmer's
+## hunger and energy (needs; scripts/camp/needs.gd): they run down with the game clock,
+## eating and sleeping fill them, and a need running low brings a message.
 
 signal selected_changed(slot: int)
 ## The first item came into the bag of a new farm: the hotbar and inventory open (the
@@ -16,10 +18,17 @@ var selected := 0
 ## both open for good with the first item that comes into the bag, however it comes
 ## (Grandpa's table, a pickup, a chest). Saved; saves from before the lock come open.
 var hotbar_unlocked := true
+## Hunger and energy (0..100 each). Automated runs keep them still (tests set frozen).
+var needs := Needs.new()
 
 
 func _ready() -> void:
 	inventory.changed.connect(_on_inventory_changed)
+	Events.clock_tick.connect(func(_total: float, minutes: float) -> void: needs.tick(minutes))
+	Events.day_ending.connect(needs.fall_asleep)
+	Events.passed_out.connect(needs.pass_out)
+	Events.time_skipped.connect(func(_minutes: float) -> void: needs.wake())
+	needs.warned.connect(_on_need_warned)
 	new_game()
 	# Tests and screenshot runs skip the story: they start with Grandpa's kit in the bag
 	# and the hotbar open. Deferred: DebugTools reads the command line after this runs.
@@ -28,6 +37,7 @@ func _ready() -> void:
 
 func _start_automated() -> void:
 	if DebugTools.is_automated():
+		needs.frozen = true
 		give_starter_kit()
 
 
@@ -37,6 +47,7 @@ func new_game() -> void:
 	# Keep the same Inventory object so UI connections stay valid.
 	inventory.from_array([])
 	select(0)
+	needs.reset()
 
 
 ## Grandpa's old kit straight into the bag, in hotbar order (automated runs; in the
@@ -92,8 +103,21 @@ func give(item_id: StringName, amount := 1, notify := true) -> int:
 	return left
 
 
+## A need ran low: a word about it (the farmer yawns when tired).
+func _on_need_warned(kind: StringName) -> void:
+	var msg: String = {&"hungry": "MSG_HUNGRY", &"starving": "MSG_STARVING", &"tired": "MSG_TIRED",
+			&"exhausted": "MSG_EXHAUSTED"}.get(kind, "")
+	if msg == "":
+		return
+	var urgent := kind == &"starving" or kind == &"exhausted"
+	Game.notify(tr(msg), UiTheme.RED if urgent else UiTheme.GOLD_SOFT)
+	if kind == &"tired" or kind == &"exhausted":
+		CampSfx.play("yawn", null, -9.0, 0.04)
+
+
 func save_data() -> Dictionary:
-	return {"inventory": inventory.to_array(), "selected": selected, "hotbar": hotbar_unlocked}
+	return {"inventory": inventory.to_array(), "selected": selected, "hotbar": hotbar_unlocked,
+		"needs": needs.save_data()}
 
 
 func load_data(data: Dictionary) -> void:
@@ -102,3 +126,4 @@ func load_data(data: Dictionary) -> void:
 	hotbar_unlocked = bool(data.get("hotbar", true))
 	inventory.from_array(data.get("inventory", []))
 	select(int(data.get("selected", 0)))
+	needs.load_data(data.get("needs", {}))

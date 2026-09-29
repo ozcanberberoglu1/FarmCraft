@@ -5,7 +5,7 @@ extends Node3D
 ## in 45° steps; green where it fits, red where it doesn't. Left click puts it down.
 ## Machines go on open farm land: not in town, not on the road, not on steep ground and
 ## not into anything else.
-## Building kits (PlaceableTable "building": the coop kit) show the finished building on
+## Building kits (PlaceableTable "building": the coop kit, the workbench) show the finished building on
 ## its whole plot, further out ("reach"), its door toward the player and turned in 15°
 ## steps. The plot must be open, level enough farm land clear of buildings, fences,
 ## vehicles, water, fields, tracks, the yard's fixtures and other plots; where it isn't,
@@ -190,6 +190,14 @@ func _check(player: Player, p: Vector3) -> String:
 	elif in_building_plot(p):
 		# A coop's yard is its hens' (they would walk through a machine).
 		return "MSG_PLACE_BLOCKED"
+	if String(_info.get("kind", "")) == "campfire":
+		# A fire burns out of doors, on open ground: never inside or under a roof, on a
+		# field or a track, or by the water (Campfire).
+		if indoors(p):
+			return "MSG_PLACE_INDOORS"
+		var why := Campfire.placement_reason(player, p)
+		if why != "":
+			return why
 	var shape := BoxShape3D.new()
 	var fill := 0.97 if building else 0.94
 	shape.size = Vector3(size.x * fill, size.y * 0.85, size.z * fill)
@@ -264,6 +272,17 @@ static func in_building_plot(p: Vector3) -> bool:
 	return false
 
 
+## Whether `p` is inside one of the farm's buildings: the house (as big as it is now),
+## the warehouse, the barn and Grandpa's coop where they stand.
+static func indoors(p: Vector3) -> bool:
+	var pt := Vector2(p.x, p.z)
+	if WorldLayout.house_rect(FarmState.house_level()).grow(0.3).has_point(pt) or WorldLayout.WAREHOUSE_RECT.has_point(pt):
+		return true
+	if FarmState.barn_level() > 0 and WorldLayout.BARN_BUILDING.has_point(pt):
+		return true
+	return FarmState.coop_level() > 0 and WorldLayout.COOP_BUILDING.has_point(pt)
+
+
 ## Whether two turned rects (centre and yaw in their transforms, half sizes) overlap
 ## (separating axes).
 static func _plots_overlap(a: Transform3D, ha: Vector2, b: Transform3D, hb: Vector2) -> bool:
@@ -325,7 +344,7 @@ func place() -> bool:
 	if building:
 		# It goes up as a construction site first.
 		e["stage"] = "site"
-		e["build_left"] = float(_info.get("build_seconds", 180.0))
+		e["build_left"] = PlaceableTable.build_seconds(_id)
 	var node := Game.world.farm.spawn_placed(e) as PlacedObject
 	var id := _id
 	PlayerState.inventory.remove_item(_id, 1)

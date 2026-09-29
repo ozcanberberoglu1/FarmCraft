@@ -14,6 +14,8 @@
 | Hay | Hay bales | Zbrojmistrz | CC BY 4.0 | https://sketchfab.com/3d-models/hay-bales-d6e087f9a2a9416c94918f0503943c17 |
 | Milk | Metal Jug | Poly Haven | CC0 | https://polyhaven.com/a/metal_jug |
 | Fertilizer | Compost Bag 02 | Poly Haven | CC0 | https://polyhaven.com/a/compost_bag_02 |
+| Worm tin (bait) | Can Rusted | Poly Haven | CC0 | https://polyhaven.com/a/can_rusted |
+| Dough bowl (bait) | Wooden Bowl 01 | Poly Haven | CC0 | https://polyhaven.com/a/wooden_bowl_01 |
 
 Changes: textures scaled to 1024 px; the seven pieces of the fruit & vegetable pack
 were cut out of it with `tools/extract_scans.gd` (produce/, the pack's license in
@@ -22,4 +24,4 @@ without the stick it was scanned on; one bale of the hay pair; tinted sacks and 
 tell flour, feed, manure and tomato paste apart. `GoodsModels` bakes them in item
 space, with thinned-out versions for crates and market shelves
 (`tools/bake_tools.gd`). Each Sketchfab folder keeps its original `license.txt`;
-Poly Haven models are fetched by `tools/fetch_models.py`.
+Poly Haven models are fetched by `tools/fetch_models.py` (the worm tin and the dough bowl by `tools/fetch_progression_models.py`).

@@ -1,9 +1,12 @@
 class_name CraftingScreen
 extends ModalScreen
-## The workbench. "Make": what can be made (RecipeTable.CRAFTING) on the left, the
-## selected recipe's materials and the make button on the right; recipes open up with
-## the farm level, materials come from the bag. "Tools": upgrade the tools in the bag
-## (faster work, longer life) for iron ore and money.
+## The workbench. "Make": what can be made (RecipeTable.CRAFTING) on the left under
+## their headings (tools, the campfire and bait, farm supplies, machines), the selected
+## recipe's materials and the make button on the right; recipes open up with the farm
+## level, materials come from the bag (a material the town market sells says so when
+## short). Making takes a moment at the bench: a bar fills to the sound of the work
+## (sawing wood, knocking stone, hammering iron), then the thing pops into the bag.
+## "Tools": upgrade the tools in the bag (faster work, longer life) for iron ore and money.
 
 ## Cost of each tool upgrade level: iron ore, dollars, farm level needed.
 const UPGRADE_COST := [{}, {"ore": 6, "money": 60, "level": UnlockTable.TOOL_UPGRADES[1]},
@@ -16,6 +19,13 @@ var _tab := "make"
 var _tabs: TabStrip
 var _money: Label
 var _tool_slot := -1
+## Seconds a piece of work takes at the bench (the bar, the sounds).
+const CRAFT_SECONDS := 1.4
+## What is being made (&"" when the bench is idle), its bar and the picture that pops.
+var _making: StringName = &""
+var _make_bar: StatBar
+var _head_icon: TextureRect
+var _make_tween: Tween
 
 
 func _ready() -> void:
@@ -62,6 +72,9 @@ func open() -> void:
 
 
 func _refresh() -> void:
+	# The bench is busy: the list and the card are drawn again when the work is done.
+	if _making != &"":
+		return
 	for c in _list.get_children():
 		c.queue_free()
 	if _money:
@@ -69,9 +82,24 @@ func _refresh() -> void:
 	if _tab == "tools":
 		_refresh_tools()
 		return
+	var group := ""
 	for id: StringName in RecipeTable.CRAFT_ORDER:
+		var g := String(RecipeTable.crafting(id).get("group", ""))
+		if g != group:
+			group = g
+			var head: Array = RecipeTable.GROUPS.get(g, ["", ""])
+			if _list.get_child_count() > 0:
+				_list.add_child(UiTheme.spacer(4))
+			_list.add_child(UiTheme.section(tr(String(head[0])), String(head[1])))
 		_list.add_child(_card(id))
 	_show(_selected)
+
+
+func _on_hidden() -> void:
+	# Closed mid-work: nothing is used up.
+	_making = &""
+	if _make_tween:
+		_make_tween.kill()
 
 
 # --- Tool upgrades ------------------------------------------------------------------------
@@ -274,7 +302,8 @@ func _show(id: StringName) -> void:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 14)
 	_detail.add_child(head)
-	head.add_child(UiTheme.icon_rect(item.icon, 72))
+	_head_icon = UiTheme.icon_rect(item.icon, 72)
+	head.add_child(_head_icon)
 	var titles := VBoxContainer.new()
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -289,13 +318,24 @@ func _show(id: StringName) -> void:
 		var lock := UiTheme.icon_row(UiTheme.glyph("lock"), tr("UI_NEEDS_LEVEL") % [level, Progress.level], UiTheme.RED, 18, 20)
 		_detail.add_child(lock)
 	_detail.add_child(UiTheme.section(tr("UI_MATERIALS"), "box"))
+	var from_market := PackedStringArray()
 	for item_id: StringName in r["items"]:
 		var it := ItemDB.get_item(item_id)
-		_detail.add_child(_cost_row(it.icon, it.display_name(), PlayerState.inventory.count_item(item_id), int(r["items"][item_id])))
+		var have := PlayerState.inventory.count_item(item_id)
+		_detail.add_child(_cost_row(it.icon, it.display_name(), have, int(r["items"][item_id])))
+		if have < int(r["items"][item_id]) and item_id in ShopStock.MARKET_EXTRAS:
+			from_market.append(it.display_name())
+	if not from_market.is_empty():
+		_detail.add_child(UiTheme.icon_row(UiTheme.glyph("store"), tr("UI_SOLD_AT_MARKET") % UiTheme.join_list(from_market),
+				UiTheme.GOLD_SOFT, 17, 18))
 	_detail.add_child(UiTheme.expand())
+	_make_bar = StatBar.new(8.0, UiTheme.GOLD)
+	_make_bar.max_value = 1.0
+	_make_bar.modulate.a = 0.0
+	_detail.add_child(_make_bar)
 	var button := UiTheme.button(tr("UI_CRAFT"), "primary", Vector2(510, 60), "hammer", 24)
 	button.disabled = not _unlocked(id) or _missing(id)
-	button.pressed.connect(_craft.bind(id))
+	button.pressed.connect(_craft.bind(id, button))
 	_detail.add_child(button)
 
 
@@ -342,6 +382,51 @@ func craft(id: StringName) -> bool:
 	return true
 
 
-func _craft(id: StringName) -> void:
-	if craft(id):
+## The make button: the work takes CRAFT_SECONDS at the bench, then the thing is made.
+func _craft(id: StringName, button: Control) -> void:
+	if _making != &"" or not _unlocked(id) or _missing(id):
+		return
+	_making = id
+	if button is BaseButton:
+		(button as BaseButton).disabled = true
+	_make_bar.set_value(0.0, false)
+	_make_tween = create_tween()
+	_make_tween.tween_property(_make_bar, "modulate:a", 1.0, 0.12)
+	_make_tween.parallel().tween_method(func(v: float) -> void: _make_bar.set_value(v, false), 0.0, 1.0, CRAFT_SECONDS)
+	var knocks := 4
+	for i in knocks:
+		get_tree().create_timer(CRAFT_SECONDS * (0.08 + 0.23 * i)).timeout.connect(_work_sound.bind(id))
+	await _make_tween.finished
+	if _making != id or not visible:
+		return
+	_making = &""
+	if not craft(id):
 		_refresh()
+		return
+	Audio.ui("confirm", -6.0)
+	var item := ItemDB.get_item(id)
+	var count := int(RecipeTable.crafting(id).get("count", 1))
+	Game.notify(tr("MSG_CRAFTED") % ("%s ×%d" % [item.display_name(), count] if count > 1 else item.display_name()), UiTheme.GREEN)
+	_refresh()
+	# The new thing pops in the card.
+	if _head_icon:
+		_head_icon.pivot_offset = _head_icon.custom_minimum_size * 0.5
+		_head_icon.scale = Vector2.ONE * 1.3
+		create_tween().tween_property(_head_icon, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## One knock of the work, by what the recipe is made of.
+func _work_sound(id: StringName) -> void:
+	if _making != id or not visible:
+		return
+	var items: Dictionary = RecipeTable.crafting(id).get("items", {})
+	var pick: Array[String] = []
+	if items.has(&"iron_ore") or items.has(&"nails"):
+		pick.append("metal")
+	if items.has(&"stone"):
+		pick.append("pick")
+	if items.has(&"wood"):
+		pick.append_array(["wood_hit", "plank"])
+	if pick.is_empty():
+		pick.append("soft")
+	Audio.play(pick[randi() % pick.size()], null, -9.0, 0.12)

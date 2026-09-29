@@ -2,22 +2,52 @@ class_name RecipeTable
 extends RefCounted
 ## What the workbench makes and what the machines turn goods into.
 ##
-## CRAFTING: item -> {items: {id: count}, count (made), level (farm level needed)}
+## CRAFTING: item -> {items: {id: count}, count (made), level (farm level needed),
+## group (the heading it is listed under at the workbench: GROUPS)}
 ## PROCESSING: machine -> [{in: {id: count}, out: item, hours (game hours)}]
 
 ## Levels follow UnlockTable: a machine opens with what feeds it (fertilizer with the
-## chickens' manure, the spinning wheel with sheep, the cheese press with cows).
+## chickens' manure, the spinning wheel with sheep, the cheese press with cows). The
+## first tools (knife, rod, bow), the campfire and bait are there from the first
+## workbench: the second day's story makes the knife, the rod and a campfire. Nails and
+## rope come from the town market; the farm's tools can be made again when one wears
+## out or a second hand needs one (iron ore from the quarry or the market).
 const CRAFTING := {
-	&"quern": {"items": {&"stone": 20, &"wood": 10}, "count": 1, "level": 1},
-	&"fertilizer": {"items": {&"manure": 4, &"hay": 1}, "count": 2, "level": 2},
-	&"sprinkler": {"items": {&"iron_ore": 5, &"stone": 3}, "count": 1, "level": 3},
-	&"pickle_barrel": {"items": {&"wood": 35, &"iron_ore": 3}, "count": 1, "level": 3},
-	&"spinning_wheel": {"items": {&"wood": 40, &"iron_ore": 2}, "count": 1, "level": 3},
-	&"cheese_press": {"items": {&"wood": 30, &"iron_ore": 4}, "count": 1, "level": 4},
-	&"jam_kettle": {"items": {&"stone": 20, &"iron_ore": 10}, "count": 1, "level": 5},
+	# Tools.
+	&"knife": {"items": {&"wood": 2, &"stone": 3}, "count": 1, "level": 1, "group": "tools"},
+	&"fishing_rod": {"items": {&"wood": 3, &"rope": 2}, "count": 1, "level": 1, "group": "tools"},
+	&"bow": {"items": {&"wood": 4, &"nails": 4, &"rope": 2}, "count": 1, "level": 1, "group": "tools"},
+	&"axe": {"items": {&"wood": 3, &"iron_ore": 3}, "count": 1, "level": 1, "group": "tools"},
+	&"pickaxe": {"items": {&"wood": 3, &"iron_ore": 4}, "count": 1, "level": 1, "group": "tools"},
+	&"hoe": {"items": {&"wood": 3, &"iron_ore": 3}, "count": 1, "level": 1, "group": "tools"},
+	&"scythe": {"items": {&"wood": 4, &"iron_ore": 4}, "count": 1, "level": 1, "group": "tools"},
+	&"watering_can": {"items": {&"iron_ore": 5, &"nails": 2}, "count": 1, "level": 1, "group": "tools"},
+	&"pitchfork": {"items": {&"wood": 4, &"iron_ore": 3, &"nails": 2}, "count": 1, "level": 2, "group": "tools"},
+	&"shears": {"items": {&"iron_ore": 4, &"wood": 1}, "count": 1, "level": 3, "group": "tools"},
+	&"milk_pail": {"items": {&"wood": 6, &"nails": 4}, "count": 1, "level": 4, "group": "tools"},
+	# The campfire and bait.
+	&"campfire": {"items": {&"stone": 8, &"wood": 6}, "count": 1, "level": 1, "group": "camp"},
+	&"dough": {"items": {&"wheat": 2}, "count": 4, "level": 1, "group": "camp"},
+	# The farm's supplies.
+	&"feed": {"items": {&"wheat": 2}, "count": 5, "level": 1, "group": "farm"},
+	&"fertilizer": {"items": {&"manure": 4, &"hay": 1}, "count": 2, "level": 2, "group": "farm"},
+	&"sprinkler": {"items": {&"iron_ore": 5, &"stone": 3}, "count": 1, "level": 3, "group": "farm"},
+	# Machines.
+	&"quern": {"items": {&"stone": 20, &"wood": 10}, "count": 1, "level": 1, "group": "machines"},
+	&"pickle_barrel": {"items": {&"wood": 35, &"iron_ore": 3}, "count": 1, "level": 3, "group": "machines"},
+	&"spinning_wheel": {"items": {&"wood": 40, &"iron_ore": 2}, "count": 1, "level": 3, "group": "machines"},
+	&"cheese_press": {"items": {&"wood": 30, &"iron_ore": 4}, "count": 1, "level": 4, "group": "machines"},
+	&"jam_kettle": {"items": {&"stone": 20, &"iron_ore": 10}, "count": 1, "level": 5, "group": "machines"},
 }
-const CRAFT_ORDER: Array[StringName] = [&"quern", &"fertilizer", &"sprinkler", &"pickle_barrel",
-	&"spinning_wheel", &"cheese_press", &"jam_kettle"]
+## The workbench's list, heading by heading (GROUPS).
+const CRAFT_ORDER: Array[StringName] = [&"knife", &"fishing_rod", &"bow", &"axe", &"pickaxe", &"hoe",
+	&"scythe", &"watering_can", &"pitchfork", &"shears", &"milk_pail", &"campfire", &"dough", &"feed",
+	&"fertilizer", &"sprinkler", &"quern", &"pickle_barrel", &"spinning_wheel", &"cheese_press", &"jam_kettle"]
+## Headings of the workbench's list: group -> [translation key, icon].
+const GROUPS := {
+	"tools": ["CRAFT_GROUP_TOOLS", "hammer"], "camp": ["CRAFT_GROUP_CAMP", "campfire"],
+	"farm": ["CRAFT_GROUP_FARM", "wheat"], "machines": ["CRAFT_GROUP_MACHINES", "wrench"],
+}
 
 const PROCESSING := {
 	&"cheese_press": [{"in": {&"milk": 2}, "out": &"cheese", "hours": 12}],

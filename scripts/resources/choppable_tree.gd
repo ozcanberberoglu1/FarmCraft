@@ -320,6 +320,15 @@ func _on_landed(dir: Vector3) -> void:
 		var p := global_position + dir * along + Vector3(rng.randf_range(-0.4, 0.4), 0.6, rng.randf_range(-0.4, 0.4))
 		var s := ItemStack.create(&"wood", 1)
 		Pickup.spawn(s, p, Vector3(rng.randf_range(-1, 1), 2.0, rng.randf_range(-1, 1)), true)
+	# Now and then a sapling comes away with the crown (SaplingGrove.DROP_CHANCE).
+	SaplingGrove.drop_sapling(global_position + dir * rng.randf_range(1.5, 3.0) * tree_scale + Vector3(0, 0.6, 0))
+
+
+## A tree just grown from a sapling (SaplingGrove) rises from the young tree's size
+## (`from`, per axis) to its own.
+func grow_in(from: Vector3, seconds: float) -> void:
+	_pivot.scale = from
+	create_tween().tween_property(_pivot, "scale", Vector3.ONE, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 func _set_felled(value: bool) -> void:

@@ -6,9 +6,12 @@ extends Node
 ## town, a coop put up from a kit, the ripe beds he left behind, the shipping bin, the
 ## first egg, then the coop looked after (feed from the warehouse, water from the well,
 ## straw in the nests) and the house's broken boards renewed by hand with a tree's wood.
-## After that the player is free; the next morning brings a little stonework (stone, a
-## millstone, the first flour), and later only a few milestones of a growing farm (the
-## barn, the dairy, the house), each chapter opened by a line from his notebook. Goals
+## After that the player is free; the next morning brings the workshop (a little money
+## earned by selling, a workbench kit bought at the construction board and put up near
+## the house like the coop, a knife made at it) and a first go at fishing (rope from the
+## market for a rod, bait, a fish from the pond by the house, a campfire to cook it on, a
+## meal), and later only a few milestones of a growing farm (the barn, the dairy, the
+## house), each chapter opened by a line from his notebook. Goals
 ## give farm experience, never money: the farm earns only by selling. A dot on the
 ## screen (waypoint()) shows where a goal is done. Orders: customers who want a number
 ## of one product by a day and pay well above the market for it. They grow with the
@@ -22,14 +25,16 @@ signal chapter_started(chapter: int)
 signal story_finished
 
 const CHAPTERS: Array[String] = ["arrival", "soil", "town", "coop", "harvest", "coop_care",
-	"repair", "free", "stone", "barn", "dairy", "legacy"]
+	"repair", "free", "workshop", "fishing", "barn", "dairy", "legacy"]
 ## The first chapter after the first day's story (the player is free until morning):
 ## saves from before the first day's story go on from here.
 const DAY_TWO_CHAPTER := 7
 ## Format of the chain in saves (2: the hand-held first day; 3: the day ending with the
-## coop's care and the house mended by hand). Saves without it are older and skip the
-## first day (MOVED_V2); chain 2 saves go on at the nearest goal still here (MOVED_V3).
-const CHAIN := 3
+## coop's care and the house mended by hand; 4: the second day's workshop and fishing).
+## Saves without it are older and skip the first day (MOVED_V2); chain 2 saves go on at
+## the nearest goal still here (MOVED_V3), chain 3 saves on the stonework at the
+## workshop (MOVED_V4).
+const CHAIN := 4
 ## Story goals in order: chapter, id, what counts toward it, how many, and the farm
 ## experience it gives ("xp", none when left out). Goals pay no money: the farm earns
 ## only by selling (Economy.STARTING_MONEY).
@@ -45,12 +50,20 @@ const CHAIN := 3
 ## "kit" (a coop kit made), "coop:started" / "coop:built", "bin:<item or category>"
 ## (in the shipping bin, or shipped), "warehouse", "cargo", "near:town", "day:<n>",
 ## "level", "built:<project>", "animals:<species>", "has:<item>" (in the bag or put down
-## on the farm); the counting ones report progress).
+## on the farm), "bench:kit" / "bench:started" / "bench:built" (a workbench bought, put
+## down, finished), "bait" (worms or dough in the bag), "caught" (a fish caught since the
+## story began); the counting ones report progress).
+## Kinds of the second day: "earned" (dollars from sales and orders), "caught" (fish
+## caught: Events.fish_caught), "cooked" (food cooked on a campfire), "eaten" (food
+## eaten).
 ## "ever": the goal also counts what was done before it came up (see `tally`), so work
 ## done early is never asked for twice and the chain can't stall on it.
 ## "past": a check that shows the player is beyond this goal already (done out of order,
 ## a debug shot, a load): it completes the goal when it reads above 0.
-## "at": where the dot points while the goal is up (see _target).
+## "at": where the dot points while the goal is up (see _target). When it points
+## somewhere else first (the trees for wood, the shipping bin for money, the market for
+## rope), the goal's text says why (goal_hint): the dot never sends the player off to
+## buy something without saying what, nor to a shop that doesn't sell it.
 const TUTORIAL := [
 	# Day one. Homecoming: the stuck front door, and Grandpa's things on the worktable inside.
 	{"chapter": 0, "id": "door", "kind": "check", "arg": "flag:house_door_open", "count": 1, "at": "house_door", "past": "took"},
@@ -68,7 +81,7 @@ const TUTORIAL := [
 	{"chapter": 2, "id": "buy_chickens", "kind": "check", "arg": "hens:owned", "count": 2, "at": "stall"},
 	{"chapter": 2, "id": "drive_home", "kind": "check", "arg": "home", "count": 1, "xp": 4, "at": "home", "past": "crates:warehouse"},
 	{"chapter": 2, "id": "crates_in", "kind": "check", "arg": "crates:warehouse", "count": 2, "xp": 5, "at": "crates"},
-	# The coop: wood, a kit from the construction board, a spot, three minutes' work, the hens in.
+	# The coop: wood, a kit from the construction board, a spot, a minute's work, the hens in.
 	{"chapter": 3, "id": "coop_wood", "kind": "picked", "arg": "wood", "count": 15, "xp": 5, "ever": true, "at": "trees", "past": "kit"},
 	{"chapter": 3, "id": "coop_kit", "kind": "check", "arg": "kit", "count": 1, "at": "board"},
 	{"chapter": 3, "id": "coop_place", "kind": "check", "arg": "coop:started", "count": 1, "xp": 4, "at": "coop_spot"},
@@ -93,23 +106,36 @@ const TUTORIAL := [
 	# The first day's story is done: the farm is the player's own until the next morning
 	# (no dot, no task; Grandpa's note says so).
 	{"chapter": 7, "id": "free", "kind": "check", "arg": "day:2", "count": 1},
-	# Day two, stonework: the millstone's stone (RecipeTable: 20), the millstone made at a
-	# workbench (bought in town), the first flour from yesterday's wheat.
-	{"chapter": 8, "id": "stone", "kind": "picked", "arg": "stone", "count": 20, "xp": 4, "ever": true, "at": "rocks", "past": "has:quern"},
-	{"chapter": 8, "id": "quern", "kind": "crafted", "arg": "quern", "count": 1, "xp": 8, "ever": true, "at": "quern", "past": "has:quern"},
-	{"chapter": 8, "id": "flour", "kind": "product", "arg": "flour", "count": 1, "xp": 8, "ever": true, "at": "mill"},
+	# Day two, the workshop: some money of the farm's own first (the kit is bought, like
+	# everything), the workbench kit from the construction board, put up near the house
+	# with a minute's work like the coop, then the first tool made at it: a knife.
+	{"chapter": 8, "id": "earn", "kind": "earned", "arg": "", "count": 20, "xp": 4, "at": "earn", "past": "bench:kit"},
+	{"chapter": 8, "id": "bench_kit", "kind": "check", "arg": "bench:kit", "count": 1, "xp": 4, "at": "bench_board"},
+	{"chapter": 8, "id": "bench_place", "kind": "check", "arg": "bench:started", "count": 1, "xp": 4, "at": "bench_spot"},
+	{"chapter": 8, "id": "bench_built", "kind": "check", "arg": "bench:built", "count": 1, "xp": 6, "at": "bench"},
+	{"chapter": 8, "id": "knife", "kind": "crafted", "arg": "knife", "count": 1, "xp": 6, "ever": true, "at": "craft:knife"},
+	# Fishing, shown once: rope from the town market for a rod (RecipeTable: 2), the rod
+	# made at the bench, bait, a fish from the pond by the house, a campfire made and put
+	# down to cook it on, and the meal.
+	{"chapter": 9, "id": "rope", "kind": "check", "arg": "has:rope", "count": 2, "xp": 3, "at": "buy:rope", "past": "has:fishing_rod"},
+	{"chapter": 9, "id": "rod", "kind": "crafted", "arg": "fishing_rod", "count": 1, "xp": 6, "ever": true, "at": "craft:fishing_rod", "past": "has:fishing_rod"},
+	{"chapter": 9, "id": "bait", "kind": "check", "arg": "bait", "count": 1, "xp": 3, "at": "bait", "past": "caught"},
+	{"chapter": 9, "id": "fish", "kind": "caught", "arg": "", "count": 1, "xp": 8, "ever": true, "at": "pond"},
+	{"chapter": 9, "id": "campfire", "kind": "crafted", "arg": "campfire", "count": 1, "xp": 4, "ever": true, "at": "craft:campfire", "past": "has:campfire"},
+	{"chapter": 9, "id": "cook", "kind": "cooked", "arg": "", "count": 1, "xp": 6, "ever": true, "at": "campfire"},
+	{"chapter": 9, "id": "eat", "kind": "eaten", "arg": "", "count": 1, "xp": 4, "ever": true},
 	# From here the farm is the player's to run: a few milestones as it grows (sheep, a
 	# cow and a bigger house).
-	{"chapter": 9, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
-	{"chapter": 9, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
-	{"chapter": 9, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
-	{"chapter": 9, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
-	{"chapter": 10, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
-	{"chapter": 10, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
-	{"chapter": 10, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
-	{"chapter": 10, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
-	{"chapter": 11, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
-	{"chapter": 11, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
+	{"chapter": 10, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
+	{"chapter": 10, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
+	{"chapter": 10, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
+	{"chapter": 10, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
+	{"chapter": 11, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
+	{"chapter": 11, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
+	{"chapter": 11, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
+	{"chapter": 11, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
+	{"chapter": 12, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
+	{"chapter": 12, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
 ]
 ## Goals of the chain before the first day's story (saves without "chain") and where
 ## such a save goes on (MOVED_V3 then takes it on to this chain): its first day counts
@@ -166,6 +192,11 @@ const LEGACY_TUTORIAL := [
 ## filled the day in the yard, Grandpa's pickup came with the farm, and the order was
 ## due before the selling.
 const LEGACY_MOVED := {"harvest": "wood", "pickup": "truck", "sell": "order"}
+## Goals of chain 3 that went when the second day's stonework gave way to the workshop
+## and the fishing, and where a save on one goes on (after MOVED_V2 and MOVED_V3): the
+## stone, the millstone and the flour to earning the workbench's money (the millstone and
+## its flour stay in the game, only not in the story).
+const MOVED_V4 := {"stone": "earn", "quern": "earn", "flour": "earn"}
 ## The first day keeps time for the story: the clock runs at FIRST_DAY_PACE and from
 ## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the first egg still comes, and
 ## there is light to mend the house by); once the day's story is done the clock runs as
@@ -219,18 +250,28 @@ var _wp_left := 0.0
 ## Where the coop kit fits (found once when the goal comes up; null: nowhere found).
 var _coop_spot: Variant = null
 var _coop_spot_searched := false
+## Where the workbench kit fits near the house (found once, as the coop's).
+var _bench_spot: Variant = null
+var _bench_spot_searched := false
+## Why the dot points where it does when that isn't the goal's own place (a translated
+## line under the goal, "" for none): set with the dot (_target), read by goal_hint().
+var _hint := ""
 ## The first day's pace is set on GameClock.time_scale (given back when the day is over).
 var _paced := false
 
 
 func _ready() -> void:
 	Events.action_done.connect(_on_action_done)
-	Events.item_sold.connect(func(_id: StringName, n: int, _g: int) -> void: _count("sold", "", n))
+	Events.item_sold.connect(func(_id: StringName, n: int, g: int) -> void:
+		_count("sold", "", n)
+		_count("earned", "", g))
 	Events.placed.connect(func(id: StringName) -> void: _count("placed", String(id), 1))
 	Events.crafted.connect(_on_crafted)
 	Events.product_made.connect(func(id: StringName, n: int) -> void: _count("product", String(id), n))
 	Events.item_picked_up.connect(func(id: StringName, n: int) -> void: _count("picked", String(id), n))
-	Events.order_delivered.connect(func(_id: StringName, _n: int, _r: int) -> void: _count("order", "", 1))
+	Events.order_delivered.connect(func(_id: StringName, _n: int, r: int) -> void:
+		_count("order", "", 1)
+		_count("earned", "", r))
 	Events.day_started.connect(_on_day_started)
 	# The first day's hands-on steps: counted where they carry a number, and the check
 	# goals look again at once rather than a second later.
@@ -258,6 +299,15 @@ func _ready() -> void:
 	Events.wall_patched.connect(func(id: StringName, _done: int, _total: int) -> void: _count("patched", String(id), 1))
 	Events.building_repaired.connect(func(_id: StringName) -> void: _nudge())
 	Events.egg_broken.connect(func(_at: Vector3) -> void: _on_egg_broken())
+	# The second day: fishing, the campfire and a meal (Events' contract with those
+	# mechanics), and the workbench going up.
+	Events.fish_caught.connect(func(id: StringName) -> void:
+		_count("caught", String(id), 1)
+		_nudge())
+	Events.food_cooked.connect(func(id: StringName) -> void: _count("cooked", String(id), 1))
+	Events.food_eaten.connect(func(id: StringName) -> void: _count("eaten", String(id), 1))
+	Events.campfire_lit.connect(func(_fire: Node) -> void: _nudge())
+	Events.placed.connect(func(_id: StringName) -> void: _nudge())
 	_start.call_deferred()
 
 
@@ -319,12 +369,28 @@ func goal_text(goal: Dictionary = {}) -> String:
 	if String(g["arg"]) == "level":
 		return tr("QUEST_LEVEL") % int(g["count"])
 	var text := tr("QUEST_%s" % String(g["id"]).to_upper())
-	# The coop going up: the time it still needs.
+	# Goals that name their count ("Earn $%d", "Buy %d rope").
+	if text.contains("%d"):
+		text = text % int(g["count"])
+	# The coop or the workbench going up: the time it still needs.
 	if String(g["id"]) == "coop_built":
 		var site := _coop_going_up()
 		if site:
 			text += " · %s" % ConstructionSite.clock_text(site.seconds_left())
+	elif String(g["id"]) == "bench_built":
+		var bench := _bench_going_up()
+		if bench:
+			text += " · %s" % ConstructionSite.clock_text(bench.seconds_left())
+	# Why the dot is somewhere else first (the current goal only).
+	if goal.is_empty() and _hint != "":
+		text += "\n%s" % _hint
 	return text
+
+
+## The line under the current goal saying why the dot points where it does ("" when it
+## points at the goal's own place).
+func goal_hint() -> String:
+	return _hint
 
 
 ## Index in CHAPTERS of the current goal (the last chapter once the story is done).
@@ -491,7 +557,11 @@ func _process(delta: float) -> void:
 	_wp_left -= delta
 	if _wp_left <= 0.0:
 		_wp_left = WAYPOINT_REFRESH
+		var hint := _hint
+		_hint = ""
 		_waypoint = _target(String(current().get("at", "")))
+		if _hint != hint:
+			tutorial_changed.emit()
 	_poll -= delta
 	if _poll > 0.0:
 		return
@@ -513,7 +583,7 @@ func _process(delta: float) -> void:
 	elif have != step_count:
 		step_count = have
 		tutorial_changed.emit()
-	elif String(g["id"]) == "coop_built":
+	elif String(g["id"]) in ["coop_built", "bench_built"]:
 		tutorial_changed.emit()  # the build clock in the goal text
 
 
@@ -573,7 +643,37 @@ func _check_progress(arg: String, count := 1) -> int:
 			return _animal_count(StringName(what))
 		"has":
 			return PlayerState.inventory.count_item(StringName(what)) + _placed_count(StringName(what))
+		"bench":
+			match what:
+				"kit":
+					var got := PlayerState.inventory.count_item(&"workbench") > 0 or int(tally.get("kit:workbench", 0)) > 0
+					return 1 if got or _placed_count(&"workbench") > 0 else 0
+				"started":
+					return 1 if _placed_count(&"workbench") > 0 else 0
+				"built":
+					return 1 if _bench_built() else 0
+		"bait":
+			return _bait_count()
+		"caught":
+			return int(tally.get("caught:", 0))
 	return 0
+
+
+## A finished workbench stands on the farm (benches from before the kit have no stage).
+func _bench_built() -> bool:
+	for e: Dictionary in FarmState.placed:
+		if StringName(e["id"]) == &"workbench" and String(e.get("stage", "done")) == "done":
+			return true
+	return false
+
+
+## Bait in the bag (worms, dough: ItemTable category "bait").
+func _bait_count() -> int:
+	var n := 0
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and st.item.category == "bait":
+			n += st.count
+	return n
 
 
 ## How many `id` are put down on the farm (FarmState.placed).
@@ -929,34 +1029,190 @@ func _target(at: String) -> Variant:
 			var house := _house()
 			var door: Variant = house.door_point() if house else null
 			return _anchor(&"house_repair", door)
-		"quern":
-			# The millstone is made at a workbench from the bag's stone and wood; the
-			# workbench is bought at the town market and set down anywhere on the farm.
-			var need: Dictionary = RecipeTable.crafting(&"quern").get("items", {})
-			if PlayerState.inventory.count_item(&"stone") < int(need.get(&"stone", 0)):
-				return _target("rocks")
-			if PlayerState.inventory.count_item(&"wood") < int(need.get(&"wood", 0)):
+		"earn":
+			return _earn_target(from)
+		"bench_board":
+			# The kit costs money and wood: short of either, where to get it first.
+			var p_kit := ProjectTable.get_project(&"workbench")
+			if not _can_pay(int(p_kit.get("cost", 0))):
+				return _earn_target(from)
+			var wood_need := int((p_kit.get("items", {}) as Dictionary).get(&"wood", 0))
+			if PlayerState.inventory.count_item(&"wood") < wood_need:
+				_hint = tr("HINT_NEED_ITEM") % _short_of(&"wood", wood_need)
 				return _target("trees")
-			var bench := _nearest_placed(&"workbench", from)
+			return _ground(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z, 1.9)
+		"bench_spot":
+			if PlayerState.inventory.count_item(&"workbench") == 0 and _placed_count(&"workbench") == 0:
+				return _target("bench_board")
+			_hint = tr("HINT_PLACE_KIT")
+			if not _bench_spot_searched:
+				_bench_spot_searched = true
+				_bench_spot = _find_bench_spot()
+			return _bench_spot
+		"bench":
+			var bench := _nearest_placed(&"workbench", from) as Workbench
 			if bench:
-				return bench.global_position + Vector3(0, 1.4, 0)
+				return bench.top_point()
 			if PlayerState.inventory.count_item(&"workbench") > 0:
-				return null
+				return _target("bench_spot")
+			return _target("bench_board")
+		"craft":
+			return _craft_target(StringName(at.get_slice(":", 1)), from)
+		"buy":
+			return _buy_target(StringName(at.get_slice(":", 1)), maxi(int(current().get("count", 1)) - step_count, 1))
+		"bait":
+			# Dough is kneaded from wheat at the bench; else worms or dough from the market.
+			var dough: Dictionary = RecipeTable.crafting(&"dough")
+			var wheat := int((dough.get("items", {}) as Dictionary).get(&"wheat", 2))
+			if PlayerState.inventory.count_item(&"wheat") >= wheat and _bench_built():
+				_hint = tr("HINT_DOUGH")
+				return _target("bench")
+			return _buy_target(&"worm", 1)
+		"pond":
+			if PlayerState.inventory.count_item(&"fishing_rod") == 0:
+				return _craft_target(&"fishing_rod", from)
+			if _bait_count() == 0:
+				_hint = tr("HINT_NEED_BAIT")
+				return _target("bait")
+			return _pond_edge(from)
+		"campfire":
+			var fire := _nearest_placed(&"campfire", from)
+			if fire == null:
+				if PlayerState.inventory.count_item(&"campfire") > 0:
+					_hint = tr("HINT_PLACE_FIRE")
+					return null
+				return _craft_target(&"campfire", from)
+			if not _has_raw_fish():
+				_hint = tr("HINT_NEED_FISH")
+				return _target("pond")
+			return fire.global_position + Vector3(0, 1.0, 0)
+	return null
+
+
+## Where money comes from for the goals that buy something: goods to sell in the bag go
+## to the shipping bin (the market when in town, which pays at once), else the ripe beds,
+## eggs lying about, the hens' coop.
+func _earn_target(from: Vector3) -> Variant:
+	# A goal short of money says how much; the earning goal itself says how.
+	var own := _hint == ""
+	if _has_goods_to_sell():
+		if _near("town"):
+			if own:
+				_hint = tr("HINT_SELL_MARKET")
 			return _target("market")
-		"mill":
-			# The millstone set down (in the bag still: wherever the player likes); short
-			# of wheat for a grinding, the ripe beds first.
-			var quern := _nearest_placed(&"quern", from)
-			if quern == null:
-				return null
-			var recipe := RecipeTable.recipe_for(&"quern", &"wheat")
-			var wheat := int((recipe.get("in", {}) as Dictionary).get(&"wheat", 1))
-			if PlayerState.inventory.count_item(&"wheat") < wheat:
+		if own:
+			_hint = tr("HINT_BIN")
+		return _target("bin")
+	if own:
+		_hint = tr("HINT_EARN")
+	var ripe: Variant = _plot_spot("ripe", from)
+	if ripe != null:
+		return ripe
+	var egg: Variant = _nearest_pickup(&"egg", from, 60.0)
+	if egg != null:
+		return egg
+	# Goods waiting in the bin are paid for in the morning: bed.
+	if _bin_value() > 0:
+		if own:
+			_hint = tr("HINT_BIN_MORNING")
+		var house := _house()
+		return house.door_point() if house else null
+	var coop := _newest_coop()
+	return _target("coop") if coop else _target("bin")
+
+
+## What the shipping bin's goods will fetch in the morning (the courier's cut taken).
+func _bin_value() -> int:
+	var n := 0
+	for st: ItemStack in FarmState.get_storage(ShippingBin.STORAGE_ID, ShippingBin.SLOTS).slots:
+		if st != null:
+			n += Economy.quote(st.item.id, st.count, st.quality, ShippingBin.COMMISSION_FACTOR)
+	return n
+
+
+## Goods in the bag that sell for something and aren't wanted for the story's making:
+## crops, eggs, milk, wool, artisan goods, fish.
+func _has_goods_to_sell() -> bool:
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and st.item.sell_price > 0 and st.item.category in ["crop", "animal_product", "artisan", "fish", "food"]:
+			return true
+	return false
+
+
+## Whether the bag holds a raw fish (ItemTable category "fish") to cook.
+func _has_raw_fish() -> bool:
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and st.item.category == "fish":
+			return true
+	return false
+
+
+## Whether `amount` dollars can be paid; if not, the hint says how much is short.
+func _can_pay(amount: int) -> bool:
+	if Economy.money >= amount:
+		return true
+	_hint = tr("HINT_NEED_MONEY") % UiTheme.money(amount - Economy.money)
+	return false
+
+
+## "Wood ×3": what is short of `need` × `id` in the bag.
+func _short_of(id: StringName, need: int) -> String:
+	return "%s ×%d" % [ItemDB.get_item(id).display_name(), need - PlayerState.inventory.count_item(id)]
+
+
+## The dot for a goal that makes `id` at the workbench: the first material short (wood
+## from the trees, stone from the rocks, wheat from the ripe beds, the market's goods
+## from the market), else the bench (put down or bought first).
+func _craft_target(id: StringName, from: Vector3) -> Variant:
+	var items: Dictionary = RecipeTable.crafting(id).get("items", {})
+	for mat: StringName in items:
+		var need := int(items[mat])
+		if PlayerState.inventory.count_item(mat) >= need:
+			continue
+		_hint = tr("HINT_NEED_ITEM") % _short_of(mat, need)
+		match mat:
+			&"wood":
+				return _target("trees")
+			&"stone":
+				return _target("rocks")
+			&"wheat":
 				var ripe: Variant = _plot_spot("ripe", from)
 				if ripe != null:
 					return ripe
-			return quern.global_position + Vector3(0, 1.3, 0)
-	return null
+		if _sold_at_market(mat):
+			var short := _hint
+			var at: Variant = _buy_target(mat, need - PlayerState.inventory.count_item(mat))
+			if _hint == tr("HINT_MARKET"):
+				_hint = "%s · %s" % [short, _hint]
+			return at
+		return null
+	return _target("bench")
+
+
+## The town market's counter for buying `count` × `id` (only for goods it sells: no dot
+## to a shop without them). Short of money: where to earn it first.
+func _buy_target(id: StringName, count: int) -> Variant:
+	if not _sold_at_market(id):
+		return null
+	if not _can_pay(Economy.buy_price(id) * count):
+		return _earn_target(_player().global_position if _player() else Vector3.ZERO)
+	_hint = tr("HINT_MARKET")
+	return _target("market")
+
+
+## Whether the town market sells `id` (ShopStock.town_market).
+func _sold_at_market(id: StringName) -> bool:
+	return id in (ShopStock.town_market()["stock"] as Array)
+
+
+## The pond's edge nearest the player (the pond by the house: WorldLayout.POND_CENTER).
+func _pond_edge(from: Vector3) -> Vector3:
+	var c := WorldLayout.POND_CENTER
+	var d := Vector2(from.x, from.z) - c
+	if d.length() < 0.1:
+		d = Vector2(1, 0)
+	var at := c + d.normalized() * (WorldLayout.POND_RADIUS - 0.5)
+	return _ground(at.x, at.y, 0.8)
 
 
 ## A tagged place (WaypointMarker.anchor), else `fallback`.
@@ -1010,6 +1266,15 @@ func _newest_coop() -> ChickenCoop:
 		return null
 	var coops := farm.kit_coops()
 	return coops.back() if not coops.is_empty() else null
+
+
+## The newest workbench still going up, or null.
+func _bench_going_up() -> Workbench:
+	for n in get_tree().get_nodes_in_group(&"placed"):
+		var b := n as Workbench
+		if b and not b.is_built() and not b.is_queued_for_deletion():
+			return b
+	return null
 
 
 ## The newest coop still going up, or null.
@@ -1154,10 +1419,27 @@ func _find_coop_spot() -> Variant:
 	return null
 
 
+## A place near the house where the workbench kit's plot fits: searched in rings from the
+## front yard, a few steps out of the door toward the warehouse (east of the house the
+## track and the fields leave no room), by the same ground rules as the coop's. Only a
+## suggestion: it goes anywhere it fits.
+func _find_bench_spot() -> Variant:
+	var size: Vector3 = PlaceableTable.get_info(&"workbench").get("size", Vector3(2.4, 1.0, 1.6))
+	var c := Vector2(WorldLayout.HOUSE_DOOR_X - 3.5, WorldLayout.HOUSE_FRONT_Z + 6.5)
+	for ring in 8:
+		var n := 1 if ring == 0 else ring * 6
+		for i in n:
+			var a := TAU * float(i) / float(n)
+			var at := c + Vector2(cos(a), sin(a)) * float(ring) * 2.0
+			if _plot_clear(at, size, 2.0):
+				return _ground(at.x, at.y, 1.3)
+	return null
+
+
 ## Whether a building plot of `size` fits with its middle at `at` (world XZ). The cheap
 ## tests go first: trees, rocks and other things put down, then the ground sampled every
 ## metre or so as Placer does.
-func _plot_clear(at: Vector2, size: Vector3) -> bool:
+func _plot_clear(at: Vector2, size: Vector3, keep_off := 6.0) -> bool:
 	var half := Vector2(size.x, size.z) * 0.5 + Vector2(0.5, 0.5)
 	var rect := Rect2(at - half, half * 2.0).grow(0.8)
 	for group: StringName in [&"trees", &"rocks"]:
@@ -1167,7 +1449,7 @@ func _plot_clear(at: Vector2, size: Vector3) -> bool:
 				return false
 	for e: Dictionary in FarmState.placed:
 		var pos: Vector3 = e["pos"]
-		if rect.grow(6.0).has_point(Vector2(pos.x, pos.z)):
+		if rect.grow(keep_off).has_point(Vector2(pos.x, pos.z)):
 			return false
 	if TerrainData.normal_at(at.x, at.y).y < 0.95:
 		return false
@@ -1319,6 +1601,9 @@ func _reset_cache() -> void:
 	_poll = 0.0
 	_coop_spot = null
 	_coop_spot_searched = false
+	_bench_spot = null
+	_bench_spot_searched = false
+	_hint = ""
 
 
 ## The goal is kept by its id (and the index, for reference), so goals can be added;
@@ -1340,8 +1625,11 @@ func load_data(d: Dictionary) -> void:
 	if old and MOVED_V2.has(id):
 		id = String(MOVED_V2[id])
 		step_count = 0
-	if chain < CHAIN and MOVED_V3.has(id):
+	if chain < 3 and MOVED_V3.has(id):
 		id = String(MOVED_V3[id])
+		step_count = 0
+	if chain < 4 and MOVED_V4.has(id):
+		id = String(MOVED_V4[id])
 		step_count = 0
 	step = TUTORIAL.size() if id == "" else index_of(id)
 	if step < 0:

@@ -39,17 +39,24 @@ const SUN_ENERGY := 3.0
 const EXTINCTION := Vector3(0.03, 0.05, 0.1)
 ## Grey haze (aerosols) per air mass: dims a low sun without colouring it further.
 const HAZE_EXTINCTION := 0.035
-## Haze as an extinction coefficient (1/m): a clear day sees about 7 km, the morning
-## haze and the weather (Weather.fog_boost) add to it. It is drawn as depth fog that
-## stays faint across the valley and thickens towards the visibility distance, like
-## real aerial perspective.
+## Haze as an extinction coefficient (1/m): a clear day sees about 11 km, the morning
+## haze and the weather (Weather.fog_boost) add to it. It is drawn as depth fog,
+## amount = density * smoothstep(0, end, distance) ^ curve, coloured by the sky behind
+## it (aerial perspective): far trees and hills soften and pale with distance, as the
+## eye sees them, instead of standing out dark and crisp against the sky.
 const HAZE_CLEAR := 0.00035
-const HAZE_MORNING := 0.0006
-const HAZE_NIGHT := 0.0007
-## Fog amount = (clamp(distance / (visibility * HAZE_REACH), 0, 1) ^ HAZE_CURVE): at
-## noon about 4% across the farmyard, a third at 2 km and two thirds on the far ridges.
-const HAZE_REACH := 1.4
-const HAZE_CURVE := 0.7
+const HAZE_MORNING := 0.00042
+const HAZE_NIGHT := 0.0006
+## Clear air: end = HAZE_REACH / haze. At noon about 3% across the farmyard (100 m),
+## 8% at the forest 300 m off, a sixth at 600 m, three eighths at 1.5 km and four
+## fifths on the far ridges; HAZE_DENSITY keeps their outline faintly in view.
+const HAZE_REACH := 1.75
+const HAZE_CURVE := 0.5
+const HAZE_DENSITY := 0.82
+## Weather fog keeps its own, steeper shape: end = FOG_REACH / (haze + fog_boost),
+## density 1. The two blend by the weather's share of the extinction.
+const FOG_REACH := 3.5
+const FOG_CURVE := 0.7
 ## The real sun's size in degrees: shadows sharp at contact, softening with distance.
 const SUN_SIZE := 0.53
 ## Under a full cloud deck the little direct light left comes from a bright patch of
@@ -175,16 +182,19 @@ func _build() -> void:
 	# sunlit meadow stays green and the sky near the sun stays sky, not cyan.
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
 	env.tonemap_agx_white = 6.5
-	# A gentle toe: shaded wood and foliage under a low sun keep their colour.
-	env.tonemap_agx_contrast = 1.2
+	# A gentle toe and soft contrast: shaded wood and foliage under a low sun keep their
+	# colour, and sunlit leaves against shade do not flicker black and white.
+	env.tonemap_agx_contrast = 1.1
 	env.tonemap_exposure = 1.0
 	# Contact shading: tight enough to darken the ground right under a wheel or a
 	# post, wide enough to seat a building; a little of it reaches sunlit surfaces.
+	# Little fine detail: it would darken every gap between grass blades and leaves
+	# into a gritty speckle.
 	env.ssao_enabled = true
 	env.ssao_radius = 1.4
-	env.ssao_intensity = 2.2
-	env.ssao_power = 1.6
-	env.ssao_detail = 0.7
+	env.ssao_intensity = 2.0
+	env.ssao_power = 1.5
+	env.ssao_detail = 0.3
 	env.ssao_horizon = 0.06
 	env.ssao_light_affect = 0.12
 	env.ssao_ao_channel_affect = 0.2
@@ -196,19 +206,29 @@ func _build() -> void:
 	env.sdfgi_cascades = 4
 	env.sdfgi_min_cell_size = 0.2
 	env.sdfgi_bounce_feedback = 0.45
+	# Bloom as a lens and the eye's own scatter give it: bright sky, sunlit cloud and
+	# lamps spill a soft, wide halo over what stands in front of them, and a faint
+	# veil of the whole image takes the edge off hard contrasts. No grain, no fringes.
 	env.glow_enabled = true
-	env.glow_intensity = 0.3
-	env.glow_bloom = 0.015
-	env.glow_hdr_threshold = 1.3
-	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	env.glow_normalized = true
+	var levels: Array[float] = [0.0, 0.0, 0.5, 1.0, 1.0, 0.6, 0.2]
+	for i in levels.size():
+		env.set_glow_level(i, levels[i])
+	env.glow_intensity = 0.4
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.012
+	env.glow_hdr_threshold = 1.1
+	env.glow_hdr_scale = 1.5
+	env.glow_hdr_luminance_cap = 12.0
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	# Haze: depth fog whose colour is the sky behind it (aerial perspective), with the
 	# sun glowing through it. Its reach follows the hour and the weather (_apply).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
-	env.fog_density = 1.0
 	env.fog_depth_begin = 0.0
 	env.fog_depth_curve = HAZE_CURVE
-	env.fog_depth_end = 2.5 / HAZE_CLEAR * HAZE_REACH
+	env.fog_depth_end = HAZE_REACH / HAZE_CLEAR
+	env.fog_density = HAZE_DENSITY
 	env.fog_sky_affect = 0.0
 	env.fog_aerial_perspective = 0.92
 	env.fog_sun_scatter = 0.06
@@ -301,6 +321,7 @@ func apply_quality() -> void:
 	moon.shadow_enabled = _moon_shadows and not sun.visible
 	# Volumetric clouds on HIGH and ULTRA; ULTRA also sharpens the sky in reflections.
 	_set_sky(&"cloud_quality", CLOUD_QUALITY[q])
+	_set_sky(&"temporal_jitter", Settings.uses_temporal_aa())
 	var radiance := Sky.RADIANCE_SIZE_256 if q >= Settings.Quality.ULTRA else Sky.RADIANCE_SIZE_128
 	if sky.radiance_size != radiance:
 		sky.radiance_size = radiance
@@ -369,7 +390,10 @@ func _apply(hour: float) -> void:
 	if not env.fog_light_color.is_equal_approx(fog_color):
 		env.fog_light_color = fog_color
 	var haze := lerpf(HAZE_NIGHT, HAZE_CLEAR, day) + HAZE_MORNING * morning + HAZE_CLEAR * 0.5 * evening
-	_set_env(&"fog_depth_end", 2.5 / (haze + fog_boost) * HAZE_REACH)
+	var weather := fog_boost / (haze + fog_boost)
+	_set_env(&"fog_depth_end", lerpf(HAZE_REACH, FOG_REACH, weather) / (haze + fog_boost))
+	_set_env(&"fog_depth_curve", lerpf(HAZE_CURVE, FOG_CURVE, weather))
+	_set_env(&"fog_density", lerpf(HAZE_DENSITY, 1.0, weather))
 	# In a fog bank sky and land alike fade to the fog's own colour, so no far ridge
 	# shows through as a line.
 	_set_env(&"fog_aerial_perspective", lerpf(0.92, 0.0, thick_fog))

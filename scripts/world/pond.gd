@@ -3,6 +3,8 @@ class_name Pond
 extends Node3D
 ## Water surface for the pond plus an invisible ring that keeps the player on shore.
 ## The water body is interactable so the watering can can be refilled here (phase 3).
+## Fish live in it: the fishing rod (Angler) casts into water deep enough for the float
+## (is_fishable) and its flights ignore the shore ring (shore_wall).
 ## Reeds with a few cattails grow in stands along the water's edge, leaving the farm
 ## side open (visual only: no collision).
 
@@ -18,8 +20,13 @@ static var _reed_meshes: Array[ArrayMesh] = []
 var _water_mat: ShaderMaterial
 
 
+## Water shallower than this doesn't float the float or hold a fish.
+const FISHING_DEPTH := 0.12
+
+
 func _ready() -> void:
 	add_to_group(&"interactable")
+	add_to_group(&"pond")
 	for c in get_children():
 		c.queue_free()
 	position = Vector3(WorldLayout.POND_CENTER.x, WorldLayout.WATER_LEVEL, WorldLayout.POND_CENTER.y)
@@ -226,3 +233,16 @@ func can_start(_action: Dictionary, stack: ItemStack) -> String:
 
 func complete_use(_player: Node, stack: ItemStack, _action: Dictionary) -> void:
 	WaterSource.refill(stack)
+
+
+## Water deep enough to fish in at `p` (its x and z).
+static func is_fishable(p: Vector3) -> bool:
+	var c := WorldLayout.POND_CENTER
+	if Vector2(p.x, p.z).distance_to(c) > WorldLayout.POND_RADIUS + 1.5:
+		return false
+	return TerrainData.height(p.x, p.z) < WorldLayout.WATER_LEVEL - FISHING_DEPTH
+
+
+## The invisible ring that keeps the player on the shore (casts fly over it).
+func shore_wall() -> CollisionObject3D:
+	return get_node_or_null("ShoreWall") as CollisionObject3D

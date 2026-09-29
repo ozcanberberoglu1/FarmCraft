@@ -341,7 +341,7 @@ func swing(tool_type: StringName, at: Vector3) -> void:
 ## An action starting to pour (the watering can): returns the pour, to be faded out with
 ## fade_out when the can is tipped back (or null).
 func action_started(id: String, at: Vector3) -> Node:
-	if id == "water" or id == "fill_water":
+	if id == "water" or id == "fill_water" or id == "douse":
 		# On soil the stream is softer than splashing into a trough.
 		return play("water_can", at, -6.0 if id == "water" else -3.0, 0.05, &"Effects", 4.0, 1.0 if id == "water" else 0.92)
 	return null
