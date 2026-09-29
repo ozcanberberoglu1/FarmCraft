@@ -16,7 +16,7 @@ and order must match; a literal `%%` may move, e.g. Turkish `%75`).
 ## Adding text
 
 1. Add a row with the key, English and Turkish; translate the other columns.
-2. Keep the conventions the existing translations use: one term per concept (gold,
+2. Keep the conventions the existing translations use: one term per concept (dollar,
    bag, warehouse, pickup bed, trough...), informal "you", short upper-case-friendly
    button labels, `ACTION_*` as short prompt verbs, `QUEST_*` as imperative goals.
    Proper names stay as they are: FarmCraft, Yeşilova, Ova Petrol, author names.

@@ -1,7 +1,8 @@
 class_name ProjectTable
 extends RefCounted
 ## Everything that can be built from the construction board.
-## cost: gold; items: materials taken from the player's inventory;
+## cost: dollars (the coop kit of the first day fits what two hens leave of the
+## starting money); items: materials taken from the player's inventory;
 ## requires: projects that must be built first.
 ## kit: the board cuts and bundles a building kit instead of building on the spot; the
 ## kit goes into the bag and is put up wherever the player places it (and can be made
@@ -11,21 +12,21 @@ extends RefCounted
 ## Names/descriptions come from PROJECT_<ID> / PROJECT_<ID>_DESC.
 
 const PROJECTS := {
-	&"field_1": {"cost": 1000, "items": {}, "requires": [], "group": "field"},
-	&"field_2": {"cost": 3000, "items": {&"wood": 30}, "requires": [&"field_1"], "group": "field"},
-	&"field_3": {"cost": 8000, "items": {&"wood": 60, &"stone": 30}, "requires": [&"field_2"], "group": "field"},
-	&"coop_kit": {"cost": 100, "items": {&"wood": 15}, "requires": [], "group": "animals", "kit": &"coop_kit"},
+	&"field_1": {"cost": 250, "items": {}, "requires": [], "group": "field"},
+	&"field_2": {"cost": 900, "items": {&"wood": 30}, "requires": [&"field_1"], "group": "field"},
+	&"field_3": {"cost": 2400, "items": {&"wood": 60, &"stone": 30}, "requires": [&"field_2"], "group": "field"},
+	&"coop_kit": {"cost": 25, "items": {&"wood": 15}, "requires": [], "group": "animals", "kit": &"coop_kit"},
 	# Grandpa's fixed chicken run by the fields: no longer sold, kept for the farms that have it.
-	&"coop_1": {"cost": 500, "items": {&"wood": 30}, "requires": [], "group": "animals"},
-	&"coop_2": {"cost": 2000, "items": {&"wood": 80, &"stone": 40}, "requires": [&"coop_1"], "group": "animals"},
-	&"barn_1": {"cost": 800, "items": {&"wood": 50}, "requires": [], "group": "animals"},
-	&"barn_2": {"cost": 4500, "items": {&"wood": 150, &"stone": 80}, "requires": [&"barn_1"], "group": "animals"},
+	&"coop_1": {"cost": 125, "items": {&"wood": 30}, "requires": [], "group": "animals"},
+	&"coop_2": {"cost": 600, "items": {&"wood": 80, &"stone": 40}, "requires": [&"coop_1"], "group": "animals"},
+	&"barn_1": {"cost": 200, "items": {&"wood": 50}, "requires": [], "group": "animals"},
+	&"barn_2": {"cost": 1350, "items": {&"wood": 150, &"stone": 80}, "requires": [&"barn_1"], "group": "animals"},
 	# Grandpa's run-down house and warehouse are repaired by hand, one wood a hole.
 	&"house_1": {"cost": 0, "items": {}, "requires": [], "group": "house", "hands_on": true},
-	&"house_2": {"cost": 5000, "items": {&"wood": 120, &"stone": 40}, "requires": [&"house_1"], "group": "house"},
-	&"house_3": {"cost": 15000, "items": {&"wood": 200, &"stone": 100, &"iron_ore": 20}, "requires": [&"house_2"], "group": "house"},
+	&"house_2": {"cost": 1500, "items": {&"wood": 120, &"stone": 40}, "requires": [&"house_1"], "group": "house"},
+	&"house_3": {"cost": 4500, "items": {&"wood": 200, &"stone": 100, &"iron_ore": 20}, "requires": [&"house_2"], "group": "house"},
 	&"warehouse_1": {"cost": 0, "items": {}, "requires": [], "group": "storage", "hands_on": true},
-	&"warehouse_2": {"cost": 3000, "items": {&"wood": 80, &"stone": 40}, "requires": [&"warehouse_1"], "group": "storage"},
+	&"warehouse_2": {"cost": 900, "items": {&"wood": 80, &"stone": 40}, "requires": [&"warehouse_1"], "group": "storage"},
 }
 
 ## Order shown on the board (hands-on projects are left off it).

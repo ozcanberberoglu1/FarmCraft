@@ -14,6 +14,8 @@ const FULL_DECAY := 100.0 / 24.0
 const WATER_DECAY := 100.0 / 22.0
 const WATER_RATION := 50.0
 const RAIN_DAMAGE := {Weather.Kind.RAIN: 3.5, Weather.Kind.STORM: 6.5, Weather.Kind.SNOW: 5.0}
+## The vet's call-out fee in dollars (a share of the animal's value comes on top).
+const VET_CALL := 10
 
 var animals: Array[AnimalData] = []
 ## Lines for the morning report (cleared when shown).
@@ -113,7 +115,7 @@ func can_buy(species: StringName, adult: bool) -> String:
 		return tr("MSG_HOUSING_FULL")
 	var price: int = info["adult_price"] if adult else info["baby_price"]
 	if Economy.money < price:
-		return tr("MSG_NEED_GOLD") % (price - Economy.money)
+		return tr("MSG_NEED_GOLD") % UiTheme.money(price - Economy.money)
 	return ""
 
 
@@ -408,13 +410,13 @@ func _simulate(hours: float, t0: float, t1: float) -> void:
 
 ## A vet takes care of an animal that collapsed (costly, and it loses trust).
 func _vet(a: AnimalData) -> void:
-	var fee := mini(roundi(a.sale_value() * 0.3) + 50, Economy.money)
+	var fee := mini(roundi(a.sale_value() * 0.3) + VET_CALL, Economy.money)
 	if fee > 0:
 		Economy.spend(fee, "REPORT_VET")
 	a.health = 35.0
 	a.sick = false
 	a.affection = maxf(a.affection - 300.0, 0.0)
-	var msg := tr("MSG_VET") % [a.name, fee]
+	var msg := tr("MSG_VET") % [a.name, UiTheme.money(fee)]
 	Game.notify(msg, Color(1.0, 0.45, 0.35))
 	report_notes.append(msg)
 

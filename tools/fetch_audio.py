@@ -3,10 +3,15 @@
 
 Run from the project root:  python3 tools/fetch_audio.py
 Sources (see art/audio/CREDITS.md):
-  - Kenney (kenney.nl), CC0: footsteps, impacts, chopping, doors, cloth, UI sounds.
+  - Kenney (kenney.nl), CC0: footsteps, impacts, doors, cloth, UI sounds.
   - Mixkit (mixkit.co), Mixkit free license (free for commercial use in games, no
     attribution needed, files may not be redistributed on their own): animals, ambience,
     weather, vehicle, tool actions, coins and music.
+  - The recorded farm-work sounds (axe, pickaxe, hoe, scythe, harvest, planting, watering,
+    felled trees, split boulders) are cut and mixed from public-domain / CC0 recordings
+    (Wikimedia Commons, OpenGameArt, Freesound) and Mixkit recordings by
+    tools/build_foley.py, which this script runs at the end (it needs numpy, scipy and
+    soundfile). None of the sounds needs attribution or share-alike.
 Files already present are skipped.
 """
 import io
@@ -55,14 +60,12 @@ MIXKIT_SFX = {
     # Vehicle
     "sfx/vehicle/engine_loop.mp3": 1553,
     "sfx/vehicle/engine_start.mp3": 1566,
-    "sfx/vehicle/door_close.mp3": 3129,
     "sfx/vehicle/door_slam.mp3": 1564,
     # Tools and farm work
     "sfx/tools/dig_1.mp3": 1915,
     "sfx/tools/dig_2.mp3": 1917,
     "sfx/tools/dig_3.mp3": 1916,
     "sfx/tools/shovel_stab.mp3": 1918,
-    "sfx/tools/water_pour.mp3": 1870,
     "sfx/tools/shears_snip.mp3": 2378,
     "sfx/tools/swoosh.mp3": 2605,
     "sfx/tools/grass_cut.mp3": 1920,
@@ -92,7 +95,6 @@ KENNEY = {
         **{f"footstep_concrete_00{i}.ogg": f"sfx/steps/concrete_{i}.ogg" for i in range(5)},
         **{f"footstep_wood_00{i}.ogg": f"sfx/steps/wood_{i}.ogg" for i in range(5)},
         **{f"footstep_snow_00{i}.ogg": f"sfx/steps/gravel_{i}.ogg" for i in range(5)},
-        **{f"impactMining_00{i}.ogg": f"sfx/tools/mining_{i}.ogg" for i in range(5)},
         **{f"impactWood_heavy_00{i}.ogg": f"sfx/tools/wood_hit_{i}.ogg" for i in range(5)},
         **{f"impactPlank_medium_00{i}.ogg": f"sfx/misc/plank_{i}.ogg" for i in range(5)},
         **{f"impactMetal_light_00{i}.ogg": f"sfx/misc/metal_{i}.ogg" for i in range(5)},
@@ -100,7 +102,6 @@ KENNEY = {
         "License.txt": "kenney_impact_license.txt",
     },
     "https://kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip": {
-        "chop.ogg": "sfx/tools/chop.ogg",
         "doorOpen_1.ogg": "sfx/misc/door_open.ogg",
         "doorClose_1.ogg": "sfx/misc/door_close.ogg",
         "cloth1.ogg": "sfx/tools/brush_1.ogg",
@@ -160,6 +161,11 @@ def main():
                 continue
             total += save(rel, z.read(names[base]))
     print(f"downloaded {total / 1e6:.1f} MB")
+    import build_foley
+    try:
+        build_foley.build()
+    except ImportError as e:
+        print(f"skipped the farm-work sounds ({e}): pip install numpy scipy soundfile, then run tools/build_foley.py")
 
 
 if __name__ == "__main__":

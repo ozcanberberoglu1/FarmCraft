@@ -78,3 +78,37 @@ for dirpath, _, files in os.walk(os.path.join(ART, "models")):
         colour = any(k in n for k in ("basecolor", "diffuse", "_diff", "albedo")) or re.fullmatch(r"\d+\.png", n)
         count += write_import(os.path.join(dirpath, f), "normal" in n or "_nor" in n, bool(colour))
 print(f"updated {count} model texture import files")
+
+# The trees (tools/fetch_trees.py): WebP textures, and their glTF meshes, which carry
+# their own levels of detail (NatureModels.tree joins them): no generated LODs, shadow
+# meshes or lightmap baking.
+count = 0
+TREES = os.path.join(ART, "models", "trees")
+tex_dir = os.path.join(TREES, "textures")
+for f in sorted(os.listdir(tex_dir)) if os.path.isdir(tex_dir) else []:
+    n = f.lower()
+    if n.endswith(".webp"):
+        normal = "_nor" in n
+        count += write_import(os.path.join(tex_dir, f), normal, not normal and "_arm" not in n)
+GLB_PARAMS = {"meshes/generate_lods": "false", "meshes/create_shadow_meshes": "false", "meshes/light_baking": "0",
+              "meshes/ensure_tangents": "true"}
+for f in sorted(os.listdir(TREES)) if os.path.isdir(TREES) else []:
+    if not f.endswith(".glb"):
+        continue
+    imp = os.path.join(TREES, f + ".import")
+    if not os.path.exists(imp):
+        with open(imp, "w") as fh:
+            fh.write('[remap]\n\nimporter="scene"\nimporter_version=1\ntype="PackedScene"\n\n[params]\n\n'
+                     + "".join("%s=%s\n" % kv for kv in GLB_PARAMS.items()))
+        count += 1
+        continue
+    with open(imp) as fh:
+        text = fh.read()
+    new = text
+    for k, v in GLB_PARAMS.items():
+        new = set_param(new, k, v)
+    if new != text:
+        with open(imp, "w") as fh:
+            fh.write(new)
+        count += 1
+print(f"updated {count} tree import files")

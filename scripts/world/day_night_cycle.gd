@@ -62,6 +62,24 @@ const ENV_STEP := 0.005
 ## blue, as the eye and film see them, rather than grey-green. It follows night_factor
 ## in this many steps; by day the lookup is the identity.
 const GRADE_STEPS := 16
+## Textures of the sky shader, baked by tools/bake_sky.py (atmosphere LUTs, cloud noise
+## and weather map) and from NASA's LRO map of the Moon.
+const SKY_TEXTURES := {
+	&"transmittance_lut": "res://art/sky/transmittance.exr",
+	&"multiscatter_lut": "res://art/sky/multiscatter.exr",
+	&"sky_irradiance_lut": "res://art/sky/sky_irradiance.exr",
+	&"cloud_shape": "res://art/sky/cloud_shape.png",
+	&"cloud_detail": "res://art/sky/cloud_detail.png",
+	&"cloud_weather": "res://art/sky/cloud_weather.png",
+	&"blue_noise": "res://art/sky/blue_noise.png",
+	&"moon_albedo": "res://art/sky/moon.png",
+}
+## Sky clouds per graphics preset (LOW .. ULTRA): 0 flat 2D clouds, 1 volumetric,
+## 2 volumetric with finer steps, more light samples and eroded detail.
+const CLOUD_QUALITY: Array[int] = [0, 0, 1, 2]
+## Days from one full moon to the next. The game's moon rides opposite the sun all
+## night, so it only wanes to a half moon and back.
+const MOON_CYCLE := 8.0
 
 var sun: DirectionalLight3D
 var moon: DirectionalLight3D
@@ -74,6 +92,7 @@ var _sun_size := SUN_SIZE
 ## Whether the graphics preset gives the moon shadows.
 var _moon_shadows := true
 var env: Environment
+var sky: Sky
 var sky_material: ShaderMaterial
 ## Sky uniforms as last sent: each change re-renders the sky's radiance map.
 var _sky_params := {}
@@ -138,8 +157,10 @@ func _build() -> void:
 	_moon_dir = Vector3.ZERO
 	sky_material = ShaderMaterial.new()
 	sky_material.shader = load("res://shaders/sky.gdshader")
+	for param: StringName in SKY_TEXTURES:
+		sky_material.set_shader_parameter(param, load(SKY_TEXTURES[param]))
 	_sky_params.clear()
-	var sky := Sky.new()
+	sky = Sky.new()
 	sky.sky_material = sky_material
 	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	sky.radiance_size = Sky.RADIANCE_SIZE_128
@@ -256,7 +277,7 @@ func _build() -> void:
 
 
 ## Graphics preset from the settings: global illumination, screen-space effects,
-## volumetric fog and shadow detail.
+## volumetric fog, shadow detail and the sky's clouds.
 func apply_quality() -> void:
 	if env == null:
 		return
@@ -278,6 +299,11 @@ func apply_quality() -> void:
 	sun.light_angular_distance = _sun_size
 	_moon_shadows = q >= Settings.Quality.MEDIUM
 	moon.shadow_enabled = _moon_shadows and not sun.visible
+	# Volumetric clouds on HIGH and ULTRA; ULTRA also sharpens the sky in reflections.
+	_set_sky(&"cloud_quality", CLOUD_QUALITY[q])
+	var radiance := Sky.RADIANCE_SIZE_256 if q >= Settings.Quality.ULTRA else Sky.RADIANCE_SIZE_128
+	if sky.radiance_size != radiance:
+		sky.radiance_size = radiance
 	RenderingServer.directional_shadow_atlas_set_size([2048, 4096, 4096, 4096][q], true)
 	RenderingServer.directional_soft_shadow_filter_set_quality(
 			[RenderingServer.SHADOW_QUALITY_HARD, RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW,
@@ -328,6 +354,7 @@ func _apply(hour: float) -> void:
 	moon.visible = moon.light_energy > 0.005
 
 	_set_sky(&"sun_intensity", dim)
+	_set_sky(&"moon_phase", moon_phase(1 if Engine.is_editor_hint() else GameClock.day))
 	_set_sky(&"cloud_coverage", cloud_coverage)
 	_set_sky(&"overcast", overcast)
 	_set_sky(&"cloud_darkness", cloud_darkness)
@@ -371,6 +398,12 @@ func _apply(hour: float) -> void:
 	# Night vision loses some colour; a low sun warms and deepens it. By day AgX alone
 	# rolls bright colours off, with no grade on top.
 	_set_env(&"adjustment_saturation", (lerpf(0.65, 1.0, day) + low_sun * day * 0.08) * (1.0 - overcast * 0.12))
+
+
+## The moon's phase angle on `day` (radians between the moon and the sunlight on it,
+## PI = full moon): full on day 1, a half moon half a cycle later.
+static func moon_phase(day: int) -> float:
+	return lerpf(PI, PI * 0.5, 0.5 - 0.5 * cos(TAU * float(day - 1) / MOON_CYCLE))
 
 
 ## Rebuilds the night grade for night weight `w` (0..1) when it moves a step: red a

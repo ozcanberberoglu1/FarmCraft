@@ -96,7 +96,8 @@ func _process(delta: float) -> void:
 	var plot: FarmPlot = null
 	if p != null and is_instance_valid(p.target):
 		plot = p.target as FarmPlot
-	if plot == null or plot.crop == &"":
+	# Grandpa's beds wait for their goal without a card (FarmPlot.held_back).
+	if plot == null or plot.crop == &"" or plot.held_back():
 		if visible:
 			_lost += delta
 			# At once in a menu, while driving or on a bed just harvested or cleared;

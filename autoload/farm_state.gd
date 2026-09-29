@@ -10,6 +10,8 @@ var built := {&"field_0": true}
 var storage := {}
 ## Harvested world resources (trees, rocks, grass) by id -> day they were depleted.
 var depleted := {}
+## Felled trees' stumps by id -> [cut height over the tree's origin (m), notch yaw].
+var stumps := {}
 ## The farm warehouse: produce and materials stocked by the unit. Its capacity follows
 ## warehouse_level() (a new farm starts with Grandpa's run-down shed).
 var warehouse := Stockpile.new(ProjectTable.WAREHOUSE_CAPACITY[0])
@@ -63,7 +65,7 @@ func missing_for(id: StringName) -> String:
 	var p := ProjectTable.get_project(id)
 	var missing := PackedStringArray()
 	if Economy.money < int(p["cost"]):
-		missing.append(tr("MSG_NEED_GOLD") % (int(p["cost"]) - Economy.money))
+		missing.append(tr("MSG_NEED_GOLD") % UiTheme.money(int(p["cost"]) - Economy.money))
 	for item_id: StringName in p["items"]:
 		var have := PlayerState.inventory.count_item(item_id)
 		var need: int = p["items"][item_id]
@@ -187,6 +189,7 @@ func new_game() -> void:
 	built = {&"field_0": true}
 	storage.clear()
 	depleted.clear()
+	stumps.clear()
 	manure = 0.0
 	placed.clear()
 	flags.clear()
@@ -201,8 +204,8 @@ func save_data() -> Dictionary:
 	for id in storage:
 		inv[id] = (storage[id] as Inventory).to_array()
 	return {"built": built.keys().map(func(k): return String(k)), "storage": inv, "depleted": depleted,
-		"warehouse": warehouse.to_dict(), "manure": manure, "placed": placed.duplicate(true),
-		"flags": flags.duplicate(true)}
+		"stumps": stumps.duplicate(true), "warehouse": warehouse.to_dict(), "manure": manure,
+		"placed": placed.duplicate(true), "flags": flags.duplicate(true)}
 
 
 func load_data(d: Dictionary) -> void:
@@ -211,6 +214,7 @@ func load_data(d: Dictionary) -> void:
 		built[StringName(k)] = true
 	storage.clear()
 	depleted = d.get("depleted", {})
+	stumps = (d.get("stumps", {}) as Dictionary).duplicate(true)
 	var inv: Dictionary = d.get("storage", {})
 	for id in inv:
 		var arr: Array = inv[id]

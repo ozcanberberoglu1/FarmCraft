@@ -1,7 +1,7 @@
 class_name SaleBadge
 extends GlassPanel
-## Under the money in the morning after the shipping bin sold overnight: a coin and
-## "+123 SALE" counting up with a clink, on green-edged glass. It holds for a few
+## Under the money in the morning after the shipping bin sold overnight: "+$123 SALE"
+## counting up with a clink, on green-edged glass. It holds for a few
 ## seconds, then fades away (the HUD makes room for it under the money pill).
 
 ## Emitted as it starts to fade out (the HUD closes the room it made).
@@ -15,12 +15,11 @@ const FADE_OUT := 0.6
 ## Last amount shown (tests read it).
 var amount := 0
 var _value: Label
-var _coin: TextureRect
 var _tween: Tween
 
 
 func _init() -> void:
-	super(Vector4(12, 5, 18, 6), 16.0)
+	super(Vector4(16, 5, 18, 6), 16.0)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	visible = false
 	set_look(UiTheme.GLASS, Color(UiTheme.GREEN, 0.42), Color(UiTheme.GREEN, 0.22))
@@ -28,9 +27,6 @@ func _init() -> void:
 	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(row)
-	_coin = UiTheme.icon_rect(UiTheme.glyph("coin"), 26)
-	_coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(_coin)
 	_value = UiTheme.make_label("", UiTheme.heading(28, UiTheme.GREEN, 700, 1))
 	_value.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_value)

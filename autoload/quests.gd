@@ -8,11 +8,11 @@ extends Node
 ## straw in the nests) and the house's broken boards renewed by hand with a tree's wood.
 ## After that the player is free; the next morning brings a little stonework (stone, a
 ## millstone, the first flour), and later only a few milestones of a growing farm (the
-## barn, the dairy, the house), each chapter opened by a line from his notebook, with
-## small rewards. A dot on the screen (waypoint()) shows where a goal is done. Orders:
-## customers who want a number of one product by a day and pay well above the market
-## for it. They grow with the farm level; three hang on the board, expired ones are
-## replaced each morning.
+## barn, the dairy, the house), each chapter opened by a line from his notebook. Goals
+## give farm experience, never money: the farm earns only by selling. A dot on the
+## screen (waypoint()) shows where a goal is done. Orders: customers who want a number
+## of one product by a day and pay well above the market for it. They grow with the
+## farm level; three hang on the board, expired ones are replaced each morning.
 
 signal tutorial_changed
 signal orders_changed
@@ -30,8 +30,9 @@ const DAY_TWO_CHAPTER := 7
 ## coop's care and the house mended by hand). Saves without it are older and skip the
 ## first day (MOVED_V2); chain 2 saves go on at the nearest goal still here (MOVED_V3).
 const CHAIN := 3
-## Story goals in order: chapter, id, what counts toward it, how many, reward in gold
-## and farm experience ("xp", STEP_XP when left out; only goals that pay gold give it).
+## Story goals in order: chapter, id, what counts toward it, how many, and the farm
+## experience it gives ("xp", none when left out). Goals pay no money: the farm earns
+## only by selling (Economy.STARTING_MONEY).
 ## kind: "action" (a finished farm action; "plant:<crop>" counts one crop's sowing),
 ## "sold" (units sold), "placed", "crafted" (at a workbench; building kits count as
 ## "kit"), "product" (artisan goods made), "picked" (items picked up), "order", "fed"
@@ -52,66 +53,64 @@ const CHAIN := 3
 ## "at": where the dot points while the goal is up (see _target).
 const TUTORIAL := [
 	# Day one. Homecoming: the stuck front door, and Grandpa's things on the worktable inside.
-	{"chapter": 0, "id": "door", "kind": "check", "arg": "flag:house_door_open", "count": 1, "gold": 0, "at": "house_door", "past": "took"},
+	{"chapter": 0, "id": "door", "kind": "check", "arg": "flag:house_door_open", "count": 1, "at": "house_door", "past": "took"},
 	# The count is FarmHouse.table_item_count() (ItemTable.STARTING_ITEMS); "table" copes
 	# with a different number all the same.
-	{"chapter": 0, "id": "tools", "kind": "check", "arg": "table", "count": 7, "gold": 0, "at": "table"},
+	{"chapter": 0, "id": "tools", "kind": "check", "arg": "table", "count": 7, "at": "table"},
 	# The soil: three beds of wheat, ripe by tomorrow morning.
-	{"chapter": 1, "id": "till", "kind": "action", "arg": "hoe", "count": 3, "gold": 20, "xp": 4, "ever": true, "at": "plot:untilled"},
-	{"chapter": 1, "id": "plant", "kind": "action", "arg": "plant:wheat", "count": 3, "gold": 20, "xp": 4, "ever": true, "at": "plot:empty"},
-	{"chapter": 1, "id": "water", "kind": "action", "arg": "water", "count": 3, "gold": 20, "xp": 4, "ever": true, "at": "plot:dry"},
+	{"chapter": 1, "id": "till", "kind": "action", "arg": "hoe", "count": 3, "xp": 4, "ever": true, "at": "plot:untilled"},
+	{"chapter": 1, "id": "plant", "kind": "action", "arg": "plant:wheat", "count": 3, "xp": 4, "ever": true, "at": "plot:empty"},
+	{"chapter": 1, "id": "water", "kind": "action", "arg": "water", "count": 3, "xp": 4, "ever": true, "at": "plot:dry"},
 	# The town: the pickup's key in the desk drawer, the drive, two hens in crates, home again.
-	{"chapter": 2, "id": "drawer", "kind": "check", "arg": "flag:drawer_open", "count": 1, "gold": 0, "at": "drawer", "past": "key"},
-	{"chapter": 2, "id": "key", "kind": "check", "arg": "key", "count": 1, "gold": 0, "at": "key"},
-	{"chapter": 2, "id": "truck", "kind": "check", "arg": "driving", "count": 1, "gold": 0, "at": "truck", "past": "hens:owned"},
-	{"chapter": 2, "id": "buy_chickens", "kind": "check", "arg": "hens:owned", "count": 2, "gold": 0, "at": "stall"},
-	{"chapter": 2, "id": "drive_home", "kind": "check", "arg": "home", "count": 1, "gold": 20, "xp": 4, "at": "home", "past": "crates:warehouse"},
-	{"chapter": 2, "id": "crates_in", "kind": "check", "arg": "crates:warehouse", "count": 2, "gold": 30, "xp": 5, "at": "crates"},
+	{"chapter": 2, "id": "drawer", "kind": "check", "arg": "flag:drawer_open", "count": 1, "at": "drawer", "past": "key"},
+	{"chapter": 2, "id": "key", "kind": "check", "arg": "key", "count": 1, "at": "key"},
+	{"chapter": 2, "id": "truck", "kind": "check", "arg": "driving", "count": 1, "at": "truck", "past": "hens:owned"},
+	{"chapter": 2, "id": "buy_chickens", "kind": "check", "arg": "hens:owned", "count": 2, "at": "stall"},
+	{"chapter": 2, "id": "drive_home", "kind": "check", "arg": "home", "count": 1, "xp": 4, "at": "home", "past": "crates:warehouse"},
+	{"chapter": 2, "id": "crates_in", "kind": "check", "arg": "crates:warehouse", "count": 2, "xp": 5, "at": "crates"},
 	# The coop: wood, a kit from the construction board, a spot, three minutes' work, the hens in.
-	{"chapter": 3, "id": "coop_wood", "kind": "picked", "arg": "wood", "count": 15, "gold": 30, "xp": 5, "ever": true, "at": "trees", "past": "kit"},
-	{"chapter": 3, "id": "coop_kit", "kind": "check", "arg": "kit", "count": 1, "gold": 0, "at": "board"},
-	{"chapter": 3, "id": "coop_place", "kind": "check", "arg": "coop:started", "count": 1, "gold": 20, "xp": 4, "at": "coop_spot"},
-	{"chapter": 3, "id": "coop_built", "kind": "check", "arg": "coop:built", "count": 1, "gold": 60, "xp": 8, "at": "coop"},
-	{"chapter": 3, "id": "hens_in", "kind": "check", "arg": "animals:chicken", "count": 2, "gold": 40, "xp": 6, "at": "hens"},
+	{"chapter": 3, "id": "coop_wood", "kind": "picked", "arg": "wood", "count": 15, "xp": 5, "ever": true, "at": "trees", "past": "kit"},
+	{"chapter": 3, "id": "coop_kit", "kind": "check", "arg": "kit", "count": 1, "at": "board"},
+	{"chapter": 3, "id": "coop_place", "kind": "check", "arg": "coop:started", "count": 1, "xp": 4, "at": "coop_spot"},
+	{"chapter": 3, "id": "coop_built", "kind": "check", "arg": "coop:built", "count": 1, "xp": 8, "at": "coop"},
+	{"chapter": 3, "id": "hens_in", "kind": "check", "arg": "animals:chicken", "count": 2, "xp": 6, "at": "hens"},
 	# The first harvest: the ripe beds Grandpa left, the shipping bin, the first egg.
-	{"chapter": 4, "id": "harvest", "kind": "action", "arg": "harvest", "count": 3, "gold": 30, "xp": 5, "ever": true, "at": "plot:ripe", "past": "bin:crop"},
-	{"chapter": 4, "id": "ship", "kind": "check", "arg": "bin:crop", "count": 1, "gold": 20, "xp": 3, "at": "bin"},
-	{"chapter": 4, "id": "egg", "kind": "picked", "arg": "egg", "count": 1, "gold": 0, "ever": true, "at": "egg", "past": "bin:egg"},
-	{"chapter": 4, "id": "ship_egg", "kind": "check", "arg": "bin:egg", "count": 1, "gold": 20, "xp": 3, "at": "bin"},
+	{"chapter": 4, "id": "harvest", "kind": "action", "arg": "harvest", "count": 3, "xp": 5, "ever": true, "at": "plot:ripe", "past": "bin:crop"},
+	{"chapter": 4, "id": "ship", "kind": "check", "arg": "bin:crop", "count": 1, "xp": 3, "at": "bin"},
+	{"chapter": 4, "id": "egg", "kind": "picked", "arg": "egg", "count": 1, "ever": true, "at": "egg", "past": "bin:egg"},
+	{"chapter": 4, "id": "ship_egg", "kind": "check", "arg": "bin:egg", "count": 1, "xp": 3, "at": "bin"},
 	# The coop's care: the feed sack that waits in the warehouse into the feeder, the
 	# watering can from the well into the water trough, straw from the meadow in the nests
 	# (the hens lay there from then on).
-	{"chapter": 5, "id": "feed", "kind": "fed", "arg": "", "count": 1, "gold": 20, "xp": 3, "ever": true, "at": "feeder"},
-	{"chapter": 5, "id": "coop_water", "kind": "watered", "arg": "", "count": 1, "gold": 20, "xp": 3, "ever": true, "at": "coop_water"},
-	{"chapter": 5, "id": "straw", "kind": "nests", "arg": "", "count": 3, "gold": 30, "xp": 4, "ever": true, "at": "nests"},
+	{"chapter": 5, "id": "feed", "kind": "fed", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "feeder"},
+	{"chapter": 5, "id": "coop_water", "kind": "watered", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "coop_water"},
+	{"chapter": 5, "id": "straw", "kind": "nests", "arg": "", "count": 3, "xp": 4, "ever": true, "at": "nests"},
 	# Mending: one tree's wood (counted from when the goal comes up), then the house's
 	# broken boards renewed by hand, a piece of wood each. (A house repaired already
 	# passes both.)
-	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 3, "gold": 15, "xp": 2, "at": "trees", "past": "built:house_1"},
-	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 3, "gold": 60, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
+	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 3, "xp": 2, "at": "trees", "past": "built:house_1"},
+	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 3, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
 	# The first day's story is done: the farm is the player's own until the next morning
 	# (no dot, no task; Grandpa's note says so).
-	{"chapter": 7, "id": "free", "kind": "check", "arg": "day:2", "count": 1, "gold": 0},
+	{"chapter": 7, "id": "free", "kind": "check", "arg": "day:2", "count": 1},
 	# Day two, stonework: the millstone's stone (RecipeTable: 20), the millstone made at a
 	# workbench (bought in town), the first flour from yesterday's wheat.
-	{"chapter": 8, "id": "stone", "kind": "picked", "arg": "stone", "count": 20, "gold": 30, "xp": 4, "ever": true, "at": "rocks", "past": "has:quern"},
-	{"chapter": 8, "id": "quern", "kind": "crafted", "arg": "quern", "count": 1, "gold": 60, "xp": 8, "ever": true, "at": "quern", "past": "has:quern"},
-	{"chapter": 8, "id": "flour", "kind": "product", "arg": "flour", "count": 1, "gold": 50, "xp": 8, "ever": true, "at": "mill"},
+	{"chapter": 8, "id": "stone", "kind": "picked", "arg": "stone", "count": 20, "xp": 4, "ever": true, "at": "rocks", "past": "has:quern"},
+	{"chapter": 8, "id": "quern", "kind": "crafted", "arg": "quern", "count": 1, "xp": 8, "ever": true, "at": "quern", "past": "has:quern"},
+	{"chapter": 8, "id": "flour", "kind": "product", "arg": "flour", "count": 1, "xp": 8, "ever": true, "at": "mill"},
 	# From here the farm is the player's to run: a few milestones as it grows (sheep, a
 	# cow and a bigger house).
-	{"chapter": 9, "id": "level_3", "kind": "check", "arg": "level", "count": 3, "gold": 0},
-	{"chapter": 9, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "gold": 200},
-	{"chapter": 9, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "gold": 200},
-	{"chapter": 9, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "gold": 150},
-	{"chapter": 10, "id": "level_4", "kind": "check", "arg": "level", "count": 4, "gold": 0},
-	{"chapter": 10, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "gold": 250},
-	{"chapter": 10, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "gold": 150},
-	{"chapter": 10, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "gold": 300},
-	{"chapter": 11, "id": "level_5", "kind": "check", "arg": "level", "count": 5, "gold": 0},
-	{"chapter": 11, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "gold": 1000},
+	{"chapter": 9, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
+	{"chapter": 9, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
+	{"chapter": 9, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
+	{"chapter": 9, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
+	{"chapter": 10, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
+	{"chapter": 10, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
+	{"chapter": 10, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
+	{"chapter": 10, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
+	{"chapter": 11, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
+	{"chapter": 11, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
 ]
-## Farm experience for a goal that pays gold and names no "xp".
-const STEP_XP := 10
 ## Goals of the chain before the first day's story (saves without "chain") and where
 ## such a save goes on (MOVED_V3 then takes it on to this chain): its first day counts
 ## as done. Sowing and the first drive were day one's, the night and the harvest came
@@ -200,8 +199,9 @@ const ORDER_GOODS := [
 ## 11 = Ova Fırını).
 const FIRST_ORDER := {"item": &"wood", "count": 8, "days": 4, "client": 11}
 const BOARD_SIZE := 3
-## Orders pay this much more than the market.
+## Orders pay this much more than the market (in steps of $5), and at least MIN_REWARD.
 const PREMIUM := 1.6
+const MIN_REWARD := 5
 
 var step := 0
 var step_count := 0
@@ -441,11 +441,10 @@ func _catch_up() -> void:
 
 func _complete() -> void:
 	var g := current()
-	var gold := int(g["gold"])
-	if gold > 0:
-		Economy.add_money(gold, "REPORT_QUESTS")
-		Progress.add(int(g.get("xp", STEP_XP)))
-		Game.notify(tr("MSG_QUEST_DONE") % [goal_text(g), UiTheme.money(gold)], UiTheme.GOLD)
+	var xp := int(g.get("xp", 0))
+	if xp > 0:
+		Progress.add(xp)
+		Game.notify(tr("MSG_QUEST_DONE") % goal_text(g), UiTheme.GOLD)
 	Audio.ui("confirm", -4.0)
 	step += 1
 	step_count = 0
@@ -716,7 +715,15 @@ func _keep_beds_for_harvest() -> void:
 		_ripen_beds(free, need)
 
 
-## Grandpa's crop, ripe and watered, on the `count` beds of `beds` farthest from the house.
+## Grandpa's beds wait for the harvest goal: until it comes up nothing shows over them
+## and no tool works on them (FarmPlot.held_back), so the first day's steps before it
+## aren't muddled by a harvest the story hasn't asked for yet.
+func holds_grandpa_beds() -> bool:
+	return not tutorial_done() and step < index_of("harvest")
+
+
+## Grandpa's crop, ripe and watered, on the `count` beds of `beds` farthest from the house
+## (marked as his: FarmPlot.grandpa).
 func _ripen_beds(beds: Array[FarmPlot], count: int) -> void:
 	var crop: StringName = GRANDPA_CROP if CropTable.in_season(GRANDPA_CROP, GameClock.get_season()) else &"wheat"
 	var door := Vector3(WorldLayout.HOUSE_DOOR_X, 0.0, WorldLayout.HOUSE_FRONT_Z)
@@ -724,7 +731,7 @@ func _ripen_beds(beds: Array[FarmPlot], count: int) -> void:
 		return a.global_position.distance_squared_to(door) > b.global_position.distance_squared_to(door))
 	for pl: FarmPlot in beds.slice(0, count):
 		pl.load_data({"soil": FarmPlot.Soil.TILLED, "crop": String(crop),
-			"growth": float(CropTable.get_crop(crop).get("grow_h", 20)), "wet": 4.0})
+			"growth": float(CropTable.get_crop(crop).get("grow_h", 20)), "wet": 4.0, "grandpa": true})
 
 
 func _first_field() -> Field:
@@ -1019,11 +1026,14 @@ func _coop_door() -> Variant:
 
 
 ## The nearest bed in `state`: untilled, empty (tilled, unsown), dry (sown, not wet),
-## waterable (tilled, the can takes it: FarmPlot's own rule), ripe.
+## waterable (tilled, the can takes it: FarmPlot's own rule), ripe. Grandpa's beds
+## waiting for their goal are left out.
 func _plot_spot(state: String, from: Vector3) -> Variant:
 	var best: FarmPlot = null
 	var best_d := INF
 	for pl: FarmPlot in get_tree().get_nodes_in_group(&"farm_plots"):
+		if pl.held_back():
+			continue
 		var fits := false
 		match state:
 			"untilled":
@@ -1221,7 +1231,7 @@ func _new_order() -> Dictionary:
 func _order(item: StringName, count: int, due: int, client: int) -> Dictionary:
 	var base := ItemDB.get_item(item).sell_price
 	var reward := roundi(base * count * PREMIUM * UnlockTable.order_bonus(Progress.level) / 5.0) * 5
-	var o := {"id": _next_order_id, "item": String(item), "count": count, "reward": maxi(reward, 20),
+	var o := {"id": _next_order_id, "item": String(item), "count": count, "reward": maxi(reward, MIN_REWARD),
 		"due": due, "client": client}
 	_next_order_id += 1
 	return o

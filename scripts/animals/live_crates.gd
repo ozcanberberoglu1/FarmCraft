@@ -125,7 +125,7 @@ static func can_buy(species: StringName, count: int, at: Vector3) -> String:
 		return tr_key("MSG_NO_ROOM")
 	var cost := price(species) * count
 	if Economy.money < cost:
-		return tr_key("MSG_NEED_GOLD") % (cost - Economy.money)
+		return tr_key("MSG_NEED_GOLD") % UiTheme.money(cost - Economy.money)
 	if room_at(species, at) < count:
 		return tr_key("MSG_CRATES_NO_ROOM")
 	return ""

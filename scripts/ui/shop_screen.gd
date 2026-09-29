@@ -8,6 +8,8 @@ extends ModalScreen
 
 const TILE := Vector2(132, 164)
 const COLS := 5
+## Dollars per point of wear mended (a worn-out hoe costs about a quarter of a new one).
+const REPAIR_PER_POINT := 0.25
 
 var _tabs: TabStrip
 var _money: Label
@@ -220,7 +222,7 @@ func _make_tile(entry: Dictionary) -> ShopTile:
 		var lock := UiTheme.chip(tr("UI_LEVEL_SHORT") % UnlockTable.item_level(entry["id"]), UiTheme.GOLD_SOFT, "lock", 15)
 		lock.position = Vector2(8, 8)
 		t.add_child(lock)
-	var price_row := UiTheme.price(_price(entry), 20, 20)
+	var price_row := UiTheme.price(_price(entry), 20)
 	price_row.position = Vector2(12, TILE.y - 36)
 	t.add_child(price_row)
 	if _tab == "sell":
@@ -271,7 +273,7 @@ func _fill_extra() -> void:
 	if not _shop.get("repair", false):
 		return
 	var cost := _repair_cost()
-	var b := UiTheme.button(tr("SHOP_REPAIR") % cost if cost > 0 else tr("SHOP_REPAIR_NONE"), "secondary",
+	var b := UiTheme.button(tr("SHOP_REPAIR") % UiTheme.money(cost) if cost > 0 else tr("SHOP_REPAIR_NONE"), "secondary",
 			Vector2(COLS * (TILE.x + 10) - 10, 48), "wrench", 19)
 	b.disabled = cost <= 0 or Economy.money < cost
 	b.pressed.connect(_repair)
@@ -318,12 +320,13 @@ func _sell_load() -> void:
 	_fill_grid()
 
 
+## What mending every tool in the bag costs: REPAIR_PER_POINT for each point of wear.
 func _repair_cost() -> int:
-	var cost := 0
+	var worn := 0
 	for s in PlayerState.inventory.slots:
 		if s and s.item.has_durability():
-			cost += s.max_durability() - s.durability
-	return cost
+			worn += s.max_durability() - s.durability
+	return ceili(worn * REPAIR_PER_POINT)
 
 
 func _repair() -> void:
@@ -394,7 +397,7 @@ func _show_detail() -> void:
 				UiTheme.RED, 18, 20))
 	var price := _price(_sel)
 	_detail.add_child(UiTheme.separator())
-	_detail.add_child(_info_row(tr("SHOP_UNIT"), UiTheme.price(price, 22, 22)))
+	_detail.add_child(_info_row(tr("SHOP_UNIT"), UiTheme.price(price, 22)))
 	var in_bed: int = _in_cargo(_sel) if _tab == "sell" else 0
 	_detail.add_child(_info_row(tr("SHOP_IN_BAG"), UiTheme.make_label(str(_owned(_sel) - in_bed), UiTheme.heading(22, UiTheme.TEXT, 700, 0))))
 	if in_bed > 0:
@@ -441,7 +444,7 @@ func _show_detail() -> void:
 	_detail.add_child(UiTheme.expand())
 	# Selling many units lowers the price as they go: show what the sale really pays.
 	var total: int = price * _qty if _tab == "buy" else Economy.quote(_sel["id"], _qty, int(_sel["quality"]))
-	var total_row := _info_row(tr("SHOP_TOTAL_LABEL"), UiTheme.price(total, 32, 30))
+	var total_row := _info_row(tr("SHOP_TOTAL_LABEL"), UiTheme.price(total, 32))
 	_detail.add_child(total_row)
 	var action := UiTheme.button(tr("SHOP_BUY") if _tab == "buy" else tr("SHOP_SELL"),
 			"primary" if _tab == "buy" else "success", Vector2(356, 58), "cart" if _tab == "buy" else "tag", 24)
@@ -478,6 +481,6 @@ func _confirm() -> void:
 		if removed < _qty and cargo:
 			removed += cargo.take(id, _qty - removed, quality)
 		var income := Economy.sell(id, removed, quality)
-		Game.notify("+%s %s" % [UiTheme.money(income), tr("UI_GOLD")], UiTheme.GOLD_SOFT)
+		Game.notify("+" + UiTheme.money(income), UiTheme.GOLD_SOFT)
 	_qty = 1
 	_fill_grid()

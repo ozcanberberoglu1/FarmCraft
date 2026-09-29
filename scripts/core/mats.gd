@@ -77,30 +77,15 @@ static func _create(key: StringName) -> Material:
 			return _textured("pine_bark", {"uv_scale": 0.8, "normal_strength": 1.3})
 		&"rock":
 			return _textured("mossy_rock", {"uv_scale": 0.45, "triplanar": true, "normal_strength": 1.2})
-		# Foliage-card trees are shaded by distance (foliage_card.gdshader shade_*): the
-		# valley's trees, shaded by the sun's shadows, get their crown depth (vertex
-		# colour) as shade past the shadows' reach (NatureSpawner sets it per graphics
-		# preset); the hill forest's, shaded to be seen from afar (their pictures are made
-		# from them), have that shade eased close up, where their shadow shapes shade
-		# them, up to where the pictures take over (NatureSpawner.FOREST_FAR).
+		# The bushes' leaf cards are shaded by distance (foliage_card.gdshader shade_*):
+		# shaded by the sun's shadows, they get their crown depth (vertex colour) as shade
+		# past the shadows' reach (NatureSpawner sets it per graphics preset). The trees
+		# have their own materials (NatureModels.tree).
 		&"leaves":
-			# Leafy twigs of the broadleaf trees and bushes (tools/build_foliage.gd).
+			# Leafy twigs of the bushes (tools/build_foliage.gd).
 			return _foliage("leaves_cluster", {"tint": Color(0.96, 1.0, 0.94), "brightness": 0.95, "deciduous": 1.0,
 				"crown_ao": 0.35, "translucency": 0.5, "alpha_cut": 0.45, "mip_alpha": 0.6, "underside": 0.6,
 				"edge_fade": 0.3, "shadow_blur": 2.5, "shade_far": Vector2(4.0, 0.7)})
-		&"leaves_far":
-			return _foliage("leaves_cluster", {"tint": Color(0.96, 1.0, 0.94), "brightness": 0.78, "deciduous": 1.0,
-				"crown_ao": 0.6, "translucency": 0.5, "alpha_cut": 0.34, "mip_alpha": 0.6, "underside": 0.55,
-				"edge_fade": 0.3, "shade_range": Vector2(35.0, 70.0), "shade_near": Vector2(-1.0, 1.2)})
-		&"needles":
-			# Whole spruce branches (tools/build_foliage.gd): dark, slightly blue-green.
-			return _foliage("leaves_spruce", {"autumn_factor": 0.0, "sway_amount": 0.06,
-				"brightness": 1.25, "tint": Color(0.86, 0.96, 0.92), "crown_ao": 0.2, "alpha_cut": 0.4, "translucency": 0.4,
-				"underside": 0.6, "edge_fade": 0.3, "shadow_blur": 2.5, "shade_far": Vector2(4.0, 0.7)})
-		&"needles_far":
-			return _foliage("leaves_spruce", {"autumn_factor": 0.0, "sway_amount": 0.05, "translucency": 0.3,
-				"brightness": 0.5, "tint": Color(0.86, 0.96, 0.92), "alpha_cut": 0.3, "crown_ao": 0.6,
-				"underside": 0.5, "edge_fade": 0.3, "shade_range": Vector2(35.0, 70.0), "shade_near": Vector2(-1.0, 1.2)})
 		&"crop_leaves":
 			return _foliage("leaves_broad", {"autumn_factor": 0.0, "sway_amount": 0.05, "flutter": 0.012,
 				"tint": Color(0.86, 1.0, 0.8), "translucency": 0.5})

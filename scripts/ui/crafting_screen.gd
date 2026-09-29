@@ -3,11 +3,11 @@ extends ModalScreen
 ## The workbench. "Make": what can be made (RecipeTable.CRAFTING) on the left, the
 ## selected recipe's materials and the make button on the right; recipes open up with
 ## the farm level, materials come from the bag. "Tools": upgrade the tools in the bag
-## (faster work, longer life) for iron ore and gold.
+## (faster work, longer life) for iron ore and money.
 
-## Cost of each tool upgrade level: iron ore, gold, farm level needed.
-const UPGRADE_COST := [{}, {"ore": 6, "gold": 250, "level": UnlockTable.TOOL_UPGRADES[1]},
-	{"ore": 15, "gold": 750, "level": UnlockTable.TOOL_UPGRADES[2]}]
+## Cost of each tool upgrade level: iron ore, dollars, farm level needed.
+const UPGRADE_COST := [{}, {"ore": 6, "money": 60, "level": UnlockTable.TOOL_UPGRADES[1]},
+	{"ore": 15, "money": 180, "level": UnlockTable.TOOL_UPGRADES[2]}]
 
 var _list: VBoxContainer
 var _detail: VBoxContainer
@@ -165,7 +165,7 @@ func _show_tool(slot: int) -> void:
 	_detail.add_child(UiTheme.section(tr("UI_MATERIALS"), "box"))
 	var ore := ItemDB.get_item(&"iron_ore")
 	_detail.add_child(_cost_row(ore.icon, ore.display_name(), PlayerState.inventory.count_item(&"iron_ore"), int(cost["ore"])))
-	_detail.add_child(_cost_row(UiTheme.glyph("coin"), tr("UI_GOLD").capitalize(), Economy.money, int(cost["gold"])))
+	_detail.add_child(_cost_row(null, tr("UI_GOLD").capitalize(), Economy.money, int(cost["money"]), true))
 	var level_ok := Progress.level >= int(cost["level"])
 	if not level_ok:
 		_detail.add_child(UiTheme.icon_row(UiTheme.glyph("lock"), tr("UI_NEEDS_LEVEL") % [int(cost["level"]), Progress.level], UiTheme.RED, 18, 20))
@@ -183,7 +183,7 @@ func can_upgrade(slot: int) -> bool:
 	if st == null or not st.item.is_tool() or st.upgrade >= ItemStack.MAX_UPGRADE:
 		return false
 	var cost: Dictionary = UPGRADE_COST[st.upgrade + 1]
-	return Progress.level >= int(cost["level"]) and Economy.money >= int(cost["gold"]) \
+	return Progress.level >= int(cost["level"]) and Economy.money >= int(cost["money"]) \
 			and PlayerState.inventory.count_item(&"iron_ore") >= int(cost["ore"])
 
 
@@ -194,7 +194,7 @@ func upgrade_tool(slot: int) -> bool:
 	var st := PlayerState.inventory.get_stack(slot)
 	var cost: Dictionary = UPGRADE_COST[st.upgrade + 1]
 	PlayerState.inventory.remove_item(&"iron_ore", int(cost["ore"]))
-	Economy.spend(int(cost["gold"]), "REPORT_UPGRADES")
+	Economy.spend(int(cost["money"]), "REPORT_UPGRADES")
 	st.upgrade += 1
 	if st.item.has_durability():
 		st.durability = st.max_durability()
@@ -300,11 +300,13 @@ func _show(id: StringName) -> void:
 
 
 ## Icon, name, have / need and a meter for one material.
-func _cost_row(tex: Texture2D, label: String, have: int, need: int) -> Control:
+## `dollars`: the amounts are money (else counts of a material); no `tex`: no picture.
+func _cost_row(tex: Texture2D, label: String, have: int, need: int, dollars := false) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(UiTheme.icon_rect(tex, 40))
+	if tex:
+		row.add_child(UiTheme.icon_rect(tex, 40))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 4)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -315,7 +317,8 @@ func _cost_row(tex: Texture2D, label: String, have: int, need: int) -> Control:
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(l)
 	var ok := have >= need
-	head.add_child(UiTheme.make_label("%d / %d" % [mini(have, need), need], UiTheme.heading(20, UiTheme.GREEN if ok else UiTheme.RED, 700, 0)))
+	var amounts := "%s / %s" % [UiTheme.money(mini(have, need)), UiTheme.money(need)] if dollars else "%d / %d" % [mini(have, need), need]
+	head.add_child(UiTheme.make_label(amounts, UiTheme.heading(20, UiTheme.GREEN if ok else UiTheme.RED, 700, 0)))
 	var bar := StatBar.new(6.0, UiTheme.GREEN if ok else UiTheme.GOLD)
 	bar.max_value = need
 	bar.set_value(mini(have, need), false)

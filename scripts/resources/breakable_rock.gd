@@ -66,7 +66,7 @@ func use_impact(player: Node, _stack: ItemStack, _action: Dictionary, hit: Dicti
 	toward = toward.normalized() if toward.length() > 0.01 else Vector3.BACK
 	var at: Vector3 = hit.get("point", global_position + toward * 0.6 * size + Vector3(0, 0.5 * size, 0))
 	var normal: Vector3 = hit.get("normal", toward)
-	Fx.stone_chips(at, (normal + toward * 0.5).normalized())
+	Fx.stone_chips(at, (normal + toward * 0.5).normalized(), _chip_tint())
 
 
 func complete_use(_player: Node, _stack: ItemStack, _action: Dictionary) -> void:
@@ -89,8 +89,9 @@ func _break() -> void:
 	var rng := RandomNumberGenerator.new()
 	var origin := global_position + Vector3(0, 0.6 * size, 0)
 	Fx.dust_cloud(origin, Vector2(size, size))
+	Fx.rock_burst(origin, size, _chip_tint())
 	# The boulder splits with a deep crack that shakes the view.
-	Audio.play("mining", origin, 0.0, 0.05, &"Effects", 6.0, 0.7)
+	Audio.rock_broke(origin)
 	var player := Game.player as Player
 	if player and is_instance_valid(player):
 		player.add_trauma(0.3 * clampf(1.0 - player.global_position.distance_to(origin) / 8.0, 0.0, 1.0))
@@ -107,6 +108,11 @@ func _break() -> void:
 	var tw := create_tween()
 	tw.tween_property(_mesh, "scale", Vector3.ONE * 0.05, 0.25).set_ease(Tween.EASE_IN)
 	tw.tween_callback(_set_broken.bind(true))
+
+
+## The broken stone's colour (a tint of Fx's rock photo): the quarry's is warmer.
+func _chip_tint() -> Color:
+	return Color(0.52, 0.48, 0.44) if quarry else Color(0.58, 0.54, 0.47)
 
 
 func _set_broken(value: bool) -> void:

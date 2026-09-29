@@ -1,0 +1,44 @@
+{
+ "tree": "broadleaf",
+ "source": "tree_small_02",
+ "broad": true,
+ "height": 7.705483436584473,
+ "radius": 5.015607833862305,
+ "crown": {
+  "center": [
+   0.21018409729003906,
+   5.092336654663086,
+   1.3370001316070557
+  ],
+  "radius": [
+   2.4791951179504395,
+   2.613147020339966,
+   3.6486055850982666
+  ]
+ },
+ "impostor": {
+  "width": 10.231839981079101,
+  "height": 20.463679962158203,
+  "views": 8
+ },
+ "atlas_density": 214.10966873168945,
+ "bark": {
+  "trunk": {
+   "diff": "tree_small_02_diff.webp",
+   "nor": "tree_small_02_nor_gl.webp",
+   "arm": "tree_small_02_arm.webp"
+  },
+  "branches": {
+   "diff": "tree_small_02_branch_diff.webp",
+   "nor": "tree_small_02_branch_nor_gl.webp",
+   "arm": "tree_small_02_branch_arm.webp"
+  }
+ },
+ "leaves": "broadleaf_leaves.webp",
+ "leaves_nor": "broadleaf_leaves_nor.webp",
+ "cards": [
+  825,
+  232,
+  82
+ ]
+}

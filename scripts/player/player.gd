@@ -506,6 +506,9 @@ func _fire_cue(cue: Array) -> void:
 			var is_final: bool = kind == &"final"
 			var aim := _impact_point()
 			var p: Dictionary = ToolAnim.PROFILES.get(_anim, {})
+			if p.has("pour"):
+				# Drips and splashes where the can's stream comes down.
+				aim[0] = held.water_landing(aim[0])
 			var kick: Vector4 = p.get("kick", Vector4.ZERO)
 			kick_view(kick * (1.0 if is_final else 0.7), float(p.get("trauma", 0.0)) * (1.0 if is_final else 0.5))
 			if is_instance_valid(_action_target) and _action_target.has_method("use_impact"):

@@ -144,7 +144,7 @@ func _make_card(id: StringName) -> Button:
 			if kit != &"" and PlayerState.inventory.count_item(kit) > 0:
 				chip = UiTheme.chip(tr("BUILD_IN_BAG"), UiTheme.GOLD, "backpack", 15)
 			else:
-				chip = UiTheme.price(int(ProjectTable.get_project(id)["cost"]), 21, 22)
+				chip = UiTheme.price(int(ProjectTable.get_project(id)["cost"]), 21)
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(chip)
 	b.pressed.connect(func() -> void:
@@ -203,9 +203,9 @@ func _show_detail(id: StringName) -> void:
 		var have := PlayerState.inventory.count_item(kit)
 		if have > 0:
 			_detail.add_child(UiTheme.icon_row(UiTheme.glyph("backpack"), "%s ×%d" % [tr("BUILD_IN_BAG"), have], UiTheme.GOLD, 20, 20))
-	_detail.add_child(UiTheme.section(tr("BUILD_COST"), "coin"))
+	_detail.add_child(UiTheme.section(tr("BUILD_COST"), "tag"))
 	var cost := int(p["cost"])
-	_detail.add_child(_cost_row(UiTheme.glyph("coin"), tr("UI_GOLD").capitalize(), Economy.money, cost))
+	_detail.add_child(_cost_row(null, tr("UI_GOLD").capitalize(), Economy.money, cost, true))
 	for item_id: StringName in p["items"]:
 		var item := ItemDB.get_item(item_id)
 		_detail.add_child(_cost_row(item.icon, item.display_name(), PlayerState.inventory.count_item(item_id), int(p["items"][item_id])))
@@ -222,12 +222,13 @@ func _show_detail(id: StringName) -> void:
 
 
 ## Icon, name, have / need and a progress meter for one cost.
-func _cost_row(tex: Texture2D, label: String, have: int, need: int) -> Control:
+## `dollars`: the amounts are money (else counts of a material); no `tex`: no picture.
+func _cost_row(tex: Texture2D, label: String, have: int, need: int, dollars := false) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var pic := UiTheme.icon_rect(tex, 40)
-	row.add_child(pic)
+	if tex:
+		row.add_child(UiTheme.icon_rect(tex, 40))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 4)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -240,7 +241,9 @@ func _cost_row(tex: Texture2D, label: String, have: int, need: int) -> Control:
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(l)
 	var ok := have >= need
-	head.add_child(UiTheme.make_label("%s / %s" % [UiTheme.money(mini(have, need)), UiTheme.money(need)],
+	var amounts := "%s / %s" % [UiTheme.money(mini(have, need)), UiTheme.money(need)] if dollars \
+			else "%s / %s" % [UiTheme.number(mini(have, need)), UiTheme.number(need)]
+	head.add_child(UiTheme.make_label(amounts,
 			UiTheme.heading(20, UiTheme.GREEN if ok else UiTheme.RED, 700, 0)))
 	var bar := StatBar.new(6.0, UiTheme.GREEN if ok else UiTheme.GOLD)
 	bar.max_value = need

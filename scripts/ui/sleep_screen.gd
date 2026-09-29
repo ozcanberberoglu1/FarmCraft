@@ -8,7 +8,7 @@ extends CanvasLayer
 signal _continue
 
 const PASS_OUT_FEE_RATE := 0.1
-const PASS_OUT_FEE_MAX := 250
+const PASS_OUT_FEE_MAX := 60
 
 var _black: ColorRect
 var _report: VBoxContainer
@@ -155,7 +155,7 @@ func _show_report(summary: Dictionary, fee: int) -> void:
 		season.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_report.add_child(season)
 	if fee > 0:
-		var po := UiTheme.chip(tr("MSG_PASSED_OUT") % fee, UiTheme.RED, "info", 17)
+		var po := UiTheme.chip(tr("MSG_PASSED_OUT") % UiTheme.money(fee), UiTheme.RED, "info", 17)
 		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_report.add_child(po)
 	_report.add_child(UiTheme.section(tr("REPORT_YESTERDAY"), "calendar"))
@@ -167,18 +167,19 @@ func _show_report(summary: Dictionary, fee: int) -> void:
 	var net := income - expenses
 	for spec: Array in [[tr("REPORT_INCOME"), "+" + UiTheme.money(income), UiTheme.GREEN, "arrow_up"],
 			[tr("REPORT_EXPENSES"), "−" + UiTheme.money(expenses), UiTheme.RED, "arrow_down"],
-			[tr("REPORT_NET"), ("+" if net >= 0 else "−") + UiTheme.money(absi(net)), UiTheme.GOLD_SOFT, "coin"]]:
+			[tr("REPORT_NET"), ("+" if net >= 0 else "−") + UiTheme.money(absi(net)), UiTheme.GOLD_SOFT, ""]]:
 		var c := _card(Vector2(0, 110))
 		money_row.add_child(c[0])
 		var top := HBoxContainer.new()
 		top.add_theme_constant_override("separation", 8)
-		top.add_child(UiTheme.icon_rect(UiTheme.glyph(spec[3]), 18, spec[2]))
+		if spec[3] != "":
+			top.add_child(UiTheme.icon_rect(UiTheme.glyph(spec[3]), 18, spec[2]))
 		top.add_child(UiTheme.make_label(UiTheme.caps(String(spec[0])), UiTheme.heading(17, UiTheme.TEXT_MUTED, 700, 2)))
 		c[1].add_child(top)
 		c[1].add_child(UiTheme.make_label(spec[1], UiTheme.heading(44, spec[2], 700, 1)))
 	var shipped := shipping_income(summary)
 	if shipped > 0:
-		var chip := UiTheme.chip(tr("REPORT_SHIPPED") % UiTheme.money(shipped), UiTheme.GREEN, "coin", 17)
+		var chip := UiTheme.chip(tr("REPORT_SHIPPED") % UiTheme.money(shipped), UiTheme.GREEN, "", 17)
 		chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_report.add_child(chip)
 	if not Animals.report_notes.is_empty():

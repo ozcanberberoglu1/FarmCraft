@@ -60,6 +60,9 @@ func apply() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--lang="):
 			language = a.substr(7)
+		# ... and the graphics preset: -- --quality=high
+		elif a.begins_with("--quality=") and Quality.has(a.substr(10).to_upper()):
+			quality = Quality[a.substr(10).to_upper()]
 	if language == "":
 		language = detect_language()
 	TranslationServer.set_locale(language)

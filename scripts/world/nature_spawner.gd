@@ -192,17 +192,37 @@ func _scatter_bushes(rng: RandomNumberGenerator) -> void:
 		_multimesh(NatureModels.bush(i + 1), transforms[i], "Bushes%d" % i, true)
 
 
-## Hill forest tiles whose centre is farther than this switch from leaf-card trees to
-## impostors (one camera-facing picture per tree), which cost a fraction to draw.
-## Within FOREST_FADE of the switch both are drawn, so it is hidden. There is no range
-## fade: the forest shaders set ALPHA themselves, so a fade would not show, and a
-## fading instance is drawn in the much slower transparent pass.
-const FOREST_FAR := 75.0
+## Hill forest tiles whose nearest point is farther than this (m, per graphics preset
+## LOW..ULTRA) switch from the 3D trees to impostors (one camera-facing picture per
+## tree, from its side), which cost a fraction to draw. Within FOREST_FADE of the switch
+## both are drawn, so it is hidden. There is no range fade: the forest shaders set
+## ALPHA themselves, so a fade would not show, and a fading instance is drawn in the
+## much slower transparent pass.
+const FOREST_FAR: Array[float] = [60.0, 80.0, 120.0, 170.0]
 const FOREST_FADE := 12.0
+## How long the trees keep their finer levels of detail per graphics preset
+## (GeometryInstance3D.lod_bias; see NatureModels.LOD_KEYS).
+const LOD_BIAS: Array[float] = [0.6, 0.8, 1.3, 2.0]
+## Spacing of the hill forest's grid (m; 15 % of its cells stay empty), and the share of
+## its trees drawn per graphics preset.
+const FOREST_STEP := 4.3
+const FOREST_SHARE: Array[float] = [0.75, 0.9, 1.0, 1.0]
+## From this preset (HIGH) up the forest's leaf cards cast the sun's shadows themselves
+## (the crowns' own dappled shade); below it the plain shadow shapes stand in for them.
+const CARD_SHADOWS := 2
+
+## The hill forest's tiles of 3D trees, of impostors and of shadow shapes.
+var _forest_near: Array[MultiMeshInstance3D] = []
+var _forest_far: Array[MultiMeshInstance3D] = []
+var _forest_shade: Array[MultiMeshInstance3D] = []
 
 
 func _build_hill_forest(rng: RandomNumberGenerator) -> void:
+	_forest_near.clear()
+	_forest_far.clear()
+	_forest_shade.clear()
 	var meshes := NatureModels.forest_meshes()
+	var broad_kinds := NatureModels.forest_broad()
 	var frames: Array[Vector2] = []
 	for m in meshes:
 		frames.append(NatureModels.impostor_frame(m))
@@ -211,61 +231,103 @@ func _build_hill_forest(rng: RandomNumberGenerator) -> void:
 	# Tiles so each block of forest is culled and switches detail on its own.
 	const TILE := 40.0
 	var tiles := {}
+	# One tree of a random kind (seven in ten conifers), `s` times its natural size, with
+	# a random rank: a graphics preset drawing a share of the forest (FOREST_SHARE) draws
+	# the trees ranked below it, in every tile and level of detail alike.
+	var add := func(px: float, pz: float, s: float) -> void:
+		var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s)
+		var kind: int = conifers[rng.randi() % conifers.size()] if rng.randf() < 0.7 \
+				else broadleaf[rng.randi() % broadleaf.size()]
+		var key := Vector2i(floori(px / TILE), floori(pz / TILE))
+		if not tiles.has(key):
+			var lists := []
+			for i in meshes.size():
+				lists.append([])
+			tiles[key] = lists
+		tiles[key][kind].append([Transform3D(b, TerrainData.point_on_ground(px, pz, -0.2)), rng.randf()])
 	var rect := WorldLayout.map_rect().grow(-2.0)
-	var step := 5.0
 	var z := rect.position.y
 	while z < rect.end.y:
 		var x := rect.position.x
 		while x < rect.end.x:
-			var px := x + rng.randf_range(0.0, step)
-			var pz := z + rng.randf_range(0.0, step)
-			x += step
+			var px := x + rng.randf_range(0.0, FOREST_STEP)
+			var pz := z + rng.randf_range(0.0, FOREST_STEP)
+			x += FOREST_STEP
 			if WorldLayout.playable_distance(px, pz) > -1.0:
 				continue
-			if TerrainData.path_at(px, pz) > 0.1 or rng.randf() < 0.18:
+			if TerrainData.path_at(px, pz) > 0.1 or rng.randf() < 0.15:
 				continue
 			var n := TerrainData.normal_at(px, pz)
 			if n.y < 0.62:
 				continue
-			var s := rng.randf_range(0.9, 1.5)
-			var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s)
-			var kind: int = conifers[rng.randi() % conifers.size()] if rng.randf() < 0.7 \
-					else broadleaf[rng.randi() % broadleaf.size()]
-			var key := Vector2i(floori(px / TILE), floori(pz / TILE))
-			if not tiles.has(key):
-				var lists := []
-				for i in meshes.size():
-					lists.append([])
-				tiles[key] = lists
-			tiles[key][kind].append(Transform3D(b, TerrainData.point_on_ground(px, pz, -0.2)))
-		z += step
+			# The trees are built at their natural size.
+			add.call(px, pz, rng.randf_range(0.8, 1.2))
+		z += FOREST_STEP
+	# Young trees along the forest's edge: the wood thins out into the meadow through
+	# saplings and half-grown trees instead of ending in a wall of full-grown ones.
+	var young := 3.0
+	z = rect.position.y
+	while z < rect.end.y:
+		var x := rect.position.x
+		while x < rect.end.x:
+			var px := x + rng.randf_range(0.0, young)
+			var pz := z + rng.randf_range(0.0, young)
+			x += young
+			var edge := WorldLayout.playable_distance(px, pz)
+			if edge > -0.8 or edge < -9.0 or rng.randf() > 0.32:
+				continue
+			if TerrainData.path_at(px, pz) > 0.1 or TerrainData.normal_at(px, pz).y < 0.62:
+				continue
+			add.call(px, pz, lerpf(0.28, 0.7, clampf(-edge / 9.0, 0.0, 1.0)) * rng.randf_range(0.8, 1.2))
+		z += young
 	var proxies: Array[Transform3D] = []
 	for m in meshes:
 		proxies.append(NatureModels.shadow_transform(m))
+	var by_rank := func(a: Array, b: Array) -> bool: return a[1] < b[1]
 	for key: Vector2i in tiles:
 		var far := []
 		# Shadow shapes: cones for the conifers, ellipsoids for the broadleaf trees.
 		var shades := [[], []]
 		for i in meshes.size():
-			var near := _multimesh(meshes[i], tiles[key][i], "HillForest%d_%d_%d" % [i, key.x, key.y], false)
+			var trees: Array = tiles[key][i]
+			trees.sort_custom(by_rank)
+			var near := _multimesh(meshes[i], trees.map(func(t: Array) -> Transform3D: return t[0]),
+					"HillForest%d_%d_%d" % [i, key.x, key.y], false)
 			if near:
-				near.visibility_range_end = FOREST_FAR + FOREST_FADE
-			var broad := NatureModels.FOREST_BROAD[i]
-			for xf: Transform3D in tiles[key][i]:
-				far.append([xf, i])
-				shades[1 if broad else 0].append(xf * proxies[i])
-		_impostors(far, frames, "HillForestFar_%d_%d" % [key.x, key.y])
-		# The foliage cards cast no shadows; the shapes cast them for the trees drawn
-		# with cards (see NatureModels.shadow_shape).
+				near.visibility_range_end = FOREST_FAR[Settings.Quality.ULTRA] + FOREST_FADE
+				_ranked(near, trees)
+				_forest_near.append(near)
+			var broad := broad_kinds[i]
+			for t: Array in trees:
+				far.append([t[0], i, t[1]])
+				shades[1 if broad else 0].append([t[0] * proxies[i], t[1]])
+		far.sort_custom(func(a: Array, b: Array) -> bool: return a[2] < b[2])
+		_impostors(far, frames, broad_kinds, "HillForestFar_%d_%d" % [key.x, key.y])
+		# Below CARD_SHADOWS the leaf cards cast no shadows; the shapes cast them for the
+		# 3D trees (see NatureModels.shadow_shape).
 		for k in 2:
-			var shade := _multimesh(NatureModels.shadow_shape(k == 1), shades[k], "ForestShade%d_%d_%d" % [k, key.x, key.y], true)
+			var list: Array = shades[k]
+			list.sort_custom(by_rank)
+			var shade := _multimesh(NatureModels.shadow_shape(k == 1), list.map(func(t: Array) -> Transform3D: return t[0]),
+					"ForestShade%d_%d_%d" % [k, key.x, key.y], true)
 			if shade:
 				shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-				shade.visibility_range_end = FOREST_FAR + FOREST_FADE
+				shade.visibility_range_end = FOREST_FAR[Settings.Quality.ULTRA] + FOREST_FADE
+				_ranked(shade, list)
+				_forest_shade.append(shade)
+
+
+## Keeps the ranks of a forest multimesh's trees ([_, rank] in instance order, rising)
+## for FOREST_SHARE.
+func _ranked(mmi: MultiMeshInstance3D, trees: Array) -> void:
+	var ranks := PackedFloat32Array()
+	for t: Array in trees:
+		ranks.append(float(t[t.size() - 1]))
+	mmi.set_meta(&"ranks", ranks)
 
 
 ## One multimesh of impostor cards for a forest tile: [[transform, kind]].
-func _impostors(trees: Array, frames: Array[Vector2], node_name: String) -> void:
+func _impostors(trees: Array, frames: Array[Vector2], broad: Array[bool], node_name: String) -> void:
 	if trees.is_empty():
 		return
 	var mm := MultiMesh.new()
@@ -276,14 +338,16 @@ func _impostors(trees: Array, frames: Array[Vector2], node_name: String) -> void
 	for j in trees.size():
 		var kind: int = trees[j][1]
 		mm.set_instance_transform(j, trees[j][0])
-		mm.set_instance_custom_data(j, Color(kind, frames[kind].x, frames[kind].y, 1.0 if NatureModels.FOREST_BROAD[kind] else 0.0))
+		mm.set_instance_custom_data(j, Color(kind, frames[kind].x, frames[kind].y, 1.0 if broad[kind] else 0.0))
 	var mmi := MultiMeshInstance3D.new()
+	_ranked(mmi, trees)
 	mmi.name = node_name
 	mmi.multimesh = mm
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mmi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
-	mmi.visibility_range_begin = FOREST_FAR - FOREST_FADE
+	mmi.visibility_range_begin = FOREST_FAR[Settings.Quality.ULTRA] - FOREST_FADE
 	add_child(mmi)
+	_forest_far.append(mmi)
 
 
 func _multimesh(mesh: Mesh, transforms: Array, node_name: String, shadows: bool) -> MultiMeshInstance3D:
@@ -344,8 +408,8 @@ const FLOOR_TILE := 40.0
 const FLOOR_SHARE := [0.35, 0.6, 1.0, 1.0]
 const FLOOR_RANGE := [0.6, 0.8, 1.0, 1.0]
 ## How far the sun's shadows reach per graphics preset (DayNightCycle.apply_quality;
-## they fade out over the last 15 %): past it the valley's trees shade their crowns
-## themselves (Mats "leaves" and "needles", foliage_card.gdshader shade_range).
+## they fade out over the last 15 %): past it the trees and bushes shade their crowns
+## themselves (tree_leaves.gdshader and foliage_card.gdshader shade_range).
 const SHADOW_REACH := [60.0, 90.0, 120.0, 120.0]
 
 ## [MultiMeshInstance3D, view range] of the forest floor, for the graphics presets.
@@ -456,8 +520,9 @@ func _floor_transform(u: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> 
 	return Transform3D(basis, TerrainData.point_on_ground(p.x, p.y, -sink))
 
 
-## Draws the share of the forest floor the graphics preset allows, as far as it allows,
-## and has the valley's trees shade their crowns themselves where the sun's shadows end.
+## Draws the share of the forest floor the graphics preset allows, as far as it allows;
+## sets how far the forest's 3D trees reach, how long trees keep their detail and what
+## casts the forest's shadows; has the crowns shade themselves where the sun's shadows end.
 func _apply_quality() -> void:
 	var q: int = Settings.quality
 	for entry: Array in _floor:
@@ -468,5 +533,25 @@ func _apply_quality() -> void:
 		mmi.visibility_range_end = float(entry[1]) * FLOOR_RANGE[q]
 	NatureModels.set_floor_range_scale(FLOOR_RANGE[q])
 	var reach: float = SHADOW_REACH[q]
-	for key: StringName in [&"leaves", &"needles"]:
-		(Mats.get_mat(key) as ShaderMaterial).set_shader_parameter("shade_range", Vector2(reach * 0.85, reach))
+	(Mats.get_mat(&"leaves") as ShaderMaterial).set_shader_parameter("shade_range", Vector2(reach * 0.85, reach))
+	for mat in NatureModels.leaf_materials():
+		mat.set_shader_parameter("shade_range", Vector2(reach * 0.85, reach))
+	var cards_cast := q >= CARD_SHADOWS
+	for list: Array in [_forest_near, _forest_far, _forest_shade]:
+		for mmi: MultiMeshInstance3D in list:
+			var ranks: PackedFloat32Array = mmi.get_meta(&"ranks")
+			mmi.multimesh.visible_instance_count = ranks.bsearch(FOREST_SHARE[q])
+	for mmi in _forest_near:
+		mmi.visibility_range_end = FOREST_FAR[q] + FOREST_FADE
+		mmi.lod_bias = LOD_BIAS[q]
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cards_cast \
+				else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for mmi in _forest_far:
+		mmi.visibility_range_begin = FOREST_FAR[q] - FOREST_FADE
+	for mmi in _forest_shade:
+		mmi.visible = not cards_cast
+		mmi.visibility_range_end = FOREST_FAR[q] + FOREST_FADE
+	var trees := get_node_or_null("Trees")
+	if trees:
+		for mi: MeshInstance3D in trees.find_children("*", "MeshInstance3D", true, false):
+			mi.lod_bias = LOD_BIAS[q]

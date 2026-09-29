@@ -1,0 +1,44 @@
+{
+ "tree": "locust",
+ "source": "jacaranda_tree",
+ "broad": true,
+ "height": 10.627243041992188,
+ "radius": 7.203749179840088,
+ "crown": {
+  "center": [
+   -0.35260653495788574,
+   5.891868591308594,
+   0.024604320526123047
+  ],
+  "radius": [
+   6.714688301086426,
+   4.735374450683594,
+   5.267508029937744
+  ]
+ },
+ "impostor": {
+  "width": 14.69564832687378,
+  "height": 29.39129665374756,
+  "views": 8
+ },
+ "atlas_density": 108.42906475067139,
+ "bark": {
+  "trunk": {
+   "diff": "jacaranda_tree_trunk_diff.webp",
+   "nor": "jacaranda_tree_trunk_nor_gl.webp",
+   "arm": "jacaranda_tree_trunk_arm.webp"
+  },
+  "branches": {
+   "diff": "jacaranda_tree_branches_diff.webp",
+   "nor": "jacaranda_tree_branches_nor_gl.webp",
+   "arm": "jacaranda_tree_branches_arm.webp"
+  }
+ },
+ "leaves": "locust_leaves.webp",
+ "leaves_nor": "locust_leaves_nor.webp",
+ "cards": [
+  1036,
+  290,
+  104
+ ]
+}

@@ -71,13 +71,13 @@ func set_heading(title: String, icon_name := "", subtitle := "") -> void:
 func add_money_pill() -> Label:
 	var pill := PanelContainer.new()
 	var sb := UiTheme.box(Color(0, 0, 0, 0.25), 22, 1, Color(UiTheme.GOLD, 0.3))
-	sb.content_margin_left = 12
+	sb.content_margin_left = 16
 	sb.content_margin_right = 16
 	sb.content_margin_top = 4
 	sb.content_margin_bottom = 4
 	pill.add_theme_stylebox_override("panel", sb)
 	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var row := UiTheme.price(Economy.money, 26, 28)
+	var row := UiTheme.price(Economy.money, 26)
 	pill.add_child(row)
 	header_right.add_child(pill)
-	return row.get_child(1) as Label
+	return row.get_child(0) as Label

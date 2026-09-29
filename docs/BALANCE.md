@@ -7,53 +7,84 @@ money and level curve, milestones and what each machine earns. A year is 40 days
 
     godot --headless --path . -s res://tools/balance_sim.gd -- --days=120 --seed=7
 
+## Money
+
+Money is in dollars and comes **only from selling**: the town market, the shipping
+bin (the courier keeps a quarter), a pickup's whole load at the market counter, animals
+sold, and the orders on the town board. Story goals and achievements give farm
+experience, never money.
+
+A new farm starts with **$150** (Economy.STARTING_MONEY). The first day's story
+spends it: two hens at the poultry stall ($50 each) leave $50, the coop kit takes $25
+of that (and 15 wood). Grandpa's ripe carrots and the first eggs go through the
+shipping bin, so the next morning there is about $45: enough for the workbench ($40)
+that the millstone of the second day is made at (or the carrots are sold at the market
+on the same trip). Grandpa's pickup comes with the farm with 20 L in the tank; fuel is
+$0.50 a litre.
+
+| | Prices ($) |
+|---|---|
+| Seeds | wheat 1, carrot 2, potato 2, corn 4, tomato 5, eggplant 6, strawberry 10, pumpkin 12 |
+| Crops (sell) | wheat 2, potato 3, tomato 3, carrot 4, corn 4, eggplant 5, strawberry 5, pumpkin 45 |
+| Animal goods | egg 5, milk 13, wool 30 |
+| Artisan goods | flour 17, tomato paste 32, jam 35, pickles 36, yarn 45, cheese 50 |
+| Supplies | feed 1, hay 3, fertilizer 5, medicine 20, wood 2, stone 2, iron ore 6 |
+| Tools | hoe, scythe, pickaxe, axe, brush 40; watering can, pitchfork 50; milk pail 75; shears 90; repair 0.25 a point of wear; upgrades 60 / 180 (and ore) |
+| Animals (grown / young) | hen 50 / 20, sheep 225 / 90, cow 375 / 150, horse 600 / 225 |
+| Buildings | coop kit 25, open barn 200, field expansion I 250, II 900, III 2,400, bigger warehouse 900, closed barn 1,350, house extension I 1,500, II 4,500 |
+| Other | workbench 40, the dealership's pickup 550; the vet 10 plus 30% of the animal's value |
+
+Orders pay 1.6× the market (in steps of $5, at least $5). Sales give a point of farm
+experience per $6, orders 20 plus a point per $7 (Progress).
+
 ## What the farm level opens (UnlockTable)
 
 | Level | Day (sim) | Opens |
 |---|---|---|
-| 1 | 1 | wheat, carrot, potato; millstone |
-| 2 | ~5 | strawberry, tomato; chicken run, chickens; field expansion I; fertilizer |
-| 3 | ~9 | corn; open barn, sheep; bigger warehouse; sprinkler, pickle barrel, spinning wheel; tool upgrade +1 |
-| 4 | ~18 | eggplant, pumpkin; cows; field expansion II; cheese press |
-| 5 | ~30 | closed coop; house extension I; jam kettle |
-| 6 | ~46 | horse; closed barn; tool upgrade +2 |
-| 7 | ~54 | field expansion III |
-| 8 | ~60 | house extension II |
-| 9 | ~69 | a fourth order on the board |
-| 10 | ~85 | orders pay 25% more |
+| 1 | 1 | wheat, carrot, potato; chickens (the coop kit); millstone |
+| 2 | ~3 | strawberry, tomato; field expansion I; fertilizer |
+| 3 | ~7 | corn; open barn, sheep; bigger warehouse; sprinkler, pickle barrel, spinning wheel; tool upgrade +1 |
+| 4 | ~12 | eggplant, pumpkin; cows; field expansion II; cheese press |
+| 5 | ~20 | house extension I; jam kettle |
+| 6 | ~29 | horse; closed barn; tool upgrade +2 |
+| 7 | ~41 | field expansion III |
+| 8 | ~48 | house extension II |
+| 9 | ~57 | a fourth order on the board |
+| 10 | ~66 | orders pay 25% more |
 
 Each crop opens in time for its season in the first year (strawberries late in
 spring, corn with summer, pumpkins before autumn). The story's chapters follow the same
-ladder: the coop at level 2, the barn at 3, the dairy at 4, the house at 5.
+ladder: the barn at 3, the dairy at 4, the house at 5.
 
 ## Three years (seed 7)
 
 | Day | Money | Level | Farm |
 |---|---|---|---|
-| 1 | 604 | 1 | pickup bought straight away (2,500 start), millstone |
-| 10 | 282 | 3 | chicken run, 3 chickens, fertilizer |
-| 20 | 813 | 4 | open barn |
-| 30 | 519 | 5 | a cow and a sheep, cheese press, spinning wheel |
-| 40 | 368 | 5 | 8 animals, jam kettle |
-| 60 | 3,397 | 8 | second and third fields (36 beds), closed coop and barn |
-| 80 | 7,534 | 9 | four fields (48 beds), 16 animals |
+| 1 | 50 | 1 | 2 hens and the coop kit ($25 left), Grandpa's carrots in the bin |
+| 2 | 69 | 1 | workbench and millstone ($9 left before the day's sales) |
+| 5 | 62 | 2 | a third hen, fertilizer |
+| 10 | 212 | 3 | 8 hens, a second coop kit |
+| 20 | 224 | 5 | 16 hens, open barn, a cow, cheese press |
+| 30 | 571 | 6 | a second field, sheep, spinning wheel, jam kettle |
+| 40 | 354 | 6 | three fields (36 beds), the dealership's pickup |
+| 60 | 2,198 | 9 | bigger warehouse, closed barn, house extension I |
+| 80 | 1,861 | 10 | four fields (48 beds), house extension II |
 
-Income over three years: crops 28.7k, animal products 15.8k, artisan goods 61.0k,
-orders 5.8k.
+Income over three years: crops 9.3k, animal products 9.3k, artisan goods 18.2k,
+orders 2.3k.
+
+The first days are tight on purpose: after the first day's hens and coop the farm runs
+on a few dollars a day from crops and eggs and adds a hen or two at a time; the barn
+and the dairy come in the first summer, the big buildings in the second year.
 
 ## Machines (value added per batch at base prices)
 
 | Machine | In → out | Added | Time |
 |---|---|---|---|
-| Cheese press | 2 milk → cheese | +90 (+90%) | 12 h |
-| Spinning wheel | 1 wool → yarn | +60 (+50%) | 8 h |
-| Pickle barrel | 5 carrots / 4 eggplants → pickles | +55 (+85%) | 36 h |
-| Jam kettle | 4 strawberries → jam, 6 tomatoes → paste | +53 / +55 | 6 / 8 h |
-| Millstone | 5 wheat → flour | +25 (+71%) | 3 h |
+| Cheese press | 2 milk → cheese | +24 (+92%) | 12 h |
+| Spinning wheel | 1 wool → yarn | +15 (+50%) | 8 h |
+| Pickle barrel | 5 carrots / 4 eggplants → pickles | +16 (+80%) | 36 h |
+| Jam kettle | 4 strawberries → jam, 6 tomatoes → paste | +15 / +14 | 6 / 8 h |
+| Millstone | 5 wheat → flour | +7 (+70%) | 3 h |
 
-Tuning done: the pickle barrel was 48 h / 110 gold (the weakest by far), now 36 h /
-120. Orders pay 1.6× the market. Fertilizer: +30% growth speed and 15% gold quality.
-
-Things to watch: buying the pickup on day one leaves little for seeds (the story leads
-players to it after the first harvest); levels 6–10 come in the second and third year,
-the long-term goal (the horse, the big buildings, better orders).
+Fertilizer: +30% growth speed and 15% gold quality.

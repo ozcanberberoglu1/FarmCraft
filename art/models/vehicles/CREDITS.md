@@ -11,3 +11,11 @@ game's Barlow Condensed font, SIL OFL), driven by the game's vehicle physics.
 "Lightbody '90 MD Pickup - Low poly model"
 (https://sketchfab.com/3d-models/lightbody-90-md-pickup-low-poly-model-3b3ac59245c44872b06ad85673be9643)
 by Daniel Zhabotinsky (https://sketchfab.com/DanielZhabotinsky), CC-BY-4.0.
+
+## Modelled parts (pickup_90/hd_parts.glb)
+
+The pickup's tyres (all-terrain tread, sidewall serrations and lettering), steel rims
+with lug nuts and hub caps, brake discs and drums, and its steering wheel are modelled
+for this game by tools/build_pickup_hd.py (Blender, headless) and replace the model's
+own low-poly wheels and steering wheel. The sidewall lettering is cut from Barlow
+Condensed Bold (art/fonts, SIL Open Font License 1.1). No outside assets.

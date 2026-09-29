@@ -260,7 +260,7 @@ static func percent(value: int) -> String:
 
 
 ## 12345 -> "12.345" / "12,345" / "12 345": the thousands separator of the language.
-static func money(amount: int) -> String:
+static func number(amount: int) -> String:
 	var locale := TranslationServer.get_locale().get_slice("_", 0)
 	var sep := "."
 	if locale in ["en", "ja", "ko", "zh"]:
@@ -273,6 +273,16 @@ static func money(amount: int) -> String:
 		out = sep + s.right(3) + out
 		s = s.left(s.length() - 3)
 	return ("-" if amount < 0 else "") + s + out
+
+
+## An amount in dollars the way the language writes it: "$12,345" (English, Turkish and
+## the CJK languages put the sign first), "12.345 $" (the European languages after it,
+## past a no-break space). Negative: "-$50" / "-50 $".
+static func money(amount: int) -> String:
+	var locale := TranslationServer.get_locale().get_slice("_", 0)
+	var n := number(absi(amount))
+	var s := n + "\u00a0$" if locale in ["de", "es", "fr", "it", "pt", "ru", "pl"] else "$" + n
+	return ("-" if amount < 0 else "") + s
 
 
 ## A local date and time the way the language writes it.
@@ -300,7 +310,7 @@ static func icon(path: String) -> Texture2D:
 	return _icons[path]
 
 
-## One of the UI line icons in art/icons/ui2 by name ("coin", "backpack" ...).
+## One of the UI line icons in art/icons/ui2 by name ("tag", "backpack" ...).
 static func glyph(icon_name: String) -> Texture2D:
 	return icon(ICON_DIR + icon_name + ".svg")
 
@@ -326,21 +336,34 @@ static func make_icon(path: String, pos: Vector2, size: Vector2) -> TextureRect:
 	return r
 
 
-## Small icon + text row (costs, stats).
+## Small icon + text row (costs, stats). No `tex`: an empty slot the icon's width, so the
+## text still lines up with the icon rows around it (money: its $ says what it is).
 static func icon_row(tex: Texture2D, value: String, color := TEXT, size := 20, icon_size := 26) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(icon_rect(tex, icon_size))
+	if tex:
+		row.add_child(icon_rect(tex, icon_size))
+	else:
+		var slot := Control.new()
+		slot.custom_minimum_size = Vector2(icon_size, icon_size)
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(slot)
 	var l := make_label(value, heading(size, color, 700, 0))
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(l)
 	return row
 
 
-## Coin + amount in gold.
-static func price(amount: int, size := 22, icon_size := 24, color := GOLD_SOFT) -> HBoxContainer:
-	return icon_row(glyph("coin"), money(amount), color, size, icon_size)
+## An amount in dollars ("$150"), no icon: the $ says it is money. A row holding the one
+## label (get_child(0)), so callers can add to it or size it like the other rows.
+static func price(amount: int, size := 22, color := GOLD_SOFT) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := make_label(money(amount), heading(size, color, 700, 0))
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(l)
+	return row
 
 
 # --- Boxes ------------------------------------------------------------------------------

@@ -11,10 +11,18 @@ const DIR := "res://art/audio/"
 const SETS := {
 	"step_grass": "sfx/steps/grass_%d.ogg", "step_concrete": "sfx/steps/concrete_%d.ogg",
 	"step_wood": "sfx/steps/wood_%d.ogg", "step_gravel": "sfx/steps/gravel_%d.ogg",
-	"chop": ["sfx/tools/chop.ogg"], "wood_hit": "sfx/tools/wood_hit_%d.ogg", "mining": "sfx/tools/mining_%d.ogg",
+	"wood_hit": "sfx/tools/wood_hit_%d.ogg",
 	"dig": ["sfx/tools/dig_1.mp3", "sfx/tools/dig_2.mp3", "sfx/tools/dig_3.mp3", "sfx/tools/shovel_stab.mp3"],
 	"swoosh": ["sfx/tools/swoosh.mp3"], "grass": ["sfx/tools/grass_cut.mp3", "sfx/tools/grass_heavy.mp3"],
-	"water_pour": ["sfx/tools/water_pour.mp3"], "water_fill": ["sfx/tools/water_fill.mp3"],
+	"water_fill": ["sfx/tools/water_fill.mp3"],
+	# Recorded farm work (tools/build_foley.py): the axe biting into a trunk, the trunk
+	# giving way and the crown crashing down, the pick cracking stone, a boulder
+	# splitting, the hoe in the soil, the scythe through grass, crops coming away, seeds
+	# landing and soil pressed over them, the watering can's stream, a crop picked up.
+	"axe": "sfx/tools/axe_%d.ogg", "tree_crack": "sfx/tools/tree_crack_%d.ogg", "tree_fall": "sfx/tools/tree_fall_%d.ogg",
+	"pick": "sfx/tools/pick_%d.ogg", "rock_break": "sfx/tools/rock_break_%d.ogg", "hoe": "sfx/tools/hoe_%d.ogg",
+	"scythe": "sfx/tools/scythe_%d.ogg", "harvest": "sfx/tools/harvest_%d.ogg", "seeds": "sfx/tools/seeds_%d.ogg",
+	"plant": "sfx/tools/plant_%d.ogg", "water_can": "sfx/tools/water_can_%d.ogg", "pick_crop": "sfx/tools/pick_crop_%d.ogg",
 	"splash": ["sfx/tools/water_splash.mp3"], "milk": ["sfx/tools/milk_squirt.mp3"],
 	"shears": ["sfx/tools/shears_snip.mp3"], "brush": "sfx/tools/brush_%d.ogg",
 	"soft": "sfx/misc/soft_%d.ogg", "plank": "sfx/misc/plank_%d.ogg", "metal": "sfx/misc/metal_%d.ogg",
@@ -29,7 +37,7 @@ const SETS := {
 	"chicken": ["sfx/animals/hen_cluck_1.mp3", "sfx/animals/hen_cluck_2.mp3"],
 	"rooster": ["sfx/animals/rooster_1.mp3", "sfx/animals/rooster_2.mp3"],
 	"horse": ["sfx/animals/horse_neigh.mp3"], "horse_snort": ["sfx/animals/horse_snort.mp3", "sfx/animals/horse_snore.mp3"],
-	"engine_start": ["sfx/vehicle/engine_start.mp3"], "car_door": ["sfx/vehicle/door_close.mp3", "sfx/vehicle/door_slam.mp3"],
+	"engine_start": ["sfx/vehicle/engine_start.mp3"], "car_door": ["sfx/vehicle/door_slam.mp3"],
 	"click": ["sfx/ui/click.ogg"], "hover": ["sfx/ui/hover.ogg"], "open": ["sfx/ui/open.ogg"], "close": ["sfx/ui/close.ogg"],
 	"confirm": ["sfx/ui/confirm.ogg"], "error": ["sfx/ui/error.ogg"], "toggle": ["sfx/ui/toggle.ogg"],
 	"drop": ["sfx/ui/drop.ogg"], "notify": ["sfx/ui/notify.ogg"],
@@ -49,29 +57,29 @@ const NIGHT_MUSIC: Array[String] = ["music/night_relaxation.mp3"]
 ## What each finished action sounds like: [set, volume dB, optional pitch]. It plays on
 ## the final stroke's impact tick (see Player._fire_cue); swings add a swoosh before it.
 const ACTIONS := {
-	"chop": [["chop", -2.0], ["wood_hit", -4.0], ["wood_hit", -3.0, 0.62]], "break": [["mining", -2.0], ["metal", -16.0, 1.6]],
-	"hoe": [["dig", -3.0], ["soft", -10.0, 0.7]],
-	"clear": [["grass", -4.0]], "cut": [["grass", -3.0]], "refill": [["splash", -4.0]],
-	"fill_water": [["water_fill", -6.0]], "fill_feed": [["grass", -6.0]], "plant": [["soft", -8.0]],
-	"harvest": [["grass", -8.0]], "milk": [["milk", -4.0]], "shear": [["shears", -2.0]], "brush": [["brush", -6.0]],
+	"chop": [["axe", 0.0]], "break": [["pick", 0.0]], "hoe": [["hoe", -1.0]],
+	"clear": [["scythe", -3.0], ["hoe", -9.0, 1.1]], "cut": [["scythe", -1.0]], "refill": [["splash", -4.0]],
+	"fill_water": [["water_fill", -6.0]], "fill_feed": [["grass", -6.0]], "plant": [["plant", -2.0]],
+	"harvest": [["scythe", -5.0], ["harvest", -1.0]], "milk": [["milk", -4.0]], "shear": [["shears", -2.0]], "brush": [["brush", -6.0]],
 	"feed": [["soft", -8.0]], "medicine": [["pot", -10.0]], "fertilize": [["soft", -8.0], ["grass", -14.0]],
 	"muck": [["grass", -5.0], ["soft", -8.0]],
 }
 ## The strokes before the final one (and the hand letting seeds, feed or fertilizer go).
 const HITS := {
-	"hoe": [["dig", -7.0]], "muck": [["dig", -9.0]], "plant": [["grass", -16.0, 1.4]],
+	"hoe": [["hoe", -4.0, 1.05]], "muck": [["dig", -9.0]], "plant": [["seeds", -3.0]],
 	"fertilize": [["grass", -14.0, 1.2]], "fill_feed": [["grass", -12.0, 1.1]], "milk": [["milk", -9.0]],
 	"brush": [["brush", -9.0]],
 }
-## The swoosh of each tool's swing: [volume dB, pitch] (heavy heads swing lower).
-const SWING := {&"axe": [-11.0, 0.85], &"pickaxe": [-11.0, 0.8], &"hoe": [-14.0, 1.0], &"scythe": [-9.0, 1.15],
-	&"pitchfork": [-14.0, 1.05]}
+## The swoosh of each tool's swing: [volume dB, pitch] (heavy heads swing lower). It plays
+## right at the camera, so it is kept a few dB under the blow that follows.
+const SWING := {&"axe": [-19.0, 0.85], &"pickaxe": [-19.0, 0.8], &"hoe": [-21.0, 1.0], &"scythe": [-16.0, 1.15],
+	&"pitchfork": [-21.0, 1.05]}
 ## Seconds of near-silence at the start of some recordings, skipped when they play so the
 ## sound lands on the frame of the hit (measured: 10 ms RMS windows, onset at 20% of peak).
 const LEAD_IN := {
 	"sfx/tools/dig_1.mp3": 0.8, "sfx/tools/dig_2.mp3": 1.0, "sfx/tools/dig_3.mp3": 0.86,
 	"sfx/tools/shovel_stab.mp3": 0.08, "sfx/tools/grass_cut.mp3": 0.1, "sfx/tools/grass_heavy.mp3": 0.1,
-	"sfx/tools/swoosh.mp3": 0.14, "sfx/tools/water_splash.mp3": 0.3, "sfx/tools/water_pour.mp3": 0.35,
+	"sfx/tools/swoosh.mp3": 0.14, "sfx/tools/water_splash.mp3": 0.3,
 	"sfx/tools/milk_squirt.mp3": 0.06, "sfx/tools/shears_snip.mp3": 0.24,
 }
 ## Seconds between the roof, housing and hoof-surface probes (the fades smooth the steps).
@@ -80,6 +88,8 @@ const PROBE_SECONDS := 0.1
 var _streams := {}
 ## Seconds each stream starts into (LEAD_IN), by stream.
 var _lead := {}
+## The stream each set played last, by set.
+var _last_take := {}
 var _pool_2d: Array[AudioStreamPlayer] = []
 var _pool_3d: Array[AudioStreamPlayer3D] = []
 var _loops := {}
@@ -90,6 +100,8 @@ var _inside := false
 var _housed := {"barn": 0, "coop": 0}
 var _hooves_on_road := false
 var _lowpass: AudioEffectLowPassFilter
+## Catches the peaks of loud moments (a close axe blow, a door, thunder) before they clip.
+var _limiter: AudioEffectHardLimiter
 var _music: AudioStreamPlayer
 var _music_state := ""
 var _music_gap := 6.0
@@ -119,6 +131,10 @@ func _ready() -> void:
 		_lowpass = AudioEffectLowPassFilter.new()
 		_lowpass.cutoff_hz = 20000.0
 		AudioServer.add_bus_effect(amb, _lowpass)
+	_limiter = AudioEffectHardLimiter.new()
+	_limiter.ceiling_db = -0.3
+	_limiter.release = 0.08
+	AudioServer.add_bus_effect(0, _limiter)
 	_music = AudioStreamPlayer.new()
 	_music.bus = &"Music"
 	_music.finished.connect(func() -> void: _music_gap = randf_range(45.0, 110.0))
@@ -128,7 +144,7 @@ func _ready() -> void:
 		_loops[key] = Loop.new(self, _stream(LOOPS[key]), positional, &"Effects" if key.begins_with("engine") or key.begins_with("hooves") else &"Ambience")
 	Events.lightning.connect(_on_lightning)
 	Events.money_changed.connect(_on_money)
-	Events.item_picked_up.connect(func(_id: StringName, _n: int) -> void: ui("drop", -8.0))
+	Events.item_picked_up.connect(_on_picked_up)
 
 
 ## Silences everything; the mixer lets go of the streams over the next few frames.
@@ -143,13 +159,17 @@ func shutdown() -> void:
 
 
 func _exit_tree() -> void:
-	# The bus outlives this node: take the filter back so nothing lingers at exit.
+	# The buses outlive this node: take the filter and limiter back so nothing lingers at exit.
 	var amb := AudioServer.get_bus_index("Ambience")
 	if amb >= 0 and _lowpass:
 		for i in range(AudioServer.get_bus_effect_count(amb) - 1, -1, -1):
 			if AudioServer.get_bus_effect(amb, i) == _lowpass:
 				AudioServer.remove_bus_effect(amb, i)
 	_lowpass = null
+	for i in range(AudioServer.get_bus_effect_count(0) - 1, -1, -1):
+		if AudioServer.get_bus_effect(0, i) == _limiter:
+			AudioServer.remove_bus_effect(0, i)
+	_limiter = null
 	# Playing streams are held by the mixer until stopped.
 	for loop: Loop in _loops.values():
 		for p: Node in loop.players:
@@ -163,6 +183,7 @@ func _exit_tree() -> void:
 	_loops.clear()
 	_streams.clear()
 	_lead.clear()
+	_last_take.clear()
 
 
 # --- Playback ----------------------------------------------------------------------
@@ -232,6 +253,10 @@ func play(set_name: String, at = null, volume_db := 0.0, pitch_var := 0.08, bus 
 	if files.is_empty():
 		return null
 	var stream: AudioStream = files.pick_random()
+	# Never the same take twice in a row (a run of chops or steps would stutter).
+	if files.size() > 1 and stream == _last_take.get(set_name):
+		stream = files[(files.find(stream) + randi_range(1, files.size() - 1)) % files.size()]
+	_last_take[set_name] = stream
 	var p := 1.0 + randf_range(-pitch_var, pitch_var)
 	if at is Vector3:
 		var s3 := _free_3d()
@@ -317,7 +342,8 @@ func swing(tool_type: StringName, at: Vector3) -> void:
 ## fade_out when the can is tipped back (or null).
 func action_started(id: String, at: Vector3) -> Node:
 	if id == "water" or id == "fill_water":
-		return play("water_pour", at, -6.0, 0.05, &"Effects", 4.0)
+		# On soil the stream is softer than splashing into a trough.
+		return play("water_can", at, -6.0 if id == "water" else -3.0, 0.05, &"Effects", 4.0, 1.0 if id == "water" else 0.92)
 	return null
 
 
@@ -376,9 +402,9 @@ func animal_voice(species: StringName, adult: bool, at: Vector3, volume_db := -4
 	play(set_name, at + Vector3(0, 1.0, 0), volume_db, 0.06, &"Effects", 7.0, pitch)
 
 
+## Getting in is silent; the engine turns over a moment later.
 func vehicle_enter(v: Vehicle) -> void:
 	_vehicle = v
-	play("car_door", v.global_position + Vector3(0, 1, 0), -6.0, 0.05, &"Effects", 4.0)
 	_engine_delay = 0.45
 	var start := play("engine_start", v.global_position + Vector3(0, 0.8, 0), -4.0, 0.03, &"Effects", 6.0)
 	if start is AudioStreamPlayer3D:
@@ -391,6 +417,30 @@ func vehicle_enter(v: Vehicle) -> void:
 func vehicle_exit(v: Vehicle) -> void:
 	_vehicle = null
 	play("car_door", v.global_position + Vector3(0, 1, 0), -5.0, 0.05, &"Effects", 4.0)
+
+
+## The trunk gives way as a felled tree starts to lean (at the trunk).
+func tree_falling(at: Vector3) -> void:
+	play("tree_crack", at, -2.0, 0.05, &"Effects", 8.0)
+
+
+## A felled tree's crown hits the ground (where it lands).
+func tree_landed(at: Vector3) -> void:
+	play("tree_fall", at, 0.0, 0.06, &"Effects", 10.0)
+
+
+## A boulder splits apart under the pick.
+func rock_broke(at: Vector3) -> void:
+	play("rock_break", at, 0.0, 0.05, &"Effects", 6.0)
+
+
+## Something picked up: crops rustle in the hand, anything else gives the interface's drop.
+func _on_picked_up(id: StringName, _n: int) -> void:
+	var item := ItemDB.get_item(id)
+	if item and item.category == "crop":
+		ui("pick_crop", -6.0)
+	else:
+		ui("drop", -8.0)
 
 
 func _on_lightning() -> void:

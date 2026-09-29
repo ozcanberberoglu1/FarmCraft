@@ -9,6 +9,11 @@ signal leveled_up(level: int)
 const MAX_LEVEL := 10
 ## Total experience needed for each level (index = level).
 const THRESHOLDS: Array[int] = [0, 0, 120, 320, 650, 1100, 1700, 2500, 3500, 4800, 6400]
+## Sales and orders earn experience by what they pay (in dollars): a point for every
+## SALE_XP_DOLLARS a sale brings in, and for an order 20 plus a point for every
+## ORDER_XP_DOLLARS of its reward.
+const SALE_XP_DOLLARS := 6
+const ORDER_XP_DOLLARS := 7
 ## Experience per finished action.
 const ACTION_XP := {"hoe": 1, "plant": 1, "harvest": 3, "chop": 2, "break": 2, "cut": 1, "milk": 3,
 	"shear": 4, "brush": 1, "feed": 1, "fertilize": 1, "muck": 1}
@@ -19,12 +24,12 @@ var level := 1
 
 func _ready() -> void:
 	Events.action_done.connect(func(id: String, _t: Node) -> void: add(int(ACTION_XP.get(id, 0))))
-	Events.item_sold.connect(func(_id: StringName, _n: int, gold: int) -> void: add(gold / 20))
+	Events.item_sold.connect(func(_id: StringName, _n: int, paid: int) -> void: add(paid / SALE_XP_DOLLARS))
 	Events.product_made.connect(func(_id: StringName, n: int) -> void: add(4 * n))
 	Events.crafted.connect(func(_id: StringName, _n: int) -> void: add(5))
 	Events.placed.connect(func(_id: StringName) -> void: add(2))
 	Events.animal_born.connect(func(_s: StringName) -> void: add(15))
-	Events.order_delivered.connect(func(_id: StringName, _n: int, reward: int) -> void: add(20 + reward / 25))
+	Events.order_delivered.connect(func(_id: StringName, _n: int, reward: int) -> void: add(20 + reward / ORDER_XP_DOLLARS))
 
 
 func add(amount: int) -> void:

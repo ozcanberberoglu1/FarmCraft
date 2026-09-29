@@ -72,7 +72,7 @@ func _card(o: Dictionary) -> Control:
 	right.add_theme_constant_override("separation", 8)
 	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(right)
-	var price := UiTheme.price(int(o["reward"]), 26, 26)
+	var price := UiTheme.price(int(o["reward"]), 26)
 	price.size_flags_horizontal = Control.SIZE_SHRINK_END
 	right.add_child(price)
 	var b := UiTheme.button(tr("UI_DELIVER"), "success", Vector2(200, 46), "check", 18)

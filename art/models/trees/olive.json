@@ -1,0 +1,44 @@
+{
+ "tree": "olive",
+ "source": "island_tree_01",
+ "broad": true,
+ "height": 6.759610176086426,
+ "radius": 3.7145700454711914,
+ "crown": {
+  "center": [
+   0.054544687271118164,
+   3.80517315864563,
+   -0.06257486343383789
+  ],
+  "radius": [
+   3.209726095199585,
+   2.954437017440796,
+   3.2519338130950928
+  ]
+ },
+ "impostor": {
+  "width": 7.577722892761231,
+  "height": 15.155445785522462,
+  "views": 8
+ },
+ "atlas_density": 183.23938608169556,
+ "bark": {
+  "trunk": {
+   "diff": "island_tree_01_diff.webp",
+   "nor": "island_tree_01_nor_gl.webp",
+   "arm": "island_tree_01_arm.webp"
+  },
+  "branches": {
+   "diff": "island_tree_01_branches_diff.webp",
+   "nor": "island_tree_01_branches_nor_gl.webp",
+   "arm": "island_tree_01_branches_arm.webp"
+  }
+ },
+ "leaves": "olive_leaves.webp",
+ "leaves_nor": "olive_leaves_nor.webp",
+ "cards": [
+  997,
+  278,
+  98
+ ]
+}

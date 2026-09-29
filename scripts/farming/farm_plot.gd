@@ -30,6 +30,11 @@ var variant := 0
 ## 0 none, 1 manure, 2 fertilizer: faster growth and better quality until the crop
 ## is gone.
 var fertility := 0
+## One of Grandpa's ripe beds on a new farm (Quests._ripen_beds), saved with the bed.
+## Until the story's harvest goal comes up it is held back (Quests.holds_grandpa_beds):
+## no badge over it, no crop card, no tool takes to it. Harvested or cleared, it is a
+## bed like any other.
+var grandpa := false
 
 var _soil_mesh: MeshInstance3D
 var _fert_mesh: MeshInstance3D
@@ -77,6 +82,11 @@ func target_hours() -> float:
 
 func is_ready() -> bool:
 	return crop != &"" and not withered and growth >= target_hours()
+
+
+## Grandpa's bed waiting for the story's harvest goal (see `grandpa`).
+func held_back() -> bool:
+	return grandpa and not Engine.is_editor_hint() and Quests.holds_grandpa_beds()
 
 
 ## Fertilized soil grows crops 15% (manure) or 30% (fertilizer) faster.
@@ -185,7 +195,7 @@ func use_action(player: Node, stack: ItemStack) -> Dictionary:
 
 
 func _action_for(_player: Node, stack: ItemStack) -> Dictionary:
-	if stack == null:
+	if stack == null or held_back():
 		return {}
 	var item := stack.item
 	var tool := item.tool_type
@@ -244,16 +254,18 @@ func use_impact(player: Node, stack: ItemStack, action: Dictionary, hit: Diction
 		var cam := player.get("camera") as Node3D
 		if cam:
 			sweep = -cam.global_basis.x
+	# Thrown bits land on the soil, not on the ground under the bed.
+	var ground := global_position.y + SOIL_Y
 	match action.get("id", ""):
 		"hoe":
-			Fx.dirt_clods(at, back, 1.4 if is_final else 0.7)
+			Fx.dirt_clods(at, back, 1.4 if is_final else 0.7, ground)
 			if is_final:
-				Fx.dirt_burst(soil_at, 1.4)
+				Fx.dirt_burst(soil_at, 1.4, ground)
 		"clear":
 			if stack and stack.item.tool_type == &"scythe":
-				Fx.clippings(at + Vector3(0, 0.2, 0), sweep, Color(0.45, 0.38, 0.22))
+				Fx.clippings(at + Vector3(0, 0.2, 0), sweep, Color(0.45, 0.38, 0.22), ground)
 			else:
-				Fx.dirt_clods(at, back, 1.0)
+				Fx.dirt_clods(at, back, 1.0, ground)
 		"water":
 			if is_final:
 				Fx.water_splash(soil_at)
@@ -261,10 +273,10 @@ func use_impact(player: Node, stack: ItemStack, action: Dictionary, hit: Diction
 				Fx.drips(at + Vector3(randf_range(-0.3, 0.3), 0.0, randf_range(-0.3, 0.3)))
 		"plant":
 			if is_final:
-				Fx.dirt_burst(at, 0.4)
+				Fx.dirt_burst(at, 0.4, ground)
 		"fertilize":
 			if is_final:
-				Fx.dirt_burst(soil_at, 0.7)
+				Fx.dirt_burst(soil_at, 0.7, ground)
 
 
 func complete_use(player: Node, stack: ItemStack, action: Dictionary) -> void:
@@ -294,6 +306,7 @@ func complete_use(player: Node, stack: ItemStack, action: Dictionary) -> void:
 			withered = false
 			dry_hours = 0.0
 			fertility = 0
+			_set_grandpa(false)
 	changed.emit()
 	_refresh()
 
@@ -307,7 +320,7 @@ func _harvest(_player: Node) -> void:
 	if d.has("extra"):
 		var extra: Array = d["extra"]
 		_pop_items(extra[0], extra[1], origin)
-	Fx.leaf_burst(origin, crop)
+	Fx.leaf_burst(origin, crop, global_position.y + SOIL_Y)
 	if int(d.get("regrow_h", 0)) > 0:
 		harvests += 1
 		growth = 0.0
@@ -316,6 +329,20 @@ func _harvest(_player: Node) -> void:
 		growth = 0.0
 		harvests = 0
 		fertility = 0
+	_set_grandpa(false)
+
+
+## Marks the bed as one of Grandpa's (or not): a held-back bed looks again whenever
+## the story moves on, so its badge shows the moment the harvest goal comes up.
+func _set_grandpa(on: bool) -> void:
+	grandpa = on
+	if Engine.is_editor_hint():
+		return
+	var story := Quests.tutorial_changed
+	if on and not story.is_connected(_refresh):
+		story.connect(_refresh)
+	elif not on and story.is_connected(_refresh):
+		story.disconnect(_refresh)
 
 
 func _pop_items(item_id: StringName, count: int, origin: Vector3, graded := false) -> void:
@@ -417,13 +444,15 @@ func _refresh() -> void:
 		_shown = key
 		_crop_mesh.multimesh = PlantModels.multimesh(crop, st, variant, withered) if crop != &"" else null
 		_fit_reach(st)
-	# Indicator badges: ready to harvest, needs water, withered.
+	# Indicator badges: ready to harvest, needs water, withered (none over Grandpa's
+	# beds before their goal).
 	var icon: Texture2D = null
-	if is_ready():
+	var held := held_back()
+	if is_ready() and not held:
 		icon = load("res://art/icons/ui/badge_harvest.svg")
-	elif withered:
+	elif withered and not held:
 		icon = load("res://art/icons/ui/badge_withered.svg")
-	elif crop != &"" and not is_wet():
+	elif crop != &"" and not is_wet() and not held:
 		icon = load("res://art/icons/ui/badge_water.svg")
 	_indicator.texture = icon
 	_indicator.visible = icon != null
@@ -605,8 +634,11 @@ static func soil_surface(x: float, z: float) -> float:
 # --- Save -----------------------------------------------------------------------------
 
 func save_data() -> Dictionary:
-	return {"soil": soil, "crop": String(crop), "growth": growth, "harvests": harvests,
+	var d := {"soil": soil, "crop": String(crop), "growth": growth, "harvests": harvests,
 		"wet": wet_hours, "dry": dry_hours, "withered": withered, "fert": fertility}
+	if grandpa:
+		d["grandpa"] = true
+	return d
 
 
 func load_data(d: Dictionary) -> void:
@@ -618,4 +650,5 @@ func load_data(d: Dictionary) -> void:
 	dry_hours = float(d.get("dry", 0.0))
 	withered = bool(d.get("withered", false))
 	fertility = int(d.get("fert", 0))
+	_set_grandpa(bool(d.get("grandpa", false)) and crop != &"")
 	_refresh()

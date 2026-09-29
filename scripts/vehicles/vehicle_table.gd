@@ -10,7 +10,10 @@ const VEHICLES := {
 		"name_key": "VEHICLE_PICKUP_90",
 		"desc_key": "VEHICLE_PICKUP_90_DESC",
 		"model": "res://art/models/vehicles/pickup_90/scene.gltf",
-		"price": 1800,
+		## Modelled tyres, rims, brakes and steering wheel that replace the model's own
+		## (tools/build_pickup_hd.py, VehicleLook.add_detail).
+		"detail": "res://art/models/vehicles/pickup_90/hd_parts.glb",
+		"price": 550,
 		## vehicle_paint.gdshader parameters (the rest keep the shader's defaults): a
 		## metallic navy under a deep clear coat, only road dust low down.
 		"paint": {"paint": Color(0.07, 0.12, 0.26), "metallic": 0.5, "roughness": 0.36, "clearcoat": 1.0,
@@ -27,7 +30,7 @@ const VEHICLES := {
 		"engine_force": 4300.0,
 		"reverse_force": 2600.0,
 		"brake_force": 85.0,
-		"max_speed": 50.0,
+		"max_speed": 70.0,
 		"max_reverse": 22.0,
 		"steer_deg": 34.0,
 		## Per wheel. VehicleWheel3D scales spring and damper forces by the chassis
@@ -78,7 +81,7 @@ const VEHICLES := {
 		"engine_force": 3500.0,
 		"reverse_force": 2200.0,
 		"brake_force": 70.0,
-		"max_speed": 45.0,
+		"max_speed": 60.0,
 		"max_reverse": 18.0,
 		"steer_deg": 32.0,
 		"fuel_capacity": 40.0,

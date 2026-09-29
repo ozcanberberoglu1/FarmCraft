@@ -1,6 +1,6 @@
 class_name AnimalTable
 extends RefCounted
-## Livestock data. Prices in gold; growth in fed days; food in rations per day
+## Livestock data. Prices in dollars (a grown hen at the poultry stall: 50); growth in fed days; food in rations per day
 ## (1 ration = 1 hay for barn animals, 1 feed for chickens).
 ##
 ## graze:      fullness gained per hour while outdoors in daylight (not winter)
@@ -10,17 +10,17 @@ extends RefCounted
 ##             crate, let out at its housing); species without one are bought straight in
 
 const SPECIES := {
-	&"chicken": {"housing": "coop", "baby_price": 100, "adult_price": 250, "grow_days": 3, "food": 1.0,
-		"graze": 2.5, "product": &"egg", "product_days": 1, "tool": &"", "speed": 0.8, "value": 200,
+	&"chicken": {"housing": "coop", "baby_price": 20, "adult_price": 50, "grow_days": 3, "food": 1.0,
+		"graze": 2.5, "product": &"egg", "product_days": 1, "tool": &"", "speed": 0.8, "value": 40,
 		"radius": 0.22, "size": Vector3(0.3, 0.45, 0.42), "crate": &"chicken_crate"},
-	&"sheep": {"housing": "barn", "baby_price": 360, "adult_price": 900, "grow_days": 5, "food": 1.0,
-		"graze": 9.0, "product": &"wool", "product_days": 3, "tool": &"shears", "speed": 0.75, "value": 720,
+	&"sheep": {"housing": "barn", "baby_price": 90, "adult_price": 225, "grow_days": 5, "food": 1.0,
+		"graze": 9.0, "product": &"wool", "product_days": 3, "tool": &"shears", "speed": 0.75, "value": 180,
 		"radius": 0.45, "size": Vector3(0.7, 0.95, 1.15)},
-	&"cow": {"housing": "barn", "baby_price": 600, "adult_price": 1500, "grow_days": 6, "food": 2.0,
-		"graze": 9.0, "product": &"milk", "product_days": 1, "tool": &"milk_pail", "speed": 0.8, "value": 1200,
+	&"cow": {"housing": "barn", "baby_price": 150, "adult_price": 375, "grow_days": 6, "food": 2.0,
+		"graze": 9.0, "product": &"milk", "product_days": 1, "tool": &"milk_pail", "speed": 0.8, "value": 300,
 		"radius": 0.65, "size": Vector3(0.8, 1.5, 2.3)},
-	&"horse": {"housing": "barn", "baby_price": 900, "adult_price": 2400, "grow_days": 6, "food": 2.0,
-		"graze": 9.0, "product": &"", "product_days": 0, "tool": &"", "speed": 1.1, "value": 1900,
+	&"horse": {"housing": "barn", "baby_price": 225, "adult_price": 600, "grow_days": 6, "food": 2.0,
+		"graze": 9.0, "product": &"", "product_days": 0, "tool": &"", "speed": 1.1, "value": 475,
 		"radius": 0.6, "size": Vector3(0.7, 1.75, 2.2), "rideable": true},
 }
 

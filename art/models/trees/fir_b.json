@@ -1,0 +1,44 @@
+{
+ "tree": "fir_b",
+ "source": "fir_tree_01",
+ "broad": false,
+ "height": 11.174753189086914,
+ "radius": 2.551030158996582,
+ "crown": {
+  "center": [
+   0.12950944900512695,
+   7.166989803314209,
+   -0.0696789026260376
+  ],
+  "radius": [
+   2.24503493309021,
+   4.007763385772705,
+   2.42266845703125
+  ]
+ },
+ "impostor": {
+  "width": 5.699124126434326,
+  "height": 11.398248252868653,
+  "views": 8
+ },
+ "atlas_density": 225.95675945281982,
+ "bark": {
+  "trunk": {
+   "diff": "fir_tree_01_trunk_b_diff.webp",
+   "nor": "fir_tree_01_trunk_b_nor_gl.webp",
+   "arm": "fir_tree_01_trunk_b_arm.webp"
+  },
+  "branches": {
+   "diff": "fir_tree_01_bark_diff.webp",
+   "nor": "fir_tree_01_bark_nor_gl.webp",
+   "arm": "fir_tree_01_bark_arm.webp"
+  }
+ },
+ "leaves": "fir_b_leaves.webp",
+ "leaves_nor": "fir_b_leaves_nor.webp",
+ "cards": [
+  479,
+  134,
+  48
+ ]
+}

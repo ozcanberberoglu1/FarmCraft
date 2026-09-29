@@ -64,7 +64,7 @@ func _card(slot: String) -> Control:
 	else:
 		var when := UiTheme.caps("%s · %s %d" % [tr("HUD_DAY") % int(h.get("day", 1)), GameClock.season_name(int(h.get("season", 0))), int(h.get("day_of_season", 1))])
 		col.add_child(UiTheme.icon_row(UiTheme.glyph("calendar"), when, UiTheme.TEXT, 16, 18))
-		col.add_child(UiTheme.icon_row(UiTheme.glyph("coin"), "%s %s" % [UiTheme.money(int(h.get("money", 0))), tr("UI_GOLD")], UiTheme.TEXT, 16, 18))
+		col.add_child(UiTheme.icon_row(null, UiTheme.money(int(h.get("money", 0))), UiTheme.TEXT, 16, 18))
 		var played := int(float(h.get("play_seconds", 0.0)) / 60.0)
 		col.add_child(UiTheme.icon_row(UiTheme.glyph("clock"), tr("UI_PLAYTIME") % [played / 60, played % 60], UiTheme.TEXT_MUTED, 15, 18))
 		col.add_child(UiTheme.make_label(UiTheme.date_time(float(h.get("saved_at", 0.0))), UiTheme.text(14, UiTheme.TEXT_DIM, 600)))

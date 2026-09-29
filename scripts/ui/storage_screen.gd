@@ -158,7 +158,7 @@ func _fill_text(id: String) -> String:
 				used += 1
 		return "%d / %d" % [used, PlayerState.inventory.size()]
 	var st := _stock(id)
-	return "%s / %s" % [UiTheme.money(st.total()), UiTheme.money(st.capacity)]
+	return "%s / %s" % [UiTheme.number(st.total()), UiTheme.number(st.capacity)]
 
 
 func _stock(id: String) -> Stockpile:

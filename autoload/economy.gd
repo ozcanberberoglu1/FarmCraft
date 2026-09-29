@@ -7,9 +7,11 @@ extends Node
 ##     it recovers overnight
 ##   - season: crops sold out of their season fetch 20% more
 
-## Grandpa's savings: a first round of seeds and repairs (his old pickup comes with
-## the farm; the dealership's better one is a later purchase).
-const STARTING_MONEY := 2500
+## Grandpa's savings, in dollars: enough for the first two hens (his old pickup comes
+## with the farm; the dealership's better one is a later purchase). From then on money
+## comes only from selling: the market, the shipping bin, a pickup's load and the
+## orders on the town board (goals and achievements pay none).
+const STARTING_MONEY := 150
 const QUALITY_MULT := [1.0, 1.25, 1.5]
 const SATURATION_PER_UNIT := 0.004
 const SATURATION_FLOOR := 0.6
@@ -70,18 +72,21 @@ func season_factor(item_id: StringName) -> float:
 	return 1.0
 
 
+## Today's price of one unit in whole dollars (what the shops show).
 func sell_price(item_id: StringName, quality := 0) -> int:
-	return _price_at(item_id, quality, int(sold_today.get(item_id, 0)))
+	return roundi(_price_at(item_id, quality, int(sold_today.get(item_id, 0))))
 
 
-## One unit's price once `sold` units of the item were sold today.
-func _price_at(item_id: StringName, quality: int, sold: int) -> int:
+## One unit's price once `sold` units of the item were sold today, unrounded (at least
+## $1; 0 for goods nobody buys): sales add these up and round once, so at a few dollars
+## a unit the day's market, the saturation and the courier's cut still show.
+func _price_at(item_id: StringName, quality: int, sold: int) -> float:
 	var item := ItemDB.get_item(item_id)
 	if item == null or item.sell_price <= 0:
-		return 0
+		return 0.0
 	var sat := maxf(SATURATION_FLOOR, 1.0 - float(sold) * SATURATION_PER_UNIT)
 	var f := market_factor(item_id) * sat * season_factor(item_id)
-	return maxi(1, roundi(item.sell_price * QUALITY_MULT[clampi(quality, 0, 2)] * f))
+	return maxf(1.0, item.sell_price * QUALITY_MULT[clampi(quality, 0, 2)] * f)
 
 
 ## What selling `count` units would pay right now (each unit lowers the price, as in
@@ -89,10 +94,10 @@ func _price_at(item_id: StringName, quality: int, sold: int) -> int:
 ## a quote for several lots of one item (e.g. two qualities) adds up exactly.
 func quote(item_id: StringName, count: int, quality := 0, factor := 1.0, already := 0) -> int:
 	var sold := int(sold_today.get(item_id, 0)) + already
-	var total := 0
+	var total := 0.0
 	for i in count:
-		total += roundi(_price_at(item_id, quality, sold + i) * factor)
-	return total
+		total += _price_at(item_id, quality, sold + i) * factor
+	return roundi(total)
 
 
 func buy_price(item_id: StringName) -> int:
@@ -111,11 +116,13 @@ func price_trend(item_id: StringName) -> int:
 
 
 ## Sells `count` of an item: pays out and records saturation. Returns the income.
+## The units are summed before rounding (as in quote()).
 func sell(item_id: StringName, count: int, quality := 0, reason := "REPORT_SALES", factor := 1.0) -> int:
-	var total := 0
+	var sum := 0.0
 	for i in count:
-		total += roundi(_price_at(item_id, quality, int(sold_today.get(item_id, 0))) * factor)
+		sum += _price_at(item_id, quality, int(sold_today.get(item_id, 0))) * factor
 		sold_today[item_id] = int(sold_today.get(item_id, 0)) + 1
+	var total := roundi(sum)
 	add_money(total, reason)
 	Events.item_sold.emit(item_id, count, total)
 	return total

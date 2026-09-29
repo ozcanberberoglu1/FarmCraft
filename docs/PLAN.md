@@ -37,26 +37,27 @@ WASD hareket · Shift koş · Space zıpla · Fare bakış · Sol tık (basılı
 
 ## Ekonomi
 - Zaman: 1 oyun saati ≈ 45 sn → gün (06:00–02:00) ≈ 15 dk. 4 mevsim × 10 gün.
-- Başlangıç: 500 altın, temel aletler, 12 parselli tarla, 15 tohum.
+- Para birimi dolar; para yalnızca satıştan gelir (görevler ve başarımlar para vermez). Güncel fiyatlar: docs/BALANCE.md.
+- Başlangıç: 150 dolar (ilk gün iki tavuk 2 × 50 dolar), temel aletler, 12 parselli tarla, 15 tohum.
 - Satış = Taban × Kalite (1 / 1,25 / 1,5) × Günlük piyasa (0,85–1,15) × Doygunluk (≥0,6) × Mevsim (mevsim dışı +%20)
 - Tüccar 08:00–18:00 açık; satış kutusu gece satar; her sabah gün sonu raporu.
 
 ### Ürünler
 | Ürün | Tohum | Büyüme | Tekrar | Verim | Satış | Mevsim | ~Kâr/parsel/gün |
 |---|---|---|---|---|---|---|---|
-| Buğday | 5 | 1 gün | – | 2 + saman | 7 | İ/Y/S | 9 + saman |
-| Havuç | 8 | 1,5 gün | – | 2 | 13 | İ/S | 12 |
-| Patates | 10 | 2 gün | – | 2–4 | 11 | İ/S | 12 |
-| Domates | 20 | 3 gün | 1,5 gün | 3 | 10 | Y | 13 |
-| Mısır | 15 | 3,5 gün | 2 gün | 2 | 12 | Y/S | 10 |
-| Patlıcan | 25 | 2,5 gün | 2 gün | 2 | 16 | Y/S | 13 |
-| Çilek | 40 | 4 gün | 2 gün | 3 | 18 | İ | 18 |
-| Balkabağı | 50 | 6 gün | – | 1 | 160 | S | 18 |
+| Buğday | 1 | 1 gün | – | 2 + saman | 2 | İ/Y/S | 3 + saman |
+| Havuç | 2 | 1,5 gün | – | 2 | 4 | İ/S | 4 |
+| Patates | 2 | 2 gün | – | 2–4 | 3 | İ/S | 3,5 |
+| Domates | 5 | 3 gün | 1,5 gün | 3 | 3 | Y | 6 |
+| Mısır | 4 | 3,5 gün | 2 gün | 2 | 4 | Y/S | 4 |
+| Patlıcan | 6 | 2,5 gün | 2 gün | 2 | 5 | Y/S | 5 |
+| Çilek | 10 | 4 gün | 2 gün | 3 | 5 | İ | 7,5 |
+| Balkabağı | 12 | 6 gün | – | 1 | 45 | S | 5,5 |
 
 ### Hayvanlar
 | Hayvan | Yavru / Yetişkin | Yetişkinlik | Günlük yem | Ürün | Ham → İşlenmiş |
 |---|---|---|---|---|---|
-| Tavuk | 100 / 250 | 3 gün | 1 yem | Yumurta, her gün | 20 → Mayonez 50 |
+| Tavuk | 20 / 50 | 3 gün | 1 yem | Yumurta, her gün | 5 |
 | Ördek | 180 / 450 | 4 gün | 1 yem | Ördek yumurtası 2 günde 1 + tüy | 45 → 110 |
 | Koyun | 360 / 900 | 5 gün | 1 saman | Yün, 3 günde 1 | 120 → Kumaş 280 |
 | Keçi | 400 / 1.000 | 5 gün | 1 saman | Keçi sütü, 2 günde 1 | 70 → Keçi peyniri 170 |
@@ -162,9 +163,9 @@ Değirmen (3 buğday → un) · Yem makinesi (buğday + mısır → 6 yem) · Ka
 - [x] Pazar ve hayvan pazarı kasabaya taşınır (çiftlikte satış kutusu kalır, %25 komisyonla)
 - [x] Çiftlik deposu (ambar): odun, sebze, meyve, süt, yumurta… adet olarak stoklanır; kapasite yükseltmesi (400 → 1200)
 - [x] Araç sistemi: sür (WASD, Space el freni, E bin/in), sürücü/takip kamerası (V), farlar (L), hız & yakıt göstergesi, yakıt tüketimi
-- [x] Başlangıç aracı: Lightbody '90 MD pikap (Sketchfab CC-BY, Daniel Zhabotinsky) — galeriden 1.800 altına alınır
+- [x] Başlangıç aracı: Lightbody '90 MD pikap (Sketchfab CC-BY, Daniel Zhabotinsky) — galeriden 550 dolara alınır
 - [x] Pikap kasası: depodan yükle, markette kasadaki ürünleri sat
-- [x] Benzinlikte depo doldurma (litre fiyatı 2 altın)
+- [x] Benzinlikte depo doldurma (litre fiyatı 0,50 dolar)
 - [x] Kasaya yükleme: yük kasada paket paket görünür (sandık, çuval, balya, süt/yumurta kasası, odun, balkabağı); arkadan E ile eldekini yükle, F kasa, "Kasayı boşalt"; yükün ağırlığı ve ağırlık merkezi aracı etkiler; modeldeki gömülü yük kesildi
 - [x] Süspansiyon ayarı (sönüm, alçak ağırlık merkezi, viraj demiri) ve inerken aracın fırlaması düzeltildi
 - [x] Performans: büyüyen dünyada ölçüldü (başlangıçta 50 → 115 FPS); uzak tepe ormanı gerçek ağaçların fotoğrafından impostor kartlarla, market ürünleri yakında görünen hafif kasalarla; geometri bütçesi testi

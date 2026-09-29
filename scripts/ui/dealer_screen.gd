@@ -75,13 +75,13 @@ func _fill() -> void:
 	pl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	price_row.add_child(pl)
-	price_row.add_child(UiTheme.price(v.price, 36, 34))
+	price_row.add_child(UiTheme.price(v.price, 36))
 	if v.owned:
 		col.add_child(UiTheme.paragraph(tr("VEHICLE_OWNED_HINT"), 17, UiTheme.GREEN, 420))
 		return
 	var missing := v.price - Economy.money
 	if missing > 0:
-		col.add_child(UiTheme.paragraph(tr("MSG_NEED_GOLD") % missing, 16, UiTheme.RED, 420))
+		col.add_child(UiTheme.paragraph(tr("MSG_NEED_GOLD") % UiTheme.money(missing), 16, UiTheme.RED, 420))
 	var buy := UiTheme.button(tr("VEHICLE_BUY"), "primary", Vector2(420, 60), "key", 24)
 	buy.disabled = missing > 0
 	buy.pressed.connect(_buy)

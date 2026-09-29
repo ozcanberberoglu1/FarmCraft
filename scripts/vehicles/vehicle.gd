@@ -72,7 +72,8 @@ var _arches := Vector4(1.93, -1.23, 0.385, 0.47)
 var _trim_mat: ShaderMaterial
 ## Trim meshes (bumpers, bull bar, underbody, bed trim) drawn with _trim_mat.
 var _trim_meshes: Array[MeshInstance3D] = []
-var _wheel_mat: ShaderMaterial
+## Wheel materials by part (VehicleLook.WHEEL_PARTS).
+var _wheel_mats := {}
 var _interior_mat: ShaderMaterial
 ## Tail lamp and side marker glow last given to _trim_mat (set only when it changes).
 var _trim_glow := Vector2(-1.0, -1.0)
@@ -151,6 +152,8 @@ func _build_model() -> void:
 	add_child(holder)
 	var model := scene.instantiate() as Node3D
 	holder.add_child(model)
+	if info.has("detail"):
+		VehicleLook.add_detail(model, info["detail"])
 	if info.has("strip_parts"):
 		ModelStrip.strip_parts(model, info["strip_parts"][0], info["strip_parts"][1])
 	_bed = CargoBed.new()
@@ -236,7 +239,7 @@ func _center_of(mi: MeshInstance3D) -> Vector3:
 
 
 ## Paint gets the clear-coated, weathered body shader (vehicle_paint), the bumpers, bull
-## bar and underbody the trim shader (vehicle_trim), the wheels the rubber and rim
+## bar and underbody the trim shader (vehicle_trim), the wheels the tyre, rim and brake
 ## shader (vehicle_wheel); lamps get their own emissive copies with a reflector look,
 ## lenses a glossy face. "glass" gives the windows dust (and a crack) and can yellow
 ## the lamp covers; "plate" puts a number plate over the model's own.
@@ -292,9 +295,9 @@ func _restyle(mi: MeshInstance3D) -> void:
 				_interior_mat = VehicleLook.interior(src)
 			mi.set_surface_override_material(si, _interior_mat)
 		elif "Tire" in src.resource_name:
-			if _wheel_mat == null:
-				_wheel_mat = VehicleLook.wheel(src, info)
-			mi.set_surface_override_material(si, _wheel_mat)
+			if not _wheel_mats.has(src.resource_name):
+				_wheel_mats[src.resource_name] = VehicleLook.wheel(src, info)
+			mi.set_surface_override_material(si, _wheel_mats[src.resource_name])
 
 
 ## Whether the mesh name contains one of `names`.
@@ -422,11 +425,11 @@ func _build_body() -> void:
 	Settings.changed.connect(_apply_quality)
 
 
-## Paint and trim wear detail by quality: Low and Medium project the rust and grime
-## once per map and skip the rust relief.
+## Paint, trim and cab detail by quality: Low and Medium project the rust and grime
+## once per map and skip the rust relief and the cab's moulded grain.
 func _apply_quality() -> void:
 	var detail := 1.0 if Settings.quality >= Settings.Quality.HIGH else 0.0
-	for mat: ShaderMaterial in [_paint, _trim_mat]:
+	for mat: ShaderMaterial in [_paint, _trim_mat, _interior_mat]:
 		if mat:
 			mat.set_shader_parameter("detail", detail)
 
@@ -627,10 +630,9 @@ func _physics_process(delta: float) -> void:
 		brake = 1.5
 	for key: String in ["rl", "rr"]:
 		(_wheels[key] as VehicleWheel3D).brake = brake_force * 0.9 if handbrake else 0.0
-	# Steering gets gentler with speed: less lock (about 12 degrees at 30 km/h, 7 at the
-	# 50 km/h top speed) and a slower wheel, so a tap on A/D at speed is a lane change,
-	# not a spin.
-	var speed_t := clampf(absf(fwd) / 12.5, 0.0, 1.0)
+	# Steering gets gentler with speed: less lock (about 13 degrees at 30 km/h, 7 from
+	# 58 km/h up) and a slower wheel, so a tap on A/D at speed is a lane change, not a spin.
+	var speed_t := clampf(absf(fwd) / 16.0, 0.0, 1.0)
 	var steer_max := deg_to_rad(float(info.get("steer_deg", 32.0))) * lerpf(1.0, 0.21, sqrt(speed_t))
 	var steer_rate := lerpf(1.9, 0.6, speed_t) if absf(steer_in) > 0.01 else lerpf(3.0, 1.8, speed_t)
 	_steer = move_toward(_steer, steer_in * steer_max, delta * steer_rate)

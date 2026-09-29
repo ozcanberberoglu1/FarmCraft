@@ -223,6 +223,9 @@ func _build_trees() -> MultiMesh:
 	var frames: Array[Vector2] = []
 	for m in meshes:
 		frames.append(NatureModels.impostor_frame(m))
+	var broad := NatureModels.forest_broad()
+	var conifers := NatureModels.forest_kinds(false)
+	var broadleaf := NatureModels.forest_kinds(true)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED + 47
 	var rect := WorldLayout.map_rect()
@@ -246,8 +249,10 @@ func _build_trees() -> MultiMesh:
 			if rng.randf() > TREE_CHANCE * pow(1.0 - smoothstep(TREES_FULL, TREES_END, s), 1.5):
 				continue
 			var y := _ground_at(dir, s) - 0.25
-			var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.9, 1.5))
-			var kind := rng.randi_range(0, 2) if rng.randf() < 0.7 else rng.randi_range(3, 4)
+			# The trees are built at their natural size (as in the hill forest).
+			var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.8, 1.25))
+			var kind: int = conifers[rng.randi() % conifers.size()] if rng.randf() < 0.7 \
+					else broadleaf[rng.randi() % broadleaf.size()]
 			var bin := clampi(floori((s + rng.randf_range(-15.0, 15.0)) / TREE_BIN), 0, bins.size() - 1)
 			bins[bin].append([Transform3D(b, Vector3(p.x, y, p.y)), kind])
 		z += TREE_STEP
@@ -268,7 +273,7 @@ func _build_trees() -> MultiMesh:
 	for j in trees.size():
 		var kind: int = trees[j][1]
 		mm.set_instance_transform(j, trees[j][0])
-		mm.set_instance_custom_data(j, Color(kind, frames[kind].x, frames[kind].y, 1.0 if kind >= 3 else 0.0))
+		mm.set_instance_custom_data(j, Color(kind, frames[kind].x, frames[kind].y, 1.0 if broad[kind] else 0.0))
 	return mm
 
 
@@ -278,7 +283,7 @@ func _build_tree_material() -> ShaderMaterial:
 	var source := NatureModels.impostor_card().surface_get_material(0) as ShaderMaterial
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/backdrop_trees.gdshader")
-	for param in [&"atlas", &"cells", &"brightness"]:
+	for param in [&"atlas", &"normal_atlas", &"rows", &"views", &"brightness"]:
 		mat.set_shader_parameter(param, source.get_shader_parameter(param))
 	return mat
 

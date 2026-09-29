@@ -25,7 +25,11 @@ func _initialize() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.78, 0.8, 0.86)
 	env.ambient_light_energy = 0.55
-	env.reflected_light_source = Environment.REFLECTION_SOURCE_BG
+	# Chrome and clear coat need something to reflect: a studio sky, not drawn.
+	var sky := Sky.new()
+	sky.sky_material = ProceduralSkyMaterial.new()
+	env.sky = sky
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 6.0
 	env.ssao_enabled = true
@@ -53,6 +57,8 @@ func _run() -> void:
 			c.queue_free()
 		var model := (load(info["model"]) as PackedScene).instantiate() as Node3D
 		_holder.add_child(model)
+		if info.has("detail"):
+			VehicleLook.add_detail(model, info["detail"])
 		if info.has("strip_parts"):
 			ModelStrip.strip_parts(model, info["strip_parts"][0], info["strip_parts"][1])
 		model.rotation.y = deg_to_rad(-38.0)
@@ -73,7 +79,8 @@ func _run() -> void:
 				elif "UCB_BOTTOM" in m.resource_name:
 					look = "trim"
 				elif "Tire" in m.resource_name:
-					look = "wheel"
+					# One per wheel part (tyre, rim, nuts, brakes).
+					look = m.resource_name
 				elif "Interiors" in m.resource_name:
 					look = "interior"
 				if look == "":
@@ -84,10 +91,10 @@ func _run() -> void:
 							mats[look] = VehicleLook.paint(m, info)
 						"trim":
 							mats[look] = VehicleLook.trim(m, info)
-						"wheel":
-							mats[look] = VehicleLook.wheel(m, info)
 						"interior":
 							mats[look] = VehicleLook.interior(m)
+						_:
+							mats[look] = VehicleLook.wheel(m, info)
 				mi.set_surface_override_material(si, mats[look])
 				if look in ["paint", "trim"] and mi not in framed:
 					framed.append(mi)

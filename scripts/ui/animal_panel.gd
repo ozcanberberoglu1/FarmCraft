@@ -73,7 +73,7 @@ func _ready() -> void:
 	vl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	foot.add_child(vl)
-	_value = UiTheme.price(0, 28, 28)
+	_value = UiTheme.price(0, 28)
 	foot.add_child(_value)
 
 
@@ -156,7 +156,7 @@ func _refresh() -> void:
 		l.custom_minimum_size = Vector2(560, 0)
 		row.add_child(l)
 		_status.add_child(row)
-	(_value.get_child(1) as Label).text = UiTheme.money(_data.sale_value())
+	(_value.get_child(0) as Label).text = UiTheme.money(_data.sale_value())
 
 
 func _status_lines() -> Array:

@@ -247,7 +247,7 @@ func _fill_poultry() -> void:
 	total.alignment = BoxContainer.ALIGNMENT_CENTER
 	total.add_theme_constant_override("separation", 12)
 	total.add_child(UiTheme.make_label(UiTheme.caps(tr("UI_TOTAL")), UiTheme.heading(20, UiTheme.TEXT_MUTED, 700, 2)))
-	total.add_child(UiTheme.price(each * _order, 36, 36))
+	total.add_child(UiTheme.price(each * _order, 36))
 	col.add_child(total)
 	col.add_child(UiTheme.separator())
 	var v := LiveCrates.vehicle_near(_stall_at)
@@ -331,7 +331,7 @@ func _fill_sell() -> void:
 			bar.set_value(float(pair[1]), false)
 			r.add_child(bar)
 			stats.add_child(r)
-		var price_row := UiTheme.price(a.sale_value(), 28, 28)
+		var price_row := UiTheme.price(a.sale_value(), 28)
 		price_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		h.add_child(price_row)
 		var confirm := _confirm_sell == a.id
@@ -341,7 +341,7 @@ func _fill_sell() -> void:
 		b.pressed.connect(func() -> void:
 			if _confirm_sell == a.id:
 				var got := Animals.sell(a)
-				Game.notify("+%s %s" % [UiTheme.money(got), tr("UI_GOLD")], UiTheme.GOLD_SOFT)
+				Game.notify("+" + UiTheme.money(got), UiTheme.GOLD_SOFT)
 				_confirm_sell = -1
 			else:
 				_confirm_sell = a.id

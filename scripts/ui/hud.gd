@@ -250,18 +250,14 @@ func _hotbar_wanted() -> bool:
 # --- Building ------------------------------------------------------------------
 
 func _build_money() -> void:
-	_money_pill = GlassPanel.new(Vector4(14, 8, 22, 8), 30.0)
+	_money_pill = GlassPanel.new(Vector4(22, 8, 22, 8), 30.0)
 	_money_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_money_pill.position = Vector2(28, 24)
 	_root.add_child(_money_pill)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_money_pill.add_child(row)
-	row.add_child(UiTheme.icon_rect(UiTheme.glyph("coin"), 38))
-	_money_label = UiTheme.make_label("0", UiTheme.heading(36, UiTheme.TEXT, 700, 1))
+	# "$1,234" on its own: the $ says it is money.
+	_money_label = UiTheme.make_label(UiTheme.money(0), UiTheme.heading(36, UiTheme.TEXT, 700, 1))
 	_money_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(_money_label)
+	_money_pill.add_child(_money_label)
 
 
 ## Farm level under the money: "LEVEL 3" and a thin bar to the next level.

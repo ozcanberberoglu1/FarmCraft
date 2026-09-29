@@ -7,10 +7,16 @@ extends RefCounted
 ## follow-through, so every action keeps its length and pace.
 ##
 ## Keys: [u, position offset (m, camera space), rotation offset (deg: pitch X, yaw Y,
-## roll Z, about the hand), trans, ease]. u runs 0..1 over one stroke; a segment eases
-## with the trans/ease of the key it ends on.
-## Signs: +X pitch tips the tool's head back over the shoulder, -X forward and down;
-## -Y yaw turns the head to the right; +Z roll lowers the watering can's spout.
+## roll Z, about the hand, in the stroke's swing frame), trans, ease]. u runs 0..1 over
+## one stroke; a segment eases with the trans/ease of the key it ends on, turning along
+## the shortest arc between the keys' rotations.
+## Signs: +X pitch tips the tool's head back over the shoulder, -X forward and down (the
+## watering can's spout down); -Y yaw turns the head to the right.
+## "axis" (Euler degrees, camera space) is the swing frame the key rotations turn in: the
+## long tools are held with their head in its YZ plane (HeldPoses), so a stroke of pure
+## pitch keeps the blade, the pick's point or the hoe's edge leading all the way into the
+## target; the scythe's frame is tipped back like the ground under a lowered gaze, so its
+## yaw sweeps the blade flat over the grass.
 ## Profile fields: "impact" (u of contact: the pose is latched there and a hit cue fires),
 ## "final" (u of the effect when it is not the impact), "whoosh" (a swoosh just before
 ## contact), "kick" (camera punch: pitch, yaw, roll in degrees and a dip in metres),
@@ -25,56 +31,61 @@ const WHOOSH_LEAD := 0.14
 const SEED_FLIGHT := 0.38
 ## Length of one push of the profiles that repeat (milking, brushing...).
 const WORK_STROKE := 0.5
+const DEG := PI / 180.0
 
 const PROFILES := {
-	# Wound up over the right shoulder, a hang, then a fast fall that bites into the trunk.
-	&"axe": {"impact": 0.58, "whoosh": true, "kick": Vector4(-1.6, 0.4, -0.8, -0.02), "trauma": 0.45, "keys": [
+	# Wound up over the right shoulder, a hang, then a fast diagonal fall that drives the
+	# bit into the trunk.
+	&"axe": {"impact": 0.58, "whoosh": true, "axis": Vector3(0, 40, -12), "kick": Vector4(-1.6, 0.4, -0.8, -0.02), "trauma": 0.45, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
-		[0.38, Vector3(0.08, 0.22, 0.16), Vector3(70, -18, -22), Tween.TRANS_CUBIC, Tween.EASE_OUT],
-		[0.46, Vector3(0.09, 0.24, 0.17), Vector3(76, -20, -24), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
-		[0.58, Vector3(-0.06, -0.04, -0.3), Vector3(-38, 10, 16), Tween.TRANS_EXPO, Tween.EASE_IN],
-		[0.67, Vector3(-0.06, -0.045, -0.295), Vector3(-37, 10, 16), Tween.TRANS_LINEAR, Tween.EASE_IN],
-		[0.76, Vector3(-0.02, -0.02, -0.18), Vector3(-20, 6, 8), Tween.TRANS_BACK, Tween.EASE_OUT],
+		[0.38, Vector3(0.1, 0.26, 0.0), Vector3(40, 0, 0), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.46, Vector3(0.11, 0.27, 0.01), Vector3(45, 0, 0), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.58, Vector3(-0.15, 0.15, -0.12), Vector3(-22, 0, 0), Tween.TRANS_EXPO, Tween.EASE_IN],
+		[0.67, Vector3(-0.15, 0.145, -0.115), Vector3(-21, 0, 0), Tween.TRANS_LINEAR, Tween.EASE_IN],
+		[0.76, Vector3(-0.09, 0.08, -0.07), Vector3(-12, 0, 0), Tween.TRANS_BACK, Tween.EASE_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
-	# Straight overhead, down onto the stone, and a rebound off it.
-	&"pickaxe": {"impact": 0.6, "whoosh": true, "kick": Vector4(-2.0, 0.0, 0.6, -0.03), "trauma": 0.4, "keys": [
+	# Raised over the right shoulder, brought down point first onto the stone, and a
+	# rebound off it.
+	&"pickaxe": {"impact": 0.6, "whoosh": true, "axis": Vector3(0, 40, -8), "kick": Vector4(-2.0, 0.0, 0.6, -0.03), "trauma": 0.4, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
-		[0.4, Vector3(-0.1, 0.3, 0.12), Vector3(85, 0, -4), Tween.TRANS_CUBIC, Tween.EASE_OUT],
-		[0.47, Vector3(-0.1, 0.32, 0.13), Vector3(90, 0, -4), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
-		[0.6, Vector3(-0.14, -0.08, -0.34), Vector3(-42, 0, 2), Tween.TRANS_EXPO, Tween.EASE_IN],
-		[0.66, Vector3(-0.14, -0.07, -0.33), Vector3(-40, 0, 2), Tween.TRANS_LINEAR, Tween.EASE_IN],
-		[0.76, Vector3(-0.1, 0.02, -0.22), Vector3(-18, 0, 0), Tween.TRANS_BACK, Tween.EASE_OUT],
+		[0.4, Vector3(0.08, 0.27, 0.04), Vector3(44, 0, 0), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.47, Vector3(0.08, 0.29, 0.05), Vector3(49, 0, 0), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.6, Vector3(-0.12, 0.16, -0.1), Vector3(-32, 0, 0), Tween.TRANS_EXPO, Tween.EASE_IN],
+		[0.66, Vector3(-0.12, 0.17, -0.09), Vector3(-29, 0, 0), Tween.TRANS_LINEAR, Tween.EASE_IN],
+		[0.76, Vector3(-0.07, 0.12, -0.04), Vector3(-10, 0, 0), Tween.TRANS_BACK, Tween.EASE_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
-	# Lifted, chopped into the soil, then dragged back toward the feet.
-	&"hoe": {"impact": 0.6, "whoosh": true, "kick": Vector4(-1.0, 0.0, 0.4, -0.02), "trauma": 0.12, "keys": [
+	# Lifted, chopped blade first into the soil, then dragged back toward the feet.
+	&"hoe": {"impact": 0.6, "whoosh": true, "axis": Vector3(0, 34, -6), "kick": Vector4(-1.0, 0.0, 0.4, -0.02), "trauma": 0.12, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
-		[0.4, Vector3(-0.04, 0.16, 0.1), Vector3(48, 0, -6), Tween.TRANS_CUBIC, Tween.EASE_OUT],
-		[0.48, Vector3(-0.04, 0.17, 0.11), Vector3(52, 0, -7), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
-		[0.6, Vector3(0.0, -0.1, -0.14), Vector3(-34, 0, 4), Tween.TRANS_EXPO, Tween.EASE_IN],
-		[0.66, Vector3(0.0, -0.11, -0.15), Vector3(-36, 0, 4), Tween.TRANS_LINEAR, Tween.EASE_IN],
-		[0.82, Vector3(0.0, -0.08, -0.02), Vector3(-22, 0, 2), Tween.TRANS_SINE, Tween.EASE_OUT],
+		[0.4, Vector3(0.06, 0.14, 0.0), Vector3(30, 0, 0), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.48, Vector3(0.06, 0.15, 0.0), Vector3(34, 0, 0), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.6, Vector3(-0.14, 0.1, -0.14), Vector3(-14, 0, 0), Tween.TRANS_EXPO, Tween.EASE_IN],
+		[0.66, Vector3(-0.14, 0.09, -0.15), Vector3(-17, 0, 0), Tween.TRANS_LINEAR, Tween.EASE_IN],
+		[0.82, Vector3(-0.14, 0.02, -0.03), Vector3(-12, 0, 0), Tween.TRANS_SINE, Tween.EASE_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
-	# The blade drawn back to the right, then one wide sweep to the left; it cuts mid-arc.
-	&"scythe": {"impact": 0.52, "whoosh": true, "kick": Vector4(0.0, 0.9, 0.6, 0.0), "trauma": 0.0, "keys": [
+	# The blade drawn back to the right, then one wide flat sweep to the left, pulled in
+	# toward the body; it cuts mid-arc.
+	&"scythe": {"impact": 0.52, "whoosh": true, "axis": Vector3(30, 0, 0), "kick": Vector4(0.0, 0.9, 0.6, 0.0), "trauma": 0.0, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
-		[0.36, Vector3(0.16, 0.02, 0.1), Vector3(8, -55, -18), Tween.TRANS_CUBIC, Tween.EASE_OUT],
-		[0.42, Vector3(0.17, 0.02, 0.11), Vector3(9, -58, -19), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
-		[0.62, Vector3(-0.22, -0.06, -0.12), Vector3(-6, 62, 14), Tween.TRANS_QUART, Tween.EASE_IN_OUT],
-		[0.72, Vector3(-0.24, -0.05, -0.1), Vector3(-4, 66, 16), Tween.TRANS_SINE, Tween.EASE_OUT],
+		[0.36, Vector3(0.1, 0.05, 0.06), Vector3(0, -44, -4), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.42, Vector3(0.11, 0.05, 0.07), Vector3(0, -47, -4), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.62, Vector3(-0.1, 0.04, 0.06), Vector3(0, 38, 2), Tween.TRANS_QUART, Tween.EASE_IN_OUT],
+		[0.72, Vector3(-0.11, 0.05, 0.07), Vector3(0, 42, 4), Tween.TRANS_SINE, Tween.EASE_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
-	# Lifted and rolled until the spout points down, held there while it pours.
+	# Tipped forward about the handle until the spout points ahead toward the aim, held
+	# there while it pours.
 	&"can_pour": {"final": 0.78, "pour": Vector2(0.22, 0.8), "drips": [0.35, 0.5, 0.65], "wobble": true, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
-		[0.22, Vector3(-0.12, 0.1, -0.04), Vector3(-8, -25, 34), Tween.TRANS_CUBIC, Tween.EASE_OUT],
-		[0.3, Vector3(-0.12, 0.1, -0.04), Vector3(-8, -25, 37), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
-		[0.8, Vector3(-0.12, 0.1, -0.04), Vector3(-8, -25, 34), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.22, Vector3(-0.08, 0.0, -0.14), Vector3(-32, -14, 12), Tween.TRANS_CUBIC, Tween.EASE_OUT],
+		[0.3, Vector3(-0.08, 0.0, -0.14), Vector3(-35, -14, 13), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.8, Vector3(-0.08, 0.0, -0.14), Vector3(-32, -14, 12), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
 	# Dipped into the well or pond and brought back up full.
 	&"can_dip": {"final": 0.72, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
-		[0.35, Vector3(-0.05, -0.18, -0.1), Vector3(-20, 0, 10), Tween.TRANS_CUBIC, Tween.EASE_IN_OUT],
-		[0.52, Vector3(-0.05, -0.21, -0.1), Vector3(-23, 0, 12), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
-		[0.7, Vector3(-0.05, -0.17, -0.1), Vector3(-18, 0, 9), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.35, Vector3(-0.05, -0.18, -0.1), Vector3(-22, 0, 4), Tween.TRANS_CUBIC, Tween.EASE_IN_OUT],
+		[0.52, Vector3(-0.05, -0.21, -0.1), Vector3(-26, 0, 5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.7, Vector3(-0.05, -0.17, -0.1), Vector3(-18, 0, 3), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_BACK, Tween.EASE_OUT]]},
 	# The packet drawn in, flicked out in an arc (the seeds fly), then shaken empty.
 	&"scatter": {"release": 0.4, "final": 0.82, "keys": [
@@ -184,11 +195,12 @@ static func cues(profile: StringName, strokes: int, duration: float) -> Array:
 	return out
 
 
-## The pose offset of `profile` at `u` (0..1 of one stroke): [position, rotation (deg)].
+## The pose offset of `profile` at `u` (0..1 of one stroke): [position, rotation about the
+## hand (camera space)].
 static func sample(profile: Dictionary, u: float) -> Array:
 	var keys: Array = profile.get("keys", [])
 	if keys.size() < 2:
-		return [Vector3.ZERO, Vector3.ZERO]
+		return [Vector3.ZERO, Quaternion.IDENTITY]
 	for k in range(1, keys.size()):
 		var b: Array = keys[k]
 		if u <= float(b[0]) or k == keys.size() - 1:
@@ -203,7 +215,10 @@ static func sample(profile: Dictionary, u: float) -> Array:
 			var f: float = Tween.interpolate_value(0.0, 1.0, w, span, trans, ease_type)
 			var pa: Vector3 = a[1]
 			var pb: Vector3 = b[1]
-			var ra: Vector3 = a[2]
-			var rb: Vector3 = b[2]
-			return [pa + (pb - pa) * f, ra + (rb - ra) * f]
-	return [Vector3.ZERO, Vector3.ZERO]
+			var qa := Quaternion.from_euler((a[2] as Vector3) * DEG)
+			var q := qa.slerp(Quaternion.from_euler((b[2] as Vector3) * DEG), f)
+			if profile.has("axis"):
+				var frame := Quaternion.from_euler((profile["axis"] as Vector3) * DEG)
+				q = frame * q * frame.inverse()
+			return [pa + (pb - pa) * f, q]
+	return [Vector3.ZERO, Quaternion.IDENTITY]

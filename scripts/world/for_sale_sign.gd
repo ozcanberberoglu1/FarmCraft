@@ -62,7 +62,7 @@ func refresh() -> void:
 		return
 	var p := ProjectTable.get_project(project_id)
 	_title.text = tr("PROJECT_" + String(project_id).to_upper())
-	_price.text = "%d %s" % [int(p.get("cost", 0)), tr("UI_GOLD")]
+	_price.text = UiTheme.money(int(p.get("cost", 0)))
 
 
 func interact_prompt(_player: Node) -> String:

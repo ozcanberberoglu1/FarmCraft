@@ -75,7 +75,7 @@ static func entries(level: int) -> Array:
 	if o["order_slot"]:
 		out.append([UiTheme.glyph("tag"), TranslationServer.translate("UNLOCK_ORDER_SLOT"), true])
 	if o["order_bonus"]:
-		out.append([UiTheme.glyph("coin"), TranslationServer.translate("UNLOCK_ORDER_BONUS") % roundi(UnlockTable.ORDER_BONUS * 100.0), true])
+		out.append([UiTheme.glyph("arrow_up"), TranslationServer.translate("UNLOCK_ORDER_BONUS") % roundi(UnlockTable.ORDER_BONUS * 100.0), true])
 	return out
 
 

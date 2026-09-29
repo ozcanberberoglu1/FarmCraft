@@ -1,13 +1,14 @@
 @tool
 class_name NatureModels
 extends RefCounted
-## Vegetation and rocks. Trees are procedural: bark-textured trunks and limbs dressed
-## with foliage cards cut from composed atlases (tools/build_foliage.gd: whole spruce
-## branches and leafy broadleaf twigs laid out from scanned twigs and leaves), shaded
-## darker deeper inside the crown. Rocks, ferns, nettles, fallen branches, stumps and
-## logs are photo-scans (Poly Haven, CC0, art/models/nature) with their own material
-## (shaders/nature_scan*.gdshader). Meshes are cached per (kind, seed); the vegetation
-## meshes are only ever drawn, so they are built indexed (shared vertices).
+## Vegetation and rocks. Trees are built from film-quality Poly Haven tree models (see
+## "Trees" below: real trunks and limbs, crowns as cards of rendered twig clusters, with
+## levels of detail and eight-sided impostors). Bushes are procedural: leafy twig cards
+## cut from a composed atlas (tools/build_foliage.gd), shaded darker deeper inside.
+## Rocks, ferns, nettles, fallen branches, stumps and logs are photo-scans (Poly Haven,
+## CC0, art/models/nature) with their own material (shaders/nature_scan*.gdshader).
+## Meshes are cached per (kind, seed); the vegetation meshes are only ever drawn, so
+## they are built indexed (shared vertices).
 
 ## Regions of the broadleaf atlas (leaves_broad_albedo.png), UV space (crops use them).
 const BROAD_TWIGS: Array[Rect2] = [Rect2(0.35, 0.06, 0.24, 0.63), Rect2(0.56, 0.03, 0.30, 0.64)]
@@ -15,12 +16,6 @@ const BROAD_SCATTER: Array[Rect2] = [Rect2(0.0, 0.02, 0.44, 0.47), Rect2(0.0, 0.
 ## Needle twigs in the fir atlas (leaves_fir_albedo.png); the stem end is at the bottom.
 const FIR_TWIGS: Array[Rect2] = [Rect2(0.31, 0.40, 0.34, 0.38), Rect2(0.63, 0.44, 0.33, 0.39),
 		Rect2(0.19, 0.03, 0.23, 0.28), Rect2(0.65, 0.03, 0.28, 0.34)]
-## Cells of the spruce atlas (leaves_spruce, see tools/build_foliage.gd): whole branches
-## ("fronds", stem end at the bottom middle, tip at the top), the leader shoot and
-## round needle clumps (a branch seen end-on).
-const SPRUCE_FRONDS: Array[Rect2] = [Rect2(0.0, 0.0, 0.5, 0.5), Rect2(0.5, 0.0, 0.5, 0.5), Rect2(0.0, 0.5, 0.5, 0.5)]
-const SPRUCE_LEADER := Rect2(0.5, 0.5, 0.25, 0.5)
-const SPRUCE_CLUMPS: Array[Rect2] = [Rect2(0.75, 0.5, 0.25, 0.25), Rect2(0.75, 0.75, 0.25, 0.25)]
 ## Leafy twig sprays of the cluster atlas (leaves_cluster), stem end at the bottom middle.
 const LEAF_SPRAYS: Array[Rect2] = [Rect2(0.0, 0.0, 0.5, 0.5), Rect2(0.5, 0.0, 0.5, 0.5),
 		Rect2(0.0, 0.5, 0.5, 0.5), Rect2(0.5, 0.5, 0.5, 0.5)]
@@ -44,8 +39,7 @@ static func _cached(key: String, maker: Callable) -> ArrayMesh:
 ## Brightness of a card deep inside a crown (next to the trunk, under the crown)
 ## relative to one on its sunlit outside: the self-shadowing and lost sky light the
 ## vertex colour carries (also ambient occlusion in shaders/foliage_card.gdshader).
-## Trees with real shadows need less of it than the shadowless far ones (and their
-## impostor pictures, which are rendered unlit).
+## Bushes, which have real shadows, use the near one.
 const CROWN_SHADE_NEAR := 0.7
 const CROWN_SHADE_FAR := 0.42
 
@@ -101,329 +95,182 @@ static func _stem_card(mb: MeshBuilder, key: StringName, base: Vector3, right: V
 	mb.tri_n(key, bl, tr, tl, n, n, n, cb, ct, ct, uv_bl, uv_tr, uv_tl)
 
 
-## A trunk as one smooth tube through `centers` (continuous bark, no seams between
-## pieces), `radii` wide, coloured `colors` along it. Bark UVs are in metres (u round
-## the base's circumference). The base spreads into `roots` buttresses (0 = round)
-## that fade out over the first 0.7 m, so the tree grows out of the ground.
-static func _trunk(mb: MeshBuilder, key: StringName, centers: Array[Vector3], radii: Array[float], sides: int,
-		colors: Array[Color], roots: float, rng: RandomNumberGenerator) -> void:
-	var n := centers.size()
-	var phase := rng.randf() * TAU
-	var lobes := rng.randi_range(4, 6)
-	var rings: Array[PackedVector3Array] = []
-	var dirs: Array[PackedVector3Array] = []
-	var prev_side := Vector3.ZERO
-	for i in n:
-		var t := (centers[mini(i + 1, n - 1)] - centers[maxi(i - 1, 0)]).normalized()
-		var side := prev_side
-		if side == Vector3.ZERO or absf(side.dot(t)) > 0.99:
-			side = t.cross(Vector3.UP if absf(t.y) < 0.9 else Vector3.RIGHT).normalized()
-		side = (side - t * side.dot(t)).normalized()
-		prev_side = side
-		var up := t.cross(side).normalized()
-		var flare := roots * (1.0 - smoothstep(0.0, 0.7, centers[i].y))
-		var ring := PackedVector3Array()
-		var dring := PackedVector3Array()
-		for k in sides + 1:
-			var a := TAU * float(k) / sides
-			var d := side * cos(a) + up * sin(a)
-			var lobe := pow(maxf(0.0, sin(a * lobes + phase)), 2.0) - 0.3
-			ring.append(centers[i] + d * radii[i] * (1.0 + flare * lobe))
-			dring.append(d)
-		rings.append(ring)
-		dirs.append(dring)
-	var around := TAU * radii[0]
-	var v := 0.0
-	for i in n - 1:
-		var seg := centers[i].distance_to(centers[i + 1])
-		var t := (centers[i + 1] - centers[i]) / maxf(seg, 0.0001)
-		var taper := (radii[i] - radii[i + 1]) / maxf(seg, 0.0001)
-		for k in sides:
-			var u0 := float(k) / sides * around
-			var u1 := float(k + 1) / sides * around
-			var na := (dirs[i][k] + t * taper).normalized()
-			var nb := (dirs[i][k + 1] + t * taper).normalized()
-			var nc := (dirs[i + 1][k + 1] + t * taper).normalized()
-			var nd := (dirs[i + 1][k] + t * taper).normalized()
-			mb.tri_n(key, rings[i][k], rings[i][k + 1], rings[i + 1][k + 1], na, nb, nc, colors[i], colors[i], colors[i + 1],
-					Vector2(u0, v), Vector2(u1, v), Vector2(u1, v + seg))
-			mb.tri_n(key, rings[i][k], rings[i + 1][k + 1], rings[i + 1][k], na, nc, nd, colors[i], colors[i + 1], colors[i + 1],
-					Vector2(u0, v), Vector2(u1, v + seg), Vector2(u0, v + seg))
-		v += seg
+# --- Trees -----------------------------------------------------------------------------
+# Built from Poly Haven's film-quality tree models (every needle and leaf modelled) by
+# tools/fetch_trees.py and Blender (tools/blender/build_trees.py), into
+# art/models/trees/<tree>.glb: the real trunk and limbs, and the crown as a cloud of
+# cards, each showing a rendered cluster of the real twigs and leaves with its normal
+# map and the crown's self-shading. Three levels of detail per part, joined into one
+# mesh here (Godot picks the level by distance: LOD_KEYS); past them, pictures of the
+# whole tree from eight sides (the impostors, one atlas for all trees).
+
+const TREE_DIR := "res://art/models/trees/"
+## The trees, in impostor atlas order (tools/blender/build_trees.py TREE_ORDER).
+const TREES: Array[String] = ["fir_a", "fir_b", "fir_c", "pine_a", "pine_b", "pine_c", "broadleaf", "olive", "locust"]
+## The valley's choppable trees and the town's by variant (1..3): conifers and broadleaf.
+const CONIFER_VARIANTS: Array[String] = ["fir_b", "pine_b", "pine_c"]
+const BROADLEAF_VARIANTS: Array[String] = ["broadleaf", "olive", "locust"]
+## Godot's LOD keys for levels 1 and 2: at lod_bias 1 a 1600 px wide view switches at
+## about 586 x key metres (so ~23 m and ~53 m); the graphics presets scale this with
+## GeometryInstance3D.lod_bias (NatureSpawner.LOD_BIAS).
+const LOD_KEYS: Array[float] = [0.04, 0.09]
+## Card height / width of the impostor pictures.
+const IMPOSTOR_ASPECT := 2.0
+const IMPOSTOR_ATLAS := TREE_DIR + "textures/impostors.webp"
+const IMPOSTOR_NORMALS := TREE_DIR + "textures/impostors_nor.webp"
+const IMPOSTOR_VIEWS := 8
+
+## Look of each tree's leaf cards (shaders/tree_leaves.gdshader uniforms).
+## Needle sprays are finer than a texel of the atlas, so the conifers cut out lower.
+const CONIFER_LOOK := {"translucency": 0.3, "crown_blend": 0.4, "brightness": 1.0, "tint": Color(0.97, 1.0, 0.97),
+	"alpha_cut": 0.3, "mip_alpha": 0.45, "specular": 0.12, "roughness": 0.82,
+	"sway": 0.2, "branch_sway": 0.07, "flutter": 0.01}
+const BROADLEAF_LOOK := {"translucency": 0.55, "crown_blend": 0.5, "brightness": 1.0, "tint": Color(1.0, 1.0, 1.0),
+	"alpha_cut": 0.42, "mip_alpha": 0.35, "specular": 0.25, "roughness": 0.72,
+	"sway": 0.22, "branch_sway": 0.12, "flutter": 0.03, "deciduous": 1.0}
+
+## Tree name of each built tree mesh.
+static var _tree_names: Dictionary = {}
+## Leaf materials of the trees (NatureSpawner sets how far the sun's shadows reach).
+static var _leaf_mats: Array[ShaderMaterial] = []
 
 
-# --- Broadleaf tree ------------------------------------------------------------------
-
-## Deciduous tree (kept under the old name so callers don't change): a trunk forking
-## into limbs, each ending in a lobe of leafy twigs, so the crown is a cluster of
-## rounded masses with gaps and shaded hollows between them, not one ball.
-static func oak(seed_value: int, detail := true) -> ArrayMesh:
-	return _cached("broad_%d_%s" % [seed_value, detail], _make_broadleaf.bind(seed_value, detail))
+## A conifer for the valley and the town, by variant (1..3). `_detail` is unused: the
+## mesh has its own levels of detail.
+static func pine(seed_value: int, _detail := true) -> ArrayMesh:
+	return tree(CONIFER_VARIANTS[(maxi(seed_value, 1) - 1) % CONIFER_VARIANTS.size()])
 
 
-static func _make_broadleaf(seed_value: int, detail: bool) -> ArrayMesh:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_value * 313 + 11
-	var mb := MeshBuilder.new()
-	var height := rng.randf_range(7.5, 10.0)
-	var trunk_top := height * rng.randf_range(0.27, 0.35)
-	var spread := rng.randf_range(2.8, 3.6)
-	var crown := Vector3(spread, (height - trunk_top) * 0.5, spread * rng.randf_range(0.85, 1.05))
-	var crown_center := Vector3(rng.randf_range(-0.3, 0.3), height - crown.y, rng.randf_range(-0.3, 0.3))
-	var leaves := &"leaves" if detail else &"leaves_far"
-	var deep := CROWN_SHADE_NEAR if detail else CROWN_SHADE_FAR
+## A broadleaf tree by variant (1..3), see pine().
+static func oak(seed_value: int, _detail := true) -> ArrayMesh:
+	return tree(BROADLEAF_VARIANTS[(maxi(seed_value, 1) - 1) % BROADLEAF_VARIANTS.size()])
 
-	# Trunk: a slightly wandering spine with a flared base.
-	var spine: Array[Vector3] = [Vector3.ZERO]
-	var segs := 4
-	for i in range(1, segs + 1):
-		var t := float(i) / segs
-		spine.append(Vector3(rng.randf_range(-0.14, 0.14) * t, trunk_top * t, rng.randf_range(-0.14, 0.14) * t))
-	var r0 := rng.randf_range(0.26, 0.34)
-	var sides := 10 if detail else 6
-	# Far trees have no shadows (nor do their impostor pictures): the trunk darkens
-	# up into the crown's shade.
-	var shade_top := NEUTRAL if detail else Color(0.28, 0.28, 0.28)
-	var centers: Array[Vector3] = [Vector3(0, -0.1, 0), Vector3(0, 0.2, 0)]
-	var radii: Array[float] = [r0 * 1.55, r0 * 1.18]
-	var colors: Array[Color] = [NEUTRAL, NEUTRAL]
-	for i in segs + 1:
-		var p := spine[i] if i > 0 else Vector3(0, 0.5, 0)
-		centers.append(p)
-		radii.append(lerpf(r0, r0 * 0.7, float(i) / segs))
-		colors.append(NEUTRAL.lerp(shade_top, float(i) / segs))
-	# Above the first limbs the trunk goes on up into the crown, thinning out.
-	var lean := Vector3(crown_center.x, 0.0, crown_center.z) * 0.5
-	for k in 2:
-		centers.append(spine[segs].lerp(crown_center + lean + Vector3(0, crown.y * 0.35, 0), 0.5 + k * 0.5))
-		radii.append(r0 * (0.5 if k == 0 else 0.22))
-		colors.append(shade_top)
-	_trunk(mb, &"bark", centers, radii, sides, colors, 0.35, rng)
 
-	# Lobes: sub-crowns at the ends of the limbs, spread over the crown's dome (its
-	# underside flatter), plus one on top.
-	var lobes: Array[Array] = []
-	var limbs := rng.randi_range(7, 9) if detail else rng.randi_range(6, 7)
-	var lobe_size := 1.0 if detail else 1.15
-	for b in limbs:
-		var ang := b * 2.39996 + rng.randf_range(-0.3, 0.3)
-		var rise := lerpf(-0.45, 0.7, fmod(b * 0.618 + rng.randf() * 0.3, 1.0))
-		var out := Vector3(cos(ang) * sqrt(1.0 - rise * rise), rise, sin(ang) * sqrt(1.0 - rise * rise))
-		var c := crown_center + out * crown * rng.randf_range(0.5, 0.64)
-		lobes.append([c, rng.randf_range(1.3, 1.75) * lobe_size])
-	lobes.append([crown_center + Vector3(rng.randf_range(-0.4, 0.4), crown.y * 0.5, rng.randf_range(-0.4, 0.4)),
-			rng.randf_range(1.4, 1.7) * lobe_size])
-	# Limbs: each leaves the trunk at a height that goes with its lobe's (low lobes from
-	# low down), rises steeply, then arcs out to the lobe, thinning.
-	var limb_end := NEUTRAL if detail else Color(0.2, 0.2, 0.2)
-	for li in lobes.size() - 1:
-		var c: Vector3 = lobes[li][0]
-		var k := clampf((c.y - trunk_top) / maxf(height - trunk_top, 0.1), 0.0, 1.0)
-		var start := _along(centers, lerpf(trunk_top * 0.8, crown_center.y + crown.y * 0.15, k * 0.8 + rng.randf_range(0.0, 0.15)))
-		var end := start.lerp(c, 0.85)
-		var reach := start.distance_to(end)
-		var mid := start.lerp(end, 0.4) + Vector3.UP * reach * 0.16 \
-				+ Vector3(rng.randf_range(-1, 1), 0.0, rng.randf_range(-1, 1)) * reach * 0.07
-		var r_limb := r0 * lerpf(0.55, 0.35, k)
-		_trunk(mb, &"bark", [start, mid, end], [r_limb, r_limb * 0.62, 0.05],
-				7 if detail else 4, [shade_top, shade_top, limb_end], 0.0, rng)
-		if detail:
-			for t in 2:
-				var s0 := mid.lerp(end, rng.randf_range(0.1, 0.7))
-				var d := (end - mid).normalized() + Vector3(rng.randf_range(-0.9, 0.9), rng.randf_range(-0.1, 0.5), rng.randf_range(-0.9, 0.9))
-				mb.cylinder_between(&"bark", s0, s0 + d.normalized() * float(lobes[li][1]) * 0.8, 0.05, 0.015, 4, NEUTRAL, true, false)
+## What tools/blender/build_trees.py wrote about a tree: height, radius, crown centre
+## and radii (metres, Y up), impostor frame, texture names.
+static func tree_info(tree_name: String) -> Dictionary:
+	var key := "info_" + tree_name
+	if not _cache.has(key):
+		_cache[key] = (load(TREE_DIR + tree_name + ".json") as JSON).data
+	return _cache[key]
 
-	# Leafy twigs over each lobe's surface, pointing out of it.
-	var density := 8.0 if detail else 5.0
-	var card := 1.45 if detail else 2.0
-	for lobe: Array in lobes:
-		var c: Vector3 = lobe[0]
-		var radius: float = lobe[1]
-		var n_cards := int(radius * radius * density)
-		for i in n_cards:
-			var out := _rand_in_sphere(rng).normalized()
-			var p := c + out * radius * rng.randf_range(0.5, 0.9)
-			_leaf_card(mb, leaves, p, out, c, crown_center, crown, rng, card * rng.randf_range(0.85, 1.1), deep)
-	# A few inside, so the crown isn't hollow.
-	for i in (8 if detail else 4):
-		var p := crown_center + _rand_in_sphere(rng) * crown * 0.45
-		_leaf_card(mb, leaves, p, _rand_in_sphere(rng).normalized(), p, crown_center, crown, rng, card, deep)
-	mb.set_sway_by_height(&"bark", trunk_top * 0.8, height, 0.3)
-	mb.set_sway_by_height(leaves, trunk_top * 0.6, height, 1.0)
-	var m := mb.build({}, true)
-	_crowns[m] = [trunk_top, height, spread, true]
+
+static func tree(tree_name: String) -> ArrayMesh:
+	return _cached("tree_" + tree_name, _make_tree.bind(tree_name))
+
+
+static func _make_tree(tree_name: String) -> ArrayMesh:
+	var info := tree_info(tree_name)
+	var scene := load(TREE_DIR + tree_name + ".glb") as PackedScene
+	var root := scene.instantiate()
+	var parts := {}
+	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
+		parts[String(mi.name)] = mi.mesh
+	root.free()
+	var m := ArrayMesh.new()
+	for part: String in ["trunk", "branches", "cards"]:
+		if not parts.has(part + "_lod0"):
+			continue
+		var levels: Array[Mesh] = []
+		for level in 3:
+			levels.append(parts.get("%s_lod%d" % [part, level]))
+		_add_levels(m, levels)
+		m.surface_set_material(m.get_surface_count() - 1, _tree_material(tree_name, part, info))
+	var c: Array = info["crown"]["center"]
+	var r: Array = info["crown"]["radius"]
+	_crowns[m] = [float(c[1]) - float(r[1]), float(c[1]) + float(r[1]), maxf(float(r[0]), float(r[2])), bool(info["broad"])]
+	_tree_names[m] = tree_name
 	return m
 
 
-## One leafy twig card growing from `p` out of its lobe (centred at `lobe`), lit with a
-## normal between the lobe's and the whole crown's, darker deeper in the crown.
-static func _leaf_card(mb: MeshBuilder, key: StringName, p: Vector3, out: Vector3, lobe: Vector3,
-		crown_center: Vector3, crown: Vector3, rng: RandomNumberGenerator, length: float, deep: float) -> void:
-	var dir := (out + Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.2, 0.45), rng.randf_range(-0.45, 0.45))).normalized()
-	var side := dir.cross(Vector3.UP if absf(dir.y) < 0.95 else Vector3.RIGHT).normalized()
-	side = side.rotated(dir, rng.randf_range(-1.2, 1.2))
-	var rel := (p - crown_center) / crown
-	var n := (out * 0.55 + rel.normalized() * 0.35 + Vector3.UP * 0.25).normalized()
-	var tint := _tint(rng, 0.1)
-	# Deeper in the crown and on its underside is darker; the twig's stem end is
-	# further in than its tip.
-	var depth := clampf(rel.length(), 0.0, 1.2)
-	var open := depth * 0.75 + rel.y * 0.3 + 0.1
-	var base := p - dir * length * 0.3
-	_stem_card(mb, key, base, side * length, dir * length, LEAF_SPRAYS[rng.randi() % LEAF_SPRAYS.size()], n,
-			_crown_shade(tint, open - 0.3, deep), _crown_shade(tint, open + 0.15, deep), 0.85, 1.0)
+## One surface from a part's levels of detail: all their vertices, level 0's triangles,
+## the others as LOD index arrays.
+static func _add_levels(m: ArrayMesh, levels: Array[Mesh]) -> void:
+	var base: Array = levels[0].surface_get_arrays(0)
+	var lods := {}
+	for level in range(1, levels.size()):
+		if levels[level] == null:
+			continue
+		var a: Array = levels[level].surface_get_arrays(0)
+		var offset := (base[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+		for ch in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_TANGENT, Mesh.ARRAY_TEX_UV, Mesh.ARRAY_TEX_UV2,
+				Mesh.ARRAY_COLOR]:
+			if base[ch] == null or a[ch] == null:
+				base[ch] = null
+				continue
+			var joined = base[ch]
+			joined.append_array(a[ch])
+			base[ch] = joined
+		var idx: PackedInt32Array = a[Mesh.ARRAY_INDEX]
+		for i in idx.size():
+			idx[i] += offset
+		lods[LOD_KEYS[level - 1]] = idx
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, base, [], lods)
 
 
-## The point at height `y` on a trunk rising through `centers` (clamped to its ends).
-static func _along(centers: Array[Vector3], y: float) -> Vector3:
-	for i in centers.size() - 1:
-		if centers[i + 1].y >= y:
-			var t := clampf((y - centers[i].y) / maxf(centers[i + 1].y - centers[i].y, 0.0001), 0.0, 1.0)
-			return centers[i].lerp(centers[i + 1], t)
-	return centers[centers.size() - 1]
+static func _tree_material(tree_name: String, part: String, info: Dictionary) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	var tex := TREE_DIR + "textures/"
+	var look: Dictionary = BROADLEAF_LOOK if info["broad"] else CONIFER_LOOK
+	if part == "cards":
+		mat.shader = load("res://shaders/tree_leaves.gdshader")
+		var albedo := load(tex + String(info["leaves"])) as Texture2D
+		mat.set_shader_parameter("albedo_tex", albedo)
+		mat.set_shader_parameter("normal_tex", load(tex + String(info["leaves_nor"])))
+		mat.set_shader_parameter("tex_size", float(albedo.get_width()))
+		for k: String in look:
+			mat.set_shader_parameter(k, look[k])
+		_leaf_mats.append(mat)
+	else:
+		var bark: Dictionary = info["bark"][part]
+		mat.shader = load("res://shaders/tree_bark.gdshader")
+		mat.set_shader_parameter("albedo_tex", load(tex + String(bark["diff"])))
+		mat.set_shader_parameter("normal_tex", load(tex + String(bark["nor"])))
+		if bark.has("arm"):
+			mat.set_shader_parameter("arm_tex", load(tex + String(bark["arm"])))
+		for k: String in ["sway", "branch_sway"]:
+			mat.set_shader_parameter(k, look[k])
+		mat.set_shader_parameter("flutter", 0.0)
+	return mat
 
 
-static func _rand_in_sphere(rng: RandomNumberGenerator) -> Vector3:
-	while true:
-		var v := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
-		if v.length_squared() <= 1.0 and v.length_squared() > 0.01:
-			return v
-	return Vector3.UP
+## The leaf materials of the trees built so far.
+static func leaf_materials() -> Array[ShaderMaterial]:
+	return _leaf_mats
 
 
-# --- Conifer ---------------------------------------------------------------------
+# --- Hill forest -----------------------------------------------------------------------
 
-## Spruce (kept under the old name so callers don't change): whorls of whole branches
-## that droop low down and rise near the top, a dense dark core of needle clumps round
-## the trunk and an upright leader. Seeds vary height, slenderness and droop.
-static func pine(seed_value: int, detail := true) -> ArrayMesh:
-	return _cached("fir_%d_%s" % [seed_value, detail], _make_spruce.bind(seed_value, detail))
-
-
-static func _make_spruce(seed_value: int, detail: bool) -> ArrayMesh:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_value * 101 + 3
-	var mb := MeshBuilder.new()
-	var height := rng.randf_range(8.5, 12.0)
-	var r0 := rng.randf_range(0.22, 0.3)
-	var radius := height * rng.randf_range(0.23, 0.3)
-	var droop := rng.randf_range(0.5, 1.0)
-	var needles := &"needles" if detail else &"needles_far"
-	var deep := CROWN_SHADE_NEAR if detail else CROWN_SHADE_FAR
-	var crown_base := rng.randf_range(0.6, 1.5)
-	# Inside the crown the trunk is in deep shade; far trees (and their impostor
-	# pictures) have no shadows to show it, so it is dark from the crown up.
-	var inner := NEUTRAL if detail else Color(0.12, 0.12, 0.12)
-	# The trunk ends inside the leader shoot (the shoot's own stem carries on up).
-	var tip := height - 1.1
-	var centers: Array[Vector3] = [Vector3(0, -0.1, 0), Vector3(0, 0.2, 0), Vector3(0, 0.5, 0),
-			Vector3(0, crown_base + 0.3, 0), Vector3(0, lerpf(crown_base, tip, 0.5), 0), Vector3(0, tip, 0)]
-	var radii: Array[float] = [r0 * 1.5, r0 * 1.15, r0, lerpf(r0, 0.03, (crown_base - 0.2) / tip),
-			lerpf(r0, 0.03, 0.5), 0.03]
-	var colors: Array[Color] = [NEUTRAL, NEUTRAL, NEUTRAL, NEUTRAL.lerp(inner, 0.7), inner, inner]
-	_trunk(mb, &"bark_pine", centers, radii, 10 if detail else 5, colors, 0.3, rng)
-	var spacing := 0.46 if detail else 0.5
-	var y := crown_base
-	var whorl := 0
-	while y < height - 1.3:
-		var t := (y - crown_base) / (height - crown_base)
-		var length := radius * pow(1.0 - t, 0.92) * rng.randf_range(0.88, 1.1) + 0.35
-		var count := rng.randi_range(5, 6) if detail else 5
-		for b in count:
-			var ang := TAU * (b + rng.randf_range(-0.22, 0.22)) / count + whorl * 1.13
-			var out := Vector3(cos(ang), 0.0, sin(ang))
-			# Low branches hang, high ones rise.
-			var elev := lerpf(-0.38 * droop, 0.55, pow(t, 0.85)) + rng.randf_range(-0.08, 0.08)
-			var dir := (out + Vector3.UP * elev).normalized()
-			var start := Vector3(0, y, 0) + out * r0 * 0.4
-			if detail and t < 0.75:
-				mb.cylinder_between(&"bark_pine", start, start + dir * length * 0.7, 0.035, 0.01, 4, NEUTRAL, true, false)
-			_spruce_branch(mb, needles, start, out, dir, length, t, rng, detail, deep)
-		y += spacing * rng.randf_range(0.85, 1.15)
-		whorl += 1
-	# Needle clumps round the trunk: the dense, dark core of a spruce.
-	var cy := crown_base + 0.4
-	while cy < height - 1.6:
-		var t := (cy - crown_base) / (height - crown_base)
-		var size := minf(radius * pow(1.0 - t, 0.92) * 1.1 + 0.4, 2.6)
-		var a := rng.randf() * TAU
-		for k in 2:
-			var face := Vector3(cos(a + k * PI * 0.5), 0.0, sin(a + k * PI * 0.5))
-			var side := face.cross(Vector3.UP)
-			var shade := _crown_shade(_tint(rng, 0.06, -0.02), 0.35 + t * 0.4, deep)
-			mb.card(needles, Vector3(0, cy, 0), side * size, Vector3.UP * size * 0.9,
-					SPRUCE_CLUMPS[rng.randi() % 2], (face * 0.5 + Vector3.UP * 0.5), shade, 0.6, 0.8)
-		cy += 1.0 if detail else 0.9
-	# The leader: two crossed upright shoots.
-	var top := height - 1.75
-	for k in 2:
-		var a := rng.randf() * PI + k * PI * 0.5
-		var side := Vector3(cos(a), 0.0, sin(a))
-		_stem_card(mb, needles, Vector3(0, top, 0), side * 0.95, Vector3.UP * 1.9, SPRUCE_LEADER,
-				(side.cross(Vector3.UP) * 0.4 + Vector3.UP * 0.6), _tint(rng, 0.05), _tint(rng, 0.05))
-	mb.set_sway_by_height(needles, 0.0, height, 1.0)
-	mb.set_sway_by_height(&"bark_pine", height * 0.3, height, 0.4)
-	var m := mb.build({}, true)
-	_crowns[m] = [crown_base, height, radius, false]
-	return m
-
-
-## One whorl branch: two fronds crossed along it at a random turn (so it has depth
-## from every side and is never just a flat card seen edge-on), darker at the trunk
-## end and on low whorls.
-static func _spruce_branch(mb: MeshBuilder, key: StringName, start: Vector3, out: Vector3, dir: Vector3,
-		length: float, t: float, rng: RandomNumberGenerator, detail: bool, deep: float) -> void:
-	var flat := dir.cross(Vector3.UP).normalized()
-	var n := (out * 0.62 + Vector3.UP * (0.45 + 0.25 * t)).normalized()
-	var reach := length * (1.08 if detail else 1.12)
-	var width := reach * 0.95
-	var first := rng.randf_range(0.25, 0.75) * (1.0 if rng.randf() < 0.5 else -1.0)
-	var rolls := [first, first + PI * 0.5 + rng.randf_range(-0.3, 0.3)]
-	for i in rolls.size():
-		var side := flat.rotated(dir, rolls[i])
-		var rect := SPRUCE_FRONDS[rng.randi() % SPRUCE_FRONDS.size()]
-		var tint := _tint(rng, 0.07, -0.02)
-		# Under the crown and next to the trunk is darker.
-		var low := 0.55 + 0.45 * t
-		_stem_card(mb, key, start - dir * 0.1, side * width * (1.0 if i == 0 else 0.8), dir * reach, rect,
-				n, _crown_shade(tint, 0.25 * low, deep), _crown_shade(tint, (0.85 + rng.randf_range(0.0, 0.15)) * low, deep),
-				0.3, 1.0)
-
-
-# --- Distant impostors ------------------------------------------------------------------
-# The far hill forest is drawn as camera-facing cards showing a picture of the real
-# tree (tools/tree_impostors.gd renders the atlas): one layer per tree instead of a
-# hundred overlapping foliage cards.
-
-const IMPOSTOR_ATLAS := "res://art/textures/impostors/forest.png"
-## Cell height / width in the atlas.
-const IMPOSTOR_ASPECT := 1.5
-## Which of forest_meshes() are broadleaf (autumn colours, leaf fall). The first five
-## keep the old order (three conifers, two broadleaf): the backdrop picks among them.
-const FOREST_BROAD: Array[bool] = [false, false, false, true, true, false, false, true]
+## Which of forest_meshes() are broadleaf (autumn colours, leaf fall).
+static func forest_broad() -> Array[bool]:
+	var out: Array[bool] = []
+	for t in TREES:
+		out.append(bool(tree_info(t)["broad"]))
+	return out
 
 
 ## The hill forest trees, in atlas order.
 static func forest_meshes() -> Array[Mesh]:
-	return [pine(4, false), pine(5, false), pine(6, false), oak(4, false), oak(5, false),
-		pine(7, false), pine(8, false), oak(6, false)]
+	var out: Array[Mesh] = []
+	for t in TREES:
+		out.append(tree(t))
+	return out
 
 
 ## Indices into forest_meshes() of the conifers and of the broadleaf trees.
 static func forest_kinds(broad: bool) -> Array[int]:
 	var out: Array[int] = []
-	for i in FOREST_BROAD.size():
-		if FOREST_BROAD[i] == broad:
+	var flags := forest_broad()
+	for i in flags.size():
+		if flags[i] == broad:
 			out.append(i)
 	return out
 
 
 ## World size (width, height) of a tree's picture: base at the bottom edge, trunk centred.
 static func impostor_frame(mesh: Mesh) -> Vector2:
-	var box := mesh.get_aabb()
-	var half := maxf(maxf(-box.position.x, box.end.x), maxf(-box.position.z, box.end.z))
-	var h := maxf(box.end.y * 1.02, half * 2.0 * IMPOSTOR_ASPECT)
-	return Vector2(h / IMPOSTOR_ASPECT, h)
+	var imp: Dictionary = tree_info(_tree_names[mesh])["impostor"]
+	return Vector2(float(imp["width"]), float(imp["height"]))
 
 
 ## Unit card for the impostor shader: x across (-0.5..0.5), y up (0..1).
@@ -441,15 +288,15 @@ static func impostor_card() -> ArrayMesh:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/tree_impostor.gdshader")
 	mat.set_shader_parameter("atlas", load(IMPOSTOR_ATLAS))
-	mat.set_shader_parameter("cells", float(forest_meshes().size()))
-	# Matches the foliage-card trees' average brightness (measured side by side).
-	mat.set_shader_parameter("brightness", 1.2)
+	mat.set_shader_parameter("normal_atlas", load(IMPOSTOR_NORMALS))
+	mat.set_shader_parameter("rows", float(TREES.size()))
+	mat.set_shader_parameter("views", float(IMPOSTOR_VIEWS))
 	m.surface_set_material(0, mat)
 	# The card turns to face the camera: cull it as the whole tree volume.
 	var widest := 0.0
 	var tallest := 0.0
-	for tree in forest_meshes():
-		var f := impostor_frame(tree)
+	for t in forest_meshes():
+		var f := impostor_frame(t)
 		widest = maxf(widest, f.x)
 		tallest = maxf(tallest, f.y)
 	m.custom_aabb = AABB(Vector3(-widest * 0.5, 0, -widest * 0.5), Vector3(widest, tallest, widest))
@@ -458,11 +305,11 @@ static func impostor_card() -> ArrayMesh:
 
 
 # --- Shadow proxies ------------------------------------------------------------------
-# The hill forest's foliage cards cast no shadows (thousands of alpha-tested cards in
-# every shadow cascade would cost more than the trees). Instead each tree casts the
-# shadow of a plain cone or ellipsoid a little inside its crown, holed in patches so
-# the shade is dappled with sun flecks: it falls on the forest floor and on the tree's
-# own inner and far-side branches.
+# On the lower graphics presets the hill forest's leaf cards cast no shadows (thousands
+# of alpha-tested cards in every shadow cascade; see NatureSpawner.CARD_SHADOWS).
+# Instead each tree casts the shadow of a plain cone or ellipsoid a little inside its
+# crown, holed in patches so the shade is dappled with sun flecks: it falls on the
+# forest floor and on the tree's own inner and far-side branches.
 
 ## Unit shadow shape: a lumpy cone (base radius about 1 at y 0, tip at y 1) for
 ## conifers, or a lumpy ellipsoid (radius 1 round (0, 0.5, 0), 1 tall) for broadleaf
@@ -557,6 +404,33 @@ static func _make_bush(seed_value: int) -> ArrayMesh:
 			_leaf_card(mb, &"leaves", p, out, c, center, radius, rng, rng.randf_range(0.7, 0.95), CROWN_SHADE_NEAR)
 	mb.set_sway_by_height(&"leaves", 0.0, 1.4, 0.45)
 	return mb.build({}, true)
+
+
+## One leafy twig card growing from `p` out of its lobe (centred at `lobe`), lit with a
+## normal between the lobe's and the whole crown's, darker deeper in the crown.
+static func _leaf_card(mb: MeshBuilder, key: StringName, p: Vector3, out: Vector3, lobe: Vector3,
+		crown_center: Vector3, crown: Vector3, rng: RandomNumberGenerator, length: float, deep: float) -> void:
+	var dir := (out + Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.2, 0.45), rng.randf_range(-0.45, 0.45))).normalized()
+	var side := dir.cross(Vector3.UP if absf(dir.y) < 0.95 else Vector3.RIGHT).normalized()
+	side = side.rotated(dir, rng.randf_range(-1.2, 1.2))
+	var rel := (p - crown_center) / crown
+	var n := (out * 0.55 + rel.normalized() * 0.35 + Vector3.UP * 0.25).normalized()
+	var tint := _tint(rng, 0.1)
+	# Deeper in the crown and on its underside is darker; the twig's stem end is
+	# further in than its tip.
+	var depth := clampf(rel.length(), 0.0, 1.2)
+	var open := depth * 0.75 + rel.y * 0.3 + 0.1
+	var base := p - dir * length * 0.3
+	_stem_card(mb, key, base, side * length, dir * length, LEAF_SPRAYS[rng.randi() % LEAF_SPRAYS.size()], n,
+			_crown_shade(tint, open - 0.3, deep), _crown_shade(tint, open + 0.15, deep), 0.85, 1.0)
+
+
+static func _rand_in_sphere(rng: RandomNumberGenerator) -> Vector3:
+	while true:
+		var v := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
+		if v.length_squared() <= 1.0 and v.length_squared() > 0.01:
+			return v
+	return Vector3.UP
 
 
 # --- Scanned nature models ------------------------------------------------------------

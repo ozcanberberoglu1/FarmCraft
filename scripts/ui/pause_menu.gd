@@ -75,11 +75,12 @@ func _fill_summary() -> void:
 	var rows := [
 		["calendar", "%s · %s %d" % [tr("HUD_DAY") % GameClock.day, GameClock.season_name(), GameClock.get_day_of_season()]],
 		["clock", GameClock.time_string()],
-		["coin", "%s %s" % [UiTheme.money(Economy.money), tr("UI_GOLD")]],
+		["", UiTheme.money(Economy.money)],
 		["paw", tr("UI_ANIMAL_COUNT") % Animals.animals.size()],
 	]
 	for r: Array in rows:
-		_summary.add_child(UiTheme.icon_row(UiTheme.glyph(r[0]), UiTheme.caps(String(r[1])), UiTheme.TEXT, 22, 22))
+		var tex: Texture2D = UiTheme.glyph(r[0]) if r[0] != "" else null
+		_summary.add_child(UiTheme.icon_row(tex, UiTheme.caps(String(r[1])), UiTheme.TEXT, 22, 22))
 	var weather := UiTheme.icon_row(Weather.icon(-1, GameClock.is_night()),
 			UiTheme.caps(Weather.kind_name(-1, GameClock.is_night())), UiTheme.TEXT, 22, 26)
 	_summary.add_child(weather)

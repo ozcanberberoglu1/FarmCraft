@@ -29,8 +29,8 @@ const RANCH_PEN := Rect2(252, 30, 12, 17)
 const POULTRY_YARD := Rect2(216.6, 7.4, 7.6, 5.9)
 ## The market's paved forecourt runs from x to x between its front wall and the pavement.
 const FORECOURT_X := Vector2(196.0, 216.0)
-## Fuel price per litre.
-const FUEL_PRICE := 2.0
+## Fuel price per litre, in dollars.
+const FUEL_PRICE := 0.5
 
 ## Kerbs are bevelled into mountable kerbs across the driveways (x from, x to).
 const DRIVEWAYS_N: Array[Vector2] = [Vector2(186.0, 195.5), Vector2(232.0, 262.0)]
@@ -1450,7 +1450,7 @@ func _station(mb: MeshBuilder, cols: Array) -> void:
 	mb.box_at(&"sign", totem + Vector3(0, 4.9, 0), Vector3(1.44, 1.0, 0.34), red)
 	mb.box_at(&"concrete", totem + Vector3(0, 0.15, 0), Vector3(1.7, 0.3, 0.6), Color(0.45, 0.45, 0.44))
 	BuildingKit.sign(self, "OVA", totem + Vector3(0, 4.9, -0.2), PI, 120, Color(1, 1, 1))
-	BuildingKit.sign(self, "YAKIT\n%d ALTIN/L" % int(FUEL_PRICE), totem + Vector3(0, 3.1, -0.17), PI, 70, Color(0.1, 0.1, 0.1), Color(0, 0, 0, 0), false)
+	BuildingKit.sign(self, "YAKIT\n$%.2f/L" % FUEL_PRICE, totem + Vector3(0, 3.1, -0.17), PI, 70, Color(0.1, 0.1, 0.1), Color(0, 0, 0, 0), false)
 	cols.append([totem + Vector3(0, 2.8, 0), Vector3(1.4, 5.6, 0.3), 0.0])
 
 
@@ -1578,7 +1578,7 @@ func _spawn_vehicle_for_sale() -> void:
 	for_sale = Vehicle.create(&"pickup_90", Transform3D(Basis(Vector3.UP, PI * 0.5), p), true)
 	add_child(for_sale)
 	for_sale.reset_physics_interpolation()
-	var price := BuildingKit.sign(self, "%s ALTIN" % UiTheme.money(for_sale.price),
+	var price := BuildingKit.sign(self, UiTheme.money(for_sale.price),
 			Vector3(DEALER_LOT.position.x + 16.0, _y(248, 12) + 1.5, DEALER_LOT.end.y - 0.36), 0.0, 90, Color(0.12, 0.1, 0.05), Color(0, 0, 0, 0), false)
 	for_sale.changed.connect(func() -> void: price.visible = not for_sale.owned)
 
@@ -1703,7 +1703,7 @@ func _poultry_stall(mb: MeshBuilder, cols: Array) -> void:
 	mb.box(&"paint_in", Transform3D(board_b, easel + Vector3(0, 0.64, 0) + board_b.z * 0.022), Vector3(0.54, 0.74, 0.004), Color(0.12, 0.14, 0.13))
 	mb.box(&"wood", Transform3D(Basis(Vector3.UP, 0.35) * Basis(Vector3.RIGHT, deg_to_rad(18.0)), easel + Vector3(0, 0.5, -0.2)),
 			Vector3(0.05, 1.0, 0.04), post)
-	var chalk := BuildingKit.sign(self, "CANLI\nTAVUK\n%s ALTIN" % UiTheme.money(LiveCrates.price(&"chicken")),
+	var chalk := BuildingKit.sign(self, "CANLI\nTAVUK\n%s" % UiTheme.money(LiveCrates.price(&"chicken")),
 			easel + Vector3(0, 0.66, 0) + board_b.z * 0.03, 0.35, 44, Color(0.93, 0.93, 0.88), Color(0, 0, 0, 0), false)
 	chalk.rotation.x = deg_to_rad(-12.0)
 	# Chalked small enough to stay on the 0.54 m board (the sign default is shop-front size).

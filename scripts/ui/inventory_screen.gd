@@ -264,7 +264,7 @@ func _show_details(s: ItemStack) -> void:
 		pl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		pl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		price_row.add_child(pl)
-		price_row.add_child(UiTheme.price(s.item.sell_price, 24, 24))
+		price_row.add_child(UiTheme.price(s.item.sell_price, 24))
 		_details_box.add_child(UiTheme.separator())
 		_details_box.add_child(price_row)
 

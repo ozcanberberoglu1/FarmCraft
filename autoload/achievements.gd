@@ -14,7 +14,7 @@ const LIST := {
 	&"first_building": {"icon": "hammer", "xp": 15},
 	&"first_chickens": {"icon": "paw", "xp": 10},
 	&"first_egg": {"item": &"egg", "xp": 5},
-	&"first_sale": {"icon": "coin", "xp": 5},
+	&"first_sale": {"icon": "tag", "xp": 5},
 	&"first_night": {"icon": "moon", "xp": 5},
 }
 ## The order they come in on the first day (for a list of them).
@@ -84,7 +84,8 @@ func icon(id: StringName) -> Texture2D:
 
 ## True when the icon is a line glyph (drawn tinted), false for an item's coloured icon.
 func icon_is_glyph(id: StringName) -> bool:
-	return not (LIST.get(id, {}) as Dictionary).has("item")
+	var info: Dictionary = LIST.get(id, {})
+	return not info.has("item")
 
 
 ## Old saves: what the loaded farm has done already counts, without toasts or

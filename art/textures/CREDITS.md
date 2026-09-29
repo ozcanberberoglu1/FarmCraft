@@ -51,3 +51,9 @@ signs, posters and flags of `town/town_print_albedo.png`.
 
 Re-download with `python3 tools/fetch_textures.py`; the grass card atlas is then rebuilt with
 `godot --headless -s res://tools/build_grass_cards.gd`.
+
+The work-effect textures in `fx/` (the dust puff atlas, the watering can's wet-spot decal
+and its roughness map) are painted procedurally by `tools/gen_fx_textures.py` (no
+downloads). The chips, splinters, rock fragments, clods and leaves thrown by the axe, pick,
+hoe and scythe reuse the Poly Haven bark_brown_02, pine_bark, rock_face_03 and farm_soil
+maps listed above.

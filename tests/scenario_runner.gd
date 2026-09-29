@@ -634,6 +634,8 @@ func _resources() -> void:
 	var wood := inv.count_item(&"wood")
 	await _hold_use(tree.max_hp() * 0.75 + 1.0)
 	_check(tree.felled, "the tree falls after %d hits" % tree.max_hp())
+	_check(tree.cut_height > 1.0 and tree.cut_height < 1.5 and is_equal_approx(tree._stump_shape.shape.height, tree.cut_height),
+			"it breaks where the axe hit, the stump as tall as the cut (%.2f m)" % tree.cut_height)
 	await _seconds(4.0)
 	_check(inv.count_item(&"wood") >= wood + 5, "chopping gives wood (%d -> %d)" % [wood, inv.count_item(&"wood")])
 	# Break a quarry rock.
@@ -668,6 +670,7 @@ func _resources() -> void:
 		GameClock.day += 1
 		Events.day_started.emit(GameClock.day)
 	_check(not tree.felled and not rock.broken and not patch.cut, "resources regrow")
+	_check(tree._top == null and tree._mesh.get_surface_override_material(0) == null, "the regrown tree is whole again")
 
 
 func _economy() -> void:
@@ -675,15 +678,19 @@ func _economy() -> void:
 	var base := ItemDB.get_item(&"potato").sell_price
 	var p := Economy.sell_price(&"potato")
 	_check(p >= int(base * 0.8) and p <= int(base * 1.45), "market price in range (%d, base %d)" % [p, base])
-	var before := Economy.sell_price(&"carrot")
-	Economy.sold_today[&"carrot"] = 60
-	_check(Economy.sell_price(&"carrot") < before, "selling a lot lowers the price")
-	Economy.sold_today.erase(&"carrot")
+	# (A dear item: a few-dollar carrot's whole-dollar price can round the drop away.)
+	var before := Economy.sell_price(&"pumpkin")
+	Economy.sold_today[&"pumpkin"] = 60
+	_check(Economy.sell_price(&"pumpkin") < before, "selling a lot lowers the price")
+	Economy.sold_today.erase(&"pumpkin")
 	# A quote is exactly what the sale then pays (each unit lowers the price).
-	var quoted := Economy.quote(&"carrot", 60)
-	var first := Economy.sell_price(&"carrot")
-	var paid := Economy.sell(&"carrot", 60)
-	_check(quoted == paid and paid < first * 60, "a quote for 60 carrots matches the sale (%d gold, first unit %d)" % [paid, first])
+	var quoted := Economy.quote(&"pumpkin", 60)
+	var first := Economy.sell_price(&"pumpkin")
+	var paid := Economy.sell(&"pumpkin", 60)
+	_check(quoted == paid and paid < first * 60, "a quote for 60 pumpkins matches the sale ($%d, first unit $%d)" % [paid, first])
+	Economy.sold_today.erase(&"pumpkin")
+	Economy.sold_today[&"carrot"] = 60
+	_check(Economy.quote(&"carrot", 10) < Economy.quote(&"carrot", 10, 0, 1.0, -60), "a lot of cheap carrots still fetches less after a big sale")
 	# Two qualities of one item in a row: the second lot is quoted after the first.
 	Economy.sold_today.erase(&"carrot")
 	var two := Economy.quote(&"carrot", 10, 1) + Economy.quote(&"carrot", 10, 0, 1.0, 10)
@@ -700,7 +707,9 @@ func _economy() -> void:
 	screen._sel = {"id": &"carrot_seed", "quality": 0}
 	screen._qty = 5
 	screen._confirm()
-	_check(PlayerState.inventory.count_item(&"carrot_seed") == seeds + 5 and Economy.money == money - 40, "bought 5 carrot seeds for 40")
+	var seed_cost := 5 * Economy.buy_price(&"carrot_seed")
+	_check(PlayerState.inventory.count_item(&"carrot_seed") == seeds + 5 and Economy.money == money - seed_cost,
+			"bought 5 carrot seeds for $%d" % seed_cost)
 	# Selling through the shop.
 	PlayerState.inventory.add_item(&"pumpkin", 2)
 	screen._set_tab("sell")
@@ -708,7 +717,8 @@ func _economy() -> void:
 	screen._qty = 2
 	var gold := Economy.money
 	screen._confirm()
-	_check(Economy.money > gold + 200 and PlayerState.inventory.count_item(&"pumpkin") == 0, "sold 2 pumpkins (+%d)" % (Economy.money - gold))
+	_check(Economy.money >= gold + roundi(2 * ItemDB.get_item(&"pumpkin").sell_price * 0.8) and PlayerState.inventory.count_item(&"pumpkin") == 0,
+			"sold 2 pumpkins (+%d)" % (Economy.money - gold))
 	screen.close_screen()
 	# Shipping bin sells overnight.
 	var bin: ShippingBin = Game.world.farm.get_node("ShippingBin")
@@ -716,6 +726,28 @@ func _economy() -> void:
 	gold = Economy.money
 	Events.day_ending.emit()
 	_check(Economy.money > gold and bin.inventory.count_item(&"tomato") == 0, "shipping bin sold overnight (+%d)" % (Economy.money - gold))
+	# The courier's quarter shows even on cheap goods: a lot's units are summed before
+	# rounding (wheat at $2 would round back to $2 a unit).
+	Economy.sold_today.erase(&"wheat")
+	var full := Economy.quote(&"wheat", 20)
+	var shipped := Economy.quote(&"wheat", 20, 0, ShippingBin.COMMISSION_FACTOR)
+	_check(shipped < full and absi(shipped - roundi(full * ShippingBin.COMMISSION_FACTOR)) <= 1,
+			"the shipping bin pays three quarters of the market on cheap goods too ($%d of $%d)" % [shipped, full])
+	# Dollars: a new farm has $150, two hens at the stall cost $50 each and what they
+	# leave still pays for the coop kit; money reads with the dollar sign.
+	var hen := LiveCrates.price(&"chicken")
+	var kit := int(ProjectTable.get_project(&"coop_kit")["cost"])
+	_check(Economy.STARTING_MONEY == 150 and hen == 50 and Economy.STARTING_MONEY - 2 * hen == 50 and kit <= 50 - 20,
+			"a new farm: $%d, hens $%d each, the coop kit $%d" % [Economy.STARTING_MONEY, hen, kit])
+	# The next morning: what is left, and Grandpa's carrots and an egg sold through the bin.
+	var morning := Economy.STARTING_MONEY - 2 * hen - kit + Economy.quote(&"carrot", Quests.GRANDPA_BEDS * 2, 0, ShippingBin.COMMISSION_FACTOR) \
+			+ Economy.quote(&"egg", 1, 0, ShippingBin.COMMISSION_FACTOR)
+	_check(Economy.buy_price(&"workbench") <= morning,
+			"the second day's workbench ($%d) is in reach of the first day's sales ($%d)" % [Economy.buy_price(&"workbench"), morning])
+	_check(UiTheme.money(1500).contains("$") and UiTheme.money(1500).contains("1") and UiTheme.number(1500).find("$") < 0,
+			"money reads with the dollar sign (%s), plain counts without" % UiTheme.money(1500))
+	var paying: Array = Quests.TUTORIAL.filter(func(g: Dictionary) -> bool: return g.has("gold") or g.has("money"))
+	_check(paying.is_empty(), "no story goal pays money")
 
 
 func _build() -> void:
@@ -1556,6 +1588,7 @@ func _save_load() -> void:
 			felled_id = t.resource_id
 			break
 	FarmState.depleted[felled_id] = GameClock.day
+	FarmState.stumps[felled_id] = [0.95, 1.0]
 	var farm: Farm = Game.world.farm
 	# A finished coop with its door shut and a hen, and a site half done.
 	var ce := FarmState.add_placed(&"coop_kit", Vector3(35.0, TerrainData.height(35.0, -17.5), -17.5), 0.5)
@@ -1619,10 +1652,12 @@ func _save_load() -> void:
 	_check(back_plot != null and back_plot.crop == &"tomato" and is_equal_approx(back_plot.growth, 0.42) and back_plot.soil == FarmPlot.Soil.TILLED,
 			"the planted field plot is back")
 	var stump := false
+	var cut := 0.0
 	for t: ChoppableTree in tree.get_nodes_in_group(&"trees"):
 		if t.resource_id == felled_id:
 			stump = t.felled
-	_check(felled_id != "" and stump, "the felled tree is still a stump")
+			cut = t.cut_height
+	_check(felled_id != "" and stump and is_equal_approx(cut, 0.95), "the felled tree is still a stump, cut as before (%.2f m)" % cut)
 	var animals_back := Animals.animals.map(func(a: AnimalData) -> String: return "%s_%d" % [a.species, a.id])
 	var spawned := 0
 	for a in Animals.animals:
@@ -1891,7 +1926,8 @@ func _workshop() -> void:
 	var money_before := Economy.money
 	var ore_before := inv.count_item(&"iron_ore")
 	_check(crafting.upgrade_tool(7) and axe.upgrade == 1 and axe.max_durability() == roundi(axe.item.max_durability * 1.5)
-			and axe.durability == axe.max_durability() and Economy.money == money_before - 250 and inv.count_item(&"iron_ore") == ore_before - 6,
+			and axe.durability == axe.max_durability() and Economy.money == money_before - int(CraftingScreen.UPGRADE_COST[1]["money"])
+			and inv.count_item(&"iron_ore") == ore_before - 6,
 			"upgraded the axe to +1 (%d durability)" % axe.max_durability())
 	_check(not crafting.can_upgrade(7), "the next upgrade needs farm level %d" % UnlockTable.TOOL_UPGRADES[2])
 	_check(is_equal_approx(axe.speed_factor(), 0.8) and ItemStack.from_dict(axe.to_dict()).upgrade == 1, "a +1 tool works 20%% faster and keeps its upgrade in saves")
@@ -2004,7 +2040,7 @@ func _coop() -> void:
 		PlayerState.select(0)
 		Progress.level = level
 
-	# (1) The board cuts a kit at level 1: 15 wood and 100 gold, into the bag.
+	# (1) The board cuts a kit at level 1: 15 wood and its price, into the bag.
 	if not FarmState.is_built(&"coop_1"):
 		_check(not FarmState.is_listed(&"coop_1") and not FarmState.is_listed(&"coop_2") and FarmState.is_listed(&"coop_kit"),
 				"a new farm's board offers the coop kit, not Grandpa's old run")
@@ -2013,7 +2049,8 @@ func _coop() -> void:
 	var wood := inv.count_item(&"wood")
 	var gold := Economy.money
 	_check(FarmState.build(&"coop_kit") and inv.count_item(&"coop_kit") == 1 and inv.count_item(&"wood") == wood - 15
-			and Economy.money == gold - 100, "the board cuts a coop kit at level 1 (15 wood, 100 gold) into the bag")
+			and Economy.money == gold - int(ProjectTable.get_project(&"coop_kit")["cost"]),
+			"the board cuts a coop kit at level 1 (15 wood, $%d) into the bag" % int(ProjectTable.get_project(&"coop_kit")["cost"]))
 	_check(not FarmState.is_built(&"coop_kit") and FarmState.can_build(&"coop_kit"), "another kit can be made (more coops)")
 
 	# (2) Reserved ground and the red ghost.
@@ -2596,10 +2633,11 @@ func _quests() -> void:
 	Quests.step_count = 0
 	Quests.tally = {}
 	var money := Economy.money
+	var xp_had := Progress.xp
 	for i in 3:
 		Events.action_done.emit("hoe", null)
-	_check(Quests.current()["id"] == "plant" and Economy.money == money + int(Quests.TUTORIAL[till_step]["gold"]),
-			"tilling three beds completes the tilling goal (+%d gold)" % (Economy.money - money))
+	_check(Quests.current()["id"] == "plant" and Economy.money == money and Progress.xp >= xp_had + int(Quests.TUTORIAL[till_step]["xp"]),
+			"tilling three beds completes the tilling goal: experience, no money (+%d xp)" % (Progress.xp - xp_had))
 	Events.action_done.emit("water", null)
 	_check(Quests.current()["id"] == "plant" and Quests.step_count == 0, "other work doesn't count toward the current goal")
 	var tracker: Label = Game.hud._quest_text
@@ -2744,6 +2782,32 @@ func _quests() -> void:
 		FarmState.remove_placed(made.entry)
 		made.queue_free()
 
+	# Grandpa's ripe beds wait for the harvest goal: before it no badge, no crop card and
+	# no tool works on them, and the mark survives a save; from the goal on they are beds.
+	var grandpa_field := Quests._first_field()
+	if grandpa_field:
+		var bed: FarmPlot = grandpa_field.plots.back()
+		var bed_had := bed.save_data()
+		Quests.step = Quests.index_of("hens_in")
+		var beds: Array[FarmPlot] = [bed]
+		Quests._ripen_beds(beds, 1)
+		var scythe := ItemStack.create(&"scythe")
+		var can := ItemStack.create(&"watering_can")
+		_check(bed.is_ready() and bed.grandpa and bed.held_back() and not bed._indicator.visible
+				and bed.use_action(null, scythe).is_empty() and bed.use_prompt(null, scythe) == ""
+				and bed.use_action(null, can).is_empty(),
+				"before the harvest goal Grandpa's ripe bed shows no badge and takes no tool")
+		var saved := bed.save_data()
+		bed.load_data({})
+		bed.load_data(saved)
+		_check(bool(saved.get("grandpa", false)) and bed.held_back() and not bed._indicator.visible,
+				"Grandpa's bed keeps its mark through a save")
+		Quests.step = Quests.index_of("harvest")
+		Quests.tutorial_changed.emit()
+		_check(not bed.held_back() and bed._indicator.visible and String(bed.use_action(null, scythe).get("id", "")) == "harvest",
+				"at the harvest goal Grandpa's bed shows its badge and can be cut")
+		bed.load_data(bed_had)
+
 	# The first harvest, the bin, the first egg; then the coop's care.
 	var harvest_step := Quests.index_of("harvest")
 	Quests.step = harvest_step
@@ -2879,8 +2943,8 @@ func _quests() -> void:
 	# The coop's care: the events of the feeder, the water trough and the nests.
 	money = Economy.money
 	Events.coop_fed.emit(null)
-	_check(Quests.current()["id"] == "coop_water" and Economy.money == money + int(Quests.TUTORIAL[Quests.index_of("feed")]["gold"]),
-			"feed in the coop's feeder completes the feeding goal (+%d gold)" % (Economy.money - money))
+	_check(Quests.current()["id"] == "coop_water" and Economy.money == money,
+			"feed in the coop's feeder completes the feeding goal (no money: only sales pay)")
 	Events.coop_watered.emit(null)
 	_check(Quests.current()["id"] == "straw", "water in the coop's trough completes the watering goal")
 	Events.nest_filled.emit(null, 1)

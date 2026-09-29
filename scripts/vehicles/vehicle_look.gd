@@ -2,8 +2,9 @@ class_name VehicleLook
 extends RefCounted
 ## Materials that dress a vehicle model from its VehicleTable entry: clear-coated,
 ## weathered body paint (vehicle_paint), trim with chrome, dust and rust (vehicle_trim),
-## rubber and rims (vehicle_wheel), a cab interior out of the sky's light and Turkish
-## number plates. Used by Vehicle and by tools/vehicle_portraits.gd (which runs without
+## tyres, rims and brakes (vehicle_wheel), a cab interior out of the sky's light and
+## Turkish number plates; and the modelled parts that stand in for the model's own
+## (add_detail). Used by Vehicle and by tools/vehicle_portraits.gd (which runs without
 ## the game's autoloads, so nothing here may use them).
 
 ## Wear textures of the paint and trim shaders (Poly Haven, CC0): painted steel with
@@ -12,9 +13,43 @@ const PIT_TEX := "res://art/textures/rusty_metal_02/rusty_metal_02_%s.jpg"
 const SCALE_TEX := "res://art/textures/rust_coarse_01/rust_coarse_01_%s.jpg"
 ## Share of the ambient (sky and bounce) light that reaches inside the cab.
 const CAB_AMBIENT := 0.4
+## The modelled wheels' materials (tools/build_pickup_hd.py), in the order of
+## vehicle_wheel.gdshader's `part`.
+const WHEEL_PARTS := ["Tire_Rubber", "Tire_Rim", "Tire_Hardware", "Tire_Brake"]
 
 ## Number plate quads by plate box and texture.
 static var _plate_cache := {}
+## Modelled parts by scene path: node name -> mesh.
+static var _detail_cache := {}
+
+
+## Modelled parts that stand in for the downloaded model's own (tools/build_pickup_hd.py):
+## a mesh of the scene at `path` replaces the model's mesh of the same node name, in
+## that node's frame (it fills the same box, so wheel radius and pivots stay). Where
+## it names one of the old mesh's materials, that material stays on.
+static func add_detail(model: Node3D, path: String) -> void:
+	if not _detail_cache.has(path):
+		var found := {}
+		var parts := (load(path) as PackedScene).instantiate()
+		for mi: MeshInstance3D in parts.find_children("*", "MeshInstance3D", true, false):
+			found[String(mi.name)] = mi.mesh
+		parts.free()
+		_detail_cache[path] = found
+	var meshes: Dictionary = _detail_cache[path]
+	for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = meshes.get(String(mi.name))
+		if mesh == null:
+			continue
+		var own := {}
+		for si in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(si)
+			if m:
+				own[m.resource_name] = m
+		mi.mesh = mesh
+		for si in mesh.get_surface_count():
+			var m := mesh.surface_get_material(si)
+			if m and own.has(m.resource_name):
+				mi.set_surface_override_material(si, own[m.resource_name])
 
 
 ## Body paint from the model's paint material (its panel-line normals and occlusion)
@@ -40,11 +75,11 @@ static func trim(src: StandardMaterial3D, info: Dictionary) -> ShaderMaterial:
 	return mat
 
 
-## Tyres and rims from the model's tyre atlas and the entry's "wheel" look.
+## A tyre, rim, hardware or brake material of the modelled wheels (by the name of
+## `src`, see WHEEL_PARTS) with the entry's "wheel" look.
 static func wheel(src: StandardMaterial3D, info: Dictionary) -> ShaderMaterial:
 	var mat := _shader_mat("res://shaders/vehicle_wheel.gdshader", info.get("wheel", {}), info)
-	mat.set_shader_parameter("albedo_tex", src.albedo_texture)
-	mat.set_shader_parameter("orm_tex", src.metallic_texture)
+	mat.set_shader_parameter("part", maxi(WHEEL_PARTS.find(src.resource_name), 0))
 	mat.set_shader_parameter("pit_albedo", load(PIT_TEX % "diff"))
 	return mat
 

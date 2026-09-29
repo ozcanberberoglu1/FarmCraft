@@ -5,47 +5,22 @@ extends Node3D
 ## strike, impact hold, recovery). A stroke of a hold-to-use action is sampled on the
 ## player's action clock, so the contact pose lands on the tick the effect happens and
 ## is always drawn, even when a slow frame steps over it. The watering can pours a
-## stream while it is tipped; an item taken from the world flies into the hand.
+## stream while it is tipped, from its spout onto what the player aims at; an item
+## taken from the world flies into the hand.
 
-## Per-item pose in camera space: [position, rotation (deg), scale]
-const POSES := {
-	&"hoe": [Vector3(0.36, -0.5, -0.56), Vector3(-66, 4, 12), 0.56],
-	&"scythe": [Vector3(0.4, -0.5, -0.6), Vector3(-62, -24, 10), 0.55],
-	&"pickaxe": [Vector3(0.36, -0.44, -0.52), Vector3(-60, 0, 14), 0.62],
-	&"axe": [Vector3(0.36, -0.44, -0.52), Vector3(-60, 0, 14), 0.62],
-	&"pitchfork": [Vector3(0.36, -0.52, -0.56), Vector3(-66, 4, 12), 0.54],
-	&"watering_can": [Vector3(0.4, -0.42, -0.78), Vector3(2, -72, 0), 0.8],
-	&"milk_pail": [Vector3(0.38, -0.48, -0.7), Vector3(0, -20, 0), 0.8],
-	&"shears": [Vector3(0.26, -0.28, -0.46), Vector3(-60, 0, 20), 1.0],
-	&"brush": [Vector3(0.26, -0.28, -0.46), Vector3(-20, 30, 0), 1.0],
-	# Bulky goods are carried lower and further out, on their base.
-	&"hay": [Vector3(0.3, -0.44, -0.74), Vector3(8, 25, 0), 0.78],
-	&"flour": [Vector3(0.3, -0.46, -0.7), Vector3(6, 25, 0), 0.8],
-	&"feed": [Vector3(0.3, -0.46, -0.7), Vector3(6, 25, 0), 0.8],
-	&"manure": [Vector3(0.3, -0.46, -0.7), Vector3(6, 25, 0), 0.8],
-	&"fertilizer": [Vector3(0.3, -0.46, -0.72), Vector3(8, 25, 0), 0.8],
-	&"milk": [Vector3(0.3, -0.46, -0.68), Vector3(4, 25, 0), 0.8],
-	&"pumpkin": [Vector3(0.3, -0.44, -0.72), Vector3(8, 25, 0), 0.85],
-	# Wood and stone: one piece in the hand, not the whole pile.
-	&"wood": [Vector3(0.3, -0.4, -0.6), Vector3(12, 62, 6), 0.4],
-	&"stone": [Vector3(0.3, -0.38, -0.58), Vector3(10, 30, 0), 0.5],
-	# A crate of hens is carried in front with both hands, its long side across the view.
-	&"chicken_crate": [Vector3(0.02, -0.46, -0.64), Vector3(4, 90, 0), 0.95],
-}
-const DEFAULT_POSE := [Vector3(0.25, -0.24, -0.46), Vector3(12, 30, 0), 1.0]
-const DEG := PI / 180.0
 ## Seconds a cut-short stroke takes to ease back to rest.
 const CANCEL_BLEND := 0.16
-## The watering can's spout tip and pouring direction in its model space (measured on the
-## scan; the spout points along +Z).
-const SPOUT := Vector3(0.0, 0.217, 0.411)
-const SPOUT_DIR := Vector3(0.0, 0.33, 0.94)
+## The watering can's spout tip and pouring direction in its model space.
+const SPOUT := HeldPoses.SPOUT
+const SPOUT_DIR := HeldPoses.SPOUT_DIR
 ## Seconds an item taken from the world flies into the hand or down into the hotbar.
 const RECEIVE_TIME := 0.32
 
 var _model: MeshInstance3D
 var _item_id: StringName = &""
 var _base := Transform3D.IDENTITY
+## The hand's point in the model (see grip_point).
+var _grip := Vector3.ZERO
 var _sway := Vector2.ZERO
 var _last_basis := Basis.IDENTITY
 var _time := 0.0
@@ -63,16 +38,16 @@ var _local := -1.0
 ## latch the contact pose for the rest of the stroke.
 var _last_i := -1
 var _last_u := -1.0
-## The stroke's pose offset now: position (m) and rotation (deg) about the hand.
+## The stroke's pose offset now: position (m) and rotation about the hand.
 var _off_pos := Vector3.ZERO
-var _off_rot := Vector3.ZERO
+var _off_rot := Quaternion.IDENTITY
 ## Where a cut-short stroke eases back from, and how far along that is (1 -> 0).
 var _from_pos := Vector3.ZERO
-var _from_rot := Vector3.ZERO
+var _from_rot := Quaternion.IDENTITY
 var _blend := 0.0
 var _pour := false
 var _pour_w := 0.0
-var _stream: CPUParticles3D
+var _stream: FxStream
 ## An item taken from the world on its way into the hand (or the hotbar).
 var _flight: MeshInstance3D
 var _flight_from := Transform3D.IDENTITY
@@ -111,12 +86,8 @@ func _refresh() -> void:
 	if id == &"" or PlaceableTable.is_placeable(id):
 		return
 	_model.mesh = ItemModels.mesh(id)
-	var pose: Array = POSES.get(id, DEFAULT_POSE)
-	var s: float = pose[2]
-	_base = Transform3D(Basis.from_euler((pose[1] as Vector3) * DEG).scaled(Vector3.ONE * s), pose[0])
-	# Small items are held by their center rather than their origin.
-	if not POSES.has(id):
-		_base.origin -= _base.basis * _model.mesh.get_aabb().get_center()
+	_grip = HeldPoses.grip_point(id, _model.mesh)
+	_base = HeldPoses.rest_pose(id, _model.mesh)
 	# Bring the new item up from below.
 	_sway.y -= 0.35
 
@@ -152,7 +123,7 @@ func play(profile: StringName, length: float, strokes := 1, follow_player := tru
 	# Carries on from wherever a stroke cut short left the item (a new bed mid-swing).
 	_from_pos = _off_pos
 	_from_rot = _off_rot
-	_blend = 1.0 if _off_pos != Vector3.ZERO or _off_rot != Vector3.ZERO else 0.0
+	_blend = 1.0 if _off_pos != Vector3.ZERO or not _off_rot.is_equal_approx(Quaternion.IDENTITY) else 0.0
 
 
 ## A swing (for tools) or a short push (for other items) on its own clock.
@@ -186,10 +157,15 @@ func set_pouring(on: bool) -> void:
 		add_child(_stream)
 	if on:
 		# Out of the spout for the can, else down out of the item's mouth.
-		_stream.direction = SPOUT_DIR if _item_id == &"watering_can" else Vector3.DOWN
+		_stream.axis = SPOUT_DIR if _item_id == &"watering_can" else Vector3.DOWN
 		_place_stream(_model.transform)
 	if _stream:
 		_stream.emitting = on and visible
+
+
+## Where the can's stream comes down now, else `fallback`.
+func water_landing(fallback: Vector3) -> Vector3:
+	return _stream.landing(fallback) if _stream else fallback
 
 
 ## Where things leave the item in the world: the can's spout, else the top of the model
@@ -212,6 +188,12 @@ func _place_stream(xf: Transform3D) -> void:
 	if _stream == null or _model.mesh == null:
 		return
 	_stream.transform = Transform3D(xf.basis.orthonormalized(), xf * _mouth_local())
+	# The water comes down on what the player aims at (the bed or trough being filled).
+	var player := Game.player as Player
+	if player and player.ray.is_colliding():
+		_stream.aim(player.ray.get_collision_point())
+	else:
+		_stream.aim(Vector3.ZERO, false)
 
 
 ## Freezes the item at `u` of a profile's stroke for screenshots (u < 0 lets go).
@@ -227,7 +209,7 @@ func _stop_stroke() -> void:
 	_prof = {}
 	_blend = 0.0
 	_off_pos = Vector3.ZERO
-	_off_rot = Vector3.ZERO
+	_off_rot = Quaternion.IDENTITY
 	set_pouring(false)
 
 
@@ -336,10 +318,10 @@ func _process(delta: float) -> void:
 	# The can wobbles a little in the hand while it pours.
 	_pour_w = move_toward(_pour_w, 1.0 if _pour else 0.0, delta * 6.0)
 	var wobble := Vector3(0, 0, sin(_time * TAU * 5.5) * 1.5) * _pour_w
-	var xf := _base
-	xf.origin += offset + _off_pos + Vector3(0, sin(_time * TAU * 3.1) * 0.006 * _pour_w, 0)
-	# Turned about the hand (the model's origin is the grip for long tools).
-	xf.basis = Basis.from_euler((_off_rot + wobble) * DEG) * xf.basis
+	var bob_pos := offset + Vector3(0, sin(_time * TAU * 3.1) * 0.006 * _pour_w, 0)
+	var rot := Quaternion.from_euler(wobble * HeldPoses.DEG) * _off_rot
+	# Turned about the hand (HeldPoses.grip_point).
+	var xf := HeldPoses.posed(_base, _grip, bob_pos + _off_pos, rot)
 	_model.transform = xf
 	if _stream:
 		_place_stream(xf)
@@ -365,16 +347,16 @@ func _update_stroke(delta: float, player: Player) -> void:
 				_prof = {}
 	# What is left of a stroke cut short, eased out on top of the new one (or of rest).
 	var left_pos := Vector3.ZERO
-	var left_rot := Vector3.ZERO
+	var left_rot := Quaternion.IDENTITY
 	if _blend > 0.0:
 		_blend = maxf(_blend - delta / CANCEL_BLEND, 0.0)
 		var w := _blend * _blend * (3.0 - 2.0 * _blend)
 		left_pos = _from_pos * w
-		left_rot = _from_rot * w
+		left_rot = Quaternion.IDENTITY.slerp(_from_rot, w)
 	if t >= 0.0:
 		_sample(t)
 		_off_pos += left_pos
-		_off_rot += left_rot
+		_off_rot = left_rot * _off_rot
 	else:
 		_off_pos = left_pos
 		_off_rot = left_rot
