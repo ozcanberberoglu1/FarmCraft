@@ -464,8 +464,11 @@ func _lay_first_egg() -> void:
 	rng.seed = hash(uid())
 	var spot := Vector3.INF
 	for n in housing.animals_outside():
-		spot = housing.clamp_to_pen(n.global_position, 0.6)
+		# Just behind her, and she walks off: she doesn't stand on it (the farmer can
+		# see and take it).
+		spot = housing.clamp_to_pen(n.global_position + n.global_basis.z * 0.35, 0.6)
 		spot.y = housing.ground_height(spot) + 0.1
+		n._go(housing.random_outdoor_point(rng), false, Animal.State.WANDER)
 		break
 	if spot == Vector3.INF:
 		spot = _loose_spot(rng)
@@ -977,7 +980,8 @@ static func _build_straw() -> ArrayMesh:
 
 ## A nest box: bedded with straw by hand (hay in hand, use), then the hens lay in it. Aimed
 ## at through its whole box, on the interaction layer only (eggs and the farmer pass; the
-## bench is the solid part).
+## bench is the solid part). Its box is what the look finds, so E takes the egg lying in
+## it nearest to where the farmer looks (one at a time).
 class Nest extends StaticBody3D:
 	var coop: ChickenCoop
 	var index := 0
@@ -1005,10 +1009,40 @@ class Nest extends StaticBody3D:
 	func set_filled(on: bool) -> void:
 		_straw.visible = on
 
-	func interact_prompt(_player: Node) -> String:
-		return ""
+	func interact_prompt(player: Node) -> String:
+		var egg := egg_at_look(player)
+		return egg.interact_prompt(player) if egg else ""
+
+	func interact(player: Node) -> void:
+		var egg := egg_at_look(player)
+		if egg:
+			egg.interact(player)
+
+	## The egg lying in this box nearest to where `player` looks (null: none).
+	func egg_at_look(player: Node) -> Pickup:
+		var aim := global_position + Vector3(0, ChickenCoop.NEST_SEAT, 0)
+		var p := player as Player
+		if p and p.ray.is_colliding():
+			aim = p.ray.get_collision_point()
+		var best: Pickup = null
+		var best_d := INF
+		for n in get_tree().get_nodes_in_group(&"pickups"):
+			var egg := n as Pickup
+			if egg == null or not egg.by_hand or egg.is_queued_for_deletion():
+				continue
+			var l := to_local(egg.global_position)
+			if absf(l.x) > ChickenCoop.NEST_DEPTH * 0.5 + 0.05 or absf(l.z) > ChickenCoop.NEST_PITCH * 0.5 \
+					or l.y < -0.05 or l.y > ChickenCoop.NEST_LID:
+				continue
+			var d := egg.global_position.distance_squared_to(aim)
+			if d < best_d:
+				best = egg
+				best_d = d
+		return best
 
 	func hint_prompt() -> String:
+		if egg_at_look(Game.player) != null:
+			return ""
 		if coop.nest_filled(index):
 			return tr("HINT_NEST_BEDDED")
 		var s := PlayerState.selected_stack()

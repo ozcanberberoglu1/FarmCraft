@@ -31,6 +31,9 @@ const ICON_ROTATION := {
 	&"rope": Vector3(28, 20, 0), &"nails": Vector3(18, 25, 0), &"worm": Vector3(32, 20, 0), &"dough": Vector3(30, 20, 0),
 	&"sapling": Vector3(0, 30, -8), &"campfire": Vector3(20, 20, 0),
 	&"rabbit": Vector3(8, 135, 0),
+	&"cane_rod": Vector3(12, 150, -38), &"carbon_rod": Vector3(12, 150, -38), &"carp_rod": Vector3(12, 150, -38),
+	&"maggot": Vector3(35, 20, 0), &"sweetcorn": Vector3(28, 20, 0), &"cheese_bait": Vector3(35, 20, 0),
+	&"minnow": Vector3(35, 20, 0), &"spinner": Vector3(55, 10, -20),
 }
 
 ## Long tools are framed on their working end: model-space focus point and view radius.
@@ -39,6 +42,8 @@ const ICON_FRAME := {
 	&"pitchfork": [Vector3(0, 0.84, 0.0), 0.5],
 	# The rod on its grip and reel (the tip runs out of the picture).
 	&"fishing_rod": [Vector3(0, 0.3, 0.0), 0.42],
+	&"cane_rod": [Vector3(0, 0.25, 0.0), 0.42], &"carbon_rod": [Vector3(0, 0.3, 0.0), 0.45],
+	&"carp_rod": [Vector3(0, 0.3, 0.0), 0.48],
 }
 
 static var _cache: Dictionary = {}

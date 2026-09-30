@@ -17,6 +17,13 @@ extends Node3D
 ## as if each bone's parent stood at rest, so a chain composes like FK
 ## (global = Q_root * ... * Q_bone * rest); positions come from the same FK, which
 ## the IK needs for the shoulders and hips.
+##
+## The arms keep out of the body: the torso's shape with its clothes is measured from
+## the mesh once per model (slices round the spine, see _measure); every reach pushes
+## the hand's target out of it and swings the elbow out until the upper arm, forearm
+## and wrist are clear, and a turned hand whose palm or fingers would sink in is moved
+## out. Held things go by the hand's grip (grip_point, hand_axes, hold): a rod or a
+## glass sits in the fist, not at the wrist.
 
 const DIR := "res://art/models/people/"
 const MODELS: Array[StringName] = [&"shopkeeper", &"worker", &"salesman", &"farmer", &"elder", &"villager", &"young"]
@@ -56,6 +63,41 @@ var _walk_blend := 0.0
 var _look := Vector2.ZERO
 var _materials: Array[BaseMaterial3D] = []
 
+## The torso's shape at rest (see _measure), shared by every body of a model: slices
+## SLICE apart from `y0` up, each a centre (cx, cz) and the farthest skin or cloth in
+## BINS directions round it (r, slice by slice), and the farthest of them (rmax).
+const SLICE := 0.03
+const BINS := 32
+## The bones that carry the torso, top down (a point goes with the first it is above).
+const TORSO: Array[StringName] = [&"spine_03", &"spine_02", &"spine_01", &"pelvis"]
+## Points checked along an arm: [0 upper arm / 1 forearm, how far along, radius].
+## (The upper arm's are thin: hanging, it rests against the side of the chest as it does.)
+const ARM_PROBES := [[0, 0.75, 0.026], [0, 0.92, 0.034], [1, 0.0, 0.043], [1, 0.35, 0.04], [1, 0.7, 0.035], [1, 1.0, 0.031]]
+static var _shapes := {}
+var _shape: Dictionary
+var _torso_rest: Array[Vector3] = []
+## The torso bones' posed heads and rotations this frame (TORSO order), redone when one
+## of them turns or the pelvis moves.
+var _torso_pos: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+var _torso_rot: Array[Quaternion] = [Quaternion.IDENTITY, Quaternion.IDENTITY, Quaternion.IDENTITY, Quaternion.IDENTITY]
+var _torso_inv: Array[Quaternion] = [Quaternion.IDENTITY, Quaternion.IDENTITY, Quaternion.IDENTITY, Quaternion.IDENTITY]
+var _torso_ok := false
+var _torso_ids := {}
+## The way out of the torso (body frame) at the last probed point, the deepest arm
+## point and the deepest hand point.
+var _probe_out := Vector3.ZERO
+var _arm_out := Vector3.ZERO
+var _hand_out := Vector3.ZERO
+## Per hand, at rest and relative to its bone's head: the fingers' way (d0), the palm's
+## normal (p0), the thumb's side (t0), the fist's grip centre, the palm's skin centre and
+## the palm's length; the frame's last reach [target, pole], redone by orient_hand.
+var _hand0 := {}
+var _grip0 := {}
+var _palm0 := {}
+var _palm_len := {}
+var _last_reach := {}
+var _last_hand := {}
+
 
 static func create(model: StringName, tints: Dictionary = {}) -> HumanRig:
 	var rig := HumanRig.new()
@@ -67,6 +109,7 @@ static func create(model: StringName, tints: Dictionary = {}) -> HumanRig:
 	rig.skeleton = inst.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
 	rig.body = rig.skeleton.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D
 	rig._setup()
+	rig._measure()
 	rig._setup_materials(tints)
 	return rig
 
@@ -105,6 +148,25 @@ func _setup() -> void:
 	pelvis_y = pos_rest("pelvis").y
 	ankle_y = pos_rest("foot_l").y
 	leg_len = float(_len[bi("thigh_l")]) + float(_len[bi("calf_l")])
+	for k in TORSO.size():
+		_torso_ids[bi(TORSO[k])] = k
+		_torso_rest.append(pos_rest(TORSO[k]))
+	# The hands: a fist closes round a point in front of the palm three quarters of the
+	# way to the knuckles; the palm's skin is under the middle of the hand.
+	for side: String in ["_l", "_r"]:
+		var h := pos_rest("hand" + side)
+		var knuckle := pos_rest("middle_01" + side)
+		var d0 := (knuckle - h).normalized()
+		var across := pos_rest("pinky_01" + side) - pos_rest("index_01" + side)
+		var s := 1.0 if side == "_l" else -1.0
+		var p0 := across.cross(d0).normalized() * s
+		p0 = (p0 - d0 * p0.dot(d0)).normalized()
+		var t0 := -s * d0.cross(p0)
+		_hand0[side] = Basis(d0, p0, t0)
+		var palm := knuckle.distance_to(h)
+		_palm_len[side] = palm
+		_grip0[side] = d0 * palm * 0.8 + p0 * 0.028
+		_palm0[side] = d0 * palm * 0.55 + p0 * 0.017
 
 
 static func _rel(node: Node3D, ancestor: Node) -> Transform3D:
@@ -172,6 +234,186 @@ func apply_quality() -> void:
 			m.alpha_antialiasing_mode = BaseMaterial3D.ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE if q >= Settings.Quality.HIGH else BaseMaterial3D.ALPHA_ANTIALIASING_OFF
 
 
+# --- The body's shape ------------------------------------------------------------------------
+
+## Measures the torso with its clothes at rest from the skinned mesh (once per model):
+## the vertices carried mostly by the pelvis, spine, clavicles and the thighs' tops, in
+## horizontal slices from mid-thigh to over the shoulders; each slice keeps its centre
+## and the farthest vertex in each of BINS directions round it.
+func _measure() -> void:
+	if _shapes.has(model_name):
+		_shape = _shapes[model_name]
+		return
+	var carried := {}
+	for b: StringName in [&"pelvis", &"spine_01", &"spine_02", &"spine_03", &"clavicle_l", &"clavicle_r", &"thigh_l", &"thigh_r"]:
+		carried[bi(b)] = true
+	var skin := body.skin
+	var to_rig := _rel(skeleton, self)
+	var xf: Array[Transform3D] = []
+	var torso_bind := PackedByteArray()
+	for k in skin.get_bind_count():
+		var bone := skin.get_bind_bone(k)
+		if bone < 0:
+			bone = skeleton.find_bone(skin.get_bind_name(k))
+		xf.append(to_rig * skeleton.get_bone_global_rest(bone) * skin.get_bind_pose(k))
+		torso_bind.append(1 if carried.has(bone) else 0)
+	var y0 := pelvis_y - 0.34
+	var y1 := maxf(pos_rest("clavicle_l").y, pos_rest("clavicle_r").y) + 0.03
+	var n := int(ceil((y1 - y0) / SLICE)) + 1
+	var slices: Array[PackedVector2Array] = []
+	slices.resize(n)
+	var mesh := body.mesh
+	for surf in mesh.get_surface_count():
+		var arr := mesh.surface_get_arrays(surf)
+		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		if verts.is_empty() or arr[Mesh.ARRAY_BONES] == null:
+			continue
+		var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+		var weights: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+		var per := bones.size() / verts.size()
+		for v in verts.size():
+			var tw := 0.0
+			var best := 0
+			var bw := -1.0
+			for j in per:
+				var w := weights[v * per + j]
+				var bb := bones[v * per + j]
+				if torso_bind[bb] == 1:
+					tw += w
+				if w > bw:
+					bw = w
+					best = bb
+			if tw < 0.5:
+				continue
+			var p := xf[best] * verts[v]
+			var f := (p.y - y0) / SLICE
+			for k in range(maxi(int(ceil(f - 0.75)), 0), mini(int(floor(f + 0.75)), n - 1) + 1):
+				slices[k].append(Vector2(p.x, p.z))
+	var cx := PackedFloat32Array()
+	var cz := PackedFloat32Array()
+	var r := PackedFloat32Array()
+	var rmax := PackedFloat32Array()
+	r.resize(n * BINS)
+	r.fill(0.0)
+	for k in n:
+		var pts := slices[k]
+		var lo := Vector2(INF, INF)
+		var hi := Vector2(-INF, -INF)
+		for p in pts:
+			lo = lo.min(p)
+			hi = hi.max(p)
+		var c := (lo + hi) * 0.5 if not pts.is_empty() else Vector2.ZERO
+		cx.append(c.x)
+		cz.append(c.y)
+		var m := 0.0
+		for p in pts:
+			var d := p - c
+			var j := int(fposmod(atan2(d.x, d.y) / TAU * BINS + 0.5, float(BINS))) % BINS
+			r[k * BINS + j] = maxf(r[k * BINS + j], d.length())
+			m = maxf(m, d.length())
+		# A direction no vertex fell in: the mean of its neighbours.
+		for j in BINS:
+			if r[k * BINS + j] <= 0.0:
+				r[k * BINS + j] = (r[k * BINS + (j + BINS - 1) % BINS] + r[k * BINS + (j + 1) % BINS]) * 0.5
+		rmax.append(m)
+	_shape = {"y0": y0, "n": n, "cx": cx, "cz": cz, "r": r, "rmax": rmax}
+	_shapes[model_name] = _shape
+
+
+func _torso_frame() -> void:
+	for k in TORSO.size():
+		var b := bi(TORSO[k])
+		_torso_pos[k] = pos(b)
+		_torso_rot[k] = acc(b)
+		_torso_inv[k] = _torso_rot[k].inverse()
+	_torso_ok = true
+
+
+## Which torso bone carries `p` (body frame, the pose so far): the index in TORSO; `p`
+## at rest relative to it is left in _probe_rest.
+var _probe_rest := Vector3.ZERO
+func _carrier(p: Vector3) -> int:
+	if not _torso_ok:
+		_torso_frame()
+	for k in TORSO.size():
+		var local := _torso_inv[k] * (p - _torso_pos[k])
+		if local.y > -0.03 or k == TORSO.size() - 1:
+			_probe_rest = _torso_rest[k] + local
+			return k
+	return TORSO.size() - 1
+
+
+## The torso slice at rest height `y`, direction `ang` (0 the front, + to the left):
+## Vector3(centre x, centre z, radius), or radius -1 off its top and bottom.
+func _slice(y: float, ang: float) -> Vector3:
+	var f := (y - float(_shape["y0"])) / SLICE
+	var n: int = _shape["n"]
+	if f < 0.0 or f > float(n - 1):
+		return Vector3(0, 0, -1)
+	var k := mini(int(f), n - 2)
+	var t := f - float(k)
+	var cxs: PackedFloat32Array = _shape["cx"]
+	var czs: PackedFloat32Array = _shape["cz"]
+	var rs: PackedFloat32Array = _shape["r"]
+	var fb := fposmod(ang / TAU * BINS, float(BINS))
+	var j := int(fb) % BINS
+	var u := fb - floorf(fb)
+	var j2 := (j + 1) % BINS
+	var r0 := lerpf(rs[k * BINS + j], rs[k * BINS + j2], u)
+	var r1 := lerpf(rs[(k + 1) * BINS + j], rs[(k + 1) * BINS + j2], u)
+	return Vector3(lerpf(cxs[k], cxs[k + 1], t), lerpf(czs[k], czs[k + 1], t), lerpf(r0, r1, t))
+
+
+## How far `p` (body frame, the pose so far) is inside the torso's skin or clothes
+## (negative: outside by that much, -1 well clear); the way out is left in _probe_out.
+func _probe(p: Vector3) -> float:
+	var k := _carrier(p)
+	var rp := _probe_rest
+	var f := (rp.y - float(_shape["y0"])) / SLICE
+	if f < 0.0 or f > float(int(_shape["n"]) - 1):
+		return -1.0
+	var ki := int(f)
+	var cxs: PackedFloat32Array = _shape["cx"]
+	var czs: PackedFloat32Array = _shape["cz"]
+	var dx := rp.x - cxs[ki]
+	var dz := rp.z - czs[ki]
+	var rr := sqrt(dx * dx + dz * dz)
+	if rr > (_shape["rmax"] as PackedFloat32Array)[ki] + 0.12:
+		return -1.0
+	var s := _slice(rp.y, atan2(dx, dz))
+	dx = rp.x - s.x
+	dz = rp.z - s.y
+	rr = sqrt(dx * dx + dz * dz)
+	_probe_out = _torso_rot[k] * (Vector3(dx, 0.0, dz) / rr if rr > 0.0001 else Vector3.BACK)
+	return s.z - rr
+
+
+## How deep a ball of `radius` at `p` (body frame) sinks into the torso (negative: clear).
+func torso_depth(p: Vector3, radius: float) -> float:
+	return _probe(p) + radius
+
+
+## `p` (body frame) moved straight out of the torso until a ball of `radius` there is clear.
+func keep_out(p: Vector3, radius: float) -> Vector3:
+	var d := _probe(p) + radius
+	return p + _probe_out * d if d > 0.0 else p
+
+
+## A point on the torso's surface (body frame, this frame's pose) at rest height `y`,
+## direction `ang`, and its outward normal: [point, normal].
+func torso_surface(y: float, ang: float) -> Array:
+	var s := _slice(y, ang)
+	var dir := Vector3(sin(ang), 0.0, cos(ang))
+	var rp := Vector3(s.x, y, s.y) + dir * s.z
+	if not _torso_ok:
+		_torso_frame()
+	var k := 0
+	while k < TORSO.size() - 1 and rp.y < _torso_rest[k].y - 0.03:
+		k += 1
+	var p := _torso_pos[k] + _torso_rot[k] * (rp - _torso_rest[k])
+	return [p, _torso_rot[k] * dir]
+
+
 # --- Bones -----------------------------------------------------------------------------------
 
 func bi(bone: StringName) -> int:
@@ -186,13 +428,18 @@ func pos_rest(bone: StringName) -> Vector3:
 func begin() -> void:
 	_q.clear()
 	_curl.clear()
+	_last_reach.clear()
+	_last_hand.clear()
 	_offset = Vector3.ZERO
+	_torso_ok = false
 
 
 ## Rotates `bone` by `q` (body frame, applied after what it already has).
 func rot(bone: StringName, q: Quaternion) -> void:
 	var i := bi(bone)
 	_q[i] = q * (_q.get(i, Quaternion.IDENTITY) as Quaternion)
+	if _torso_ids.has(i):
+		_torso_ok = false
 
 
 func rot_x(bone: StringName, a: float) -> void:
@@ -209,6 +456,7 @@ func rot_z(bone: StringName, a: float) -> void:
 
 func move_pelvis(offset: Vector3) -> void:
 	_offset += offset
+	_torso_ok = false
 
 
 ## The accumulated rotation of bone `i` (its parents' and its own).
@@ -305,17 +553,182 @@ func arm_hinge(side: String) -> Vector3:
 
 ## Turns a hand so its fingers point along `dir` and its palm faces `palm` (body frame).
 func orient_hand(side: String, dir: Vector3, palm: Vector3) -> void:
+	set_hand(side, hand_rot(side, dir, palm))
+
+
+## The hand's rotation (body frame, from rest) with its fingers along `dir`, its palm
+## facing `palm`.
+func hand_rot(side: String, dir: Vector3, palm: Vector3) -> Quaternion:
+	var h0: Basis = _hand0[side]
+	return _frame(dir, palm) * _frame(h0.x, h0.y).inverse()
+
+
+## Turns the hand to `w` (body frame, from rest); curl() then keeps it out of the torso.
+func set_hand(side: String, w: Quaternion) -> void:
 	var h := bi("hand" + side)
-	var d0 := (pos_rest("middle_01" + side) - pos_rest("hand" + side)).normalized()
-	var across := pos_rest("pinky_01" + side) - pos_rest("index_01" + side)
-	var p0 := across.cross(d0).normalized() * (1.0 if side == "_l" else -1.0)
-	var w := _frame(dir, palm) * _frame(d0, p0).inverse()
 	_q[h] = acc(skeleton.get_bone_parent(h)).inverse() * w
+	_last_hand[side] = w
 
 
-## The arm to `target` (body frame), the elbow towards `pole`.
+## How deep the hand turned to `w` sinks into the torso: the palm, the knuckles and the
+## fingers curled by `amount` (bent towards the palm); the way out is left in _hand_out.
+func _hand_depth(side: String, w: Quaternion, amount: float) -> float:
+	var wrist := pos(bi("hand" + side))
+	var h0: Basis = _hand0[side]
+	var d := w * h0.x
+	var p := w * h0.y
+	var palm: float = _palm_len[side]
+	var knuckle := wrist + d * palm
+	var a1 := amount * 0.9
+	var a2 := a1 + amount * 1.2
+	var mid := knuckle + (d * cos(a1) + p * sin(a1)) * 0.045
+	var tip := mid + (d * cos(a2) + p * sin(a2)) * 0.03
+	var worst := -1.0
+	for pr: Array in [[wrist + d * palm * 0.5, 0.016], [knuckle, 0.014], [mid, 0.011], [tip, 0.009]]:
+		var depth := _probe(pr[0]) + float(pr[1])
+		if depth > worst:
+			worst = depth
+			_hand_out = _probe_out
+	return worst
+
+
+## The arm to `target` (body frame), the elbow towards `pole`; kept out of the torso:
+## the target pushed clear for the wrist, then the elbow swung out (a new pole through
+## where it would be clear) while the arm still sinks in, and an arm too straight to
+## swing its elbow taken out with its hand.
 func reach(side: String, target: Vector3, pole: Vector3) -> void:
-	ik("upperarm" + side, "lowerarm" + side, "hand" + side, target, pole, arm_hinge(side))
+	var up := "upperarm" + side
+	var low := "lowerarm" + side
+	var hand := "hand" + side
+	var hinge := arm_hinge(side)
+	var t := keep_out(target, 0.034)
+	var p := pole
+	ik(up, low, hand, t, p, hinge)
+	# (up to 10 goes: a two-handed grip, like the broom's, can take a few more to clear)
+	for k in 10:
+		var d := _arm_depth(side)
+		if d < -0.012:
+			break
+		if k < 3:
+			var s := pos(bi(up))
+			var e := pos(bi(low))
+			p = e + _arm_out * (d + 0.012) * 2.5 - s
+		else:
+			# (a straight arm can't swing its elbow out: the hand goes out with it)
+			t += Vector3(_arm_out.x, 0.0, _arm_out.z) * (d + 0.012) * 2.0
+		ik(up, low, hand, t, p, hinge)
+	_last_reach[side] = [t, p]
+
+
+## How deep the arm (upper arm below the shoulder, elbow, forearm, wrist) sinks into the
+## torso; the way out is left in _arm_out.
+func _arm_depth(side: String) -> float:
+	var s := pos(bi("upperarm" + side))
+	var e := pos(bi("lowerarm" + side))
+	var w := pos(bi("hand" + side))
+	var worst := -1.0
+	for pr: Array in ARM_PROBES:
+		var at := s.lerp(e, pr[1]) if int(pr[0]) == 0 else e.lerp(w, pr[1])
+		var d := _probe(at) + float(pr[2])
+		if d > worst:
+			worst = d
+			_arm_out = _probe_out
+	return worst
+
+
+# --- Hands and what they hold -----------------------------------------------------------------
+
+## The hand's axes now (body frame): x the fingers' way, y out of the palm, z the thumb's side.
+func hand_axes(side: String) -> Basis:
+	var q := acc(bi("hand" + side))
+	var h0: Basis = _hand0[side]
+	return Basis(q * h0.x, q * h0.y, q * h0.z)
+
+
+## Where the closed fist holds a handle or a glass now (body frame).
+func grip_point(side: String) -> Vector3:
+	var h := bi("hand" + side)
+	return pos(h) + acc(h) * (_grip0[side] as Vector3)
+
+
+## The grip as the skeleton draws it (body frame), for tests.
+func drawn_grip(side: String) -> Vector3:
+	var h := bi("hand" + side)
+	var xf := _rel(skeleton, self) * skeleton.get_bone_global_pose(h)
+	var local := (_rest_rot[h] as Quaternion).inverse() * (_grip0[side] as Vector3)
+	return xf.origin + xf.basis.get_rotation_quaternion() * local
+
+
+## The hand (`side`) closed round a handle or a glass at `at` (body frame): `rod` the way
+## the thumb's side of the fist points along it, `fingers` about where the fingers point
+## (made square to the rod), the elbow towards `pole`.
+func hold(side: String, at: Vector3, rod: Vector3, fingers: Vector3, pole: Vector3, fist := 0.8) -> void:
+	var pose := hold_pose(side, at, rod, fingers)
+	reach(side, pose[0], pole)
+	set_hand(side, pose[1])
+	curl(side, fist, 0.6)
+
+
+## The hand (`side`) laid flat with its palm on a surface at `at` (outward `normal`),
+## the fingers along `fingers`.
+func palm_on(side: String, at: Vector3, normal: Vector3, fingers: Vector3, pole: Vector3) -> void:
+	var n := normal.normalized()
+	var w := hand_rot(side, (fingers - n * fingers.dot(n)).normalized(), -n)
+	reach(side, at - w * (_palm0[side] as Vector3), pole)
+	set_hand(side, w)
+
+
+## The heart's place on the clothes over the left breast (body frame, this frame's
+## pose): [point, outward normal].
+func heart() -> Array:
+	var y := lerpf(pos_rest("spine_03").y, pos_rest("clavicle_l").y, 0.5)
+	return torso_surface(y, 0.42)
+
+
+## The hand (`side`) to the heart, `amount` 0..1 of the way from where the arm is now:
+## out in front of the body on the way, the palm resting flat on the chest, the fingers
+## towards the other shoulder.
+func hand_on_heart(side: String, amount: float) -> void:
+	if amount <= 0.001:
+		return
+	var sgn := 1.0 if side == "_l" else -1.0
+	var h := bi("hand" + side)
+	var from_p := pos(h)
+	var from_q := acc(h)
+	var curl0 := float(_curl.get(bi("middle_01" + side), 0.3)) / 0.9
+	var spot := heart()
+	var n: Vector3 = spot[1]
+	if not _torso_ok:
+		_torso_frame()
+	var chest := _torso_rot[0]
+	var fingers := chest * Vector3(-sgn, 0.5, 0.0)
+	var w := hand_rot(side, (fingers - n * fingers.dot(n)).normalized(), -n)
+	var to_p: Vector3 = (spot[0] as Vector3) + n * 0.005 - w * (_palm0[side] as Vector3)
+	var t := smoothstep(0.0, 1.0, amount)
+	# (round the side and in front: from behind the back too)
+	var mid := (from_p + to_p) * 0.5 + chest * Vector3(sgn * 0.22, 0.0, 0.26)
+	reach(side, from_p.lerp(mid, t).lerp(mid.lerp(to_p, t), t), chest * Vector3(sgn * 0.9, -0.8, 0.45))
+	set_hand(side, from_q.slerp(w, t))
+	curl(side, lerpf(curl0, 0.18, t), lerpf(0.35, 0.2, t))
+
+
+## A wave of the hand (`side`) raised beside the head, `amount` 0..1 of the way from
+## where the arm is now, the hand swaying at `phase`.
+func wave(side: String, amount: float, phase: float) -> void:
+	if amount <= 0.001:
+		return
+	var sgn := 1.0 if side == "_l" else -1.0
+	var h := bi("hand" + side)
+	var from_p := pos(h)
+	var from_q := acc(h)
+	var curl0 := float(_curl.get(bi("middle_01" + side), 0.3)) / 0.9
+	var to_p := pos(bi("upperarm" + side)) + Vector3(sgn * 0.3, 0.17, 0.12)
+	var w := hand_rot(side, Vector3(sgn * 0.12 + sin(phase) * 0.35, 1.0, 0.05).normalized(), Vector3(0, 0, 1))
+	var t := smoothstep(0.0, 1.0, amount)
+	var mid := (from_p + to_p) * 0.5 + Vector3(sgn * 0.14, 0.0, 0.1)
+	reach(side, from_p.lerp(mid, t).lerp(mid.lerp(to_p, t), t), Vector3(sgn, -0.5, -0.15))
+	set_hand(side, from_q.slerp(w, t))
+	curl(side, lerpf(curl0, 0.06, t), lerpf(0.35, 0.1, t))
 
 
 ## The leg's ankle to `target`, the knee towards `pole`.
@@ -326,12 +739,25 @@ func step(side: String, target: Vector3, pole := Vector3(0, 0, 1)) -> void:
 
 
 ## Curls the fingers (0 open .. 1 a fist) and the thumb.
+## (The last step of posing a hand: if the palm or the curled fingers would sink into the
+## torso, the arm reaches again that much further out.)
 func curl(side: String, amount: float, thumb := 0.4) -> void:
 	for f: StringName in FINGERS:
 		for k in 3:
 			_curl[bi("%s_0%d%s" % [f, k + 1, side])] = amount * (0.9 if k == 0 else 1.2)
 	for k in 3:
 		_curl[bi("thumb_0%d%s" % [k + 1, side])] = thumb * (0.3 if k == 0 else 0.6)
+	if not (_last_reach.has(side) and _last_hand.has(side)):
+		return
+	var w: Quaternion = _last_hand[side]
+	var h := bi("hand" + side)
+	for k in 2:
+		var d := _hand_depth(side, w, amount)
+		if d <= 0.0:
+			break
+		var last: Array = _last_reach[side]
+		reach(side, (last[0] as Vector3) + _hand_out * (d + 0.003), last[1])
+		_q[h] = acc(skeleton.get_bone_parent(h)).inverse() * w
 
 
 # --- Motions ---------------------------------------------------------------------------------
@@ -367,15 +793,41 @@ func stance(lean := 0.0, arms := true) -> void:
 ## Arms hanging at the sides, elbows a little bent, hands half open.
 func relaxed_arms(swing_l := 0.0, swing_r := 0.0) -> void:
 	for side: String in ["_l", "_r"]:
-		var sgn := 1.0 if side == "_l" else -1.0
-		var swing := swing_l if side == "_l" else swing_r
-		var sh := pos(bi("upperarm" + side))
-		var drop: float = float(_len[bi("upperarm" + side)]) + float(_len[bi("lowerarm" + side)])
-		var hand := sh + Vector3(sgn * 0.07, -drop * 0.96, 0.05 + swing * 0.28)
-		hand.y += maxf(swing, 0.0) * 0.08
-		reach(side, hand, Vector3(sgn * 0.2, 0.0, -1.0))
-		orient_hand(side, Vector3(sgn * 0.12, -1.0, 0.18 + swing * 0.3), Vector3(-sgn, 0.0, 0.1))
-		curl(side, 0.35, 0.35)
+		relaxed_arm(side, swing_l if side == "_l" else swing_r)
+
+
+func relaxed_arm(side: String, swing := 0.0) -> void:
+	var sgn := 1.0 if side == "_l" else -1.0
+	var pose := relaxed_pose(side, swing)
+	reach(side, pose[0], Vector3(sgn * 0.2, 0.0, -1.0))
+	set_hand(side, pose[1])
+	curl(side, 0.35, 0.35)
+
+
+## The hanging arm's hand: [wrist (body frame), the hand's rotation].
+func relaxed_pose(side: String, swing := 0.0) -> Array:
+	var sgn := 1.0 if side == "_l" else -1.0
+	var sh := pos(bi("upperarm" + side))
+	var drop: float = float(_len[bi("upperarm" + side)]) + float(_len[bi("lowerarm" + side)])
+	var hand := sh + Vector3(sgn * 0.07, -drop * 0.96, 0.05 + swing * 0.28)
+	hand.y += maxf(swing, 0.0) * 0.08
+	return [hand, hand_rot(side, Vector3(sgn * 0.12, -1.0, 0.18 + swing * 0.3), Vector3(-sgn, 0.0, 0.1))]
+
+
+## What hold() does with the hand: [wrist (body frame), the hand's rotation].
+func hold_pose(side: String, at: Vector3, rod: Vector3, fingers: Vector3) -> Array:
+	var r := rod.normalized()
+	var d := (fingers - r * fingers.dot(r)).normalized()
+	var w := hand_rot(side, d, d.cross(r) * (1.0 if side == "_l" else -1.0))
+	return [at - w * (_grip0[side] as Vector3), w]
+
+
+## The hand a way `t` from pose `a` to pose `b` ([wrist, rotation] each), the elbow
+## towards `pole`, the fingers curled from `curl_a` to `curl_b`.
+func pose_between(side: String, a: Array, b: Array, t: float, pole: Vector3, curl_a: float, curl_b: float) -> void:
+	reach(side, (a[0] as Vector3).lerp(b[0], t), pole)
+	set_hand(side, (a[1] as Quaternion).slerp(b[1], t))
+	curl(side, lerpf(curl_a, curl_b, t), lerpf(0.35, 0.6, t))
 
 
 ## One step of the gait at `speed` m/s (the phase advances by `delta`). The feet roll
@@ -502,8 +954,3 @@ func look(yaw: float, pitch: float) -> void:
 ## Where the eyes are (body frame), for looking back at the player.
 func eye_point() -> Vector3:
 	return pos(bi(&"head")) + Vector3(0, 0.09, 0.08)
-
-
-## A point on the chest in front of the sternum (hand on the heart, a glass held).
-func chest_point() -> Vector3:
-	return pos(bi(&"spine_03")) + acc(bi(&"spine_03")) * Vector3(0.0, 0.14, 0.16)

@@ -21,6 +21,10 @@ const TEX := "res://art/textures/food/"
 const HEAD_CUT := {
 	&"fish_rudd": 0.19, &"fish_crucian": 0.2, &"fish_perch": 0.22, &"fish_carp": 0.19, &"fish_tench": 0.2,
 	&"fish_trout": 0.2, &"fish_zander": 0.22, &"fish_pike": 0.24, &"fish_catfish": 0.19,
+	# The lake's other fish (FishTable, the bait update).
+	&"fish_roach": 0.19, &"fish_bleak": 0.19, &"fish_gudgeon": 0.21, &"fish_bream": 0.18, &"fish_chub": 0.22,
+	&"fish_barbel": 0.2, &"fish_eel": 0.13, &"fish_grass_carp": 0.19, &"fish_silver_carp": 0.22,
+	&"fish_brown_trout": 0.2, &"fish_sturgeon": 0.2,
 }
 ## Trophies in the hand, as pickups and on the icon: this much larger than their species.
 const TROPHY_ITEM_SCALE := 1.35

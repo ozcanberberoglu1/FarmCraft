@@ -31,6 +31,16 @@ var frame := Transform3D.IDENTITY
 var door_open := true
 var door: CoopDoor
 
+## Half the width of the straight way through a coop or barn door (plan_route).
+const DOOR_LANE := 0.3
+## The coop's ramp (AnimalBuildings.coop): its length out from the door, the height of its
+## boards' top over the slope, its cleats (distance out from the door) and their height
+## over the boards.
+const RAMP_LEN := 1.1
+const RAMP_BOARD := 0.026
+const RAMP_CLEATS: Array[float] = [0.11, 0.33, 0.55, 0.77, 0.99]
+const RAMP_CLEAT := 0.024
+
 var _inv := Transform3D.IDENTITY
 var _structure: Node3D
 var _building_node: Node3D
@@ -340,8 +350,14 @@ func ground_height(p: Vector3) -> float:
 		if building.has_point(l):
 			return _floor_at(h)
 		var dz := l.y - building.end.y
-		if absf(l.x - building.get_center().x) < 0.6 and dz >= 0.0 and dz < 1.1:
-			return lerpf(_floor_at(h), h, dz / 1.1)
+		if absf(l.x - building.get_center().x) < 0.6 and dz >= 0.0 and dz < RAMP_LEN:
+			# On the ramp's boards (easing on at both ends), stepping over its cleats: a
+			# chick's feet are only a few centimetres long.
+			var on := smoothstep(0.0, 0.08, dz) * smoothstep(RAMP_LEN, RAMP_LEN - 0.08, dz)
+			var cleat := 0.0
+			for c: float in RAMP_CLEATS:
+				cleat = maxf(cleat, 1.0 - absf(dz - c) / 0.07)
+			return lerpf(_floor_at(h), h, dz / RAMP_LEN) + on * (RAMP_BOARD + RAMP_CLEAT * cleat)
 	return h
 
 
@@ -399,15 +415,29 @@ func plan_route(from: Vector3, from_inside: bool, to: Vector3, to_inside: bool) 
 	if not can_pass():
 		return []
 	var route := []
+	# Already in the doorway's lane (by the door inside, on the threshold or the ramp): on
+	# through it, not back to the lane's far end first.
+	var in_lane := _in_door_lane(from)
 	if from_inside:
-		route.append([door_inside(), true])
+		if not in_lane:
+			route.append([door_inside(), true])
 		route.append([door_outside(), false])
 		route.append_array(_outside_route(door_outside(), to))
 	else:
-		route.append_array(_outside_route(from, door_outside()))
+		if not in_lane:
+			route.append_array(_outside_route(from, door_outside()))
 		route.append([door_inside(), true])
 		route.append([to, true])
 	return route
+
+
+## Whether `p` is in the straight way through the door: between the waypoints inside and
+## outside it (door_inside, door_outside) and well within the doorway's width.
+func _in_door_lane(p: Vector3) -> bool:
+	var l := flat(p)
+	var back := building.end.y - 1.4
+	var front := building.end.y + (1.6 if kind == "barn" else 1.5)
+	return absf(l.x - building.get_center().x) < DOOR_LANE and l.y > back and l.y < front
 
 
 func _outside_route(a: Vector3, b: Vector3) -> Array:

@@ -5,7 +5,9 @@ extends Node
 ## Hold LMB to wind up (the rod goes back over the shoulder, the crosshair ring shows the
 ## power), release to cast: the float flies out on its line, farther the longer the
 ## hold, and lands on the pond with a plop (a cast onto the bank is reeled straight
-## back). Each cast into the water takes one bait (worm or dough; R changes which). After
+## back). Each cast into the water takes one bait (R changes which: FishTable.BAITS; a
+## spinner is kept, unless it snags) and wears the rod by one (a broken rod won't cast;
+## the rods cast to their own reach, FishTable.RODS). After
 ## 5-20 s a fish nibbles (the float dips, small rings), then bites: the float is pulled
 ## under, the water thrashes and splashes, and for 2 s LMB strikes. In time, the rod is
 ## swept up and the fish flies out of the water on the line in an arc and lands 2-3 m
@@ -14,20 +16,23 @@ extends Node
 ## pond's water (Pond.is_fishable); not while driving or riding. Nothing of a cast is
 ## saved: loading rebuilds the player without it. Now and then the fish is a trophy
 ## (FishTable.trophy_of): the float is dragged under harder, it comes out in a burst of
-## spray, lands with a thud at the giant's size and is announced with a fanfare.
+## spray, lands with a thud at the giant's size and is announced with a fanfare. The
+## fish landed since the last trophy are counted (PlayerState.fish_since_trophy): a long
+## dry run makes a giant owed (FishTable.pity).
 ##
 ## The rod's strokes are ToolAnim's rod_* profiles, played through HeldItem.debug_pose on
 ## this node's clock; the float hangs from the rod tip on a pendulum when not cast.
 
 enum State { IDLE, WINDUP, CAST, WAIT, BITE, STRIKE, RETRIEVE }
 
+## The rods' tool type (every rod: FishTable.RODS).
 const ROD := &"fishing_rod"
 ## Seconds of holding LMB to full power.
 const WINDUP_FULL := 1.3
-## Horizontal reach of a cast at no power and at full power (m).
-const REACH := Vector2(4.0, 16.0)
-## Seconds from casting to the bite.
+## Seconds from casting to the bite (with the standard rod; FishTable.RODS "bite").
 const BITE_TIME := Vector2(5.0, 20.0)
+## Extra wear a giant's fight puts on the rod (a cast wears it by one).
+const TROPHY_WEAR := 2
 ## Seconds the player has to strike once the fish bites.
 const BITE_WINDOW := 2.0
 ## Seconds of the rod's forward whip (the rest of rod_cast after the wind-up).
@@ -50,8 +55,11 @@ var player: Player
 var state := State.IDLE
 ## Wind-up 0..1.
 var power := 0.0
-## The bait the next cast takes (worm or dough).
+## The bait the next cast takes (FishTable.BAITS).
 var bait: StringName = &""
+## The rod the cast was made with, and the bait on its hook.
+var cast_rod: StringName = ROD
+var cast_bait: StringName = &""
 ## The fish that will bite this cast (FishTable.catch_of).
 var catch_info := {}
 
@@ -113,6 +121,23 @@ func holding_rod() -> bool:
 	return s != null and (s.item.id == ROD or s.item.tool_type == ROD)
 
 
+## The rod in hand (its item id; the standard rod's when none).
+func rod_id() -> StringName:
+	var s := PlayerState.selected_stack()
+	return s.item.id if s != null and holding_rod() else ROD
+
+
+## The rod in hand is worn out (it won't cast until it is repaired).
+func rod_broken() -> bool:
+	var s := PlayerState.selected_stack()
+	return s != null and holding_rod() and s.item.has_durability() and s.durability <= 0
+
+
+## Horizontal reach of a cast with the rod in hand at no power and at full power (m).
+func reach() -> Vector2:
+	return FishTable.rod_stats(rod_id())["reach"]
+
+
 ## Busy with a cast (for the player and tests).
 func is_fishing() -> bool:
 	return state != State.IDLE
@@ -149,7 +174,25 @@ func cycle_bait() -> void:
 		return
 	bait = have[(have.find(bait) + 1) % have.size()]
 	Audio.ui("toggle", -8.0)
-	Game.notify(tr("MSG_FISH_BAIT") % ItemDB.get_item(bait).display_name(), Color(0.85, 0.9, 0.7))
+	var text := tr("MSG_FISH_BAIT") % ("%s ×%d" % [ItemDB.get_item(bait).display_name(), PlayerState.inventory.count_item(bait)])
+	var draws := bait_draws(bait)
+	if not draws.is_empty():
+		text += "  ·  " + tr("MSG_FISH_BAIT_DRAWS") % ", ".join(draws)
+	Game.notify(text, Color(0.85, 0.9, 0.7))
+
+
+## The names of the fish that take `bait` best (up to `count`, the likeliest first at
+## any hour).
+static func bait_draws(b: StringName, count := 3) -> PackedStringArray:
+	var ranked: Array = []
+	for id: StringName in FishTable.SPECIES:
+		if FishTable.is_fish(id) and float((FishTable.SPECIES[id]["baits"] as Dictionary).get(b, 0.0)) >= FishTable.FAVOURED:
+			ranked.append([float(FishTable.SPECIES[id]["chance"]) * FishTable.bait_factor(id, b), id])
+	ranked.sort_custom(func(x: Array, y: Array) -> bool: return x[0] > y[0])
+	var out := PackedStringArray()
+	for e: Array in ranked.slice(0, count):
+		out.append(ItemDB.get_item(e[1]).display_name())
+	return out
 
 
 ## The prompt lines while the rod is in hand (the Player adds them under its own).
@@ -160,6 +203,9 @@ func prompt_lines() -> PackedStringArray:
 	var lmb := tr("KEY_LMB")
 	match state:
 		State.IDLE, State.WINDUP:
+			if rod_broken():
+				out.append(tr("HINT_ROD_BROKEN"))
+				return out
 			var b := _current_bait()
 			if b == &"":
 				out.append(tr("HINT_FISH_NO_BAIT"))
@@ -178,6 +224,10 @@ func prompt_lines() -> PackedStringArray:
 # --- States ------------------------------------------------------------------------------
 
 func _try_windup() -> void:
+	if rod_broken():
+		Game.notify(tr("MSG_TOOL_BROKEN") % PlayerState.selected_stack().item.display_name(), Color(1.0, 0.45, 0.35))
+		Audio.ui("error", -8.0)
+		return
 	var b := _current_bait()
 	if b == &"":
 		Game.notify(tr("MSG_FISH_NO_BAIT"), Color(1.0, 0.55, 0.4))
@@ -210,7 +260,8 @@ func _launch() -> void:
 	var flat := Vector3(fwd.x, 0.0, fwd.z).normalized()
 	var pitch := asin(clampf(fwd.y, -1.0, 1.0))
 	var angle := clampf(pitch + deg_to_rad(28.0), deg_to_rad(12.0), deg_to_rad(50.0))
-	var reach := lerpf(REACH.x, REACH.y, power)
+	var r := reach()
+	var reach := lerpf(r.x, r.y, power)
 	_p = _tip()
 	# The speed that brings the float down on the water `reach` metres out, from the tip's
 	# height above it.
@@ -252,20 +303,28 @@ func _land_in_water(at: Vector3) -> void:
 	_on_water = true
 	_p = Vector3(at.x, WorldLayout.WATER_LEVEL, at.z)
 	_dip = 0.0
-	PlayerState.inventory.remove_item(bait, 1)
+	cast_rod = rod_id()
+	cast_bait = bait
+	if not FishTable.is_lure(bait):
+		PlayerState.inventory.remove_item(bait, 1)
+	elif _rng.randf() < FishTable.LURE_LOSS:
+		# The spinner caught in the weed: the line snaps free without it.
+		PlayerState.inventory.remove_item(bait, 1)
+		Game.notify(tr("MSG_FISH_LURE_SNAGGED") % ItemDB.get_item(bait).display_name(), Color(1.0, 0.7, 0.45))
+	# Every cast wears the rod.
+	player.wear_tool(PlayerState.selected_stack(), 1)
 	FishingAudio.play("plop", _p)
 	PondFx.ring(_p, 1.0, 2.4, 1.3)
 	PondFx.drops(_p, 14, 1.5, 0.04)
 	Events.line_cast.emit()
-	var rain := Weather.is_raining()
-	catch_info = FishTable.roll(bait, GameClock.get_hour_float(), rain, _rng)
+	catch_info = roll_catch()
 	# Its model loads while the float sits (at least 5 s before the bite).
 	var species: StringName = catch_info.get("species", catch_info["id"])
 	if FishTable.is_fish(species):
 		FishModels.flop_mesh(species)
 	else:
 		FishModels.real_mesh(species)
-	_bite_at = _rng.randf_range(BITE_TIME.x, BITE_TIME.y)
+	_bite_at = _rng.randf_range(BITE_TIME.x, BITE_TIME.y) * float(FishTable.rod_stats(cast_rod)["bite"])
 	_nibbles.clear()
 	for i in _rng.randi_range(1, 3):
 		_nibbles.append(maxf(_bite_at - _rng.randf_range(0.5, 3.5), 1.2))
@@ -273,6 +332,13 @@ func _land_in_water(at: Vector3) -> void:
 		# A curious fish earlier on that swims off.
 		_nibbles.append(_rng.randf_range(2.5, _bite_at - 4.0))
 	_nibbles.sort()
+
+
+## The fish that will bite this cast, as play rolls it: the bait on the hook, the hour,
+## the weather, the rod in hand and the fish landed since the last trophy.
+func roll_catch() -> Dictionary:
+	return FishTable.roll(bait, GameClock.get_hour_float(), Weather.is_raining(), _rng, rod_id(),
+			PlayerState.fish_since_trophy)
 
 
 func _land_on_ground(at: Vector3) -> void:
@@ -322,7 +388,8 @@ func _strike() -> void:
 	FishingAudio.play("splash", from)
 	_bite_burst(1.6 * _heft())
 	if _is_trophy():
-		# A giant heaved out: a second, deeper splash and spray.
+		# A giant heaved out: it strains the rod, a second, deeper splash and spray.
+		player.wear_tool(PlayerState.selected_stack(), TROPHY_WEAR)
 		FishingAudio.play("splash", from, 0.0, 0.8)
 		PondFx.spray(from, 2.2)
 		PondFx.ring(from, 2.6, 2.6, 2.4)
@@ -336,6 +403,11 @@ func _strike() -> void:
 
 func _on_fish_landed(info: Dictionary) -> void:
 	var id: StringName = info["id"]
+	# The run since the last giant (FishTable.pity): a trophy ends it, junk doesn't count.
+	if FishTable.is_trophy(id):
+		PlayerState.fish_since_trophy = 0
+	elif FishTable.is_fish(id):
+		PlayerState.fish_since_trophy += 1
 	_announce(id, info)
 	if state != State.STRIKE:
 		return
@@ -369,11 +441,19 @@ func _announce(id: StringName, info: Dictionary) -> void:
 		var q := int(info["quality"])
 		if q > 0:
 			text += "  ★ " + tr("UI_QUALITY_GOLD" if q == 2 else "UI_QUALITY_SILVER")
+		# Which bait did it: named when it was the fish's favourite.
+		if cast_bait != &"" and FishTable.favourite_bait(id) == cast_bait:
+			text += "  · " + tr("MSG_FISH_FAV_BAIT") % ItemDB.get_item(cast_bait).display_name()
 		Game.notify(text, FishTable.RARITY_COLORS[rarity])
 
 
 func _escape() -> void:
-	Game.notify(tr("MSG_FISH_ESCAPED"), Color(1.0, 0.6, 0.4))
+	if FishTable.is_lure(cast_bait) and PlayerState.inventory.count_item(cast_bait) > 0:
+		# It went off with the spinner in its jaw.
+		PlayerState.inventory.remove_item(cast_bait, 1)
+		Game.notify(tr("MSG_FISH_LURE_TAKEN") % ItemDB.get_item(cast_bait).display_name(), Color(1.0, 0.6, 0.4))
+	else:
+		Game.notify(tr("MSG_FISH_ESCAPED"), Color(1.0, 0.6, 0.4))
 	PondFx.ring(_p, 0.8, 1.8, 0.9)
 	_bite_off = Vector3.ZERO
 	_retrieve()
@@ -642,10 +722,11 @@ func _clear_pose() -> void:
 
 ## The rod tip in the world (the held rod's model), else just above the view.
 func _tip() -> Vector3:
-	var rod := ItemModels.mesh(ROD)
+	var id := rod_id()
+	var rod := ItemModels.mesh(id)
 	for c in player.held.get_children():
 		if c is MeshInstance3D and (c as MeshInstance3D).mesh == rod:
-			return (c as MeshInstance3D).global_transform * FishModels.ROD_TIP
+			return (c as MeshInstance3D).global_transform * FishModels.rod_tip(id)
 	var cam := player.camera
 	return cam.global_transform * Vector3(0.0, 0.6, -1.6)
 
@@ -670,12 +751,13 @@ func _bait_kinds() -> int:
 ## Some cast in the look direction lands in the pond's water.
 func _water_ahead() -> bool:
 	var pos := player.global_position
-	if Vector2(pos.x, pos.z).distance_to(WorldLayout.POND_CENTER) > WorldLayout.POND_RADIUS + REACH.y + 2.0:
+	var far := reach().y
+	if Vector2(pos.x, pos.z).distance_to(WorldLayout.POND_CENTER) > WorldLayout.POND_RADIUS + far + 2.0:
 		return false
 	var fwd := _look()
 	var flat := Vector3(fwd.x, 0.0, fwd.z).normalized()
 	var d := 1.0
-	while d <= REACH.y + 2.5:
+	while d <= far + 2.5:
 		if Pond.is_fishable(pos + flat * d):
 			return true
 		d += 0.5

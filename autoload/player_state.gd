@@ -20,6 +20,8 @@ var selected := 0
 var hotbar_unlocked := true
 ## Hunger and energy (0..100 each). Automated runs keep them still (tests set frozen).
 var needs := Needs.new()
+## Fish landed since the last trophy (Angler; FishTable.pity owes a giant after a long run).
+var fish_since_trophy := 0
 
 
 func _ready() -> void:
@@ -48,6 +50,7 @@ func new_game() -> void:
 	inventory.from_array([])
 	select(0)
 	needs.reset()
+	fish_since_trophy = 0
 
 
 ## Grandpa's old kit straight into the bag, in hotbar order (automated runs; in the
@@ -117,7 +120,7 @@ func _on_need_warned(kind: StringName) -> void:
 
 func save_data() -> Dictionary:
 	return {"inventory": inventory.to_array(), "selected": selected, "hotbar": hotbar_unlocked,
-		"needs": needs.save_data()}
+		"needs": needs.save_data(), "fish_dry": fish_since_trophy}
 
 
 func load_data(data: Dictionary) -> void:
@@ -127,3 +130,4 @@ func load_data(data: Dictionary) -> void:
 	inventory.from_array(data.get("inventory", []))
 	select(int(data.get("selected", 0)))
 	needs.load_data(data.get("needs", {}))
+	fish_since_trophy = int(data.get("fish_dry", 0))

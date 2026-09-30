@@ -33,7 +33,10 @@ workbench ready bundled for $55 (no wood). Grandpa's pickup comes with the farm 
 | Animal goods | egg 5, milk 13, wool 30 |
 | Artisan goods | flour 17, tomato paste 32, jam 35, pickles 36, yarn 45, cheese 50 |
 | Supplies | feed 1, hay 3, fertilizer 5, medicine 20, wood 2, stone 2, iron ore 6 |
-| Workbench goods (market) | nails 1, rope 4, worms 1, dough 1 |
+| Workbench goods (market) | nails 1, rope 4 |
+| Bait (market; each draws its own fish, data/fish_table.gd) | worms 1, dough 1, maggots 2, sweetcorn 2, cheese 3, live minnows 4, spinner 15 (a lure: kept on a cast, lost on a snag or to a fish that gets away) |
+| Rods (workbench; durability = casts) | cane pole 2 wood + 1 rope (50), rod 3 wood + 2 rope (150), carbon rod 4 wood, 3 rope, 6 nails, 3 ore (320, level 2), carp rod 6 wood, 4 rope, 10 nails, 6 ore (500, level 3) |
+| Fish (sell; trophy 10x) | bleak, gudgeon 2; rudd, crucian, roach 3; perch 4; bream 6; crayfish 6; chub 7; carp 9; tench 10; barbel, silver carp 12; grass carp 15; rainbow trout 16; eel 16; brown trout 20; zander 22; pike 30; wels catfish 55; sturgeon 95 |
 | Tools | hoe, scythe, pickaxe, axe, brush 40; watering can, pitchfork 50; milk pail 75; shears 90; repair 0.25 a point of wear; upgrades 60 / 180 (and ore) |
 | Animals (grown / young) | hen 50 / 20, sheep 225 / 90, cow 375 / 150, horse 600 / 225 |
 | Buildings | coop kit 25, workbench kit 40 (market: 55 bundled), open barn 200, field expansion I 250, II 900, III 2,400, bigger warehouse 900, closed barn 1,350, house extension I 1,500, II 4,500 |

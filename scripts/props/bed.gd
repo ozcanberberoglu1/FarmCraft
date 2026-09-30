@@ -1,7 +1,8 @@
 @tool
 class_name Bed
 extends StaticBody3D
-## Rustic wooden bed. Interacting after 18:00 ends the day.
+## Rustic wooden bed. Interacting after 18:00 ends the day; so does it at any hour once
+## the farmer is worn out (Needs.sleepy), sleeping through to the next morning.
 ## Local origin = floor center of the bed; the headboard is at -Z.
 
 const FRAME := Color(0.36, 0.3, 0.26)
@@ -76,12 +77,17 @@ func _build() -> void:
 
 
 func interact_prompt(_player: Node) -> String:
-	return tr("ACTION_SLEEP")
+	return tr("ACTION_SLEEP_TIRED") if daytime() and PlayerState.needs.sleepy() else tr("ACTION_SLEEP")
 
 
 func interact(_player: Node) -> void:
-	var hour := GameClock.get_hour_float()
-	if hour >= GameClock.DAY_START_MINUTE / 60.0 and hour < SLEEP_FROM_HOUR:
-		Game.notify(tr("MSG_SLEEP_NOT_YET"))
+	if daytime() and not PlayerState.needs.sleepy():
+		Game.notify(tr("MSG_SLEEP_NOT_TIRED"))
 		return
 	Game.hud.sleep_screen.start_sleep()
+
+
+## The working day (06:00 to 18:00): only a worn-out farmer goes to bed then.
+static func daytime() -> bool:
+	var hour := GameClock.get_hour_float()
+	return hour >= GameClock.DAY_START_MINUTE / 60.0 and hour < SLEEP_FROM_HOUR

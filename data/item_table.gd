@@ -86,7 +86,9 @@ const ITEMS := {
 	## A short fish knife: guts and fillets the catch.
 	&"knife": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 200, "tool": &"knife"},
 	&"bow": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 250, "tool": &"bow"},
-	&"fishing_rod": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 300, "tool": &"fishing_rod"},
+	## The standard rod (FishTable.RODS: the cane pole, carbon and carp rods further down).
+	## Every cast wears it by one.
+	&"fishing_rod": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 150, "tool": &"fishing_rod"},
 	## A bundle of split logs and hearth stones: put down outdoors, it burns five hours.
 	&"campfire": {"cat": "placeable", "stack": 5, "sell": 0, "buy": 0},
 	&"nails": {"cat": "material", "stack": 99, "sell": 0, "buy": 1},
@@ -175,6 +177,77 @@ const ITEMS := {
 	&"fish_pike_cooked": {"cat": "food", "stack": 5, "sell": 40, "buy": 0, "food": 40},
 	&"fish_catfish_cooked": {"cat": "food", "stack": 5, "sell": 72, "buy": 0, "food": 55},
 	&"old_boot": {"cat": "junk", "stack": 5, "sell": 1, "buy": 0},
+	# --- FISHING: rods, bait and the lake's other fish (FishTable) ---
+	# Rods made at the workbench: a cane pole (a little wood and rope: short casts, soon
+	# worn out), the standard rod (above), a carbon spinning rod and a carp rod (nails and
+	# iron for the reel: far casts, long-lasting, the giants hold). Each cast wears one by 1.
+	&"cane_rod": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 50, "tool": &"fishing_rod"},
+	&"carbon_rod": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 320, "tool": &"fishing_rod"},
+	&"carp_rod": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 500, "tool": &"fishing_rod"},
+	# Bait at the town market (worms and dough above): each draws its own fish.
+	&"maggot": {"cat": "bait", "stack": 99, "sell": 0, "buy": 2},
+	&"sweetcorn": {"cat": "bait", "stack": 99, "sell": 0, "buy": 2},
+	&"cheese_bait": {"cat": "bait", "stack": 99, "sell": 0, "buy": 3},
+	&"minnow": {"cat": "bait", "stack": 20, "sell": 0, "buy": 4},
+	## A spinner lure: not eaten, it goes on casting until it snags or a fish takes it.
+	&"spinner": {"cat": "bait", "stack": 10, "sell": 0, "buy": 15},
+	# The fish (raw, grilled whole, cleaned, cleaned and grilled, and the trophy giant).
+	&"fish_roach": {"cat": "fish", "stack": 20, "sell": 3, "buy": 0},
+	&"fish_roach_cooked": {"cat": "food", "stack": 20, "sell": 5, "buy": 0, "food": 15},
+	&"fish_roach_cleaned": {"cat": "fish", "stack": 20, "sell": 3, "buy": 0},
+	&"fish_roach_cleaned_cooked": {"cat": "food", "stack": 20, "sell": 5, "buy": 0, "food": 33},
+	&"fish_roach_trophy": {"cat": "fish", "stack": 5, "sell": 30, "buy": 0},
+	&"fish_bleak": {"cat": "fish", "stack": 20, "sell": 2, "buy": 0},
+	&"fish_bleak_cooked": {"cat": "food", "stack": 20, "sell": 3, "buy": 0, "food": 8},
+	&"fish_bleak_cleaned": {"cat": "fish", "stack": 20, "sell": 2, "buy": 0},
+	&"fish_bleak_cleaned_cooked": {"cat": "food", "stack": 20, "sell": 3, "buy": 0, "food": 18},
+	&"fish_bleak_trophy": {"cat": "fish", "stack": 5, "sell": 20, "buy": 0},
+	&"fish_gudgeon": {"cat": "fish", "stack": 20, "sell": 2, "buy": 0},
+	&"fish_gudgeon_cooked": {"cat": "food", "stack": 20, "sell": 3, "buy": 0, "food": 8},
+	&"fish_gudgeon_cleaned": {"cat": "fish", "stack": 20, "sell": 2, "buy": 0},
+	&"fish_gudgeon_cleaned_cooked": {"cat": "food", "stack": 20, "sell": 3, "buy": 0, "food": 18},
+	&"fish_gudgeon_trophy": {"cat": "fish", "stack": 5, "sell": 20, "buy": 0},
+	&"fish_bream": {"cat": "fish", "stack": 10, "sell": 6, "buy": 0},
+	&"fish_bream_cooked": {"cat": "food", "stack": 10, "sell": 9, "buy": 0, "food": 26},
+	&"fish_bream_cleaned": {"cat": "fish", "stack": 10, "sell": 6, "buy": 0},
+	&"fish_bream_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 9, "buy": 0, "food": 57},
+	&"fish_bream_trophy": {"cat": "fish", "stack": 5, "sell": 60, "buy": 0},
+	&"fish_chub": {"cat": "fish", "stack": 10, "sell": 7, "buy": 0},
+	&"fish_chub_cooked": {"cat": "food", "stack": 10, "sell": 10, "buy": 0, "food": 26},
+	&"fish_chub_cleaned": {"cat": "fish", "stack": 10, "sell": 7, "buy": 0},
+	&"fish_chub_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 10, "buy": 0, "food": 57},
+	&"fish_chub_trophy": {"cat": "fish", "stack": 5, "sell": 70, "buy": 0},
+	&"fish_barbel": {"cat": "fish", "stack": 10, "sell": 12, "buy": 0},
+	&"fish_barbel_cooked": {"cat": "food", "stack": 10, "sell": 17, "buy": 0, "food": 34},
+	&"fish_barbel_cleaned": {"cat": "fish", "stack": 10, "sell": 12, "buy": 0},
+	&"fish_barbel_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 17, "buy": 0, "food": 75},
+	&"fish_barbel_trophy": {"cat": "fish", "stack": 5, "sell": 120, "buy": 0},
+	&"fish_eel": {"cat": "fish", "stack": 10, "sell": 16, "buy": 0},
+	&"fish_eel_cooked": {"cat": "food", "stack": 10, "sell": 22, "buy": 0, "food": 36},
+	&"fish_eel_cleaned": {"cat": "fish", "stack": 10, "sell": 16, "buy": 0},
+	&"fish_eel_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 22, "buy": 0, "food": 79},
+	&"fish_eel_trophy": {"cat": "fish", "stack": 5, "sell": 160, "buy": 0},
+	&"fish_grass_carp": {"cat": "fish", "stack": 5, "sell": 15, "buy": 0},
+	&"fish_grass_carp_cooked": {"cat": "food", "stack": 5, "sell": 21, "buy": 0, "food": 42},
+	&"fish_grass_carp_cleaned": {"cat": "fish", "stack": 5, "sell": 15, "buy": 0},
+	&"fish_grass_carp_cleaned_cooked": {"cat": "food", "stack": 5, "sell": 21, "buy": 0, "food": 92},
+	&"fish_grass_carp_trophy": {"cat": "fish", "stack": 5, "sell": 150, "buy": 0},
+	&"fish_silver_carp": {"cat": "fish", "stack": 5, "sell": 12, "buy": 0},
+	&"fish_silver_carp_cooked": {"cat": "food", "stack": 5, "sell": 17, "buy": 0, "food": 40},
+	&"fish_silver_carp_cleaned": {"cat": "fish", "stack": 5, "sell": 12, "buy": 0},
+	&"fish_silver_carp_cleaned_cooked": {"cat": "food", "stack": 5, "sell": 17, "buy": 0, "food": 88},
+	&"fish_silver_carp_trophy": {"cat": "fish", "stack": 5, "sell": 120, "buy": 0},
+	&"fish_brown_trout": {"cat": "fish", "stack": 10, "sell": 20, "buy": 0},
+	&"fish_brown_trout_cooked": {"cat": "food", "stack": 10, "sell": 28, "buy": 0, "food": 30},
+	&"fish_brown_trout_cleaned": {"cat": "fish", "stack": 10, "sell": 20, "buy": 0},
+	&"fish_brown_trout_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 28, "buy": 0, "food": 66},
+	&"fish_brown_trout_trophy": {"cat": "fish", "stack": 5, "sell": 200, "buy": 0},
+	&"fish_sturgeon": {"cat": "fish", "stack": 5, "sell": 95, "buy": 0},
+	&"fish_sturgeon_cooked": {"cat": "food", "stack": 5, "sell": 125, "buy": 0, "food": 70},
+	&"fish_sturgeon_cleaned": {"cat": "fish", "stack": 5, "sell": 95, "buy": 0},
+	&"fish_sturgeon_cleaned_cooked": {"cat": "food", "stack": 5, "sell": 125, "buy": 0, "food": 100},
+	&"fish_sturgeon_trophy": {"cat": "fish", "stack": 5, "sell": 950, "buy": 0},
+	# --- end FISHING ---
 }
 
 const CATEGORY_KEYS := {

@@ -31,6 +31,14 @@ const FEEDER_REACH := 1.6
 ## nearest and farthest), and beyond what they run to catch up with her.
 const BROOD_NEAR := Vector2(0.26, 0.62)
 const CATCH_UP := 1.4
+## The downy chick model at its own scale 1 against the hen's size and radius (a ~10 cm
+## chick): its body box and radius (how close it gets to walls, the door's edges and the
+## others) follow its real size, not the hen's.
+const CHICK_BODY := 0.22
+## How near a chick gets to its spot by its mother before it counts as there (at night it
+## settles within BROOD_NIGHT of it).
+const CHICK_REACH := 0.12
+const BROOD_NIGHT := 0.22
 ## Seconds of a chick's first wobbly steps out of the shell, and of its hop down from a
 ## nest box onto the coop floor.
 const HATCH_WOBBLE := 1.4
@@ -138,6 +146,8 @@ func _ready() -> void:
 	_look = AnimalModels.look_for(data)
 	rig = AnimalModels.create_rig(data.species, _look)
 	add_child(rig)
+	# Feet set down on the ground under them (terrain, floors, ramps).
+	rig.ground = func(p: Vector3) -> float: return housing.ground_height(p)
 	_cheep = _rng.randf_range(1.0, 5.0)
 	_shape = CollisionShape3D.new()
 	_shape.shape = BoxShape3D.new()
@@ -174,8 +184,8 @@ func refresh_body() -> void:
 	rig.set_age(t)
 	rig.set_wool(data.wool if data.species == &"sheep" else 1.0)
 	var size: Vector3 = data.info().get("size", Vector3.ONE)
-	var s := rig.scale.x
-	(_shape.shape as BoxShape3D).size = size * s
+	var s := rig.scale.x * (CHICK_BODY if _look == &"chick" else 1.0)
+	(_shape.shape as BoxShape3D).size = (size * s).max(Vector3(0.1, 0.1, 0.1))
 	_shape.position = Vector3(0, size.y * s * 0.5, 0)
 	_badge.position = Vector3(0, size.y * s + 0.35, 0)
 	_radius = float(data.info().get("radius", 0.5)) * s
@@ -363,11 +373,11 @@ func _decide_chick() -> bool:
 	var to := spot - global_position
 	var d := Vector2(to.x, to.z).length()
 	var apart := indoors != mom.indoors
-	if apart or d > (0.22 if night else 0.5):
+	if apart or d > (BROOD_NIGHT if night else 0.5):
 		# Moving already toward where she is: keep going, only aimed at her new place.
 		var far := apart or d > CATCH_UP
 		_hurry = 1.7 if far else 1.05
-		_go(spot, mom.indoors, State.BROOD)
+		_brood_to(spot, mom.indoors)
 		if state != State.BROOD:
 			_hurry = 1.0
 		return true
@@ -399,10 +409,20 @@ func _decide_chick() -> bool:
 		_set_state(State.GRAZE, _rng.randf_range(1.2, 3.5))
 	elif roll < 0.8:
 		var near := spot + Vector3(_rng.randf_range(-0.2, 0.2), 0.0, _rng.randf_range(-0.2, 0.2))
-		_go(housing.constrain(near, radius(), mom.indoors), mom.indoors, State.BROOD)
+		_brood_to(housing.constrain(near, radius(), mom.indoors), mom.indoors)
 	else:
 		_set_state(State.IDLE, _rng.randf_range(0.8, 2.5))
 	return true
+
+
+## Off to `spot` by its mother (on her side of the coop door). A way already under way to
+## that side keeps going and only its end moves with her: planned afresh every look, it
+## would turn back for the door's first waypoint each time and never get through.
+func _brood_to(spot: Vector3, inside: bool) -> void:
+	if state == State.BROOD and not _path.is_empty() and _path_inside.back() == inside:
+		_path[_path.size() - 1] = spot
+		return
+	_go(spot, inside, State.BROOD)
 
 
 ## Now and then a cheep; often and loud when it has lost its mother or lags behind.
@@ -776,6 +796,9 @@ func _follow_update() -> void:
 ## Plans a route (through the barn door when needed) and starts walking. With the way
 ## shut (a closed coop door) she stays where she is a while.
 func _go(target: Vector3, target_inside: bool, new_state: int) -> void:
+	# Half way through the doorway: planned from the side it really is on.
+	if not _path_inside.is_empty() and _path_inside[0] != indoors:
+		indoors = housing.is_in_building(global_position)
 	var route := housing.plan_route(global_position, indoors, target, target_inside)
 	_path.clear()
 	_path_inside.clear()
@@ -796,7 +819,9 @@ func _move(delta: float) -> void:
 	var pos := global_position
 	var to := Vector3(target.x - pos.x, 0.0, target.z - pos.z)
 	var dist := to.length()
-	if dist < 0.3:
+	# A chick gets right up to its spot by its mother (the door's waypoints as any bird).
+	var reach := CHICK_REACH if state == State.BROOD and _path.size() == 1 else 0.3
+	if dist < reach:
 		indoors = _path_inside[0]
 		_path.pop_front()
 		_path_inside.pop_front()
@@ -832,6 +857,9 @@ func _separation() -> Vector3:
 		var min_d := radius() + other.radius()
 		if chick and other.data.id == data.mother:
 			min_d *= 0.25 if state == State.SLEEP or GameClock.is_night() else 0.8
+		elif chick and other.data.is_chick() and GameClock.is_night():
+			# Huddled together under her.
+			min_d *= 0.5
 		var l := d.length()
 		if l < min_d and l > 0.001:
 			push += d / l * (min_d - l) * 2.0
@@ -1026,6 +1054,33 @@ func interact(player: Node) -> void:
 func use_prompt(player: Node, stack: ItemStack) -> String:
 	var a := use_action(player, stack)
 	return tr(a["verb"]) if not a.is_empty() else ""
+
+
+## A plain line under the prompts while the farmer holds this animal's tool (shears for
+## a sheep, the pail for a cow) and there is nothing to take yet: when the fleece is
+## grown or the milk comes, or that the young one is too small yet.
+func hint_prompt() -> String:
+	if _faint_t >= 0.0 or data.product_ready:
+		return ""
+	var stack := PlayerState.selected_stack()
+	var tool: StringName = data.info().get("tool", &"")
+	if stack == null or tool == &"" or stack.item.id != tool:
+		return ""
+	if not data.adult:
+		return tr("HINT_ANIMAL_TOO_YOUNG")
+	match data.species:
+		&"sheep":
+			var days := wool_days_left()
+			return tr("HINT_WOOL_TOMORROW") if days <= 1 else tr("HINT_WOOL_DAYS") % days
+		&"cow":
+			return tr("HINT_MILK_TOMORROW")
+	return ""
+
+
+## Mornings (fed ones) until a shorn sheep's fleece has grown back.
+func wool_days_left() -> int:
+	var per_day := 1.0 / float(data.info().get("product_days", 3))
+	return maxi(1, ceili((1.0 - data.wool) / per_day - 0.001))
 
 
 func use_action(_player: Node, stack: ItemStack) -> Dictionary:

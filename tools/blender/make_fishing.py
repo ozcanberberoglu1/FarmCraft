@@ -6,6 +6,10 @@ rod, its float and the old rubber boot that comes up now and then.
 
 (tools/fetch_fishing.py downloads the boot and runs this.)
 
+Also the other rods (the bamboo cane pole, the carbon spinning rod, the carp rod) and the
+market's bait (a tin of maggots, a tin of sweetcorn, cheese cubes on waxed paper, a bait
+bucket of live minnows, a spinner lure).
+
 Every fish is modelled from its species' measurements: a lofted body (depth, width and
 back/belly line along its length, a slightly boxy cross-section narrowing to the dorsal
 ridge), fins as thin ray fans (dorsal, caudal, anal, pectoral and pelvic pairs, the
@@ -140,6 +144,115 @@ FISH = {
         "anal": [(0.45, 0.97, [(0, 0.12), (0.1, 0.3), (0.9, 0.3), (1, 0.25)], 0.15)],
         "pectoral": (0.18, -0.6, 0.55), "pelvic": (0.42, -0.9, 0.35),
         "barbels": [(0.26, 0.18), (0.05, 0.12), (0.05, 0.2)], "flat_head": True, "mark": "catfish",
+    },
+    # --- More of the lake's fish (the bait update). Optional keys: "pelvic": None (none),
+    # "hetero" (tail lobes unequal: + upper longer, - lower longer), "mouth" (the mouth
+    # line's height at the nose, -0.08 = the usual), "barbel_s" (where the barbels sit).
+    "fish_roach": {
+        "L": 0.22, "tail": 0.19, "H": 0.31, "W": 0.13, "h": (0.42, 0.55, 0.32), "w": (0.33, 0.5, 0.3), "asym": 0.55,
+        "scales": 44, "edge": 0.2, "gill": 0.22, "eye": (0.09, 0.28, 0.24), "fork": 0.65, "tail_half": 0.2,
+        "back": (0.16, 0.22, 0.27), "flank": (0.74, 0.76, 0.76), "belly": (0.93, 0.93, 0.9), "sheen": 0.2,
+        "fin": (0.84, 0.3, 0.12), "fin_base": (0.66, 0.46, 0.36), "fin_d": (0.4, 0.3, 0.27), "iris": (0.86, 0.14, 0.07),
+        "dorsal": [(0.45, 0.58, [(0, 0.55), (0.12, 0.72), (0.5, 0.45), (1, 0.18)], 0.4)],
+        "anal": [(0.67, 0.79, [(0, 0.45), (0.15, 0.52), (1, 0.18)], 0.35)],
+        "pectoral": (0.22, -0.45, 0.4), "pelvic": (0.46, -0.8, 0.4), "mark": "roach",
+    },
+    "fish_bleak": {
+        "L": 0.15, "tail": 0.2, "H": 0.21, "W": 0.09, "h": (0.45, 0.6, 0.3), "w": (0.33, 0.5, 0.3), "asym": 0.42,
+        "scales": 50, "edge": 0.1, "gill": 0.22, "eye": (0.085, 0.32, 0.3), "fork": 0.85, "tail_half": 0.22,
+        "back": (0.16, 0.27, 0.26), "flank": (0.84, 0.86, 0.88), "belly": (0.95, 0.95, 0.94), "sheen": 0.28,
+        "fin": (0.72, 0.72, 0.68), "fin_base": (0.7, 0.7, 0.66), "fin_d": (0.45, 0.47, 0.45), "iris": (0.85, 0.85, 0.8),
+        "dorsal": [(0.55, 0.64, [(0, 0.5), (0.12, 0.6), (1, 0.18)], 0.4)],
+        "anal": [(0.6, 0.8, [(0, 0.4), (0.12, 0.45), (1, 0.15)], 0.3)],
+        "pectoral": (0.21, -0.55, 0.42), "pelvic": (0.44, -0.85, 0.38), "mouth": 0.1, "mark": "bleak",
+    },
+    "fish_gudgeon": {
+        "L": 0.13, "tail": 0.18, "H": 0.19, "W": 0.15, "h": (0.36, 0.62, 0.36), "w": (0.3, 0.55, 0.36), "asym": 0.52,
+        "scales": 40, "edge": 0.18, "gill": 0.24, "eye": (0.1, 0.42, 0.26), "fork": 0.5, "tail_half": 0.2,
+        "back": (0.3, 0.27, 0.18), "flank": (0.64, 0.6, 0.46), "belly": (0.9, 0.88, 0.8), "sheen": 0.14,
+        "fin": (0.62, 0.58, 0.46), "fin_base": (0.6, 0.55, 0.42), "fin_d": (0.55, 0.5, 0.38), "iris": (0.78, 0.7, 0.45),
+        "dorsal": [(0.36, 0.5, [(0, 0.6), (0.15, 0.75), (1, 0.25)], 0.4)],
+        "anal": [(0.66, 0.76, [(0, 0.45), (0.15, 0.5), (1, 0.2)], 0.35)],
+        "pectoral": (0.24, -0.62, 0.45), "pelvic": (0.44, -0.9, 0.4), "barbels": [(0.07, 0.35)], "mouth": -0.2,
+        "mark": "gudgeon",
+    },
+    "fish_bream": {
+        "L": 0.42, "tail": 0.18, "H": 0.4, "W": 0.1, "h": (0.44, 0.82, 0.2), "w": (0.33, 0.6, 0.28), "asym": 0.56,
+        "scales": 52, "edge": 0.22, "gill": 0.2, "eye": (0.08, 0.28, 0.12), "fork": 0.7, "tail_half": 0.26,
+        "back": (0.2, 0.2, 0.15), "flank": (0.6, 0.51, 0.3), "belly": (0.86, 0.8, 0.62), "sheen": 0.22,
+        "fin": (0.32, 0.3, 0.26), "fin_base": (0.4, 0.36, 0.28), "fin_d": (0.24, 0.24, 0.22), "iris": (0.82, 0.74, 0.5),
+        "dorsal": [(0.42, 0.53, [(0, 0.6), (0.12, 0.8), (0.4, 0.5), (1, 0.18)], 0.35)],
+        "anal": [(0.54, 0.9, [(0, 0.3), (0.08, 0.42), (0.5, 0.26), (1, 0.14)], 0.25)],
+        "pectoral": (0.22, -0.62, 0.3), "pelvic": (0.42, -0.9, 0.26), "hetero": -0.3, "mouth": -0.2, "mark": "bream",
+    },
+    "fish_chub": {
+        "L": 0.42, "tail": 0.17, "H": 0.23, "W": 0.16, "h": (0.38, 0.5, 0.36), "w": (0.3, 0.45, 0.36), "asym": 0.52,
+        "scales": 44, "edge": 0.55, "gill": 0.25, "eye": (0.08, 0.3, 0.14), "fork": 0.35, "tail_half": 0.21,
+        "back": (0.15, 0.18, 0.13), "flank": (0.66, 0.62, 0.48), "belly": (0.9, 0.88, 0.8), "sheen": 0.16,
+        "fin": (0.86, 0.38, 0.14), "fin_base": (0.62, 0.46, 0.3), "fin_d": (0.2, 0.2, 0.18), "iris": (0.8, 0.66, 0.3),
+        "dorsal": [(0.45, 0.57, [(0, 0.55), (0.12, 0.66), (1, 0.28)], 0.35)],
+        "anal": [(0.66, 0.77, [(0, 0.45), (0.3, 0.6), (1, 0.35)], 0.25)],
+        "pectoral": (0.24, -0.55, 0.36), "pelvic": (0.46, -0.85, 0.36), "mark": "chub",
+    },
+    "fish_barbel": {
+        "L": 0.5, "tail": 0.16, "H": 0.19, "W": 0.15, "h": (0.38, 0.68, 0.34), "w": (0.32, 0.6, 0.34), "asym": 0.64,
+        "scales": 72, "edge": 0.16, "gill": 0.23, "eye": (0.11, 0.42, 0.13), "fork": 0.55, "tail_half": 0.22,
+        "back": (0.27, 0.24, 0.13), "flank": (0.6, 0.5, 0.28), "belly": (0.88, 0.82, 0.62), "sheen": 0.14,
+        "fin": (0.64, 0.36, 0.18), "fin_base": (0.55, 0.42, 0.26), "fin_d": (0.36, 0.3, 0.2), "iris": (0.8, 0.68, 0.36),
+        "dorsal": [(0.4, 0.52, [(0, 0.7), (0.12, 0.95), (1, 0.25)], 0.4)],
+        "anal": [(0.72, 0.8, [(0, 0.55), (0.2, 0.65), (1, 0.25)], 0.35)],
+        "pectoral": (0.25, -0.72, 0.42), "pelvic": (0.46, -0.92, 0.38), "barbels": [(0.07, 0.6), (0.09, 0.8)],
+        "mouth": -0.3, "mark": "barbel",
+    },
+    "fish_eel": {
+        "L": 0.75, "tail": 0.04, "H": 0.085, "W": 0.07, "h": (0.25, 0.6, 0.35), "w": (0.2, 0.6, 0.25), "asym": 0.5,
+        "scales": 0, "edge": 0.0, "gill": 0.13, "eye": (0.045, 0.36, 0.2), "fork": 0.0, "tail_half": 0.06,
+        "back": (0.11, 0.11, 0.06), "flank": (0.34, 0.32, 0.16), "belly": (0.8, 0.74, 0.46), "sheen": 0.08,
+        "fin": (0.3, 0.29, 0.17), "fin_base": (0.24, 0.24, 0.14), "fin_d": (0.24, 0.23, 0.14), "iris": (0.72, 0.62, 0.3),
+        "dorsal": [(0.36, 0.995, [(0, 0.04), (0.1, 0.22), (0.7, 0.42), (1, 0.52)], 0.02)],
+        "anal": [(0.52, 0.995, [(0, 0.04), (0.1, 0.26), (1, 0.52)], 0.02)],
+        "pectoral": (0.15, -0.05, 0.9), "pelvic": None, "ray_scale": 7, "mark": "eel",
+    },
+    "fish_grass_carp": {
+        "L": 0.72, "tail": 0.17, "H": 0.2, "W": 0.15, "h": (0.42, 0.55, 0.38), "w": (0.33, 0.5, 0.36), "asym": 0.55,
+        "scales": 44, "edge": 0.5, "gill": 0.21, "eye": (0.08, 0.12, 0.1), "fork": 0.45, "tail_half": 0.2,
+        "back": (0.18, 0.2, 0.15), "flank": (0.56, 0.54, 0.4), "belly": (0.88, 0.86, 0.76), "sheen": 0.18,
+        "fin": (0.34, 0.33, 0.28), "fin_base": (0.42, 0.4, 0.32), "fin_d": (0.26, 0.26, 0.22), "iris": (0.82, 0.72, 0.4),
+        "dorsal": [(0.44, 0.56, [(0, 0.55), (0.1, 0.72), (1, 0.25)], 0.35)],
+        "anal": [(0.7, 0.8, [(0, 0.45), (0.15, 0.55), (1, 0.2)], 0.35)],
+        "pectoral": (0.22, -0.6, 0.38), "pelvic": (0.46, -0.88, 0.34), "mark": "grass_carp",
+    },
+    "fish_silver_carp": {
+        "L": 0.66, "tail": 0.18, "H": 0.3, "W": 0.12, "h": (0.45, 0.52, 0.3), "w": (0.33, 0.5, 0.3), "asym": 0.52,
+        "scales": 110, "edge": 0.06, "gill": 0.25, "eye": (0.1, -0.22, 0.1), "fork": 0.65, "tail_half": 0.24,
+        "back": (0.28, 0.31, 0.29), "flank": (0.8, 0.82, 0.82), "belly": (0.94, 0.94, 0.93), "sheen": 0.24,
+        "fin": (0.58, 0.58, 0.55), "fin_base": (0.62, 0.62, 0.6), "fin_d": (0.4, 0.42, 0.4), "iris": (0.84, 0.8, 0.6),
+        "dorsal": [(0.47, 0.57, [(0, 0.5), (0.12, 0.65), (1, 0.2)], 0.35)],
+        "anal": [(0.62, 0.84, [(0, 0.35), (0.1, 0.45), (1, 0.15)], 0.3)],
+        "pectoral": (0.26, -0.7, 0.42), "pelvic": (0.45, -0.9, 0.34), "mouth": 0.2, "mark": "silver_carp",
+    },
+    "fish_brown_trout": {
+        "L": 0.42, "tail": 0.15, "H": 0.23, "W": 0.12, "h": (0.42, 0.55, 0.32), "w": (0.34, 0.5, 0.32), "asym": 0.53,
+        "scales": 120, "edge": 0.06, "gill": 0.23, "eye": (0.085, 0.32, 0.2), "fork": 0.08, "tail_half": 0.22,
+        "back": (0.22, 0.2, 0.1), "flank": (0.72, 0.6, 0.34), "belly": (0.92, 0.86, 0.66), "sheen": 0.12,
+        "fin": (0.56, 0.44, 0.26), "fin_base": (0.62, 0.52, 0.34), "fin_d": (0.4, 0.34, 0.22), "iris": (0.84, 0.7, 0.36),
+        "dorsal": [(0.42, 0.55, [(0, 0.55), (0.15, 0.65), (1, 0.25)], 0.35)],
+        "anal": [(0.7, 0.8, [(0, 0.5), (0.15, 0.55), (1, 0.2)], 0.35)],
+        "adipose": (0.8, 0.86, 0.22),
+        "pectoral": (0.22, -0.55, 0.42), "pelvic": (0.5, -0.85, 0.36), "mark": "brown_trout",
+    },
+    # Mersin balığı: the pond's legend, a sturgeon from the old river days: a shovel snout
+    # with four barbels, rows of bony plates, the upper tail lobe long.
+    "fish_sturgeon": {
+        "L": 1.3, "tail": 0.17, "H": 0.14, "W": 0.15, "h": (0.38, 0.95, 0.2), "w": (0.32, 0.85, 0.24), "asym": 0.56,
+        "scales": 0, "edge": 0.0, "gill": 0.23, "eye": (0.16, 0.42, 0.12), "fork": 0.55, "tail_half": 0.2,
+        "back": (0.24, 0.24, 0.2), "flank": (0.47, 0.46, 0.4), "belly": (0.86, 0.85, 0.8), "sheen": 0.05,
+        "fin": (0.36, 0.34, 0.29), "fin_base": (0.42, 0.4, 0.34), "fin_d": (0.3, 0.3, 0.26), "iris": (0.62, 0.56, 0.4),
+        "dorsal": [(0.72, 0.85, [(0, 0.35), (0.2, 1.0), (1, 0.3)], 0.45)],
+        "anal": [(0.77, 0.87, [(0, 0.35), (0.2, 0.85), (1, 0.3)], 0.4)],
+        "pectoral": (0.21, -0.72, 0.95), "pelvic": (0.64, -0.88, 0.5),
+        "barbels": [(0.035, 0.9), (0.035, 0.9)], "barbel_s": 0.07, "flat_head": True, "hetero": 0.38, "mouth": -0.35,
+        "mark": "sturgeon",
     },
 }
 
@@ -440,6 +553,9 @@ def body_mesh(b, body, mat, ns=72, nt=48):
 
 def ridge_fin(b, body, s0, s1, heights, rake, up, mat, nu=14, nv=5, billow=0.02):
     us, hs = zip(*heights)
+    if s1 - s0 > 0.55:
+        # A fin along most of the body (the eel's): more rows so it follows the curve.
+        nu = int((s1 - s0) * 60)
     pts = []
     for i in range(nu + 1):
         u = i / nu
@@ -474,6 +590,12 @@ def tail_fin(b, body, mat, nu=16, nv=8):
         ext = body.Lt * ((1 - fork) * rounded + fork * forked)
         base = Vector((x0 + 0.004 * body.L, 0.0, (2 * u - 1) * hp))
         tip = Vector((x0 - ext, 0.0, (2 * u - 1) * th))
+        het = c.get("hetero", 0.0)
+        if het != 0.0:
+            # Unequal lobes: the sturgeon's long upper lobe sweeping up, the bream's lower.
+            side = 2 * u - 1
+            ext *= 1.0 + het * side * k
+            tip = Vector((x0 - ext, 0.0, side * th * (1.0 + 0.5 * het * side) + het * th * 0.3))
         row = []
         for j in range(nv + 1):
             v = j / nv
@@ -532,6 +654,22 @@ def eyes(b, body, cfg, iris, pupil):
 
 
 def barbels(b, body, cfg, mat):
+    if "barbel_s" in cfg:
+        # A row of barbels hanging under the snout (the sturgeon's four).
+        bs = cfg["barbel_s"]
+        for k, (length, low) in enumerate(cfg["barbels"]):
+            L = length * body.L
+            for side in (1, -1):
+                base = body.point(bs, -math.pi * 0.5 + side * (0.25 + 0.45 * k))
+                pts = []
+                radii = []
+                n = 7
+                for i in range(n + 1):
+                    t = i / n
+                    pts.append(base + Vector((-0.25 * L * t, side * 0.15 * L * t, -low * L * t)))
+                    radii.append(max(0.0035 * body.L * (1.0 - 0.7 * t), 0.0007))
+                b.tube(pts, radii, mat, segs=6)
+        return
     for k, (length, low) in enumerate(cfg.get("barbels", [])):
         L = length * body.L
         for side in (1, -1):
@@ -604,9 +742,13 @@ def body_texture(key, cfg, rng, nu=1024, nv=512):
     col *= (1.0 - 0.45 * gill_line)[..., None]
     height -= gill_line * 0.6
     col = mix(col, col * np.array([1.05, 1.0, 0.92], np.float32), head * 0.5)
-    mouth = np.exp(-((E - (-0.08 - 0.9 * S)) / 0.035) ** 2) * (1.0 - smooth(0.035, 0.06, S))
+    mouth = np.exp(-((E - (cfg.get("mouth", -0.08) - 0.9 * S)) / 0.035) ** 2) * (1.0 - smooth(0.035, 0.06, S))
     col *= (1.0 - 0.7 * mouth)[..., None]
     col = markings(cfg, rng, col, S, E, noise, nv, nu)
+    if cfg["mark"] == "sturgeon":
+        plates, _ = scutes(S, nv, nu)
+        col = mix(col, np.broadcast_to(rgb((0.74, 0.72, 0.64)), col.shape), plates * 0.7)
+        height += plates * 0.9 + (fbm(nv, nu, 40, 120, rng, 2) - 0.5) * 0.25
     # Photo-like unevenness; a wet fish's colours are deep (the sun on the bank would
     # bleach lighter albedo).
     col *= (0.9 + 0.2 * noise2)[..., None]
@@ -678,7 +820,91 @@ def markings(cfg, rng, col, S, E, noise, nv, nu):
         col = mix(col, col * np.array([1.08, 1.04, 0.86], np.float32), smooth(-0.5, 0.0, E) * (1 - smooth(0.1, 0.5, E)) * 0.5)
     elif kind == "tench":
         col = mix(col, col * np.array([1.15, 1.08, 0.7], np.float32), smooth(-0.7, -0.1, E) * (1 - smooth(0.1, 0.5, E)) * 0.45)
+    elif kind == "roach":
+        # A blue-steel sheen along the upper flank.
+        col = mix(col, col * np.array([0.88, 1.0, 1.14], np.float32), smooth(0.05, 0.45, E) * (1 - smooth(0.6, 0.9, E)) * 0.55)
+    elif kind == "bleak":
+        # Mirror-bright flanks, a green-blue line along the back.
+        col = mix(col, col * np.array([1.02, 1.06, 1.08], np.float32), smooth(-0.4, 0.3, E) * (1 - smooth(0.4, 0.7, E)) * 0.5)
+        col = mix(col, col * np.array([0.7, 1.05, 1.0], np.float32), np.exp(-((E - 0.55) / 0.08) ** 2) * body * 0.5)
+    elif kind == "gudgeon":
+        # A row of dark blotches along the lateral line, the back freckled.
+        blot = np.zeros_like(S)
+        for s0 in np.linspace(0.26, 0.95, 9):
+            blot = np.maximum(blot, np.exp(-(((S - s0) / 0.022) ** 2 + ((E - 0.0) / 0.13) ** 2)))
+        col = mix(col, col * 0.32, blot * 0.8 * body)
+        m = spots(rng, S, E, 240, (0.05, 1.0), (0.15, 1.0), 0.004, 1.0)
+        col = mix(col, col * 0.45, np.clip(m * 1.4, 0, 1) * 0.7)
+    elif kind == "bream":
+        # Old bronze: the flank warms toward gold, the back goes lead-grey.
+        col = mix(col, col * np.array([1.12, 1.0, 0.78], np.float32), smooth(-0.5, 0.2, E) * (1 - smooth(0.3, 0.7, E)) * 0.55)
+    elif kind == "chub":
+        col = mix(col, col * np.array([1.08, 1.02, 0.86], np.float32), smooth(-0.4, 0.1, E) * (1 - smooth(0.2, 0.6, E)) * 0.4)
+    elif kind == "barbel":
+        m = spots(rng, S, E, 320, (0.05, 1.0), (0.05, 1.0), 0.0035, 1.2)
+        col = mix(col, col * 0.4, np.clip(m * 1.3, 0, 1) * 0.65)
+        col = mix(col, col * np.array([1.1, 1.02, 0.8], np.float32), smooth(-0.5, 0.0, E) * (1 - smooth(0.1, 0.5, E)) * 0.4)
+    elif kind == "eel":
+        marble = fbm(nv, nu, 6, 40, rng, 5)
+        col = mix(col, col * 0.62, smooth(0.45, 0.65, marble) * smooth(-0.1, 0.5, E) * 0.6)
+        col = mix(col, col * np.array([1.1, 1.05, 0.7], np.float32), smooth(-0.9, -0.4, E) * 0.4)
+    elif kind == "grass_carp":
+        col = mix(col, col * np.array([1.06, 1.04, 0.84], np.float32), smooth(-0.5, 0.0, E) * (1 - smooth(0.1, 0.5, E)) * 0.45)
+    elif kind == "silver_carp":
+        col = mix(col, col * np.array([0.95, 1.02, 1.08], np.float32), smooth(-0.3, 0.4, E) * 0.35)
+    elif kind == "brown_trout":
+        # Black spots over the back and upper flank; red ones with pale haloes along the
+        # lateral line.
+        m = spots(rng, S, E, 260, (0.05, 0.98), (-0.1, 1.0), 0.0055, 1.0)
+        col = mix(col, np.broadcast_to(rgb((0.07, 0.05, 0.04)), col.shape), np.clip(m * 1.6, 0, 1) * 0.85)
+        centers = [(rng.uniform(0.2, 0.95), rng.uniform(-0.3, 0.3)) for _ in range(46)]
+        halo = spots_from(S, E, centers, 0.011)
+        red = spots_from(S, E, centers, 0.0055)
+        col = mix(col, np.broadcast_to(rgb((0.9, 0.84, 0.7)), col.shape), np.clip(halo * 1.3, 0, 1) * 0.7 * body)
+        col = mix(col, np.broadcast_to(rgb((0.72, 0.12, 0.06)), col.shape), np.clip(red * 1.8, 0, 1) * 0.9 * body)
     return col
+
+
+def spots_from(S, E, centers, size, stretch=1.0):
+    """Round spots at given (s, e) centres (spots() picks its own)."""
+    mask = np.zeros_like(S)
+    nv, nu = S.shape
+    for s0, e0 in centers:
+        i0 = max(int((s0 - size * stretch * 3) * nu), 0)
+        i1 = min(int((s0 + size * stretch * 3) * nu) + 1, nu)
+        th = math.asin(max(min(e0, 1.0), -1.0))
+        for th0 in (th, math.pi - th):
+            v0 = (th0 + math.pi * 0.5) / (2 * math.pi)
+            j0 = max(int((v0 - size * 3) * nv), 0)
+            j1 = min(int((v0 + size * 3) * nv) + 1, nv)
+            if i1 <= i0 or j1 <= j0:
+                continue
+            ss = S[j0:j1, i0:i1]
+            vv = (np.arange(j0, j1) / nv)[:, None]
+            d = ((ss - s0) / stretch) ** 2 + (vv - v0) ** 2 * 0.25
+            mask[j0:j1, i0:i1] = np.maximum(mask[j0:j1, i0:i1], np.exp(-d / (size * size) * 2.0))
+    return mask
+
+
+def scutes(S, nv, nu):
+    """The sturgeon's five rows of bony plates (a mask 0..1, and the rows' angles):
+    one along the back, one down each flank, two along the belly."""
+    V = (np.arange(nv, dtype=np.float32) / nv)[:, None].repeat(nu, 1)
+    TH = V * 2 * np.pi - np.pi * 0.5
+    rows = [(math.pi * 0.5, 0.22, 0.26, 0.72, 13), (0.0, 0.11, 0.22, 0.98, 36), (math.pi, 0.11, 0.22, 0.98, 36),
+            (-math.pi * 0.5 + 0.6, 0.12, 0.26, 0.64, 11), (-math.pi * 0.5 - 0.6, 0.12, 0.26, 0.64, 11)]
+    out = np.zeros_like(S)
+    for a, w, s_a, s_b, n in rows:
+        d_th = np.abs(np.arctan2(np.sin(TH - a), np.cos(TH - a))) / w
+        ph = (S - s_a) / (s_b - s_a) * n
+        f = np.abs(np.mod(ph, 1.0) - 0.5) / 0.42
+        inside = smooth(-0.02, 0.0, (S - s_a)) * (1.0 - smooth(0.0, 0.02, S - s_b))
+        # A diamond with a raised keel down its middle.
+        dist = f + d_th
+        plate = (1.0 - smooth(0.7, 1.0, dist)) * inside
+        keel = np.exp(-(d_th / 0.18) ** 2) * plate * 0.4
+        out = np.maximum(out, plate * 0.8 + keel)
+    return np.clip(out, 0.0, 1.0), rows
 
 
 def cook(raw, S, E, rng, nv, nu):
@@ -706,7 +932,7 @@ def fin_texture(cfg, rng, kind, cooked=False, nu=512, nv=256):
     U = np.linspace(0.0, 1.0, nu, dtype=np.float32)[None, :].repeat(nv, 0)
     Vv = np.linspace(0.0, 1.0, nv, dtype=np.float32)[:, None].repeat(nu, 1)
     n = fbm(nv, nu, 4, 8, rng, 4)
-    rays_n = {"caudal": 18, "dorsal": 14, "paired": 12, "spiny": 13}[kind]
+    rays_n = {"caudal": 18, "dorsal": 14, "paired": 12, "spiny": 13}[kind] * cfg.get("ray_scale", 1)
     ray = np.exp(-((np.mod(U * rays_n, 1.0) - 0.5) / 0.1) ** 2)
     # Rays branch toward the edge: a second, finer set fades in.
     ray = np.maximum(ray, np.exp(-((np.mod(U * rays_n * 2 + 0.5, 1.0) - 0.5) / 0.12) ** 2) * smooth(0.45, 0.8, Vv))
@@ -723,7 +949,7 @@ def fin_texture(cfg, rng, kind, cooked=False, nu=512, nv=256):
     if mark == "perch" and kind == "spiny":
         spot = np.exp(-(((U - 0.85) / 0.1) ** 2 + ((Vv - 0.45) / 0.3) ** 2))
         col = mix(col, np.broadcast_to(rgb((0.05, 0.05, 0.05)), col.shape), np.clip(spot * 1.5, 0, 1))
-    if mark in ("trout", "zander", "pike") and kind in ("dorsal", "caudal", "spiny"):
+    if mark in ("trout", "zander", "pike", "brown_trout", "gudgeon") and kind in ("dorsal", "caudal", "spiny"):
         ss = spots(rng, U, (Vv - 0.5) * 1.6, 70 if mark == "trout" else 40, (0.0, 1.0), (-0.7, 0.7),
                    0.012 if mark == "trout" else 0.02)
         col = mix(col, col * 0.2, np.clip(ss * 1.5, 0, 1) * 0.8)
@@ -779,8 +1005,9 @@ def build_fish(key, cfg):
         tail_fin(b, body, mats["caudal"])
         s, e, ln = cfg["pectoral"]
         paired_fin(b, body, s, e, ln, mats["paired"], 0.8, 1.0, 0.35)
-        s, e, ln = cfg["pelvic"]
-        paired_fin(b, body, s, e, ln, mats["paired"], 0.6, 1.0, 0.9)
+        if cfg["pelvic"] is not None:
+            s, e, ln = cfg["pelvic"]
+            paired_fin(b, body, s, e, ln, mats["paired"], 0.6, 1.0, 0.9)
         eyes(b, body, cfg, mats["iris"], mats["pupil"])
         barbels(b, body, cfg, mats["barbel"])
         ob = b.to_object(name)
@@ -974,6 +1201,523 @@ def build_float():
     bpy.data.objects.remove(ob)
 
 
+# --- More rods: the cane pole, the carbon spinning rod and the carp rod ------------------------
+
+def eva_texture(rng, dark, nv=256, nu=512):
+    """EVA foam: fine closed pores, a little mottling."""
+    n = fbm(nv, nu, 12, 24, rng, 4)
+    pores = smooth(0.6, 0.68, fbm(nv, nu, 60, 120, rng, 2))
+    col = np.broadcast_to(rgb(dark), (nv, nu, 3)) * (0.9 + 0.2 * n)[..., None]
+    col = mix(col, col * 0.55, pores * 0.8)
+    return col, pores * 0.6 + n * 0.2
+
+
+def spinning_reel(b, at, k, body_mat, spool_mat, line_mat, trim_mat, knob_mat, bail_mat, spool_r=0.017, spool_len=0.014):
+    """A fixed-spool reel hanging under the seat toward -X, `k` times the standard reel's
+    size: stem, body, rotor, spool with line, bail, crank and knob; the long-cast spool
+    of a carp reel is wider (`spool_r`) and longer."""
+    b.cone(at + Vector((-0.011 * k, 0, 0.0)), at + Vector((-0.05 * k, 0, 0.0)), 0.004 * k, 0.005 * k, body_mat, segs=10)
+    b.sphere(at + Vector((-0.062 * k, 0, -0.002 * k)), (0.022 * k, 0.017 * k, 0.026 * k), body_mat, segs=18, rings=10)
+    rc = at + Vector((-0.062 * k, 0, 0.03 * k))
+    lathe(b, [(0.0, 0.0), (0.0, 0.018 * k), (0.012 * k, 0.019 * k), (0.016 * k, 0.016 * k)], body_mat, axis_offset=rc)
+    z0 = 0.016 * k
+    sr = spool_r * k
+    sl = spool_len * k
+    lathe(b, [(z0, 0.016 * k), (z0 + 0.002 * k, sr + 0.005 * k), (z0 + 0.005 * k, sr + 0.005 * k), (z0 + 0.006 * k, sr),
+              (z0 + 0.006 * k + sl, sr), (z0 + 0.007 * k + sl, sr + 0.0045 * k), (z0 + 0.011 * k + sl, sr + 0.004 * k),
+              (z0 + 0.013 * k + sl, 0.006 * k), (z0 + 0.017 * k + sl, 0.0)], spool_mat, axis_offset=rc)
+    lathe(b, [(z0 + 0.006 * k, sr + 0.0003), (z0 + 0.006 * k + sl, sr + 0.0003)], line_mat, segs=24, axis_offset=rc)
+    lathe(b, [(z0 + 0.0015 * k, sr + 0.0052 * k), (z0 + 0.0035 * k, sr + 0.0052 * k)], trim_mat, segs=24, axis_offset=rc)
+    bail = []
+    br = sr + 0.007 * k
+    for i in range(13):
+        t = math.pi * i / 12
+        bail.append(rc + Vector((math.cos(t) * br, math.sin(t) * br * 0.9, z0 + 0.012 * k + sl - 0.004 * k * math.sin(t))))
+    b.tube(bail, [0.0011 * k] * len(bail), bail_mat, segs=6)
+    c0 = at + Vector((-0.062 * k, 0.017 * k, -0.004 * k))
+    c1 = c0 + Vector((0.0, 0.035 * k, 0.0))
+    b.cone(at + Vector((-0.062 * k, 0.01 * k, -0.004 * k)), c0, 0.004 * k, 0.004 * k, trim_mat, segs=10)
+    b.cone(c0, c1 + Vector((0.0, 0.0, -0.022 * k)), 0.0025 * k, 0.0022 * k, body_mat, segs=8)
+    knob = c1 + Vector((0.0, 0.0, -0.022 * k))
+    b.cone(knob, knob + Vector((0.0, 0.014 * k, 0.0)), 0.0038 * k, 0.0034 * k, knob_mat, segs=12)
+
+
+def rod_guides(b, guides, r_at, frame, insert, wrap, trim=None):
+    """Guides toward -X: a ring on two legs, whipped on with thread (a trim band on the
+    whipping when given)."""
+    for z, rr, hgt in guides:
+        rblank = r_at(z)
+        center = Vector((-(rblank + hgt), 0.0, z + 0.004))
+        ring = [center + Vector((math.cos(2 * math.pi * k / 16) * rr, 0.0, math.sin(2 * math.pi * k / 16) * rr))
+                for k in range(17)]
+        b.tube(ring, [max(0.0009, rr * 0.1)] * len(ring), insert, segs=6)
+        outer = [center + Vector((math.cos(2 * math.pi * k / 16) * rr * 1.18, 0.0, math.sin(2 * math.pi * k / 16) * rr * 1.18))
+                 for k in range(17)]
+        b.tube(outer, [max(0.0007, rr * 0.06)] * len(outer), frame, segs=5)
+        for dz in (-0.9, 0.9):
+            foot = Vector((-rblank, 0.0, z + dz * hgt * 0.9))
+            b.cone(foot, center + Vector((rr * 0.6, 0.0, dz * rr * 0.5)), 0.0008, 0.0008, frame, segs=5)
+            zz = z + dz * hgt * 0.9
+            lathe(b, [(zz - 0.007, rblank + 0.0004), (zz + 0.007, rblank + 0.0004)], wrap, segs=10)
+            if trim is not None:
+                lathe(b, [(zz + 0.007, rblank + 0.0005), (zz + 0.009, rblank + 0.0005)], trim, segs=10)
+
+
+ROD_SPECS = {
+    # Karbon spin oltası: 2.1 m of deep-blue carbon, split EVA grips, a bigger black and
+    # silver reel with a blue spool, lined guides whipped in silver.
+    "carbon_rod": {"len": 2.1, "butt": -0.4, "r0": 0.0068, "r1": 0.0013, "blank": (0.02, 0.05, 0.16),
+                   "blank_rough": 0.14, "grip": (0.08, 0.08, 0.085), "wrap": (0.62, 0.64, 0.68), "trim": (0.1, 0.3, 0.85),
+                   "reel": 1.12, "reel_body": (0.06, 0.06, 0.065), "spool": (0.12, 0.34, 0.8), "spool_r": 0.017,
+                   "spool_len": 0.014, "line": (0.86, 0.9, 0.84), "split": True},
+    # Sazan oltası: 2.6 m, thick and matt olive, a full rubber shrink grip, a big-pit reel
+    # with a long-cast spool of green line and a wide butt ring.
+    "carp_rod": {"len": 2.6, "butt": -0.55, "r0": 0.0092, "r1": 0.0019, "blank": (0.14, 0.16, 0.1),
+                 "blank_rough": 0.42, "grip": (0.05, 0.05, 0.05), "wrap": (0.08, 0.08, 0.08), "trim": (0.72, 0.6, 0.3),
+                 "reel": 1.38, "reel_body": (0.2, 0.21, 0.2), "spool": (0.66, 0.66, 0.68), "spool_r": 0.021,
+                 "spool_len": 0.02, "line": (0.28, 0.4, 0.22), "split": False},
+}
+
+
+def build_modern_rod(name):
+    sp = ROD_SPECS[name]
+    rng = np.random.default_rng(len(name) * 31)
+    L = sp["len"]
+    grip_col, grip_h = eva_texture(rng, sp["grip"])
+    grip_img = save_image(name + "_grip", grip_col)
+    grip_nor = save_image(name + "_grip_nor", normal_from_height(grip_h, 2.0 if sp["split"] else 1.2), True)
+    grip = material(name + "_grip", image=grip_img, normal=grip_nor, rough=0.8 if sp["split"] else 0.62)
+    blank = material(name + "_blank", color=sp["blank"], rough=sp["blank_rough"], metal=0.15, coat=0.9 if sp["split"] else 0.2)
+    rubber = material(name + "_rubber", color=(0.035, 0.035, 0.035), rough=0.7)
+    seat = material(name + "_seat", color=(0.05, 0.05, 0.055), rough=0.32, metal=0.6)
+    chrome = material(name + "_chrome", color=(0.8, 0.8, 0.82), rough=0.12, metal=1.0)
+    insert = material(name + "_insert", color=(0.12, 0.12, 0.13), rough=0.08, metal=0.8)
+    frame = material(name + "_frame", color=(0.06, 0.06, 0.065), rough=0.25, metal=0.9)
+    wrap = material(name + "_wrap", color=sp["wrap"], rough=0.3, metal=0.5 if sp["split"] else 0.0, coat=0.8)
+    trim = material(name + "_trim", color=sp["trim"], rough=0.25, metal=0.7, coat=0.6)
+    reel_body = material(name + "_reel", color=sp["reel_body"], rough=0.3, metal=0.85)
+    spool = material(name + "_spool", color=sp["spool"], rough=0.22, metal=1.0)
+    line = material(name + "_line", color=sp["line"], rough=0.35)
+    b = Builder()
+    butt = sp["butt"]
+    r0, r1 = sp["r0"], sp["r1"]
+    top = 0.19 if sp["split"] else 0.3
+
+    def r_at(z):
+        return r0 - (z - top) / (L - top) * (r0 - r1)
+
+    lathe(b, [(butt, 0.0), (butt, 0.013), (butt + 0.004, 0.0155), (butt + 0.02, 0.0155), (butt + 0.025, 0.0142)], rubber)
+    if sp["split"]:
+        # The rear grip, a bare stretch of blank, then the seat and the fore grip.
+        lathe(b, [(butt + 0.025, 0.0142), (butt + 0.03, 0.0148), (butt + 0.13, 0.0146), (butt + 0.14, 0.0138)], grip)
+        lathe(b, [(butt + 0.14, 0.0085), (-0.075, 0.0085)], blank, segs=14)
+        lathe(b, [(-0.075, 0.0138), (-0.07, 0.0146), (-0.06, 0.0142)], grip)
+    else:
+        lathe(b, [(butt + 0.025, 0.0142), (butt + 0.03, 0.0152), (-0.2, 0.0148), (-0.07, 0.0142), (-0.06, 0.0138)], grip)
+    # The screw reel seat, a trim ring each end.
+    lathe(b, [(-0.06, 0.0132), (-0.055, 0.0122), (0.045, 0.0122), (0.05, 0.0126), (0.058, 0.0132)], seat)
+    lathe(b, [(-0.064, 0.0138), (-0.058, 0.0138)], trim)
+    lathe(b, [(0.058, 0.0134), (0.064, 0.0134)], trim)
+    if sp["split"]:
+        lathe(b, [(0.064, 0.0128), (0.075, 0.0132), (0.15, 0.0118), (0.17, 0.0098), (0.19, r0)], grip)
+    else:
+        lathe(b, [(0.064, 0.0132), (0.08, 0.0136), (0.26, 0.0122), (0.28, 0.0105), (0.3, r0)], grip)
+    lathe(b, [(top, r0 + 0.0008), (top + 0.012, r0 + 0.0008)], wrap, segs=14)
+    zs = np.linspace(top, L - 0.005, 48)
+    lathe(b, [(float(z), float(r_at(z))) for z in zs] + [(L - 0.005, 0.0)], blank, segs=12)
+    # Guides shrink toward the tip; the carp rod's butt ring is a wide 50 mm one.
+    n_g = 8 if sp["split"] else 7
+    first = 0.5 if sp["split"] else 0.62
+    guides = []
+    for i in range(n_g):
+        t = i / (n_g - 1)
+        z = first + (L - 0.12 - first) * (t ** 0.85)
+        big = 0.018 if not sp["split"] and i == 0 else 0.0
+        guides.append((z, max(0.012 - 0.0085 * t, 0.0033) + big, max(0.034 - 0.024 * t, 0.009) + big * 1.6))
+    rod_guides(b, guides, r_at, frame, insert, wrap, trim)
+    tip = Vector((0.0, 0.0, L))
+    ring = [tip + Vector((math.cos(2 * math.pi * k / 12) * 0.0028, 0.0, math.sin(2 * math.pi * k / 12) * 0.0028))
+            for k in range(13)]
+    b.tube(ring, [0.0008] * len(ring), insert, segs=5)
+    lathe(b, [(L - 0.012, r1 + 0.0005), (L - 0.003, r1 + 0.0005)], wrap, segs=10)
+    spinning_reel(b, Vector((0.0, 0.0, 0.0)), sp["reel"], reel_body, spool, line, trim, rubber, chrome,
+                  spool_r=sp["spool_r"], spool_len=sp["spool_len"])
+    ob = b.to_object(name)
+    export(name, [ob])
+    bpy.data.objects.remove(ob)
+
+
+CANE_LEN = 2.25
+
+
+def bamboo_texture(rng, nodes, nv=128, nu=2048):
+    """The cane's skin along its length (u along, v around): straw with fine fibres and
+    brown flecks, darker rings at the nodes (at `nodes`, shares of the length)."""
+    V = np.linspace(0, 1, nv, dtype=np.float32)[:, None].repeat(nu, 1)
+    U = np.linspace(0, 1, nu, dtype=np.float32)[None, :].repeat(nv, 0)
+    fib = value_noise(nv, nu, 64, 6, rng)
+    n = fbm(nv, nu, 6, 40, rng, 4)
+    col = mix(np.broadcast_to(rgb((0.8, 0.68, 0.42)), (nv, nu, 3)), np.broadcast_to(rgb((0.64, 0.5, 0.28)), (nv, nu, 3)), n)
+    col *= (0.92 + 0.12 * fib)[..., None]
+    fleck = smooth(0.66, 0.74, fbm(nv, nu, 10, 160, rng, 3))
+    col = mix(col, col * np.array([0.72, 0.6, 0.46], np.float32), fleck * 0.3)
+    height = fib * 0.3
+    for u0 in nodes:
+        band = np.exp(-((U - u0) / 0.003) ** 2)
+        scar = np.exp(-((U - u0 - 0.004) / 0.004) ** 2) * 0.6
+        col = mix(col, col * np.array([0.55, 0.42, 0.28], np.float32), np.clip(band + scar, 0, 1) * 0.8)
+        height += band * 1.2
+    # Toward the tip the cane is greener and lighter.
+    col = mix(col, col * np.array([1.0, 1.05, 0.85], np.float32), smooth(0.6, 1.0, U) * 0.4)
+    return col, height
+
+
+def build_cane_rod():
+    """Kamış olta: a bamboo pole with its line tied to the tip, no reel; the grip bound
+    with twine, the spare line wound on a wooden winder lashed above the hand."""
+    rng = np.random.default_rng(41)
+    butt, L = -0.35, CANE_LEN
+    node_z = [butt + 0.22]
+    step = 0.3
+    while node_z[-1] + step < L - 0.1:
+        node_z.append(node_z[-1] + step)
+        step *= 0.96
+    nodes = [(z - butt) / (L - butt) for z in node_z]
+    col, h = bamboo_texture(rng, nodes)
+    img = save_image("cane_rod_skin", col.transpose(1, 0, 2))
+    nor = save_image("cane_rod_skin_nor", normal_from_height(h, 2.0).transpose(1, 0, 2), True)
+    cane = material("cane_rod_skin", image=img, normal=nor, rough=0.42, coat=0.25)
+    hemp = material("cane_rod_twine", color=(0.62, 0.5, 0.32), rough=0.85)
+    wood = material("cane_rod_winder", color=(0.45, 0.3, 0.17), rough=0.6)
+    line = material("cane_rod_line", color=(0.9, 0.9, 0.86), rough=0.35)
+    wire = material("cane_rod_wire", color=(0.55, 0.56, 0.58), rough=0.3, metal=1.0)
+    b = Builder()
+
+    def r_at(z):
+        t = (z - butt) / (L - butt)
+        r = 0.0145 - 0.0115 * t ** 0.9
+        for zn in node_z:
+            r *= 1.0 + 0.09 * math.exp(-((z - zn) / 0.006) ** 2)
+        return r
+
+    zs = list(np.linspace(butt, L, 420))
+    # The lathe maps its profile rows to the texture's rows (around = u, along = v): the
+    # texture was painted with u along the pole, so it is saved transposed.
+    lathe(b, [(butt - 0.002, 0.0)] + [(float(z), float(r_at(z))) for z in zs] + [(L + 0.001, 0.0)], cane, segs=14)
+    # Twine grip: turns of cord over the butt.
+    for i in range(30):
+        z = butt + 0.02 + i * 0.0095
+        rr = r_at(z)
+        lathe(b, [(z - 0.0045, rr), (z - 0.0035, rr + 0.0028), (z + 0.0035, rr + 0.0028), (z + 0.0045, rr)], hemp, segs=12)
+    # The line winder: two pegs across a flat stick lashed on the -X side, line wound on it.
+    zw0, zw1 = 0.12, 0.34
+    rr = r_at((zw0 + zw1) * 0.5)
+    b.cone(Vector((-(rr + 0.004), 0, zw0 - 0.02)), Vector((-(rr + 0.004), 0, zw1 + 0.02)), 0.0045, 0.0045, wood, segs=8)
+    for zp in (zw0, zw1):
+        b.cone(Vector((-(rr + 0.004), -0.018, zp)), Vector((-(rr + 0.004), 0.018, zp)), 0.0032, 0.0032, wood, segs=8)
+        lathe(b, [(zp - 0.006, r_at(zp) + 0.0002), (zp + 0.006, r_at(zp) + 0.0002)], hemp, segs=10)
+    for k in range(9):
+        y = -0.012 + k * 0.003
+        b.cone(Vector((-(rr + 0.0085), y, zw0 + 0.002)), Vector((-(rr + 0.0085), y, zw1 - 0.002)), 0.0009, 0.0009, line,
+               segs=5)
+    # The line runs up the pole from the winder to the tip, taped at a few points.
+    pts = [Vector((-(r_at(z) + 0.0012), 0.0, z)) for z in np.linspace(zw1, L - 0.02, 30)]
+    pts.append(Vector((0.0, 0.0, L)))
+    b.tube(pts, [0.00055] * len(pts), line, segs=4)
+    for zt in (0.8, 1.4, 1.95):
+        lathe(b, [(zt - 0.005, r_at(zt) + 0.0012), (zt + 0.005, r_at(zt) + 0.0012)], hemp, segs=10)
+    # A wire eye at the tip, whipped on.
+    tip = Vector((0.0, 0.0, L + 0.004))
+    ring = [tip + Vector((math.cos(2 * math.pi * k / 10) * 0.0024, 0.0, math.sin(2 * math.pi * k / 10) * 0.0024))
+            for k in range(11)]
+    b.tube(ring, [0.0006] * len(ring), wire, segs=5)
+    lathe(b, [(L - 0.03, r_at(L - 0.03) + 0.0006), (L - 0.002, r_at(L - 0.002) + 0.0006)], hemp, segs=10)
+    ob = b.to_object("cane_rod")
+    export("cane_rod", [ob])
+    bpy.data.objects.remove(ob)
+
+
+# --- Bait sold at the market ---------------------------------------------------------------
+
+def scatter(rng, n, radius, z, jitter=0.0):
+    out = []
+    for _ in range(n):
+        a = rng.uniform(0, 2 * math.pi)
+        r = radius * math.sqrt(rng.uniform(0, 1))
+        out.append(Vector((math.cos(a) * r, math.sin(a) * r, z + rng.uniform(-jitter, jitter))))
+    return out
+
+
+def tin_texture(rng, base, nv=128, nu=256):
+    n = fbm(nv, nu, 8, 16, rng, 4)
+    rust = smooth(0.62, 0.75, fbm(nv, nu, 6, 12, rng, 4))
+    col = np.broadcast_to(rgb(base), (nv, nu, 3)) * (0.9 + 0.15 * n)[..., None]
+    col = mix(col, np.broadcast_to(rgb((0.36, 0.2, 0.1)), col.shape), rust * 0.6)
+    return col, rust
+
+
+def build_maggot():
+    """Kurtçuk: a round tin of bran with a wriggle of cream maggots on it, the lid beside."""
+    rng = np.random.default_rng(3)
+    col, rust = tin_texture(rng, (0.62, 0.64, 0.62))
+    tin = material("maggot_tin", image=save_image("maggot_tin", col), rough=0.35, metal=0.9)
+    bran = material("maggot_bran", image=save_image("maggot_bran", mix(
+        np.broadcast_to(rgb((0.62, 0.48, 0.3)), (128, 128, 3)), np.broadcast_to(rgb((0.4, 0.28, 0.16)), (128, 128, 3)),
+        fbm(128, 128, 24, 24, rng, 3))), rough=0.9)
+    grub = material("maggot_grub", color=(0.93, 0.88, 0.74), rough=0.32, spec=0.6, coat=0.3)
+    dark = material("maggot_tip", color=(0.18, 0.12, 0.08), rough=0.5)
+    b = Builder()
+    R, H = 0.045, 0.028
+    lathe(b, [(0.0, 0.0), (0.0, R - 0.002), (0.001, R), (H - 0.003, R), (H - 0.002, R + 0.0015), (H, R + 0.0012),
+              (H, R - 0.0008), (0.004, R - 0.0008), (0.004, 0.0)], tin, segs=36)
+    lathe(b, [(H - 0.006, R - 0.0008), (H - 0.0055, 0.0)], bran, segs=36)
+    for p in scatter(rng, 46, R * 0.85, H - 0.0045, 0.0012):
+        yaw = rng.uniform(0, math.pi)
+        bend = rng.uniform(-0.5, 0.5)
+        rot = Matrix.Rotation(yaw, 3, "Z")
+        d = rot @ Vector((1, 0, 0))
+        n = rot @ Vector((0, 1, 0))
+        for k in range(5):
+            t = (k - 2) / 2
+            c = p + d * t * 0.0044 + n * bend * 0.0014 * (1 - t * t)
+            r = 0.0018 * (1.0 - 0.3 * abs(t))
+            b.sphere(c, (0.0034, r, r * 0.9), grub, rot, segs=10, rings=6)
+        b.sphere(p + d * 0.0105, (0.0008, 0.0007, 0.0007), dark, segs=6, rings=4)
+    # The lid leaning against the tin.
+    lid_rot = Matrix.Rotation(1.2, 3, "Y") @ Matrix.Rotation(0.0, 3, "Z")
+    lid = Builder()
+    lathe(lid, [(0.0, 0.0), (0.0, R + 0.0018), (0.006, R + 0.0018), (0.006, R + 0.0008), (0.0015, R + 0.0008),
+                (0.0015, 0.0)], tin, segs=36)
+    ob = b.to_object("maggot")
+    lob = lid.to_object("maggot_lid")
+    lob.matrix_world = Matrix.Translation(Vector((R + 0.02, 0.0, R * 0.95))) @ lid_rot.to_4x4()
+    export("maggot", [ob, lob])
+    bpy.data.objects.remove(ob)
+    bpy.data.objects.remove(lob)
+
+
+def build_corn():
+    """Mısır: a small tin of sweetcorn, the lid peeled back, kernels heaped in the top."""
+    rng = np.random.default_rng(5)
+    nv, nu = 128, 512
+    V = np.linspace(0, 1, nv, dtype=np.float32)[:, None].repeat(nu, 1)
+    U = np.linspace(0, 1, nu, dtype=np.float32)[None, :].repeat(nv, 0)
+    lab = np.broadcast_to(rgb((0.12, 0.36, 0.16)), (nv, nu, 3)).copy()
+    lab = mix(lab, np.broadcast_to(rgb((0.96, 0.78, 0.18)), lab.shape), np.exp(-((V - 0.5) / 0.12) ** 2))
+    cob = np.exp(-(((np.mod(U * 3, 1.0) - 0.5) / 0.08) ** 2 + ((V - 0.5) / 0.2) ** 2))
+    dots = (np.sin(U * 3 * 2 * np.pi * 9) * np.sin(V * 2 * np.pi * 14) > 0.2) * cob
+    lab = mix(lab, np.broadcast_to(rgb((0.98, 0.84, 0.3)), lab.shape), cob * 0.8)
+    lab = mix(lab, lab * 0.8, dots * 0.5)
+    leaf = np.exp(-(((np.mod(U * 3 + 0.08, 1.0) - 0.5) / 0.05) ** 2 + ((V - 0.36) / 0.14) ** 2))
+    lab = mix(lab, np.broadcast_to(rgb((0.3, 0.6, 0.2)), lab.shape), leaf * 0.9)
+    lab = mix(lab, np.broadcast_to(rgb((0.9, 0.9, 0.86)), lab.shape), smooth(0.9, 0.93, V) + (1 - smooth(0.07, 0.1, V)))
+    lab *= (0.93 + 0.1 * fbm(nv, nu, 8, 32, rng, 3))[..., None]
+    label = material("corn_label", image=save_image("corn_label", lab), rough=0.5)
+    tin = material("corn_tin", color=(0.74, 0.74, 0.72), rough=0.25, metal=1.0)
+    kernel = material("corn_kernel", color=(0.97, 0.74, 0.12), rough=0.22, spec=0.7, coat=0.5)
+    b = Builder()
+    R, H = 0.034, 0.068
+    prof = [(0.0, 0.0), (0.0, R - 0.003), (0.002, R)]
+    lathe(b, prof + [(0.006, R)], tin, segs=36)
+    lathe(b, [(0.006, R + 0.0003), (H - 0.006, R + 0.0003)], label, segs=36)
+    ribs = [(H - 0.006, R), (H - 0.002, R), (H, R + 0.0012), (H + 0.001, R + 0.0008), (H - 0.001, R - 0.0006),
+            (H - 0.012, R - 0.0006), (H - 0.012, 0.0)]
+    lathe(b, ribs, tin, segs=36)
+    # Kernels heaped over the rim.
+    for i in range(70):
+        p = scatter(rng, 1, R * 0.92, H - 0.004)[0]
+        top = 0.012 * (1.0 - (p.xy.length / R) ** 2)
+        p.z += top * rng.uniform(0.3, 1.0)
+        rot = Matrix.Rotation(rng.uniform(0, 6.28), 3, "Z") @ Matrix.Rotation(rng.uniform(-0.8, 0.8), 3, "X")
+        b.sphere(p, (0.0046, 0.0038, 0.0026), kernel, rot, segs=8, rings=6)
+    # A few spilt beside the tin.
+    for p in scatter(rng, 6, 0.02, 0.0024):
+        p.x += R + 0.015
+        b.sphere(p, (0.0046, 0.0038, 0.0024), kernel, Matrix.Rotation(rng.uniform(0, 6.28), 3, "Z"), segs=8, rings=6)
+    # The peeled lid, standing up off the back of the rim.
+    lid = Builder()
+    lathe(lid, [(0.0, 0.0), (0.0, R + 0.0006), (0.0012, R + 0.0006), (0.0012, 0.0)], tin, segs=36)
+    ob = b.to_object("sweetcorn")
+    lob = lid.to_object("corn_lid")
+    lob.matrix_world = Matrix.Translation(Vector((-R * 0.95, 0.0, H + 0.001))) @ Matrix.Rotation(-1.9, 4, "Y") @ \
+        Matrix.Translation(Vector((R, 0.0, 0.0)))
+    export("sweetcorn", [ob, lob])
+    bpy.data.objects.remove(ob)
+    bpy.data.objects.remove(lob)
+
+
+def build_cheese():
+    """Peynir yemi: cubes of white cheese on a square of brown kraft paper."""
+    rng = np.random.default_rng(7)
+    n = fbm(128, 128, 16, 16, rng, 4)
+    holes = smooth(0.66, 0.72, fbm(128, 128, 30, 30, rng, 2))
+    ccol = np.broadcast_to(rgb((0.95, 0.93, 0.84)), (128, 128, 3)) * (0.94 + 0.08 * n)[..., None]
+    ccol = mix(ccol, ccol * 0.82, holes)
+    cheese = material("cheese_bait", image=save_image("cheese_bait", ccol),
+                      normal=save_image("cheese_bait_nor", normal_from_height(n * 0.3 - holes * 0.5, 2.0), True),
+                      rough=0.55, spec=0.5)
+    paper = material("cheese_paper", color=(0.56, 0.4, 0.25), rough=0.55, coat=0.15, double=True)
+    b = Builder()
+    # The paper, crinkled a little.
+    pts = []
+    for i in range(13):
+        row = []
+        for j in range(13):
+            x = (i / 12 - 0.5) * 0.095
+            y = (j / 12 - 0.5) * 0.095
+            z = 0.0015 + 0.0015 * math.sin(i * 1.7) * math.sin(j * 2.3) + 0.004 * max(abs(x), abs(y)) / 0.06 ** 1
+            row.append(Vector((x, y, z * 0.5)))
+        pts.append(row)
+    b.grid(pts, paper)
+    for k in range(9):
+        before = set(b.bm.faces)
+        a = rng.uniform(0, 6.28)
+        r = rng.uniform(0.0, 0.03)
+        c = Vector((math.cos(a) * r, math.sin(a) * r, 0.0))
+        s = rng.uniform(0.011, 0.015)
+        rot = Matrix.Rotation(rng.uniform(0, 6.28), 3, "Z")
+        res = bmesh.ops.create_cube(b.bm, size=1.0, matrix=Matrix.Translation(c + Vector((0, 0, s * 0.5 + 0.002)))
+                                    @ rot.to_4x4() @ Matrix.Diagonal((s, s * rng.uniform(0.85, 1.1), s * rng.uniform(0.8, 1.0), 1.0)),
+                                    calc_uvs=True)
+        edges = list({e for v in res["verts"] for e in v.link_edges})
+        bmesh.ops.bevel(b.bm, geom=res["verts"] + edges, offset=s * 0.12, segments=2, affect="EDGES")
+        idx = b.slot(cheese)
+        for f in b.bm.faces:
+            if f not in before:
+                f.material_index = idx
+    ob = b.to_object("cheese_bait")
+    export("cheese_bait", [ob])
+    bpy.data.objects.remove(ob)
+
+
+def minnow_fish(b, at, yaw, mats, L=0.075, pitch=0.0):
+    """A small live bait fish (a bleak's shape in plain materials) at `at`."""
+    cfg = dict(FISH["fish_bleak"])
+    cfg["L"] = L
+    body = Body(cfg)
+    sub = Builder()
+    body_mesh(sub, body, mats[0], ns=24, nt=16)
+    tail_fin(sub, body, mats[1], nu=8, nv=4)
+    for s0, s1, hs, rake in cfg["dorsal"]:
+        ridge_fin(sub, body, s0, s1, hs, rake, True, mats[1], nu=6, nv=3)
+    eyes(sub, body, cfg, mats[2], mats[3])
+    m = Matrix.Translation(at) @ Matrix.Rotation(yaw, 4, "Z") @ Matrix.Rotation(pitch, 4, "Y")
+    sub.bm.transform(m)
+    # Merge into the bucket's builder (keeping the material slots).
+    tmp = bpy.data.meshes.new("tmp_minnow")
+    sub.bm.to_mesh(tmp)
+    remap = [b.slot(mm) for mm in sub.mats]
+    offset = len(b.bm.faces)
+    b.bm.from_mesh(tmp)
+    b.bm.faces.ensure_lookup_table()
+    for f in b.bm.faces[offset:]:
+        f.material_index = remap[f.material_index]
+    sub.bm.free()
+    bpy.data.meshes.remove(tmp)
+
+
+def build_minnow():
+    """Canlı yem: a galvanised bait bucket of water with little live fish in it."""
+    rng = np.random.default_rng(11)
+    col, _ = tin_texture(rng, (0.6, 0.62, 0.62))
+    zinc = material("minnow_bucket", image=save_image("minnow_bucket", col), rough=0.42, metal=0.85)
+    water = material("minnow_water", color=(0.22, 0.3, 0.26), rough=0.04, spec=0.8)
+    water.node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 0.55
+    water.surface_render_method = "BLENDED"
+    silver = material("minnow_skin", color=(0.78, 0.8, 0.8), rough=0.2, metal=0.5, coat=0.5)
+    fin = material("minnow_fin", color=(0.6, 0.6, 0.56), rough=0.4, double=True)
+    iris = material("minnow_iris", color=(0.85, 0.85, 0.8), rough=0.08, spec=0.9)
+    pupil = material("minnow_pupil", color=(0.01, 0.01, 0.012), rough=0.03, spec=1.0)
+    wire = material("minnow_wire", color=(0.5, 0.5, 0.5), rough=0.3, metal=1.0)
+    b = Builder()
+    r0, r1, H = 0.062, 0.078, 0.12
+    lathe(b, [(0.0, 0.0), (0.0, r0 - 0.003), (0.003, r0), (0.02, r0 + 0.2 * (r1 - r0)), (0.021, r0 + 0.2 * (r1 - r0) + 0.0015),
+              (0.023, r0 + 0.2 * (r1 - r0)), (H - 0.004, r1), (H, r1 + 0.003), (H + 0.002, r1 + 0.002),
+              (H - 0.002, r1 - 0.0015), (0.006, r0 - 0.0015), (0.006, 0.0)], zinc, segs=40)
+    wl = H - 0.022
+    lathe(b, [(wl, r1 - 0.0022 - (H - wl) * (r1 - r0) / H), (wl, 0.0)], water, segs=40)
+    mats = (silver, fin, iris, pupil)
+    for i in range(4):
+        a = i * 1.7 + 0.3
+        rr = 0.03 + 0.012 * (i % 2)
+        minnow_fish(b, Vector((math.cos(a) * rr, math.sin(a) * rr, wl - 0.012 - 0.01 * (i % 2))), a + 1.6, mats,
+                    L=0.07 + 0.008 * (i % 3))
+    # One at the top, nose up.
+    minnow_fish(b, Vector((0.012, -0.018, wl - 0.004)), 0.4, mats, L=0.078, pitch=-0.25)
+    # The wire bail and its wooden grip.
+    bail = []
+    for k in range(25):
+        t = math.pi * k / 24
+        bail.append(Vector((math.cos(t) * (r1 + 0.004), 0.0, H - 0.006 + math.sin(t) * 0.07)))
+    b.tube(bail, [0.0016] * len(bail), wire, segs=6)
+    ob = b.to_object("minnow")
+    export("minnow", [ob])
+    bpy.data.objects.remove(ob)
+
+
+def build_spinner():
+    """Döner kaşık: a spinner lure lying on its side: the eye, a willow blade on its
+    clevis, brass body beads, a red bead and a treble hook with a red tag."""
+    brass = material("spinner_brass", color=(0.8, 0.62, 0.3), rough=0.2, metal=1.0)
+    blade_m = material("spinner_blade", color=(0.9, 0.9, 0.92), rough=0.08, metal=1.0, double=True)
+    steel = material("spinner_wire", color=(0.62, 0.63, 0.65), rough=0.2, metal=1.0)
+    red = material("spinner_red", color=(0.8, 0.06, 0.04), rough=0.3, coat=0.6)
+    tag = material("spinner_tag", color=(0.75, 0.08, 0.06), rough=0.8, double=True)
+    b = Builder()
+    k = 1.6  # a touch larger than life, so it reads in the hand and the bag
+    z = 0.004 * k
+    b.cone(Vector((0.0, 0, z)), Vector((0.058 * k, 0, z)), 0.0005 * k, 0.0005 * k, steel, segs=6)
+    eye = [Vector((0.058 * k + 0.004 * k + math.cos(2 * math.pi * i / 12) * 0.004 * k, 0.0,
+                   z + math.sin(2 * math.pi * i / 12) * 0.004 * k)) for i in range(13)]
+    b.tube(eye, [0.0005 * k] * len(eye), steel, segs=5)
+    # The blade: a cupped willow leaf beside the shaft, tilted as if spinning.
+    pts = []
+    for i in range(13):
+        u = i / 12
+        row = []
+        for j in range(7):
+            v = j / 6 * 2 - 1
+            w = 0.0062 * k * math.sin(math.pi * u) ** 0.8
+            x = 0.05 * k - u * 0.026 * k
+            # Swung out to the side of the shaft, cupped.
+            y = 0.0075 * k + v * w
+            zz = z + 0.0022 * k * (1 - v * v) * math.sin(math.pi * u)
+            row.append(Vector((x, y, zz)))
+        pts.append(row)
+    blade = Builder()
+    blade.grid(pts, blade_m)
+    ob_blade = blade.to_object("spinner_blade")
+    ob_blade.matrix_world = Matrix.Translation(Vector((0.0, 0, z))) @ Matrix.Rotation(0.7, 4, "X") @ \
+        Matrix.Translation(Vector((0.0, 0, -z)))
+    # The clevis: a bent wire from the shaft to the blade's front.
+    b.cone(Vector((0.053 * k, 0, z)), Vector((0.051 * k, 0.0075 * k * math.cos(0.7), z + 0.0075 * k * math.sin(0.7))),
+           0.0005 * k, 0.0005 * k, steel, segs=5)
+    b.sphere(Vector((0.046 * k, 0, z)), (0.0018 * k, 0.0018 * k, 0.0018 * k), red, segs=10, rings=6)
+    for i, (x, r) in enumerate([(0.041 * k, 0.0022), (0.036 * k, 0.0026), (0.031 * k, 0.003)]):
+        b.sphere(Vector((x, 0, z)), (0.0024 * k, r * k, r * k), brass, segs=12, rings=8)
+    b.cone(Vector((0.028 * k, 0, z)), Vector((0.016 * k, 0, z)), 0.0032 * k, 0.0012 * k, brass, segs=12)
+    # Treble hook: three bends round the end of the shank, the tag of red wool over them.
+    hx = 0.004 * k
+    rb = 0.0032 * k
+    for a in (0.0, 2.094, 4.189):
+        d = Vector((0.0, math.cos(a), math.sin(a)))
+        c = Vector((hx, 0.0, z)) + d * rb
+        curve = []
+        for i in range(10):
+            ang = math.pi * i / 9
+            curve.append(c + Vector((-math.sin(ang) * rb * 1.3, 0.0, 0.0)) - d * math.cos(ang) * rb)
+        curve.append(curve[-1] + Vector((0.006 * k, 0.0, 0.0)) - d * 0.0008 * k)
+        b.tube(curve, [0.00055 * k] * len(curve), steel, segs=5)
+    for i in range(7):
+        a = i * 0.9
+        d = Vector((0.0, math.cos(a), math.sin(a)))
+        b.cone(Vector((0.017 * k, 0, z)), Vector((0.004 * k, 0, z)) + d * 0.004 * k, 0.0012 * k, 0.0003 * k, tag, segs=5)
+    ob = b.to_object("spinner")
+    export("spinner", [ob, ob_blade])
+    bpy.data.objects.remove(ob)
+    bpy.data.objects.remove(ob_blade)
+
+
 # --- The old boot ------------------------------------------------------------------------------
 
 def build_boot():
@@ -1039,6 +1783,9 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     jobs = [(k, lambda k=k: build_fish(k, FISH[k])) for k in FISH]
     jobs += [("fish_crayfish", build_crayfish), ("rod", build_rod), ("float", build_float), ("boot", build_boot)]
+    jobs += [(k, lambda k=k: build_modern_rod(k)) for k in ROD_SPECS]
+    jobs += [("cane_rod", build_cane_rod), ("maggot", build_maggot), ("sweetcorn", build_corn), ("cheese_bait", build_cheese),
+             ("minnow", build_minnow), ("spinner", build_spinner)]
     for key, job in jobs:
         if ONLY and key not in ONLY:
             continue

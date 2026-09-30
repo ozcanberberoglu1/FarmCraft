@@ -20,7 +20,8 @@ The townspeople are built by `tools/fetch_people.py` (downloads) and
 | shoes01 | flats | Margaret Toigo |
 
 Modelled in the build script (CC0, part of this game): the headscarf (yemeni) with its
-printed pattern, the shop apron. Changes to the assets: bodies generated from macro
+printed pattern, the shop apron (bib, neck strap, waist ties and bow, shrink-wrapped over
+the shirt) with its generated navy twill. Changes to the assets: bodies generated from macro
 phenotypes, hidden body faces removed, heavy parts decimated, textures downsized and
 re-encoded, the iris colour darkened; everything joined into one skinned mesh per person
 on MPFB2's "game_engine" skeleton. Animated procedurally in game (scripts/npc).

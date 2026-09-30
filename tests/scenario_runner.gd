@@ -63,6 +63,8 @@ func run(scenario: String) -> void:
 			await _camp()
 		"fishing":
 			await _fishing()
+		"fishing2":
+			await _fishing2()
 		"sapling":
 			await _sapling()
 		"sapling_shots":
@@ -87,10 +89,20 @@ func run(scenario: String) -> void:
 			await _dealer()
 		"people":
 			await _people()
+		"people2":
+			await _people2()
 		"fixes":
 			await _fixes()
 		"carnival":
 			await _carnival()
+		"coop2":
+			await _coop2()
+		"game9":
+			await _game9()
+		"walk":
+			await _walk()
+		"rabbit2":
+			await _rabbit2()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -126,6 +138,12 @@ func run(scenario: String) -> void:
 			await _people()
 			await _fixes()
 			await _carnival()
+			await _coop2()
+			await _fishing2()
+			await _game9()
+			await _people2()
+			await _walk()
+			await _rabbit2()
 			# Last: it ends by starting a new game.
 			await _save_load()
 		_:
@@ -170,12 +188,13 @@ func _house() -> void:
 	await _frames(6)
 	_check(_last_prompt.contains(tr("ACTION_SLEEP")), "bed prompt shown ('%s')" % _last_prompt)
 
-	# Sleeping before 18:00 is refused, after 18:00 it starts the next day.
+	# Sleeping before 18:00 is refused while rested, after 18:00 it starts the next day.
 	var day := GameClock.day
+	PlayerState.needs.energy = Needs.MAX
 	GameClock.set_time_of_day(14.0)
 	await _press_key(KEY_E)
 	await _frames(3)
-	_check(GameClock.day == day and not Game.is_ui_open(), "cannot sleep in the afternoon")
+	_check(GameClock.day == day and not Game.is_ui_open(), "a rested farmer cannot sleep in the afternoon")
 	GameClock.set_time_of_day(21.5)
 	Economy.add_money(120, "test sale")
 	var bin: ShippingBin = Game.world.farm.get_node("ShippingBin")
@@ -2249,10 +2268,12 @@ func _coop() -> void:
 			and h.in_pen(egg.global_position, 1.0) and WaypointMarker.anchor(ChickenCoop.ANCHOR_EGG) == egg,
 			"the first egg lies around the coop (a waypoint anchor)")
 	var eggs := inv.count_item(&"egg")
+	var took := false
 	if egg:
-		player.global_position = egg.global_position + Vector3(0.6, 0.3, 0)
-	await _seconds(2.0)
-	_check(inv.count_item(&"egg") == eggs + 1 and String(coop.entry.get("egg", "")) == "taken", "the first egg is picked up")
+		# Taken by hand: looked at, E.
+		took = await _take_egg(egg)
+	await _frames(3)
+	_check(took and inv.count_item(&"egg") == eggs + 1 and String(coop.entry.get("egg", "")) == "taken", "the first egg is picked up (E)")
 
 	# (7b) Looking after the coop by hand: the feeder, the waterer and three nest boxes
 	# (guide dots over each); then hens lay in the bedded boxes.
@@ -4289,6 +4310,361 @@ func _fish_shot(name: String) -> void:
 		return
 	await RenderingServer.frame_post_draw
 	tree.root.get_viewport().get_texture().get_image().save_png(dir.path_join(name + ".png"))
+
+
+# --- Fishing depth: bait, the lake's fish, rods and their wear, trophy odds ---------------
+
+## The market's bait (its prices differ) and what each draws; every species caught,
+## sold, cooked and cleaned; the rods made at the workbench (short to long casts, low to
+## high durability), a cast wearing the rod and a broken one refusing; the trophy share
+## measured over many bites rolled exactly as play rolls them (Angler.roll_catch: the
+## angler's unseeded generator, the clock, the weather, the rod in hand), in the target
+## band, higher at night with a better rod and bait, and the owed giant after a dry run.
+## With -- --fish-shots=<dir> it also saves a few screenshots.
+func _fishing2() -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var angler := player.angler
+	await _close_screens()
+	angler.cancel()
+	GameClock.running = false
+	GameClock.set_time_of_day(10.0)
+	Weather.force(Weather.Kind.SUNNY)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var dry_before := PlayerState.fish_since_trophy
+	var level_before := Progress.level
+
+	# 1. Bait at the town market, each at its own price, each with a model, icon and name.
+	var stock: Array = ShopStock.town_market()["stock"]
+	var prices := {}
+	var bait_ok := true
+	for b: StringName in FishTable.BAITS:
+		var item := ItemDB.get_item(b)
+		var good := item != null and b in stock and item.category == "bait" and Economy.buy_price(b) > 0 \
+				and item.icon != ItemDB._placeholder_icon() and ItemModels.mesh(b).get_surface_count() > 0 \
+				and item.display_name() != "ITEM_" + String(b).to_upper() and item.description() != ""
+		if not good:
+			print("  bad bait ", b)
+		bait_ok = bait_ok and good
+		prices[String(b)] = Economy.buy_price(b)
+	var distinct := {}
+	for v: int in prices.values():
+		distinct[v] = true
+	_check(bait_ok and FishTable.BAITS.size() >= 7 and distinct.size() >= 4,
+			"fishing2: the market sells %d baits at their own prices %s" % [FishTable.BAITS.size(), prices])
+
+	# 2. Each bait shifts the catch: every fish is likeliest on a bait it takes gladly (at
+	# noon and at its own hour), and the likeliest fish differs from bait to bait.
+	var tops := {}
+	var shift_ok := true
+	for b: StringName in FishTable.BAITS:
+		var ch := FishTable.chances(b, 12.0, false)
+		var best: StringName = &""
+		for id: StringName in ch:
+			if best == &"" or float(ch[id]) > float(ch[best]):
+				best = id
+		tops[best] = true
+	for id: StringName in FishTable.SPECIES:
+		if not FishTable.is_fish(id):
+			continue
+		var band := String(FishTable.SPECIES[id]["time"])
+		for hour: float in [12.0, {"dawn": 7.0, "dusk": 19.0, "night": 23.0}.get(band, 12.0)]:
+			var best_bait: StringName = &""
+			var best_share := 0.0
+			for b: StringName in FishTable.BAITS:
+				var share := _share_on(id, b, hour)
+				if share > best_share:
+					best_share = share
+					best_bait = b
+			if FishTable.bait_factor(id, best_bait) < FishTable.FAVOURED:
+				shift_ok = false
+				print("  %s at %.0f h: likeliest on %s, which it doesn't favour" % [id, hour, best_bait])
+	_check(shift_ok and tops.size() >= 4, "fishing2: every fish is likeliest on a bait it favours, and %d baits lead with different fish at noon %s" % [tops.size(), tops.keys()])
+	# The same in the real roll: a spinner brings the hunters, maggots the small shoal fish.
+	_select_fresh_rod(&"fishing_rod")
+	await _frames(3)
+	var hunters := [&"fish_perch", &"fish_pike", &"fish_zander", &"fish_trout", &"fish_brown_trout", &"fish_chub"]
+	var shoal := [&"fish_roach", &"fish_bleak", &"fish_rudd", &"fish_gudgeon"]
+	PlayerState.fish_since_trophy = 0
+	angler.bait = &"spinner"
+	var on_spinner := _share_of(angler, hunters, 1500)
+	angler.bait = &"maggot"
+	var on_maggot := _share_of(angler, hunters, 1500)
+	var shoal_maggot := _share_of(angler, shoal, 1500)
+	_check(on_spinner > 0.8 and on_maggot < 0.3 and shoal_maggot > 0.6,
+			"fishing2: in play's roll a spinner brings %.0f%% hunters, maggots %.0f%% (and %.0f%% shoal fish)" % [on_spinner * 100.0, on_maggot * 100.0, shoal_maggot * 100.0])
+
+	# 3. The lake's fish: 20+ species, each catchable on its favourite bait at its hour,
+	# sold, cooked on the campfire, cleaned at the food table (and that cooked), a trophy
+	# at ten times the price; names, icons and models for every form.
+	var species_ok := true
+	var n_fish := 0
+	for id: StringName in FishTable.SPECIES:
+		if not FishTable.is_fish(id):
+			continue
+		n_fish += 1
+		var sp: Dictionary = FishTable.SPECIES[id]
+		var fav := FishTable.favourite_bait(id)
+		var hour := {"dawn": 7.0, "day": 12.0, "dusk": 19.0, "night": 23.0}.get(String(sp["time"]), 12.0) as float
+		var ch := FishTable.chances(fav, hour, false, &"carp_rod")
+		var total := 0.0
+		for k: StringName in ch:
+			total += float(ch[k])
+		var share := float(ch[id]) / total
+		var cooked := Campfire.cooked_id(id)
+		var cleaned: Array = FoodTable.result_of(id)
+		var trophy := FishTable.trophy_id(id)
+		var forms: Array[StringName] = [id, cooked, trophy]
+		var clean_cooked: StringName = &""
+		if not cleaned.is_empty():
+			clean_cooked = Campfire.cooked_id(cleaned[0])
+			forms.append_array([cleaned[0], clean_cooked])
+		var ok := fav != &"" and share > 0.002 and Economy.sell_price(id) > 0 and cooked != &"" \
+				and int(ItemTable.ITEMS[cooked].get("food", 0)) > 0 and ItemDB.get_item(trophy) != null \
+				and ItemDB.get_item(trophy).sell_price == ItemDB.get_item(id).sell_price * 10 \
+				and FishModels.flop_mesh(id).get_surface_count() > 0
+		if id != &"fish_crayfish":
+			ok = ok and not cleaned.is_empty() and clean_cooked != &"" and int(ItemTable.ITEMS[clean_cooked].get("food", 0)) > 0
+		for f: StringName in forms:
+			var it := ItemDB.get_item(f)
+			ok = ok and it != null and it.icon != ItemDB._placeholder_icon() and ItemModels.mesh(f).get_surface_count() > 0 \
+					and it.display_name() != "ITEM_" + String(f).to_upper()
+		if not ok:
+			print("  bad species %s (fav %s, share %.4f, forms %s)" % [id, fav, share, forms])
+		species_ok = species_ok and ok
+	_check(species_ok and n_fish >= 20, "fishing2: %d fish, each caught on its bait, sold, cooked, cleaned, with a trophy at 10x" % n_fish)
+
+	# 4. Rods at the workbench: a cane pole from a little wood, the standard rod, a carbon
+	# rod and a carp rod, each lasting and reaching longer than the one before.
+	var rods: Array[StringName] = [&"cane_rod", &"fishing_rod", &"carbon_rod", &"carp_rod"]
+	var rods_ok := true
+	for i in rods.size():
+		var r := rods[i]
+		var item := ItemDB.get_item(r)
+		var ok := item != null and item.tool_type == Angler.ROD and r in RecipeTable.CRAFT_ORDER \
+				and not RecipeTable.crafting(r).is_empty() and item.icon != ItemDB._placeholder_icon() \
+				and ItemModels.mesh(r).get_surface_count() > 0 and HeldPoses.POSES.has(r)
+		if i > 0:
+			var prev := ItemDB.get_item(rods[i - 1])
+			ok = ok and item.max_durability > prev.max_durability \
+					and (FishTable.rod_stats(r)["reach"] as Vector2).y > (FishTable.rod_stats(rods[i - 1])["reach"] as Vector2).y
+		if not ok:
+			print("  bad rod ", r)
+		rods_ok = rods_ok and ok
+	var cane_wood := int(RecipeTable.crafting(&"cane_rod")["items"].get(&"wood", 0))
+	var rod_wood := int(RecipeTable.crafting(&"fishing_rod")["items"].get(&"wood", 0))
+	_check(rods_ok and cane_wood < rod_wood, "fishing2: four rods at the bench, durability %s, the cane pole from %d wood" % [
+			rods.map(func(r: StringName) -> int: return ItemDB.get_item(r).max_durability), cane_wood])
+	var crafting: CraftingScreen = Game.hud.crafting_screen
+	Progress.level = maxi(level_before, 3)
+	var made := true
+	for r in rods:
+		inv.remove_item(r, inv.count_item(r))
+		for m: StringName in RecipeTable.crafting(r)["items"]:
+			inv.add_item(m, int(RecipeTable.crafting(r)["items"][m]))
+		made = made and crafting.craft(r) and inv.count_item(r) == 1
+	Progress.level = level_before
+	_check(made, "fishing2: each rod is made at the workbench from its recipe")
+
+	# 5. A cast wears the rod; the carp rod casts farther than the cane pole; a broken rod
+	# won't cast and says so.
+	for b: StringName in FishTable.BAITS:
+		inv.remove_item(b, inv.count_item(b))
+	inv.add_item(&"worm", 10)
+	var bank := Vector3(WorldLayout.POND_CENTER.x + 10.7, 0.0, WorldLayout.POND_CENTER.y + 1.0)
+	bank.y = TerrainData.height(bank.x, bank.z) + 0.1
+	var dist := {}
+	for r: StringName in [&"cane_rod", &"carp_rod"]:
+		_select(r)
+		player.global_position = bank
+		player.look_at_yaw_pitch(PI * 0.5, deg_to_rad(-8.0))
+		await _frames(8)
+		var st := PlayerState.selected_stack()
+		var before := st.durability
+		await _fish_shot("hold_" + String(r))
+		await _hold_use(0.75)
+		for i in 240:
+			await tree.physics_frame
+			if angler.state != Angler.State.CAST:
+				break
+		dist[r] = Vector2(angler._p.x - player.global_position.x, angler._p.z - player.global_position.z).length()
+		_check(angler.state == Angler.State.WAIT and st.durability == before - 1,
+				"fishing2: a %s cast lands %.1f m out and wears the rod (%d -> %d / %d)" % [r, dist[r], before, st.durability, st.max_durability()])
+		if r == &"carp_rod":
+			await _fish_shot("carp_rod_wait")
+		angler.cancel()
+		await _frames(3)
+	_check(float(dist.get(&"carp_rod", 0.0)) > float(dist.get(&"cane_rod", 99.0)) + 3.0, "fishing2: the carp rod casts farther than the cane pole")
+	var worn := PlayerState.selected_stack()
+	worn.durability = 0
+	PlayerState.inventory.changed.emit()
+	await _frames(4)
+	notes.clear()
+	var worms := inv.count_item(&"worm")
+	await _hold_use(0.5)
+	await _frames(4)
+	_check(angler.state == Angler.State.IDLE and inv.count_item(&"worm") == worms and _last_prompt.contains(tr("HINT_ROD_BROKEN"))
+			and notes.size() > 0 and notes[-1].contains(worn.item.display_name()),
+			"fishing2: a broken rod won't cast ('%s'; '%s')" % [_last_prompt.replace("\n", " | "), notes[-1] if notes.size() > 0 else ""])
+	worn.durability = worn.max_durability()
+	PlayerState.inventory.changed.emit()
+
+	# 6. R changes the bait; the note names it, its count and the fish it's good for; a
+	# fish on its favourite bait says so when caught.
+	for b: StringName in [&"sweetcorn", &"cheese_bait"]:
+		inv.add_item(b, 5)
+	angler.bait = &"worm"
+	await _frames(3)
+	notes.clear()
+	await _press_key(KEY_R)
+	await _frames(3)
+	var named := notes.size() > 0 and notes[-1].contains(ItemDB.get_item(angler.bait).display_name()) and notes[-1].contains("×")
+	_check(angler.bait != &"worm" and named and _last_prompt.contains(ItemDB.get_item(angler.bait).display_name()),
+			"fishing2: R puts on the next bait ('%s'; prompt '%s')" % [notes[-1] if notes.size() > 0 else "", _last_prompt.replace("\n", " | ")])
+	angler.cast_bait = &"sweetcorn"
+	notes.clear()
+	angler._announce(&"fish_carp", FishTable.catch_of(&"fish_carp", 0.4))
+	_check(notes.size() > 0 and notes[-1].contains(tr("MSG_FISH_FAV_BAIT") % ItemDB.get_item(&"sweetcorn").display_name()),
+			"fishing2: the catch names the bait that did it ('%s')" % (notes[-1] if notes.size() > 0 else ""))
+
+	# 7. Trophy odds as play rolls them, many bites: about one in twenty with the standard
+	# rod by day; more at night with a carp rod and live bait (at most TROPHY_MAX).
+	PlayerState.fish_since_trophy = 0
+	_select(&"fishing_rod")
+	await _frames(2)
+	angler.bait = &"worm"
+	GameClock.set_time_of_day(10.0)
+	var day := _trophy_share(angler, 6000)
+	_select(&"cane_rod")
+	await _frames(2)
+	var cane := _trophy_share(angler, 4000)
+	_select(&"carp_rod")
+	await _frames(2)
+	angler.bait = &"minnow"
+	GameClock.set_time_of_day(23.0)
+	var night := _trophy_share(angler, 6000)
+	GameClock.set_time_of_day(10.0)
+	_check(day > 0.035 and day < 0.07 and cane < day and night > day * 1.6 and night <= FishTable.TROPHY_MAX + 0.01,
+			"fishing2: trophies in play's roll: %.1f%% of bites by day (standard rod, worm), %.1f%% on the cane pole, %.1f%% at night (carp rod, live bait)" % [
+				day * 100.0, cane * 100.0, night * 100.0])
+
+	# 8. The owed giant: landed fish count up (junk doesn't, a trophy resets), and a long
+	# dry run brings one: over a long season no run reaches 30 fish without a trophy.
+	_select(&"fishing_rod")
+	angler.bait = &"worm"
+	await _frames(2)
+	PlayerState.fish_since_trophy = 3
+	angler._on_fish_landed(FishTable.catch_of(&"fish_perch", 0.3))
+	var after_fish := PlayerState.fish_since_trophy
+	angler._on_fish_landed(FishTable.catch_of(&"old_boot", 0.3))
+	var after_boot := PlayerState.fish_since_trophy
+	angler._on_fish_landed(FishTable.trophy_of(FishTable.catch_of(&"fish_perch", 0.3)))
+	_check(after_fish == 4 and after_boot == 4 and PlayerState.fish_since_trophy == 0 and int(PlayerState.save_data().get("fish_dry", -1)) == 0,
+			"fishing2: landed fish count toward the owed giant (%d, a boot %d, a trophy resets; saved)" % [after_fish, after_boot])
+	PlayerState.fish_since_trophy = FishTable.PITY_FROM + 4
+	var owed := 0
+	for i in 200:
+		var c := angler.roll_catch()
+		if c.get("trophy", false):
+			owed += 1
+	PlayerState.fish_since_trophy = 0
+	var longest := 0
+	var trophies := 0
+	for i in 3000:
+		var c := angler.roll_catch()
+		if c.get("trophy", false):
+			trophies += 1
+		if FishTable.is_fish(FishTable.species_of(c["id"])):
+			longest = maxi(longest, PlayerState.fish_since_trophy + (0 if c.get("trophy", false) else 1))
+		# Counted as the bank counts a landed catch.
+		if FishTable.is_trophy(c["id"]):
+			PlayerState.fish_since_trophy = 0
+		elif FishTable.is_fish(c["id"]):
+			PlayerState.fish_since_trophy += 1
+	_check(owed == 200 and longest <= FishTable.PITY_FROM + 5,
+			"fishing2: after %d dry fish the giant is owed (%d/200 bites); over 3000 bites the longest run without one is %d fish (%d trophies)" % [
+				FishTable.PITY_FROM + 4, owed, longest, trophies])
+
+	await _fishing2_shots(player, bank)
+
+	# Tidy: the clock, the counter and the bag's extras.
+	PlayerState.fish_since_trophy = dry_before
+	for b: StringName in FishTable.BAITS:
+		inv.remove_item(b, inv.count_item(b))
+	for r: StringName in [&"cane_rod", &"carbon_rod", &"carp_rod"]:
+		inv.remove_item(r, inv.count_item(r))
+	Events.notification_requested.disconnect(on_note)
+	GameClock.running = true
+
+
+## Screenshots of the lake's new fish on the bank and the carbon rod in hand (only with
+## -- --fish-shots=<dir>).
+func _fishing2_shots(player: Player, bank: Vector3) -> void:
+	if String(DebugTools.args.get("fish-shots", "")) == "":
+		return
+	_select(&"carbon_rod")
+	player.global_position = bank
+	player.look_at_yaw_pitch(PI * 0.5, deg_to_rad(-8.0))
+	await _frames(10)
+	await _fish_shot("hold_carbon_rod")
+	var water := Vector3(WorldLayout.POND_CENTER.x + 6.0, WorldLayout.WATER_LEVEL, WorldLayout.POND_CENTER.y + 1.0)
+	var rows := [[&"fish_sturgeon", 0.5, false], [&"fish_bream", 0.6, false], [&"fish_brown_trout", 0.6, false],
+		[&"fish_eel", 0.5, false], [&"fish_chub", 0.6, false], [&"fish_roach", 0.6, false], [&"fish_grass_carp", 0.4, true]]
+	var fish: Array[FloppingFish] = []
+	for i in rows.size():
+		var e: Array = rows[i]
+		var c := FishTable.catch_of(e[0], e[1])
+		if e[2]:
+			c = FishTable.trophy_of(c)
+		var at := bank + Vector3(3.2 + 0.25 * (i % 2), 0.0, -3.0 + 0.95 * i)
+		at.y = TerrainData.height(at.x, at.z)
+		fish.append(FloppingFish.launch(c, water, at, 0.6))
+	await _seconds(1.2)
+	player.global_position = bank + Vector3(0.6, 0.0, 0.3)
+	player.global_position.y = TerrainData.height(player.global_position.x, player.global_position.z) + 0.1
+	_look_at(player, bank + Vector3(3.3, 0.0, 0.3))
+	PlayerState.select((PlayerState.selected + 1) % PlayerState.HOTBAR_SIZE)
+	await _frames(12)
+	await _fish_shot("bank_new_fish")
+	for f in fish:
+		if is_instance_valid(f):
+			f.queue_free()
+
+
+## Species `id`'s share of the next bite with `bait` on the hook at `hour`.
+func _share_on(id: StringName, bait: StringName, hour: float) -> float:
+	var ch := FishTable.chances(bait, hour, false)
+	var total := 0.0
+	for k: StringName in ch:
+		total += float(ch[k])
+	return float(ch[id]) / total
+
+
+## A fresh rod of `id` in hand (the one in the bag, else a new one).
+func _select_fresh_rod(id: StringName) -> void:
+	if PlayerState.inventory.count_item(id) == 0:
+		PlayerState.inventory.add_item(id, 1)
+	_select(id)
+
+
+## Share of `n` bites rolled as play rolls them that are one of `ids`.
+func _share_of(angler: Angler, ids: Array, n: int) -> float:
+	var hit := 0
+	for i in n:
+		if FishTable.species_of(angler.roll_catch()["id"]) in ids:
+			hit += 1
+	return float(hit) / n
+
+
+## Share of `n` bites rolled as play rolls them that are trophies (no owed giant).
+func _trophy_share(angler: Angler, n: int) -> float:
+	var hit := 0
+	for i in n:
+		if angler.roll_catch().get("trophy", false):
+			hit += 1
+	return float(hit) / n
 ## Eye comfort: each graphics preset's anti-aliasing and upscaler, the sky's dithering
 ## under temporal AA, and the haze's reach (aerial perspective) with and without fog.
 func _visual() -> void:
@@ -5305,6 +5681,218 @@ func _nature_shots(player: Player, bushes: Array) -> void:
 		r.queue_free()
 
 
+# --- The wild rabbit's model and animation (RABBIT) ----------------------------------------
+
+## The wild rabbit (RabbitRig): the model loads by its own path with all the rig's bones,
+## shell fur as the graphics preset allows, coat and fur shaders, glassy eyes; sitting,
+## its feet stay put on the ground; grazing, its nose is down in the grass; on alert it
+## sits up with its forepaws off the ground; hopping, the feet down on the ground don't
+## slide, none sink into it and the body rises and falls; bolting, it runs flat out with
+## its ears laid back; E catches it, and the caught rabbit's item model and icon are the
+## new model. -- --rabbit-shots=/abs/dir also saves screenshots of each.
+func _rabbit2() -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.minute = float(GameClock.DAY_START_MINUTE) + 180.0
+	var shots := String(DebugTools.args.get("rabbit-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var path: String = RabbitRig.MODEL["path"]
+	_check(ResourceLoader.exists(path) and path.begins_with("res://art/models/wildlife/rabbit/"),
+			"the rabbit model loads by its own path (%s)" % path)
+	var wildlife := Wildlife.instance
+	var meadow := _rabbit_meadow()
+	_check(wildlife != null and meadow != Vector3.INF, "a meadow for a rabbit")
+	if wildlife == null or meadow == Vector3.INF:
+		return
+	var r := wildlife.spawn(meadow, 0.4)
+	r._sense = 1000.0
+	r.state = WildRabbit.State.SIT
+	r._timer = 1000.0
+	var rig := r.rig
+	_check(rig.skeleton != null and rig._b.size() == RabbitRig.BONES.size() and rig._legs.size() == 4,
+			"the rig finds all %d bones and four legs" % RabbitRig.BONES.size())
+	var layers: int = RabbitRig.FUR_LAYERS[Settings.quality]
+	_check(rig.fur != null and rig.fur.visible == (layers > 0)
+			and is_equal_approx(float(rig.fur.get_instance_shader_parameter(&"fur_layers")), layers),
+			"shell fur: %d layers on this preset" % layers)
+	var shader_of := func(mi: MeshInstance3D) -> String:
+		var m := mi.get_surface_override_material(0) as ShaderMaterial
+		return m.shader.resource_path.get_file() if m and m.shader else ""
+	var body: MeshInstance3D = null
+	var eye: StandardMaterial3D = null
+	for mi in rig.meshes:
+		if mi.name == &"Body":
+			body = mi
+		elif mi.get_surface_override_material(0) is StandardMaterial3D \
+				and String((mi.get_surface_override_material(0) as StandardMaterial3D).resource_name).contains("eye"):
+			eye = mi.get_surface_override_material(0)
+	_check(body != null and shader_of.call(body) == "rabbit_coat.gdshader" and shader_of.call(rig.fur) == "rabbit_fur.gdshader"
+			and eye != null and eye.roughness < 0.1 and eye.clearcoat_enabled,
+			"coat and fur shaders, glassy eyes")
+	var stand := meadow + Vector3(1.0, 0, 1.6)
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.2, stand.z)
+	player.velocity = Vector3.ZERO
+	await _seconds(1.2)
+	var bone_at := func(bone: String) -> Vector3:
+		return rig.skeleton.global_transform * rig.skeleton.get_bone_global_pose(rig._b[bone]).origin
+	var toes := func() -> Array[Vector3]:
+		var out: Array[Vector3] = []
+		for leg in ["fl", "fr", "rl", "rr"]:
+			out.append(bone_at.call(leg + "_toe"))
+		return out
+	var above := func(p: Vector3) -> float: return p.y - TerrainData.height(p.x, p.z)
+	# Sitting: the feet stay put, on the ground.
+	var t0: Array[Vector3] = toes.call()
+	await _seconds(1.0)
+	var t1: Array[Vector3] = toes.call()
+	var still := 0.0
+	var ground := 0.0
+	for i in 4:
+		still = maxf(still, t0[i].distance_to(t1[i]))
+		ground = maxf(ground, absf(above.call(t1[i]) - 0.007))
+	_check(still < 0.004 and ground < 0.02, "sitting, its feet stay put on the ground (%.1f mm, %.1f mm off)" % [still * 1000.0, ground * 1000.0])
+	var head_sit: Vector3 = bone_at.call("head")
+	# Grazing: nose down in the grass.
+	r.state = WildRabbit.State.GRAZE
+	await _seconds(1.5)
+	var nose: Vector3 = bone_at.call("nose")
+	_check(above.call(nose) < 0.06, "grazing, its nose is down in the grass (%.0f mm up)" % (above.call(nose) * 1000.0))
+	# On alert: up on its haunches, forepaws off the ground.
+	r.state = WildRabbit.State.ALERT
+	r._timer = 1000.0
+	await _seconds(1.5)
+	var head_up: Vector3 = bone_at.call("head")
+	var paws: Array[Vector3] = toes.call()
+	_check(head_up.y - head_sit.y > 0.04 and above.call(paws[0]) > 0.02 and above.call(paws[1]) > 0.02,
+			"on alert it sits up, forepaws off the ground (head %.0f mm higher)" % ((head_up.y - head_sit.y) * 1000.0))
+	# Hopping about: the feet down on the ground stay put, none sink in, the body bobs.
+	r.state = WildRabbit.State.WANDER
+	r._timer = 1000.0
+	r.heading = r.rotation.y
+	var start := r.global_position
+	var slip := 0.0
+	var sink := 0.0
+	var lift := Vector2(INF, -INF)
+	var stance := {}
+	var hops := 0
+	var samples := 0
+	var last_phase := rig._phase
+	for f in 150:
+		await _frames(1)
+		var hs := lerpf(0.36, 0.2, rig._run)
+		var now: Array[Vector3] = toes.call()
+		for i in 4:
+			sink = minf(sink, above.call(now[i]) - 0.007)
+		var root_y: float = above.call(bone_at.call("body"))
+		lift = Vector2(minf(lift.x, root_y), maxf(lift.y, root_y))
+		if rig._phase < last_phase:
+			hops += 1
+		last_phase = rig._phase
+		# Hind feet mid-stance (clear of touching down and pushing off).
+		if rig._gait >= 1.0 and rig._phase > 0.05 and rig._phase < hs - 0.05:
+			for i in [2, 3]:
+				if not stance.has(i):
+					stance[i] = now[i]
+				slip = maxf(slip, Vector2(now[i].x - stance[i].x, now[i].z - stance[i].z).length())
+				samples += 1
+		else:
+			stance.clear()
+	var moved := Vector2(r.global_position.x - start.x, r.global_position.z - start.z).length()
+	_check(moved > 1.2 and hops >= 3, "it hops about (%.1f m, %d hops)" % [moved, hops])
+	_check(slip < 0.02 and samples > 20, "hopping, its hind feet stay where they land (%.1f mm slip, %d samples)" % [slip * 1000.0, samples])
+	_check(sink > -0.012, "no foot sinks into the ground (%.1f mm)" % (sink * 1000.0))
+	_check(lift.y - lift.x > 0.015, "the body rises and falls with the hops (%.0f mm)" % ((lift.y - lift.x) * 1000.0))
+	# Bolting: flat out, ears laid back, the scut up.
+	r._bolt()
+	r._sense = 0.0
+	var top := 0.0
+	var ears_back := 0.0
+	sink = 0.0
+	for f in 90:
+		await _frames(1)
+		if not is_instance_valid(r):
+			break
+		top = maxf(top, r.speed)
+		for p: Vector3 in toes.call():
+			sink = minf(sink, above.call(p) - 0.007)
+		var ear: Vector3 = rig.global_basis.inverse() * (bone_at.call("ear_l2") - bone_at.call("ear_l"))
+		ears_back = maxf(ears_back, ear.normalized().z)
+	_check(top > 5.0 and ears_back > 0.6 and sink > -0.015,
+			"bolting flat out (%.1f m/s), its ears laid back (%.2f), feet out of the ground (%.1f mm)" % [top, ears_back, sink * 1000.0])
+	if is_instance_valid(r):
+		r.queue_free()
+	# Caught with E; the item is the new model.
+	var sitter := wildlife.spawn(meadow, 0.0)
+	sitter._sense = 1000.0
+	await _frames(2)
+	var near := Vector3(meadow.x, 0.0, meadow.z + 1.3)
+	player.global_position = Vector3(near.x, TerrainData.height(near.x, near.z) + 0.1, near.z)
+	player.velocity = Vector3.ZERO
+	await _frames(4)
+	_look_at(player, sitter.global_position + Vector3(0, 0.15, 0))
+	await _frames(6)
+	var had := inv.count_item(WildRabbit.ITEM)
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(not is_instance_valid(sitter) and inv.count_item(WildRabbit.ITEM) == had + 1, "E catches it: a rabbit in the bag")
+	var item := ItemModels.mesh(WildRabbit.ITEM)
+	var box := item.get_aabb()
+	_check(item.get_surface_count() >= 4 and box.size.z > 0.25 and box.size.z < 0.45 and box.size.y > 0.2,
+			"the caught rabbit's model: body, fur, eyes, whiskers (%d surfaces, %s)" % [item.get_surface_count(), box.size])
+	_check(ItemDB.get_item(WildRabbit.ITEM).icon != ItemDB._placeholder_icon(), "the caught rabbit has its icon")
+	if shots != "":
+		_select(WildRabbit.ITEM)
+		player.head.rotation.x = -0.2
+		await _shot(shots + "/rabbit_held.png")
+		await _rabbit2_shots(shots, meadow)
+	player.global_position = Vector3(-14, TerrainData.height(-14, -9) + 0.2, -9)
+	await _frames(4)
+
+
+## Screenshots of a rabbit on a track through the meadows (short grass: in the tall
+## grass it is hard to see), sitting, grazing, sat up, hopping off and bolting.
+func _rabbit2_shots(dir: String, meadow: Vector3) -> void:
+	var player: Player = Game.player
+	var spot := meadow
+	var best := -1.0
+	for dz in range(-40, 41, 2):
+		for dx in range(-40, 41, 2):
+			var x := meadow.x + dx
+			var z := meadow.z + dz
+			var track := TerrainData.path_at(x, z)
+			if track > best and WildRabbit.ground_ok(x, z):
+				best = track
+				spot = Vector3(x, TerrainData.height(x, z), z)
+	var r := Wildlife.instance.spawn(spot, 0.9)
+	r._sense = 1000.0
+	r._timer = 1000.0
+	var stand := spot + Vector3(1.3, 0, -0.5)
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+	player.velocity = Vector3.ZERO
+	for pose: Array in [[WildRabbit.State.SIT, "sit"], [WildRabbit.State.GRAZE, "graze"], [WildRabbit.State.ALERT, "alert"]]:
+		r.state = pose[0]
+		_look_at(player, r.global_position + Vector3(0, 0.1, 0))
+		await _shot("%s/rabbit_%s.png" % [dir, pose[1]])
+	r.state = WildRabbit.State.WANDER
+	r.heading = r.rotation.y
+	for f in 40:
+		await _frames(1)
+		_look_at(player, r.global_position + Vector3(0, 0.1, 0))
+	await _idle_frames(2)
+	tree.root.get_viewport().get_texture().get_image().save_png(dir + "/rabbit_hop.png")
+	r._bolt()
+	for f in 22:
+		await _frames(1)
+		if is_instance_valid(r):
+			_look_at(player, r.global_position + Vector3(0, 0.1, 0))
+	await _idle_frames(2)
+	tree.root.get_viewport().get_texture().get_image().save_png(dir + "/rabbit_run.png")
+	if is_instance_valid(r):
+		r.queue_free()
+
+
 # --- Poultry: laying, the rooster, hatching and chicks ------------------------------------
 
 ## A coop of the test's own on free ground (built, nests bedded, troughs full), or null.
@@ -5456,8 +6044,9 @@ func _poultry() -> void:
 	var had_eggs := inv.count_item(&"egg")
 	var laid_out := taken != null
 	if taken:
-		player.global_position = taken.global_position + Vector3(0.5, 0.2, 0)
-	await _seconds(2.0)
+		await _frames(20)
+		laid_out = await _take_egg(taken)
+	await _frames(3)
 	player.global_position = h.door_outside() + h.front() * 6.0 + Vector3(0, 0.3, 0)
 	_check(laid_out and inv.count_item(&"egg") == had_eggs + 1 and (coop.entry["fertile"] as Array).size() == 1,
 			"an egg picked up is no longer going to hatch (%s, eggs %d -> %d, %d fertile)" % [laid_out, had_eggs,
@@ -5515,7 +6104,7 @@ func _poultry() -> void:
 	hen_node._set_state(Animal.State.IDLE, 30.0)
 	var ran := false
 	near = false
-	for i in 40:
+	for i in 60:
 		await _seconds(0.25)
 		if chick._mode == AnimalRig.Mode.RUN:
 			ran = true
@@ -6351,6 +6940,188 @@ func _people_shot(shot_name: String) -> void:
 	Game.player.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
 
 
+# --- Townspeople up close: gestures and what they hold ------------------------------------
+
+## Every townsperson's greeting and work, posed frame by frame as the game does: the
+## hands, wrists and forearms stay out of the torso (its measured shape with the
+## clothes) and a held thing stays in the hand holding it: the broom's handle through
+## the fists with its bristles on the ground, the tea glass in the hand or standing on
+## the table (put down for the hand on the heart), never in the air.
+## With -- --people2-shots=/abs/dir it also saves frames of each (front, side, work).
+func _people2() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("people2-shots", ""))
+	var people: Array[Townsperson] = []
+	for p: Townsperson in tree.get_nodes_in_group(Townsperson.GROUP):
+		people.append(p)
+	people.sort_custom(func(a: Townsperson, b: Townsperson) -> bool: return String(a.person) < String(b.person))
+	if DebugTools.args.has("people2-only"):
+		var only := String(DebugTools.args["people2-only"]).split(",")
+		people = people.filter(func(p: Townsperson) -> bool: return String(p.person) in only)
+	_check(people.size() >= 10 or DebugTools.args.has("people2-only"), "people2: the townspeople are there (%d)" % people.size())
+	var cam: Camera3D = null
+	var huds: Array[Node] = []
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+		cam = Camera3D.new()
+		cam.fov = 36.0
+		Game.world.add_child(cam)
+		cam.make_current()
+		for hud in tree.get_nodes_in_group("hud"):
+			if hud.get("visible"):
+				huds.append(hud)
+				hud.visible = false
+	var dt := 1.0 / 30.0
+	for p in people:
+		p.set_process(false)
+		p.set_physics_process(false)
+		var speed := p._speed
+		var seated := p.act in [Townsperson.Act.BENCH, Townsperson.Act.TEA]
+		var r := {"arm": -1.0, "arm_at": "", "prop": 0.0, "prop_at": "", "floor": 0.0, "floor_at": ""}
+		p._speed = 0.0
+		for view: String in (["front", "side"] if cam else ["front"]):
+			var eye := _pp_view(p, view, cam, seated, 1.9)
+			p._greet_t = 99.0
+			p._stop_t = 0.0
+			for k in 20:
+				_pp_step(p, dt, eye)
+			p.greet()
+			var n := int(p._greet_len() / dt) + 3
+			var every := int(ceil(float(n) / 8.0))
+			for k in n:
+				_pp_step(p, dt, eye)
+				_pp_measure(p, r, "greeting %s %.2f s" % [view, p._greet_t])
+				if cam and k % every == 0:
+					await _pp_frame(shots, "%s_greet_%s_%d" % [p.person, view, k / every])
+		# The work (a walker: walking on the spot), from a step further off.
+		p._bubble.visible = false
+		p._greet_t = 99.0
+		p._stop_t = 0.0
+		var eye := _pp_view(p, "work", cam, seated, 2.8)
+		var steps := 180
+		for k in steps:
+			if p.act == Townsperson.Act.WALK or (p.act == Townsperson.Act.SWEEP and k >= 120):
+				p._speed = p.walk_speed if p.act == Townsperson.Act.WALK else 0.55
+			_pp_step(p, dt, eye)
+			_pp_measure(p, r, "work %.2f s" % (k * dt))
+			if cam and k % 23 == 0:
+				await _pp_frame(shots, "%s_work_%d" % [p.person, k / 23])
+		p._speed = speed
+		p.set_process(true)
+		p.set_physics_process(true)
+		_check(r["arm"] < 0.01, "people2: %s keeps his hands and forearms out of his body (deepest %.3f m, %s)" % [p.person, r["arm"], r["arm_at"]])
+		if p._prop:
+			_check(r["prop"] < 0.025, "people2: %s's %s stays in his hand (off by %.3f m at most, %s)" % [p.person, p._prop.get_child(0).name, r["prop"], r["prop_at"]])
+		if p.act == Townsperson.Act.SWEEP:
+			_check(r["floor"] < 0.02, "people2: the broom's bristles stay on the ground, not in it (%.3f m, %s)" % [r["floor"], r["floor_at"]])
+	if cam:
+		for hud in huds:
+			hud.visible = true
+		cam.queue_free()
+		player.camera.make_current()
+		await _frames(2)
+
+
+## The camera for a close look at `p`: in front (greeting), off his right side (the
+## greeting hand) or three-quarters in front further off (work), turned round him until
+## nothing stands between (a counter, a pump); returns where it is.
+func _pp_view(p: Townsperson, view: String, cam: Camera3D, seated: bool, dist: float) -> Vector3:
+	var base := p.global_position
+	var look := base + Vector3(0, 0.85 if seated else 1.2, 0)
+	var yaw := 0.0
+	var height := 1.3 if seated else 1.5
+	match view:
+		"side":
+			yaw = -1.22
+			height -= 0.05
+		"work":
+			yaw = -0.64
+			height = 1.55
+			look = base + Vector3(0, 0.6 if seated else 0.85, 0)
+	var space := p.get_world_3d().direct_space_state
+	var eye := Vector3.ZERO
+	for turn: float in [0.0, -0.45, 0.45, -0.9, 0.9, -1.4, 1.4]:
+		var dir := p.global_basis * Vector3(sin(yaw + turn), 0.0, cos(yaw + turn))
+		eye = base + dir * dist + Vector3(0, height, 0)
+		var q := PhysicsRayQueryParameters3D.create(look, eye, 1)
+		q.exclude = [p.get_rid()]
+		if space.intersect_ray(q).is_empty():
+			break
+	if cam:
+		cam.global_position = eye
+		cam.look_at(look, Vector3.UP)
+	return eye
+
+
+func _pp_step(p: Townsperson, dt: float, eye: Vector3) -> void:
+	p._clock += dt
+	p._greet_t += dt
+	p._stop_t = maxf(p._stop_t - dt, 0.0)
+	p._animate(dt, eye)
+
+
+## The worst so far in `r`: how deep a forearm, wrist or hand sinks into the torso, how far
+## a held thing is from the grip holding it, the broom under the ground (all as drawn).
+func _pp_measure(p: Townsperson, r: Dictionary, at: String) -> void:
+	var rig := p.rig
+	var sk := rig.skeleton
+	if sk.has_method(&"force_update_all_bone_transforms"):
+		sk.force_update_all_bone_transforms()
+	var to_rig := HumanRig._rel(sk, rig)
+	for side: String in ["_l", "_r"]:
+		var e := to_rig * sk.get_bone_global_pose(rig.bi("lowerarm" + side)).origin
+		var w := to_rig * sk.get_bone_global_pose(rig.bi("hand" + side)).origin
+		var k1 := to_rig * sk.get_bone_global_pose(rig.bi("middle_01" + side)).origin
+		var k2 := to_rig * sk.get_bone_global_pose(rig.bi("middle_02" + side)).origin
+		for pt: Array in [[e, 0.038, "elbow"], [e.lerp(w, 0.33), 0.035, "forearm"], [e.lerp(w, 0.66), 0.031, "forearm"], [w, 0.027, "wrist"],
+				[w.lerp(k1, 0.5), 0.014, "palm"], [k1, 0.012, "knuckles"], [k2, 0.009, "fingers"]]:
+			var d := rig.torso_depth(pt[0], pt[1])
+			if d > float(r["arm"]):
+				r["arm"] = d
+				r["arm_at"] = "%s %s, %s" % ["left" if side == "_l" else "right", pt[2], at]
+	if p._prop == null:
+		return
+	var xf := p._prop.transform
+	var off := 0.0
+	match p.act:
+		Townsperson.Act.SWEEP:
+			var axis := xf.basis.y.normalized()
+			for side: String in (["_l", "_r"] if p._broom_two_hands else ["_l"]):
+				var g := rig.drawn_grip(side) - xf.origin
+				var along := g.dot(axis)
+				# (the fist on the handle, between the bristles and its end)
+				var o := maxf((g - axis * along).length(), maxf(0.34 - along, along - 1.48))
+				if o > off:
+					off = o
+					at += " (%s fist %.3f m off the handle's line, %.2f m up it)" % [side, (g - axis * along).length(), along]
+			if -xf.origin.y > float(r["floor"]):
+				r["floor"] = -xf.origin.y
+				r["floor_at"] = at
+		Townsperson.Act.TEA:
+			if p._glass_in_hand:
+				off = (rig.drawn_grip("_r") - (xf.origin + xf.basis.y.normalized() * 0.042)).length()
+			else:
+				off = (xf.origin - p._glass_spot).length() + absf(xf.origin.y - p._glass_spot.y)
+			# Put down or taken up: the hand is at the glass on the table as it changes hands.
+			var was: bool = r.get("in_hand", true)
+			if was != p._glass_in_hand:
+				off = maxf(off, (rig.drawn_grip("_r") - (p._glass_spot + Vector3(0, 0.042, 0))).length())
+			r["in_hand"] = p._glass_in_hand
+	if off > float(r["prop"]):
+		r["prop"] = off
+		r["prop_at"] = at
+
+
+func _pp_frame(dir: String, frame_name: String) -> void:
+	await tree.process_frame
+	await RenderingServer.frame_post_draw
+	tree.root.get_viewport().get_texture().get_image().save_png(dir.path_join(frame_name + ".png"))
+
+
 # --- The used-car dealership ------------------------------------------------------------
 
 ## Yeşilova Oto Galeri: every vehicle it sells (VehicleTable.FOR_SALE) stands on its spot
@@ -6392,7 +7163,7 @@ func _dealer() -> void:
 		if moved > creep:
 			creep = moved
 			creeper = v.kind
-	_check(creep < 0.1, "parked for a minute, no vehicle creeps off its spot (%.2f m at most, %s)" % [creep, creeper])
+	_check(creep < 0.1, "parked for a minute, no vehicle creeps off its spot, bought or not (%.2f m at most, %s)" % [creep, creeper])
 	var inside := 0
 	for v in stock:
 		var touching := 0
@@ -7244,3 +8015,720 @@ func _fix_walk(player: Player, from: Vector3, yaw: float, arrived: Callable) -> 
 	Input.action_release("move_forward")
 	await _frames(10)
 	return r
+
+
+# --- Chicks through the coop door, eggs taken by hand -------------------------------------
+
+## A hen with three downy chicks walks out of the kit coop through its door and down the
+## ramp into the yard, and back in: the chicks (their body as small as they look) follow
+## her through the doorway both ways and settle under her at night. Eggs are never picked
+## up by walking over them: looking at one, E takes exactly one (from the yard, a dropped
+## stack, a nest box), the goals hear it and a fertile one no longer hatches.
+func _coop2() -> void:
+	await _close_screens()
+	_free_hands()
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var hour := GameClock.get_hour_float()
+	var day := GameClock.day
+	var money := Economy.money
+	GameClock.set_time_of_day(9.0)
+	Weather.force(Weather.Kind.SUNNY)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built(), "a test coop stands")
+	if coop == null:
+		return
+	var h := coop.housing
+	h.door.set_open(true)
+	player.global_position = h.door_outside() + h.front() * 7.0 + Vector3(0, 0.3, 0)
+
+	# (1) A hen and three downy chicks of hers, inside the coop.
+	var hen_data := Animals.release(&"chicken", h)
+	var hen := Animals.node_of(hen_data)
+	var chicks: Array[Animal] = []
+	for i in 3:
+		var c := Animals.hatch(h, h.door_inside(), hen_data)
+		c.species = &"chicken"
+		var n := Animals.node_of(c)
+		n.visible = true
+		n._set_state(Animal.State.IDLE, 1.0)
+		n.refresh_body()
+		chicks.append(n)
+	hen.teleport_home(true)
+	hen._set_state(Animal.State.IDLE, 30.0)
+	for n in chicks:
+		n.teleport_home(true)
+	for n: Animal in [hen] + chicks:
+		n.data.fullness = 100.0
+		n.data.hydration = 100.0
+	await _frames(3)
+	var radii: Array[float] = []
+	for n in chicks:
+		radii.append(snappedf(n.radius(), 0.001))
+	_check(chicks[0]._look == &"chick" and radii.max() < 0.1 and (chicks[0]._shape.shape as BoxShape3D).size.y < 0.15,
+			"a downy chick's body is its own size, not a hen's (radius %s m, %.2f m tall)" % [radii, (chicks[0]._shape.shape as BoxShape3D).size.y])
+	Engine.time_scale = 4.0
+	var gathered := false
+	for i in 40:
+		await _seconds(0.25)
+		gathered = chicks.all(func(n: Animal) -> bool: return n.indoors and _flat_distance(n, hen) < 0.9)
+		if gathered:
+			break
+	_check(gathered, "inside, the chicks keep by their mother (%s)" % _chick_gaps(chicks, hen))
+
+	# (2) She walks out through the door and down the ramp: they follow her through it.
+	var out_pt := h.door_outside() + h.front() * 2.5
+	out_pt.y = h.ground_height(out_pt)
+	hen._go(out_pt, false, Animal.State.WANDER)
+	var trip := await _follow_trip(h, hen, chicks, false)
+	_check(trip["hen"] and trip["all"] and trip["ramp"] == chicks.size() and trip["jump"] < 0.25,
+			"she walks out into the yard and the chicks follow through the doorway and down the ramp (%.1f s after her, %d/%d on the ramp, biggest step %.2f m, %s)"
+			% [trip["lag"], trip["ramp"], chicks.size(), trip["jump"], _chick_gaps(chicks, hen)])
+	await _seconds(1.0)
+	var in_pt := h.door_inside() - h.front() * 0.8
+	in_pt.y = h.ground_height(in_pt)
+	hen._go(in_pt, true, Animal.State.WANDER)
+	trip = await _follow_trip(h, hen, chicks, true)
+	_check(trip["hen"] and trip["all"] and trip["ramp"] == chicks.size() and trip["jump"] < 0.25,
+			"and back in: up the ramp and through the door after her (%.1f s after her, %d/%d on the ramp, biggest step %.2f m, %s)"
+			% [trip["lag"], trip["ramp"], chicks.size(), trip["jump"], _chick_gaps(chicks, hen)])
+
+	if DebugTools.args.has("shotdir"):
+		await _coop2_ramp_shot(h, hen, chicks, String(DebugTools.args["shotdir"]).path_join("coop2_ramp.png"))
+
+	# (3) At night they settle under her and sleep.
+	GameClock.set_time_of_day(22.0)
+	var settled := false
+	for i in 60:
+		await _seconds(0.25)
+		settled = hen.state == Animal.State.SLEEP and chicks.all(func(n: Animal) -> bool:
+				return n.state == Animal.State.SLEEP and n.indoors == hen.indoors and _flat_distance(n, hen) < 0.3)
+		if settled:
+			break
+	_check(settled, "at night the chicks settle under her and sleep (%s; %s)"
+			% [_chick_gaps(chicks, hen), chicks.map(func(n: Animal) -> String: return Animal.State.keys()[n.state])])
+	# They stay put (not standing up again and again).
+	var stayed := true
+	for i in 12:
+		await _seconds(0.25)
+		stayed = stayed and chicks.all(func(n: Animal) -> bool: return n.state == Animal.State.SLEEP)
+	_check(settled and stayed, "and stay asleep there")
+	Engine.time_scale = 1.0
+	GameClock.set_time_of_day(10.0)
+	# The birds go (out of the farmer's way in the yard).
+	for a in Animals.animals.duplicate():
+		if Animals.housing_of(a) == h:
+			Animals.sell(a)
+
+	# (4) Eggs: walking over one leaves it lying; E takes exactly one.
+	_free_hands()
+	var picked: Array = []
+	var on_picked := func(id: StringName, n: int) -> void: picked.append([id, n])
+	Events.item_picked_up.connect(on_picked)
+	var yard := h.door_outside() + h.front() * 3.0 + h.frame.basis.x * 2.0
+	yard.y = h.ground_height(yard) + 0.1
+	var egg := Pickup.spawn(ItemStack.create(&"egg", 1), yard)
+	await _frames(20)
+	var eggs := inv.count_item(&"egg")
+	# Walk right across it (from 3 m before it to 3 m past it).
+	var start := yard - h.front() * 3.0
+	player.velocity = Vector3.ZERO
+	player.global_position = Vector3(start.x, TerrainData.height(start.x, start.z) + 0.1, start.z)
+	var d := yard - start
+	player.look_at_yaw_pitch(atan2(-d.x, -d.z), 0.0)
+	await _frames(6)
+	Input.action_press("move_forward")
+	var passed := false
+	for i in 240:
+		await tree.physics_frame
+		if (player.global_position - yard).dot(d) > 1.0:
+			passed = true
+			break
+	Input.action_release("move_forward")
+	await _seconds(1.5)
+	_check(passed and is_instance_valid(egg) and not egg.is_queued_for_deletion() and inv.count_item(&"egg") == eggs and picked.is_empty(),
+			"walking over an egg leaves it lying (walked past %s, eggs %d -> %d)" % [passed, eggs, inv.count_item(&"egg")])
+	# Standing right on it for a while: still there.
+	player.global_position = egg.global_position + Vector3(0.1, 0.1, 0.0)
+	await _seconds(1.5)
+	_check(is_instance_valid(egg) and not egg.is_queued_for_deletion() and inv.count_item(&"egg") == eggs,
+			"standing on it doesn't take it either")
+	var took := await _take_egg(egg)
+	await _frames(3)
+	_check(took and inv.count_item(&"egg") == eggs + 1 and picked == [[&"egg", 1]] and not is_instance_valid(egg),
+			"looking at it, E takes it: one egg into the bag (%s, %d -> %d, %s)" % [took, eggs, inv.count_item(&"egg"), picked])
+	# A dropped stack of three: E takes one at a time.
+	picked.clear()
+	var pile := Pickup.spawn(ItemStack.create(&"egg", 3), yard)
+	await _frames(20)
+	eggs = inv.count_item(&"egg")
+	took = await _take_egg(pile)
+	await _frames(3)
+	_check(took and inv.count_item(&"egg") == eggs + 1 and is_instance_valid(pile) and pile.stack.count == 2 and picked == [[&"egg", 1]],
+			"a dropped stack of eggs: E takes one, the rest stay (%d left)" % (pile.stack.count if is_instance_valid(pile) else 0))
+	if is_instance_valid(pile):
+		pile.free()
+	# Two eggs in a nest box: looking into it, E takes one of them.
+	picked.clear()
+	var in_nest: Array[Pickup] = []
+	for i in 2:
+		in_nest.append(Pickup.spawn(ItemStack.create(&"egg", 1), coop._nest_egg_spot(1)))
+	await _frames(30)
+	eggs = inv.count_item(&"egg")
+	var front := coop.nest_front(1) + coop.nest_out() * 0.35
+	player.velocity = Vector3.ZERO
+	player.global_position = front + Vector3(0, 0.05, 0)
+	await _frames(12)
+	_look_at(player, in_nest[0].global_position)
+	await _frames(6)
+	var nest_prompt := _last_prompt
+	if DebugTools.args.has("shotdir"):
+		await _shot(String(DebugTools.args["shotdir"]).path_join("coop2_nest_egg.png"))
+	await _press_key(KEY_E)
+	await _frames(3)
+	var left: Array[Pickup] = []
+	for v: Variant in in_nest:
+		if is_instance_valid(v) and not (v as Pickup).is_queued_for_deletion():
+			left.append(v)
+	_check(nest_prompt.contains(tr("ACTION_TAKE_EGG")) and inv.count_item(&"egg") == eggs + 1 and left.size() == 1 and picked == [[&"egg", 1]],
+			"looking into a nest box, E takes one of its two eggs ('%s', %d left)" % [nest_prompt.replace("\n", " | "), left.size()])
+	for p: Pickup in left:
+		p.free()
+	# (5) The story's first egg goal counts an egg taken by hand.
+	var q_step := Quests.step
+	var q_count := Quests.step_count
+	var q_tally := Quests.tally.duplicate()
+	Quests.step = Quests.index_of("egg")
+	Quests.step_count = 0
+	Quests.tally = {}
+	var story := Pickup.spawn(ItemStack.create(&"egg", 1), yard)
+	await _frames(20)
+	took = await _take_egg(story)
+	await _frames(3)
+	_check(took and Quests.step > Quests.index_of("egg"), "the story's egg goal is met by an egg taken with E (now at %s)" % Quests.current().get("id", "-"))
+	Quests.step = q_step
+	Quests.step_count = q_count
+	Quests.tally = q_tally
+	Quests.tutorial_changed.emit()
+	Events.item_picked_up.disconnect(on_picked)
+
+	# Tidy up.
+	_clear_eggs(coop)
+	for a in Animals.animals.duplicate():
+		if Animals.housing_of(a) == h:
+			Animals.sell(a)
+	FarmState.remove_placed(coop.entry)
+	coop.queue_free()
+	GameClock.day = day
+	GameClock.set_time_of_day(hour)
+	Economy.money = money
+	Weather.forced = -1
+	await _frames(3)
+
+
+## A still of the chicks on the ramp behind their mother (-- --shotdir=/abs/dir): she walks
+## in from the yard, and the birds are held where they are once a chick is half way up.
+func _coop2_ramp_shot(h: AnimalHousing, hen: Animal, chicks: Array[Animal], path: String) -> void:
+	Engine.time_scale = 1.0
+	var start := h.door_outside() + h.front() * 1.2
+	start.y = h.ground_height(start)
+	hen.global_position = start
+	hen.indoors = false
+	hen._path.clear()
+	hen._path_inside.clear()
+	hen.reset_physics_interpolation()
+	for n in chicks:
+		n._snap_to_mother()
+	var player: Player = Game.player
+	var side := h.door_outside() + h.front() * 0.6 + h.frame.basis.x * 2.0
+	player.velocity = Vector3.ZERO
+	player.global_position = Vector3(side.x, TerrainData.height(side.x, side.z) + 0.05, side.z)
+	await _frames(10)
+	var in_pt := h.door_inside() - h.front() * 0.8
+	in_pt.y = h.ground_height(in_pt)
+	hen._go(in_pt, true, Animal.State.WANDER)
+	var ramp_mid := h.world_at(h.building.get_center().x, h.building.end.y + 0.55)
+	ramp_mid.y = h.ground_height(ramp_mid)
+	_look_at(player, ramp_mid + Vector3(0, 0.1, 0))
+	# The birds stop to look at a farmer aiming at them: the look finds only the ground here.
+	var mask := player.ray.collision_mask
+	player.ray.collision_mask = 1
+	for i in 600:
+		await tree.physics_frame
+		var up := chicks.filter(func(n: Animal) -> bool:
+				var dz := h.flat(n.global_position).y - h.building.end.y
+				return dz > 0.35 and dz < 0.75)
+		if not up.is_empty():
+			break
+	for n: Animal in [hen] + chicks:
+		n.process_mode = Node.PROCESS_MODE_DISABLED
+	await _shot(path)
+	for n: Animal in [hen] + chicks:
+		n.process_mode = Node.PROCESS_MODE_INHERIT
+	player.ray.collision_mask = mask
+	player.look_at_yaw_pitch(0.0, 0.6)
+	Engine.time_scale = 4.0
+
+
+## Watches a hen crossing the coop door (to the inside or out) and her chicks after her,
+## every physics tick for up to 30 game seconds: {hen: she got there, all: every chick on
+## her side and by her, lag: game seconds they took after her, ramp: chicks seen on the
+## ramp, jump: the biggest step a chick made in one tick}.
+func _follow_trip(h: AnimalHousing, hen: Animal, chicks: Array[Animal], inside: bool) -> Dictionary:
+	var r := {"hen": false, "all": false, "lag": 0.0, "ramp": 0, "jump": 0.0}
+	var last := chicks.map(func(n: Animal) -> Vector3: return n.global_position)
+	var on_ramp := {}
+	var t := 0.0
+	var hen_at := -1.0
+	while t < 30.0:
+		await tree.physics_frame
+		t += Engine.time_scale / Engine.physics_ticks_per_second
+		for i in chicks.size():
+			var n := chicks[i]
+			var p := n.global_position
+			r["jump"] = maxf(r["jump"], Vector2(p.x - last[i].x, p.z - last[i].z).length())
+			last[i] = p
+			var l := h.flat(p)
+			if absf(l.x - h.building.get_center().x) < 0.45 and l.y > h.building.end.y + 0.1 and l.y < h.building.end.y + 1.0:
+				on_ramp[i] = true
+		if hen_at < 0.0 and hen.indoors == inside and hen._path.is_empty():
+			hen_at = t
+		if hen_at >= 0.0 and chicks.all(func(n: Animal) -> bool:
+				return n.indoors == inside and h.is_in_building(n.global_position) == inside and _flat_distance(n, hen) < 0.9):
+			r["all"] = true
+			break
+	r["hen"] = hen_at >= 0.0
+	r["lag"] = t - maxf(hen_at, 0.0)
+	r["ramp"] = on_ramp.size()
+	return r
+
+
+## How far each chick is from its mother, for the check lines.
+func _chick_gaps(chicks: Array[Animal], hen: Animal) -> String:
+	return str(chicks.map(func(n: Animal) -> String: return "%.2f%s" % [_flat_distance(n, hen), "i" if n.indoors else "o"]))
+
+
+## Stands the player a step from `egg` (trying each side until nothing is in the way),
+## looks at it and takes it with E, as the farmer does. True when E was pressed on it.
+func _take_egg(egg: Pickup) -> bool:
+	var player: Player = Game.player
+	# Room in the bag for it (earlier scenarios may have filled every slot).
+	var bag := PlayerState.inventory
+	if bag.first_empty() < 0:
+		bag.set_stack(bag.size() - 1, null)
+	for i in 8:
+		if not is_instance_valid(egg):
+			return false
+		var a := TAU * float(i) / 8.0
+		var stand := egg.global_position + Vector3(cos(a), 0.0, sin(a)) * 1.1
+		var q := PhysicsRayQueryParameters3D.create(stand + Vector3(0, 1.0, 0), stand - Vector3(0, 3.0, 0), 1)
+		q.exclude = [player.get_rid()]
+		var hit := player.get_world_3d().direct_space_state.intersect_ray(q)
+		player.velocity = Vector3.ZERO
+		player.global_position = (hit["position"] as Vector3 if hit else stand) + Vector3(0, 0.05, 0)
+		await _frames(8)
+		_look_at(player, egg.global_position)
+		await _frames(6)
+		if player.target == egg and _last_prompt.contains(tr("ACTION_TAKE_EGG")):
+			await _press_key(KEY_E)
+			return true
+	return false
+
+
+# --- Walking animals --------------------------------------------------------------------------
+
+## The animals' gaits: each kind (cow, sheep, horse, hen, rooster, chick) walked at its usual
+## speed on level ground and up a slope, trotting (the four-legged ones), stopping. A foot
+## set down stays where it was set down in the world until it lifts (sliding under a few
+## cm), stands on the ground under it (slopes too), the feet go down in the lateral
+## sequence walking (left hind, left fore, right hind, right fore, a quarter apart) and in
+## diagonal pairs trotting, strides quicken with speed and match it (the feet sweep back
+## as fast as the body goes on), and stopped, the legs step into a square stance and then
+## stand still (no leg cycling on the spot). The horse walks and gallops on its clips,
+## played at the pace of the ground it covers, and trots on the procedural gait. Then hens
+## walking about their yard: their feet on the ground under them.
+func _walk() -> void:
+	await _close_screens()
+	var cam := tree.root.get_viewport().get_camera_3d()
+	var holder := Node3D.new()
+	holder.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	Game.world.add_child(holder)
+	# Near the camera (legs far off are solved less often) and out of the way below it.
+	holder.global_position = cam.global_position + Vector3(0, -40.0, 0) if cam else Vector3(0, -40, 0)
+	for sp: StringName in [&"cow", &"sheep", &"horse", &"chicken", &"rooster", &"chick"]:
+		var rig := AnimalModels.create_rig(sp)
+		holder.add_child(rig)
+		rig.set_variant(0, false)
+		rig.set_age(1.0)
+		if cam:
+			holder.global_position = cam.global_position + Vector3(0, -3.0, 0)
+		var walk: float = rig.cfg["walk_speed"]
+		var bird: bool = rig.cfg.get("biped", false)
+		var tol := 0.025 if not bird else (0.01 if sp != &"chick" else 0.004)
+		if sp == &"horse":
+			# Walking and galloping on clips at the pace of the ground: the clip's stride over
+			# its length times its playing speed is the speed.
+			for c: Array in [[AnimalRig.Mode.WALK, walk, "Skeleton|Walk"], [AnimalRig.Mode.RUN, 11.0, "Skeleton|Gallop"]]:
+				_walk_run(rig, c[0], c[1], 1.5, 0.0)
+				var pr := rig as PhotoRig
+				var natural := float((pr.model_cfg["clip_speed"] as Dictionary)[c[2]])
+				var pace: float = pr.player.speed_scale * natural
+				_check(pr._clip == c[2] and absf(pace / float(c[1]) - 1.0) < 0.08,
+						"the horse %s on its clip %s at the ground's pace (%.2f m/s over %.2f m/s)"
+						% ["walks" if c[0] == AnimalRig.Mode.WALK else "gallops", c[2], pace, c[1]])
+			var trot := _walk_run(rig, AnimalRig.Mode.WALK, 4.6, 4.0, 0.0)
+			_check(not (rig as PhotoRig)._clip_ik or trot["slide"] < 0.05,
+					"the horse trots on IK legs at 4.6 m/s (%s), planted feet slide %.1f cm at most"
+					% ["IK legs" if (rig as PhotoRig)._clip_ik else "no IK", trot["slide"] * 100.0])
+			_check(trot["pairs"] < 0.09, "trotting, the horse's feet go down in diagonal pairs (%.2f of a stride apart)" % trot["pairs"])
+			rig.queue_free()
+			continue
+		# Walking on level ground.
+		var r := _walk_run(rig, AnimalRig.Mode.WALK, walk, 4.0, 0.0)
+		_check(r["slide"] < tol and r["lift"] > 0.02 * r["len"],
+				"%s walking at %.2f m/s: planted feet slide %.1f mm at most (under %.0f), stepping %.0f%% of the leg high"
+				% [sp, walk, r["slide"] * 1000.0, tol * 1000.0, r["lift"] / r["len"] * 100.0])
+		_check(absf(r["sweep"] - 1.0) < 0.06 and r["hz"] > 0.3 and r["hz"] < 12.0,
+				"%s: planted feet go back under it as fast as it goes on (%.2f), %.2f strides a second of %.2f m"
+				% [sp, r["sweep"], r["hz"], r["stride"]])
+		if not bird:
+			var order: Array = r["order"]
+			_check(order.size() == 3 and absf(order[0] - 0.22) < 0.08 and absf(order[1] - 0.5) < 0.08 and absf(order[2] - 0.72) < 0.08,
+					"%s walks the lateral sequence: after the left hind the left fore, right hind, right fore at %s of a stride"
+					% [sp, order.map(func(o: float) -> String: return "%.2f" % o)])
+		# Faster: longer and quicker strides.
+		var fast := _walk_run(rig, AnimalRig.Mode.WALK, walk * 1.4, 2.5, 0.0)
+		_check(fast["hz"] > r["hz"] * 1.05 and fast["stride"] > r["stride"] * 1.05 and fast["slide"] < tol * 1.2,
+				"%s faster: strides longer (%.2f -> %.2f m) and quicker (%.2f -> %.2f a second), slide %.1f mm"
+				% [sp, r["stride"], fast["stride"], r["hz"], fast["hz"], fast["slide"] * 1000.0])
+		# Up a slope (the ground rising ahead 12%): feet on the ground under them.
+		var up := _walk_run(rig, AnimalRig.Mode.WALK, walk, 3.0, 0.12)
+		_check(up["ground"] < tol * 1.2 and up["slide"] < tol * 1.2,
+				"%s up a slope: planted feet %.1f mm off the ground at most, slide %.1f mm" % [sp, up["ground"] * 1000.0, up["slide"] * 1000.0])
+		if not bird:
+			var tr := _walk_run(rig, AnimalRig.Mode.RUN, float(rig.cfg["trot_at"]) * 1.3, 3.0, 0.0)
+			_check(tr["pairs"] < 0.09 and tr["slide"] < tol * 1.6,
+					"%s trots: diagonal pairs (%.2f of a stride apart), slide %.1f mm" % [sp, tr["pairs"], tr["slide"] * 1000.0])
+		# Stopping: slowing as an animal does, then standing.
+		var st := _walk_stop(rig, walk)
+		_check(st["settled"] < 1.6 and st["still"] and st["square"],
+				"%s stops: square in %.1f s, then stands still (no leg cycling, feet moved %.1f mm)"
+				% [sp, st["settled"], st["moved"] * 1000.0])
+		rig.queue_free()
+	holder.queue_free()
+
+	# Hens about their yard: feet on the ground under them.
+	var coop: ChickenCoop = await _poultry_coop()
+	if coop == null:
+		_check(false, "a test coop for the hens")
+		return
+	var h := coop.housing
+	h.door.set_open(true)
+	var hens: Array[Animal] = []
+	for i in 3:
+		hens.append(Animals.node_of(Animals.release(&"chicken", h)))
+	# Watched from close by (far off the legs are solved less often).
+	var player: Player = Game.player
+	var was_at := player.global_position
+	player.global_position = h.door_outside() + h.front() * 5.0 + Vector3(0, 0.3, 0)
+	player.reset_physics_interpolation()
+	var worst := 0.0
+	var worst_at := ""
+	var planted := 0
+	var stepping := 0
+	var t_end := Time.get_ticks_msec() + 8000
+	while Time.get_ticks_msec() < t_end:
+		# As drawn: after the frame's poses, before it is drawn.
+		await RenderingServer.frame_pre_draw
+		for n in hens:
+			if not n.visible or n.rig._lie > 0.05:
+				continue
+			for leg in n.rig.legs:
+				# (Not a foot scratching, or left out of reach, stepping up this frame.)
+				if leg["kind"] == AnimalRig.Chain.NONE or not leg["planted"] \
+						or (n.rig._act == AnimalRig.BirdAct.SCRATCH and float(leg["side"]) == n.rig._act_side):
+					continue
+				if float(leg.get("short", 0.0)) > float(leg["len"]) * 0.03:
+					stepping += 1
+					continue
+				var p := _foot_world(n.rig, leg)
+				var off := absf(p.y - h.ground_height(p) - float(leg["c_h"]) * n.rig.scale.x)
+				if off > worst:
+					worst = off
+					worst_at = "%s %s%s" % [leg["key"], Animal.State.keys()[n.state], " indoors" if n.indoors else ""]
+				planted += 1
+	_check(hens.all(func(n: Animal) -> bool: return n.rig.ground.is_valid()) and planted > 100 and worst < 0.012,
+			"hens about their yard stand on the ground under their feet (%.1f mm off at most: %s; %d samples, %d out of reach stepping up)"
+			% [worst * 1000.0, worst_at, planted, stepping])
+	for a in Animals.animals.duplicate():
+		if Animals.housing_of(a) == h:
+			Animals.sell(a)
+	FarmState.remove_placed(coop.entry)
+	coop.queue_free()
+	player.global_position = was_at
+	player.reset_physics_interpolation()
+	await _frames(3)
+
+
+## A foot's contact point in the world, as the leg is posed (and drawn: between ticks).
+func _foot_world(rig: AnimalRig, leg: Dictionary) -> Vector3:
+	var bones: Array[int] = leg["bones"]
+	return rig.get_global_transform_interpolated() * rig._sk_xf \
+			* (rig.skeleton.get_bone_global_pose(bones[-1]) * (leg["c_local"] as Vector3))
+
+
+## Walks a rig straight ahead (-Z of its holder) at `speed` for `secs` (after a second to get
+## going), 60 frames a second, over ground rising `slope` ahead (a synthetic ground). Returns
+## the worst slide of a planted foot (world, horizontal), how far planted feet stand off the
+## ground, the highest step, gait cycles a second, stride, how far planted feet move back
+## under the body against how far the body goes meanwhile (1: in step with the ground), the
+## touchdown order (left fore, right hind, right
+## fore after the left hind, share of a stride) and how far apart diagonal pairs land.
+func _walk_run(rig: AnimalRig, mode: int, speed: float, secs: float, slope: float) -> Dictionary:
+	var base := rig.get_parent() as Node3D
+	var y0 := base.global_position.y
+	rig.ground = func(p: Vector3) -> float: return y0 - slope * (p.z - base.global_position.z)
+	rig.position = Vector3.ZERO
+	var dt := 1.0 / 60.0
+	var res := {"slide": 0.0, "ground": 0.0, "lift": 0.0, "len": 0.0, "hz": 0.0, "stride": 0.0, "sweep": 0.0,
+		"order": [], "pairs": 0.0}
+	var touch := {}
+	var locks := {}
+	var cycles := 0.0
+	var swept := 0.0
+	var went := 0.0
+	var t := 0.0
+	for leg in rig.legs:
+		res["len"] = maxf(res["len"], float(leg.get("len", 0.0)))
+	while t < secs + 1.0:
+		var ph := rig._phase
+		rig.position.z -= speed * dt
+		rig.position.y = slope * -rig.position.z
+		rig.animate(dt, speed, mode)
+		t += dt
+		if t < 1.0:
+			continue
+		cycles += fposmod(rig._phase - ph, 1.0)
+		for leg in rig.legs:
+			if leg["kind"] == AnimalRig.Chain.NONE:
+				continue
+			var key: String = leg["key"]
+			var p := _foot_world(rig, leg)
+			var ground := y0 - slope * (p.z - base.global_position.z)
+			var local := rig.global_transform.affine_inverse() * p
+			if leg["planted"] and not leg["swing"]:
+				if not locks.has(key):
+					locks[key] = [p, local, rig.global_position]
+					if touch.has(key):
+						(touch[key] as Array).append(rig._phase)
+				var l: Vector3 = locks[key][0]
+				locks[key].resize(3)
+				locks[key].append_array([local, rig.global_position])
+				res["slide"] = maxf(res["slide"], Vector2(p.x - l.x, p.z - l.z).length())
+				res["ground"] = maxf(res["ground"], absf(p.y - ground - float(leg["c_h"]) * rig.scale.x))
+			else:
+				if locks.has(key) and (locks[key] as Array).size() > 3:
+					# Its first and last frames down.
+					swept += absf((locks[key][3] as Vector3).z - (locks[key][1] as Vector3).z) * rig.scale.x
+					went += ((locks[key][4] as Vector3) - (locks[key][2] as Vector3)).length()
+				locks.erase(key)
+				if not touch.has(key):
+					touch[key] = []
+				res["lift"] = maxf(res["lift"], p.y - ground)
+	res["hz"] = cycles / secs
+	res["stride"] = speed / maxf(res["hz"], 0.001)
+	res["sweep"] = swept / went if went > 0.0 else 0.0
+	if ["rl", "fl", "rr", "fr"].all(func(k: String) -> bool: return not (touch.get(k, []) as Array).is_empty()):
+		var lh: float = touch["rl"][0]
+		res["order"] = ["fl", "rr", "fr"].map(func(k: String) -> float:
+			var best := 1.0
+			for ph: float in touch[k]:
+				best = minf(best, fposmod(ph - lh, 1.0))
+			return best)
+		var near := func(a: String, b: String) -> float:
+			var best := 1.0
+			for x: float in touch[a]:
+				for y: float in touch[b]:
+					var d := absf(fposmod(x - y + 0.5, 1.0) - 0.5)
+					best = minf(best, d)
+			return best
+		res["pairs"] = maxf(near.call("rl", "fr"), near.call("rr", "fl"))
+	return res
+
+
+## Slows a walking rig to a stand as an animal does (2 m/s a second), then watches it: how
+## long until every foot is down in a square stance, and whether it then stands still for a
+## second (gait stopped, feet where they stand).
+func _walk_stop(rig: AnimalRig, speed: float) -> Dictionary:
+	var dt := 1.0 / 60.0
+	var v := speed
+	var t := 0.0
+	var res := {"settled": 99.0, "still": false, "square": false, "moved": 0.0}
+	var inv := func() -> Transform3D: return rig.global_transform.affine_inverse()
+	var y0 := (rig.get_parent() as Node3D).global_position.y
+	rig.ground = func(_p: Vector3) -> float: return y0
+	while t < 4.0:
+		rig.position.z -= v * dt
+		rig.position.y = 0.0
+		rig.animate(dt, v, AnimalRig.Mode.WALK if v > 0.0 else AnimalRig.Mode.IDLE)
+		v = move_toward(v, 0.0, 2.0 * dt)
+		t += dt
+		if v == 0.0 and res["settled"] > 90.0:
+			var down := rig.legs.all(func(l: Dictionary) -> bool: return l["kind"] == AnimalRig.Chain.NONE or (l["planted"] and not l["swing"]))
+			var square := rig.legs.all(func(l: Dictionary) -> bool: return l["kind"] == AnimalRig.Chain.NONE or not rig._off_stance(l, inv.call()))
+			if down and square:
+				res["settled"] = t
+				res["square"] = true
+	var ph := rig._phase
+	# (No scratching the ground meanwhile: a bird standing about does now and then.)
+	rig._act_wait = 60.0
+	var at := {}
+	for leg in rig.legs:
+		if leg["kind"] != AnimalRig.Chain.NONE:
+			at[leg["key"]] = _foot_world(rig, leg)
+	for i in 60:
+		rig.animate(dt, 0.0, AnimalRig.Mode.IDLE)
+	for leg in rig.legs:
+		if leg["kind"] != AnimalRig.Chain.NONE:
+			res["moved"] = maxf(res["moved"], _foot_world(rig, leg).distance_to(at[leg["key"]]))
+	res["still"] = rig._phase == ph and res["moved"] < 0.005
+	return res
+
+
+# --- Game fixes 9: shearing a bought sheep, sleeping when worn out, animal beds ------------
+
+## A grown sheep bought today comes in full fleece: held shears on it shear it for real
+## (hold-to-use), give wool and finish the story's shearing goal; after that the shears
+## on it show when the wool is back instead of nothing. A bought cow has milk at once.
+## A worn-out farmer may sleep in the afternoon (the bed says so) and wakes the next
+## morning rested after the night's report; a rested one is refused. The housing beds
+## play only with their own animals: only sheep in the barn, no cow barn recording.
+func _game9() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+	if player.riding:
+		player.dismount()
+	var farm: Farm = Game.world.farm
+	var inv := PlayerState.inventory
+	var needs := PlayerState.needs
+	var saved_animals := Animals.save_data()
+	var saved_quests := Quests.save_data()
+	var level := Progress.level
+	Progress.level = Progress.MAX_LEVEL
+	Economy.add_money(5000, "test")
+	GameClock.set_time_of_day(9.0)
+	Weather.force(Weather.Kind.SUNNY)
+	needs.energy = Needs.MAX
+	# Only what this check buys lives on the farm.
+	Animals.load_data({"next_id": int(saved_animals.get("next_id", 1)), "animals": [], "homes": {}})
+	if farm.barn.level == 0:
+		FarmState.built[&"barn_1"] = true
+		FarmState.project_built.emit(&"barn_1")
+	await _frames(5)
+	for i in 2:
+		if inv.first_empty() < 0:
+			inv.set_stack(inv.size() - 1 - i, null)
+	if inv.count_item(&"shears") == 0:
+		inv.add_item(&"shears", 1)
+
+	# (1) The story on its shearing goal, a grown sheep bought: she can be shorn at once.
+	Quests.load_data({"chain": Quests.CHAIN, "id": "shear", "count": 0,
+			"tally": saved_quests.get("tally", {}), "orders": saved_quests.get("orders", [])})
+	_check(Quests.current().get("id", "") == "shear", "the story asks for a shearing")
+	var sheep := Animals.buy(&"sheep", true)
+	_check(sheep != null and sheep.product_ready and is_equal_approx(sheep.wool, 1.0), "a bought grown sheep comes in full fleece, ready to shear")
+	var node := Animals.node_of(sheep)
+	var spot := _open_pen_spot(farm.barn)
+	node.arrive(spot)
+	node._attention = 120.0
+	player.velocity = Vector3.ZERO
+	player.global_position = spot + Vector3(1.8, 0.1, 0.0)
+	_select(&"shears")
+	await _frames(4)
+	_look_at(player, node.global_position + Vector3(0, 0.6, 0))
+	await _seconds(0.4)
+	_check(player.target == node and _last_prompt.contains(tr("ACTION_SHEAR")), "shears in hand at her: LMB shears ('%s')" % _last_prompt.replace("\n", " | "))
+	var wool := inv.count_item(&"wool")
+	await _hold_use(3.2)
+	await _seconds(0.5)
+	_check(inv.count_item(&"wool") == wool + 1 and not sheep.product_ready and sheep.wool < 0.01, "holding the shears on her shears her: +1 wool (%d -> %d)" % [wool, inv.count_item(&"wool")])
+	_check(Quests.step > Quests.index_of("shear"), "the shearing goal is done (now '%s')" % Quests.current().get("id", "done"))
+	# Shorn: the shears on her say when the fleece is back.
+	node._attention = 120.0
+	_look_at(player, node.global_position + Vector3(0, 0.6, 0))
+	await _seconds(0.4)
+	_check(player.target == node and _last_prompt.contains(tr("HINT_WOOL_DAYS") % 3) and not _last_prompt.contains(tr("ACTION_SHEAR")),
+			"shorn: the shears on her show the wool's wait ('%s')" % _last_prompt.replace("\n", " | "))
+	sheep.wool = 0.7
+	await _seconds(0.4)
+	_check(_last_prompt.contains(tr("HINT_WOOL_TOMORROW")), "nearly grown back: tomorrow ('%s')" % _last_prompt.replace("\n", " | "))
+
+	# (3) Only sheep kept: no cow barn recording, no coop; a cow brings the barn's bed.
+	var beds: Dictionary = Audio.animal_beds(player.global_position)
+	_check(beds.is_empty(), "with only a sheep on the farm no housing bed plays (no cows mooing): %s" % [beds.keys()])
+	var cow := Animals.buy(&"cow", true)
+	_check(cow != null and cow.product_ready, "a bought grown cow has milk at once")
+	beds = Audio.animal_beds(player.global_position)
+	_check(beds.has("barn") and int((beds["barn"] as Array)[1]) == 1 and not beds.has("coop") and not beds.has("coop_hens")
+			and ((beds["barn"] as Array)[0] as Vector3).distance_to(farm.barn.center()) < 2.0,
+			"with a cow the cow barn plays at the barn: %s" % [beds])
+
+	# (2) Worn out in the afternoon: the bed takes him, to the next morning.
+	var bed: Node3D = Game.world.get_node("FarmHouse/Bed")
+	player.velocity = Vector3.ZERO
+	player.global_position = bed.global_position + Vector3(-1.4, 0.0, 0.6)
+	var to_bed := bed.global_position + Vector3(0, 0.5, 0) - (player.global_position + Vector3(0, 1.62, 0))
+	player.look_at_yaw_pitch(atan2(-to_bed.x, -to_bed.z), atan2(to_bed.y, Vector2(to_bed.x, to_bed.z).length()))
+	needs.energy = Needs.MAX
+	GameClock.set_time_of_day(14.0)
+	await _seconds(0.4)
+	_check(player.target == bed and _last_prompt.contains(tr("ACTION_SLEEP")) and not _last_prompt.contains(tr("ACTION_SLEEP_TIRED")),
+			"rested in the afternoon: the bed offers plain sleep ('%s')" % _last_prompt.replace("\n", " | "))
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var day := GameClock.day
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(GameClock.day == day and not Game.is_ui_open() and tr("MSG_SLEEP_NOT_TIRED") in notes,
+			"a rested farmer is refused in the afternoon, told why")
+	Events.notification_requested.disconnect(on_note)
+	needs.energy = 3.0
+	await _seconds(0.4)
+	_check(needs.exhausted() and _last_prompt.contains(tr("ACTION_SLEEP_TIRED")), "exhausted: the bed says sleep, you're tired ('%s')" % _last_prompt.replace("\n", " | "))
+	var mornings: Array[int] = []
+	var on_sale := func(gold: int) -> void: mornings.append(gold)
+	Events.morning_sale.connect(on_sale)
+	needs.frozen = false
+	await _press_key(KEY_E)
+	await _seconds(1.4)
+	needs.frozen = true
+	_check(GameClock.day == day + 1 and GameClock.get_hour() == 6 and Game.hud.sleep_screen.is_busy(),
+			"exhausted at 14:00 he sleeps through to the next morning's report (day %d %s)" % [GameClock.day, GameClock.time_string()])
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	Events.morning_sale.disconnect(on_sale)
+	_check(not Game.is_ui_open() and mornings.size() == 1 and needs.energy > Needs.MAX - 1.0,
+			"the morning comes as after any night, the farmer rested (energy %.0f)" % needs.energy)
+
+	# Put the farm back as it was.
+	Animals.load_data(saved_animals)
+	Quests.load_data(saved_quests)
+	Progress.level = level
+	needs.energy = Needs.MAX
+	await _frames(5)
+
+
+## A spot in `h`'s open pen with room around it (off the fence and the building).
+func _open_pen_spot(h: AnimalHousing) -> Vector3:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9
+	var first := h.random_outdoor_point(rng)
+	for i in 80:
+		var p := h.random_outdoor_point(rng)
+		var f := h.flat(p)
+		if h.pen.grow(-3.0).has_point(f) and not (h.level >= 2 and h.building.grow(3.0).has_point(f)):
+			return p
+	return first

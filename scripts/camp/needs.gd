@@ -29,6 +29,9 @@ const HUNGRY := 25.0
 const STARVING := 0.5
 const TIRED := 20.0
 const EXHAUSTED := 5.0
+## Under this much energy the farmer may go to bed at any hour (Bed): the night then
+## runs as usual, to the next morning.
+const SLEEPY := 35.0
 ## Points over a threshold before its message can show again.
 const REARM := 8.0
 
@@ -112,6 +115,11 @@ func tired() -> bool:
 
 func exhausted() -> bool:
 	return energy < EXHAUSTED
+
+
+## Worn out enough to sleep in the daytime.
+func sleepy() -> bool:
+	return energy < SLEEPY
 
 
 ## Whether the farmer has the strength to run.

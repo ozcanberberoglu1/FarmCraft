@@ -36,6 +36,7 @@ Downloaded by `tools/fetch_audio.py`; the recorded farm-work sounds are built by
 | ambience/rain_heavy.mp3 | Heavy storm rain loop | 2400 |
 | ambience/barn.mp3 | Cow barn ambience | 1754 |
 | ambience/coop.mp3 | Hens and rooster ambience | 1756 |
+| ambience/coop_hens.ogg | Hens and rooster ambience, cut without the rooster's crow (0.3-4.78 s + 7.22-10.45 s, 60 ms cross-fade) | 1756 |
 | sfx/weather/thunder_1.mp3 | Mid strength single thunder | 1298 |
 | sfx/weather/thunder_2.mp3 | Distant thunder explosion | 1278 |
 | sfx/weather/thunder_3.mp3 | Big thunder rumble | 1297 |

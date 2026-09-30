@@ -94,6 +94,8 @@ PEOPLE = {
         "hair": "", "eyebrows": "eyebrow006", "eyes": "brown",
         "clothes": ["toigo_fisherman_sweater", "toigo_harem_pants", "toigo_flats"],
         "extras": ["headscarf"],
+        # (inner, outer): the şalvar's waist stays under the sweater.
+        "tuck": [("toigo_harem_pants", "toigo_fisherman_sweater")],
     },
     "young": {
         "phenotype": pheno(MALE_BASE, age=0.52, muscle=0.55, weight=0.45, height=0.6),
@@ -296,6 +298,22 @@ def decimate(o, target):
     bpy.ops.object.modifier_apply(modifier="dec")
 
 
+def tuck(inner, outer, gap=0.007, reach=0.03):
+    """Moves the vertices of garment `inner` that poke out through `outer` (or lie just
+    under it) to `gap` under it, so the one under stays under when they move."""
+    from mathutils.bvhtree import BVHTree
+    tree = BVHTree.FromObject(outer, bpy.context.evaluated_depsgraph_get())
+    moved = 0
+    for v in inner.data.vertices:
+        loc, nor, _i, _d = tree.find_nearest(v.co, reach)
+        if loc is None or nor.dot(v.normal) < 0.3:
+            continue
+        if (v.co - loc).dot(nor) > -gap:
+            v.co = loc - nor * gap
+            moved += 1
+    print("TUCK", inner.name, "under", outer.name, moved)
+
+
 def hide_covered(body, covers, pushers):
     """Deletes the body faces under the clothes (the packs' delete groups miss some: the
     chest under a sweater, the scalp under the scarf), so nothing pokes through."""
@@ -335,22 +353,6 @@ def hide_covered(body, covers, pushers):
 def bone_head(arm, bone):
     bpy.context.view_layer.update()
     return arm.matrix_world @ arm.data.bones[bone].head_local
-
-
-def transfer_weights(target, source):
-    """Skin `target` like the nearest surface of `source` (the body)."""
-    activate(target)
-    for g in source.vertex_groups:
-        if g.name not in target.vertex_groups:
-            target.vertex_groups.new(name=g.name)
-    mod = target.modifiers.new("dt", "DATA_TRANSFER")
-    mod.object = source
-    mod.use_vert_data = True
-    mod.data_types_verts = {"VGROUP_WEIGHTS"}
-    mod.vert_mapping = "POLYINTERP_NEAREST"
-    mod.layers_vgroup_select_src = "ALL"
-    mod.layers_vgroup_select_dst = "NAME"
-    bpy.ops.object.modifier_apply(modifier="dt")
 
 
 def add_armature(o, arm):
@@ -467,89 +469,380 @@ def headscarf(body, arm):
     o.data.materials.append(cloth_material("cloth_scarf", (0.8, 0.8, 0.8), SCARF_PRINT))
     for p in o.data.polygons:
         p.material_index = 0
-    transfer_weights(o, body)
+    # Skinned like the head, neck and shoulders' top under it (not the upper arms the
+    # flap at the back comes near).
+    scarf_bones = ("head", "neck_01", "spine_03", "spine_02", "clavicle_l", "clavicle_r")
+    set_weights(o, smooth_weights(o, skin_like_torso(o, body, scarf_bones), 2))
     add_armature(o, arm)
     return o
 
 
-def apron(body, arm):
-    """A bib apron over the shirt: a sheet from the chest to below the knees, laid on the
-    front of the figure (flat across the legs), a neck strap and waist ties."""
-    pelvis = bone_head(arm, "pelvis")
-    chest = bone_head(arm, "spine_03")
-    neck = bone_head(arm, "neck_01")
-    knee = bone_head(arm, "calf_l")
-    deps = bpy.context.evaluated_depsgraph_get()
-    solids = [o for o in bpy.data.objects if o.type == "MESH" and o.name.split(".", 1)[-1].startswith("male_")] + [body]
-    top = chest.z + 0.08
-    bottom = knee.z + 0.03
-    cols, rows = 12, 22
+# The bones the torso's clothes may follow (not the arms': in the A pose the forearms
+# hang next to the hips, and a nearest-skin transfer would hand them the apron).
+TORSO_BONES = ("pelvis", "spine_01", "spine_02", "spine_03", "neck_01", "clavicle_l", "clavicle_r")
+LIMB_PREFIXES = ("upperarm", "lowerarm", "hand", "thumb", "index", "middle", "ring", "pinky", "head")
+
+
+def bone_weights(o, bones):
+    """Per vertex of `o`: {bone: weight} over the groups named after `bones`."""
+    names = {g.index: g.name for g in o.vertex_groups}
+    out = []
+    for v in o.data.vertices:
+        d = {}
+        for ge in v.groups:
+            n = names.get(ge.group)
+            if n in bones and ge.weight > 0.0:
+                d[n] = ge.weight
+        out.append(d)
+    return out
+
+
+def set_weights(o, weights):
+    """Replaces `o`'s vertex groups with `weights` (per vertex {bone: w}), at most four a
+    vertex, normalised."""
+    o.vertex_groups.clear()
+    groups = {}
+    for i, d in enumerate(weights):
+        top = sorted(d.items(), key=lambda kv: -kv[1])[:4]
+        s = sum(w for _n, w in top) or 1.0
+        for n, w in top:
+            if w / s < 0.01:
+                continue
+            if n not in groups:
+                groups[n] = o.vertex_groups.new(name=n)
+            groups[n].add([i], w / s, "REPLACE")
+
+
+def smooth_weights(o, weights, rounds):
+    """Each vertex's weights averaged with its neighbours' `rounds` times (no seams where
+    two bones meet)."""
+    nb = [[] for _ in o.data.vertices]
+    for e in o.data.edges:
+        a, b = e.vertices
+        nb[a].append(b)
+        nb[b].append(a)
+    for _ in range(rounds):
+        new = []
+        for i, d in enumerate(weights):
+            acc = dict((k, v * 2.0) for k, v in d.items())
+            for j in nb[i]:
+                for k, v in weights[j].items():
+                    acc[k] = acc.get(k, 0.0) + v
+            s = sum(acc.values()) or 1.0
+            new.append(dict((k, v / s) for k, v in acc.items()))
+        weights = new
+    return weights
+
+
+def skin_like_torso(o, body, bones=TORSO_BONES, k=8):
+    """Weights for `o` from the nearest skin or clothes under it that the torso carries
+    (the mean of the `k` nearest such vertices of the body and the garments from the
+    packs, only `bones`; the body's masked where the clothes cover it)."""
+    from mathutils.kdtree import KDTree
+    arm = next(x for x in bpy.data.objects if x.type == "ARMATURE")
+    names = {b.name for b in arm.data.bones}
+    sources = [body] + [x for x in bpy.data.objects if x.type == "MESH" and x is not o and x is not body
+                        and x.data.materials and x.data.materials[0].name.startswith("cloth_")
+                        and not any(t in x.name for t in ("apron", "headscarf"))]
+    pts = []
+    for src in sources:
+        mw = src.matrix_world
+        for v, d in zip(src.data.vertices, bone_weights(src, names)):
+            if not d:
+                continue
+            top = max(d.items(), key=lambda kv: kv[1])[0]
+            if top in bones:
+                pts.append((mw @ v.co, {n: w for n, w in d.items() if n in bones}))
+    tree = KDTree(len(pts))
+    for i, (p, _d) in enumerate(pts):
+        tree.insert(p, i)
+    tree.balance()
+    out = []
+    for v in o.data.vertices:
+        acc = {}
+        for _co, i, dist in tree.find_n(o.matrix_world @ v.co, k):
+            w0 = 1.0 / (dist + 0.01)
+            for n, w in pts[i][1].items():
+                acc[n] = acc.get(n, 0.0) + w * w0
+        s = sum(acc.values()) or 1.0
+        out.append(dict((n, w / s) for n, w in acc.items()))
+    return out
+
+
+def _hull(points):
+    pts = sorted(set(points))
+    if len(pts) < 3:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def _ray_hull(hull, cx, cy, ang):
+    """How far from (cx, cy) the hull's edge is in direction `ang` (0: the front, -Y;
+    + towards +X, the figure's left)."""
+    dx, dy = math.sin(ang), -math.cos(ang)
+    best = 0.0
+    n = len(hull)
+    for i in range(n):
+        x1, y1 = hull[i]
+        x2, y2 = hull[(i + 1) % n]
+        ex, ey = x2 - x1, y2 - y1
+        den = dx * ey - dy * ex
+        if abs(den) < 1e-12:
+            continue
+        t = ((x1 - cx) * ey - (y1 - cy) * ex) / den
+        s = ((x1 - cx) * dy - (y1 - cy) * dx) / den
+        if -1e-6 <= s <= 1.0 + 1e-6 and t > best:
+            best = t
+    return best
+
+
+class Wrap:
+    """The dressed figure's outline (skin and clothes, not the arms or head) as a stack of
+    horizontal slices round a vertical axis: at height z and direction a (0 the front),
+    how far out a cloth laid over it lies: the convex hull of the slice (cloth bridges
+    hollows: between the legs, under the chest), draped (it can't tuck in under a belly
+    faster than `drape` per metre going down)."""
+    ANGLES = [(-3.14159 + 3.14159 * 2 * i / 240) for i in range(241)]
+
+    def __init__(self, meshes, bones, cx, cy, z0, z1, step=0.02):
+        self.cx, self.cy, self.z0, self.step = cx, cy, z0, step
+        n = int(round((z1 - z0) / step)) + 1
+        self.n = n
+        rows = [[] for _ in range(n)]
+        # Each slice through the surfaces themselves (where their triangles cross it: a big
+        # flat triangle can stand out past its corners' slices), not the arms or head.
+        for o in meshes:
+            names = {g.index: g.name for g in o.vertex_groups}
+            mw = o.matrix_world
+            limb = []
+            for v in o.data.vertices:
+                top, tw = None, 0.0
+                for ge in v.groups:
+                    nm = names.get(ge.group, "")
+                    if ge.weight > tw and nm in bones:
+                        top, tw = nm, ge.weight
+                limb.append(top is None or top.startswith(LIMB_PREFIXES))
+            co = [mw @ v.co for v in o.data.vertices]
+            o.data.calc_loop_triangles()
+            for tri in o.data.loop_triangles:
+                ids = tri.vertices
+                if sum(1 for i in ids if limb[i]) >= 2:
+                    continue
+                ps = [co[i] for i in ids]
+                lo = min(p.z for p in ps)
+                hi = max(p.z for p in ps)
+                for k in range(max(0, int(math.ceil((lo - z0) / step))), min(n - 1, int(math.floor((hi - z0) / step))) + 1):
+                    z = z0 + k * step
+                    for a, b in ((ps[0], ps[1]), (ps[1], ps[2]), (ps[2], ps[0])):
+                        if (a.z - z) * (b.z - z) <= 0.0 and a.z != b.z:
+                            t = (z - a.z) / (b.z - a.z)
+                            rows[k].append((round(a.x + (b.x - a.x) * t, 4), round(a.y + (b.y - a.y) * t, 4)))
+        self.r = []
+        for k in range(n):
+            h = _hull(rows[k]) if len(rows[k]) >= 3 else None
+            self.r.append([_ray_hull(h, cx, cy, a) if h else 0.0 for a in self.ANGLES])
+        # Rows with nothing in them: from their neighbours.
+        for k in range(n):
+            if max(self.r[k]) == 0.0:
+                src = next((self.r[j] for d in range(1, n) for j in (k - d, k + d) if 0 <= j < n and max(self.r[j]) > 0.0), None)
+                if src:
+                    self.r[k] = list(src)
+        # Round each slice a little.
+        for k in range(n):
+            r = self.r[k]
+            m = len(r)
+            s = [(r[(i - 2) % m] + 2 * r[(i - 1) % m] + 3 * r[i] + 2 * r[(i + 1) % m] + r[(i + 2) % m]) / 9.0 for i in range(m)]
+            self.r[k] = [max(a, b - 0.002) for a, b in zip(s, r)]
+
+    def drape(self, z_from, z_to, per_m):
+        """Cloth hanging from z_from down to z_to can come in towards the body by at most
+        `per_m` metres per metre (and bridges hollows going up from z_to the same way)."""
+        k0 = int(round((z_from - self.z0) / self.step))
+        k1 = int(round((z_to - self.z0) / self.step))
+        d = per_m * self.step
+        lo, hi = min(k0, k1), max(k0, k1)
+        for k in range(hi - 1, lo - 1, -1):
+            self.r[k] = [max(a, b - d) for a, b in zip(self.r[k], self.r[k + 1])]
+        for k in range(lo + 1, hi + 1):
+            self.r[k] = [max(a, b - d) for a, b in zip(self.r[k], self.r[k - 1])]
+
+    def radius(self, z, a):
+        f = min(max((z - self.z0) / self.step, 0.0), self.n - 1.0)
+        k = min(int(f), self.n - 2)
+        t = f - k
+        g = (a + 3.14159) / (2 * 3.14159) * 240
+        g = min(max(g, 0.0), 239.999)
+        i = int(g)
+        u = g - i
+        r0 = self.r[k][i] * (1 - u) + self.r[k][i + 1] * u
+        r1 = self.r[k + 1][i] * (1 - u) + self.r[k + 1][i + 1] * u
+        return r0 * (1 - t) + r1 * t
+
+    def point(self, z, a, off):
+        r = self.radius(z, a) + off
+        return mathutils.Vector((self.cx + r * math.sin(a), self.cy - r * math.cos(a), z))
+
+    def normal(self, z, a):
+        e = 0.01
+        p = self.point(z, a, 0.0)
+        ta = self.point(z, a + e, 0.0) - self.point(z, a - e, 0.0)
+        tz = self.point(z + e, a, 0.0) - self.point(z - e, a, 0.0)
+        n = tz.cross(ta)
+        out = mathutils.Vector((math.sin(a), -math.cos(a), 0.0))
+        if n.dot(out) < 0.0:
+            n = -n
+        return n.normalized() if n.length > 1e-9 else out
+
+    def edge_angle(self, z, half_width, limit):
+        """The direction where the surface is `half_width` out to the side."""
+        a = 0.0
+        while a < limit:
+            if self.radius(z, a) * math.sin(a) >= half_width and self.radius(z, -a) * math.sin(a) >= half_width:
+                return a
+            a += 0.005
+        return limit
+
+
+def _band(bm, path, width, wrap, off, lift=None):
+    """A ribbon `width` wide along `path` [(z, a), ...] on the wrap, `off` out from it (or
+    `lift(i)` more for point i); its face towards the outside. Returns its vertices."""
+    pts = [wrap.point(z, a, off + (lift(i) if lift else 0.0)) for i, (z, a) in enumerate(path)]
+    nors = [wrap.normal(z, a) for (z, a) in path]
     verts = []
-    front = []
-    for r in range(rows + 1):
-        z = top + (bottom - top) * r / rows
-        width = 0.12 if z > pelvis.z + 0.18 else 0.21
-        if pelvis.z + 0.1 < z <= pelvis.z + 0.18:
-            t = (z - pelvis.z - 0.1) / 0.08
-            width = 0.21 + (0.12 - 0.21) * t
-        row = []
-        for c in range(cols + 1):
-            x = pelvis.x + (c / cols * 2.0 - 1.0) * width
-            y = 0.2
-            for o in solids:
-                inv = o.matrix_world.inverted()
-                ok, loc, _n, _i = o.ray_cast(inv @ mathutils.Vector((x, -1.0, z)), (inv.to_3x3() @ mathutils.Vector((0, 1, 0))).normalized(), depsgraph=deps)
-                if ok:
-                    y = min(y, (o.matrix_world @ loc).y)
-            row.append([x, y, z])
-        front.append(row)
-    # Below the crotch the cloth hangs flat from leg to leg (the front-most point of the row).
-    for r, row in enumerate(front):
-        z = row[0][2]
-        if z < pelvis.z - 0.05:
-            ymin = min(p[1] for p in row)
-            for p in row:
-                p[1] = ymin
-        valid = [p[1] for p in row if p[1] < 0.19]
-        fill = min(valid) if valid else 0.0
-        for p in row:
-            if p[1] >= 0.19:
-                p[1] = fill
-    # Smooth across and down, then off the clothes.
-    for _ in range(4):
-        for r in range(rows + 1):
-            for c in range(1, cols):
-                front[r][c][1] = (front[r][c - 1][1] + 2 * front[r][c][1] + front[r][c + 1][1]) / 4
-        for r in range(1, rows):
-            for c in range(cols + 1):
-                front[r][c][1] = min(front[r][c][1], (front[r - 1][c][1] + 2 * front[r][c][1] + front[r + 1][c][1]) / 4)
+    faces = []
+    prev = None
+    facing = 0.0
+    for i, p in enumerate(pts):
+        t = (pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]).normalized()
+        side = nors[i].cross(t).normalized() * (width * 0.5)
+        v0 = bm.verts.new(p - side)
+        v1 = bm.verts.new(p + side)
+        verts += [v0, v1]
+        if prev:
+            f = bm.faces.new((prev[0], prev[1], v1, v0))
+            f.normal_update()
+            facing += f.normal.dot(nors[i])
+            faces.append(f)
+        prev = (v0, v1)
+    # (all one way: a face turned alone would leave a hole where the back is culled)
+    if facing < 0.0:
+        for f in faces:
+            f.normal_flip()
+    return verts
+
+
+def _smooth_path(points, n):
+    """`points` [(z, a)] resampled to `n` along a Catmull-Rom curve."""
+    P = [points[0]] + list(points) + [points[-1]]
+    out = []
+    segs = len(points) - 1
+    for s in range(n):
+        f = s / (n - 1) * segs
+        i = min(int(f), segs - 1)
+        t = f - i
+        p0, p1, p2, p3 = P[i], P[i + 1], P[i + 2], P[i + 3]
+        out.append(tuple(0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t)
+                         for a, b, c, d in zip(p0, p1, p2, p3)))
+    return out
+
+
+def apron(body, arm):
+    """A shopkeeper's bib apron (önlük): cut like the real thing (a narrow bib over the
+    chest, curved out under the arms to a skirt that wraps round the hips to the sides and
+    hangs to the knees), laid over the shirt: shrink-wrapped on the figure's outline (the
+    convex hull of each slice, so it bridges the hollows as cloth does) and hanging
+    straight down off the belly; a strap round the back of the neck, ties round the waist
+    knotted in a bow at the back. It is skinned like the torso under it (never the arms);
+    the skirt follows the thighs part way, evenly across, so it never tears."""
+    pelvis = bone_head(arm, "pelvis")
+    spine1 = bone_head(arm, "spine_01")
+    spine2 = bone_head(arm, "spine_02")
+    neck = bone_head(arm, "neck_01")
+    hip = bone_head(arm, "thigh_l")
+    knee = bone_head(arm, "calf_l")
+    figure = [body] + [o for o in bpy.data.objects if o.type == "MESH" and o.name.split(".", 1)[-1].startswith("male_")]
+    z_top = neck.z - 0.155
+    z_waist = spine1.z + 0.01
+    z_hem = knee.z - 0.03
+    wrap = Wrap(figure, {b.name for b in arm.data.bones}, 0.0, spine2.y, z_hem - 0.06, neck.z + 0.06)
+    wrap.drape(z_waist + 0.1, z_hem - 0.04, 0.22)   # the skirt hangs off the belly
+    wrap.drape(z_top + 0.04, z_waist + 0.1, 0.55)  # the bib over the chest and belly
+
+    def half_width(z):
+        if z >= z_waist + 0.1:
+            return 0.115 + (0.14 - 0.115) * (z_top - z) / max(z_top - z_waist - 0.1, 0.01)
+        if z >= z_waist - 0.02:
+            t = (z_waist + 0.1 - z) / 0.12
+            t = t * t * (3 - 2 * t)
+            return 0.14 + (0.215 - 0.14) * t
+        return 0.215 + 0.015 * (z_waist - 0.02 - z) / max(z_waist - 0.02 - z_hem, 0.01)
+
+    rows, cols = 44, 18
+    zs = [z_top + (z_hem - z_top) * i / rows for i in range(rows + 1)]
+    edges = [wrap.edge_angle(z, half_width(z), 1.3) for z in zs]
+    edges = [sum(edges[max(0, i - 2):i + 3]) / len(edges[max(0, i - 2):i + 3]) for i in range(len(edges))]
     bm = bmesh.new()
-    grid = []
-    for r in range(rows + 1):
-        line = []
-        for c in range(cols + 1):
-            x, y, z = front[r][c]
-            line.append(bm.verts.new((x, y - 0.012, z)))
-        grid.append(line)
     uv = bm.loops.layers.uv.new()
-    for r in range(rows):
-        for c in range(cols):
-            f = bm.faces.new((grid[r][c], grid[r][c + 1], grid[r + 1][c + 1], grid[r + 1][c]))
-            for loop, (cc, rr) in zip(f.loops, ((c, r), (c + 1, r), (c + 1, r + 1), (c, r + 1))):
-                loop[uv].uv = (cc / cols, 1.0 - rr / rows)
-    # The neck strap: a band from the bib's top corners round the back of the neck.
-    for sx in (-1.0, 1.0):
-        a = mathutils.Vector(front[0][0 if sx < 0 else cols])
-        pts = [a, mathutils.Vector((neck.x + sx * 0.07, neck.y - 0.02, neck.z + 0.02)),
-               mathutils.Vector((neck.x + sx * 0.055, neck.y + 0.06, neck.z + 0.03)),
-               mathutils.Vector((neck.x, neck.y + 0.075, neck.z + 0.035))]
-        prev = None
-        for p in pts:
-            v0 = bm.verts.new(p + mathutils.Vector((0, 0, -0.012)))
-            v1 = bm.verts.new(p + mathutils.Vector((0, 0, 0.012)))
-            if prev:
-                bm.faces.new((prev[0], v0, v1, prev[1]))
-            prev = (v0, v1)
+    grid = []
+    for i, z in enumerate(zs):
+        off = 0.009 + 0.005 * max(0.0, (z_waist - z) / (z_waist - z_hem))
+        line = []
+        for j in range(cols + 1):
+            a = -edges[i] + 2.0 * edges[i] * j / cols
+            line.append(bm.verts.new(wrap.point(z, a, off)))
+        grid.append(line)
+    sheet = []
+    facing = 0.0
+    for i in range(rows):
+        for j in range(cols):
+            vs = (grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1])
+            f = bm.faces.new(vs)
+            f.normal_update()
+            c = sum((v.co for v in vs), mathutils.Vector()) / 4.0
+            facing += f.normal.dot(mathutils.Vector((c.x - wrap.cx, c.y - wrap.cy, 0.0)))
+            sheet.append(f)
+            for loop in f.loops:
+                p = loop.vert.co
+                loop[uv].uv = ((p.x + 0.3) / 0.12, (p.z - z_hem) / 0.12)
+    if facing < 0.0:
+        for f in sheet:
+            f.normal_flip()
+    # The neck strap, from the bib's top corners up and round the back of the neck.
+    for sgn in (-1.0, 1.0):
+        e0 = edges[0]
+        path = [(z_top + 0.005, sgn * e0 * 0.9), (z_top + 0.07, sgn * e0 * 0.85), (neck.z - 0.035, sgn * 0.75),
+                (neck.z - 0.012, sgn * 1.25), (neck.z + 0.004, sgn * 2.1), (neck.z + 0.01, sgn * 3.1)]
+        _band(bm, _smooth_path(path, 16), 0.024, wrap, 0.007)
+    # The ties from the waist's sides round the back, a bow and its tails there.
+    ew = edges[min(range(len(zs)), key=lambda i: abs(zs[i] - z_waist))]
+    for sgn in (-1.0, 1.0):
+        path = [(z_waist, sgn * (ew - 0.02)), (z_waist + 0.003, sgn * 1.9), (z_waist + 0.004, sgn * 2.6), (z_waist + 0.004, sgn * 3.08)]
+        _band(bm, _smooth_path(path, 12), 0.026, wrap, 0.012)
+        # A loop of the bow: a flattened ring standing off the back.
+        loop_path = []
+        for s in range(13):
+            t = s / 12.0 * 2 * math.pi
+            loop_path.append((z_waist + 0.004 + math.sin(t) * 0.022, sgn * (3.14159 - 0.2 - 0.2 * math.cos(t))))
+        _band(bm, loop_path, 0.02, wrap, 0.018)
+        # A tail hanging from the knot.
+        tail = [(z_waist - 0.01 - 0.19 * s / 8.0, sgn * (3.14159 - 0.05 - 0.09 * s / 8.0)) for s in range(9)]
+        _band(bm, tail, 0.026, wrap, 0.02)
+    knot = wrap.point(z_waist + 0.004, 3.14159, 0.02)
+    ret = bmesh.ops.create_uvsphere(bm, u_segments=8, v_segments=5, radius=0.016)
+    for v in ret["verts"]:
+        v.co = knot + mathutils.Vector((v.co.x * 1.2, v.co.y * 0.7, v.co.z))
     me = bpy.data.meshes.new("apron")
     bm.to_mesh(me)
     bm.free()
@@ -557,13 +850,66 @@ def apron(body, arm):
     bpy.context.scene.collection.objects.link(o)
     activate(o)
     solid = o.modifiers.new("solid", "SOLIDIFY")
-    solid.thickness = 0.005
+    solid.thickness = 0.0025
+    solid.offset = -1.0
     bpy.ops.object.modifier_apply(modifier="solid")
     bpy.ops.object.shade_smooth()
-    o.data.materials.append(cloth_material("cloth_apron", (0.07, 0.12, 0.1)))
-    transfer_weights(o, body)
+    o.data.materials.append(cloth_material("cloth_apron", (0.05, 0.075, 0.14), make_twill()))
+    # Skinned like the torso under it; below the hips the skirt follows the thighs part
+    # way (evenly across it: no tearing between the legs).
+    w = skin_like_torso(o, body)
+    for i, v in enumerate(o.data.vertices):
+        p = o.matrix_world @ v.co
+        s = 0.8 * min(max((hip.z + 0.02 - p.z) / 0.3, 0.0), 1.0)
+        s = s * s * (3 - 2 * s)
+        if s > 0.0:
+            left = min(max((p.x + 0.14) / 0.28, 0.0), 1.0)
+            left = left * left * (3 - 2 * left)
+            d = dict((n, x * (1.0 - s)) for n, x in w[i].items())
+            d["thigh_l"] = d.get("thigh_l", 0.0) + s * left
+            d["thigh_r"] = d.get("thigh_r", 0.0) + s * (1.0 - left)
+            w[i] = d
+    set_weights(o, smooth_weights(o, w, 4))
     add_armature(o, arm)
     return o
+
+
+TWILL = os.path.join(TMP, "apron_twill.png")
+
+
+def make_twill():
+    """A navy cotton twill (the apron's cloth, tiling 12 cm): diagonal ribs, a little
+    mottling and slub."""
+    os.makedirs(TMP, exist_ok=True)
+    import random
+    size = 256
+    rnd = random.Random(11)
+    img = bpy.data.images.new("apron_twill", size, size)
+    base = (0.05, 0.075, 0.14)
+    slub = [1.0 + (rnd.random() - 0.5) * 0.12 for _ in range(size)]
+    blot = [[0.0] * 17 for _ in range(17)]
+    for y in range(17):
+        for x in range(17):
+            blot[y][x] = (rnd.random() - 0.5) * 0.1
+    for y in range(16):
+        blot[y][16] = blot[y][0]
+    blot[16] = list(blot[0])
+    px = [0.0] * (size * size * 4)
+    for y in range(size):
+        for x in range(size):
+            rib = 0.9 + 0.2 * (((x + y) // 3) % 2)
+            fx, fy = x / 16.0, y / 16.0
+            ix, iy = int(fx), int(fy)
+            tx, ty = fx - ix, fy - iy
+            m = (blot[iy][ix] * (1 - tx) + blot[iy][ix + 1] * tx) * (1 - ty) + (blot[iy + 1][ix] * (1 - tx) + blot[iy + 1][ix + 1] * tx) * ty
+            k = rib * slub[y] * (1.0 + m)
+            i = (y * size + x) * 4
+            px[i:i + 4] = [base[0] * k, base[1] * k, base[2] * k, 1.0]
+    img.pixels = px
+    img.filepath_raw = TWILL
+    img.file_format = "PNG"
+    img.save()
+    return TWILL
 
 
 SCARF_PRINT = os.path.join(TMP, "scarf_print.png")
@@ -610,6 +956,9 @@ def finish(name, spec):
     for o in meshes:
         if o is not body:
             decimate(o, MAX_VERTS)
+    for inner, outer in spec.get("tuck", []):
+        parts = {o.name.split(".", 1)[-1]: o for o in bpy.data.objects if o.type == "MESH"}
+        tuck(parts[inner], parts[outer])
     extras = []
     if "headscarf" in spec["extras"]:
         extras.append(headscarf(body, arm))
@@ -617,8 +966,9 @@ def finish(name, spec):
         extras.append(apron(body, arm))
     covers = [o for o in bpy.data.objects if o.type == "MESH" and o is not body
               and o.data.materials and o.data.materials[0].name.startswith("cloth_")]
-    # Garments push poking skin under them; head wear (built off the skin) doesn't.
-    hide_covered(body, covers, [o for o in covers if not any(k in o.name for k in ("headscarf", "cap", "hat"))])
+    # Garments push poking skin under them; head wear (built off the skin) doesn't, nor
+    # the apron (it lies over the shirt: skin pushed under it would come out over that).
+    hide_covered(body, covers, [o for o in covers if not any(k in o.name for k in ("headscarf", "cap", "hat", "apron"))])
     # One skinned mesh.
     bpy.ops.object.select_all(action="DESELECT")
     for o in bpy.data.objects:

@@ -29,6 +29,9 @@ const WELCOME_RANGE := 4.0
 const WELCOME_COOLDOWN := 150.0
 const BUBBLE_SECONDS := 4.0
 const GREET_SECONDS := 1.9
+## Nuri Hoca's greeting: the glass put down on the table, the hand on the heart, the
+## glass picked up again.
+const TEA_GREET := 3.6
 ## How many lines each person has (SAY_<PERSON>_1..n).
 const LINES := 2
 ## Walkers: how far off the route's line they step aside, how long they wait for a
@@ -55,6 +58,8 @@ var route: Array = []
 ## The sweeper: the line he sweeps along (world XZ, from - to).
 var sweep_from := Vector3.ZERO
 var sweep_to := Vector3.ZERO
+## The tea drinker: the middle of his table's top (world), where he puts his glass down.
+var tea_table := Vector3.INF
 
 var _floor_y := 0.0
 var _yaw := 0.0
@@ -84,6 +89,14 @@ var _last_stroke := 0.0
 var _last_step_phase := 0.0
 var _on_screen: VisibleOnScreenNotifier3D
 var _clock := 0.0
+## The broom: 0 sweeping .. 1 held upright at his side (stopped to greet); the bristles'
+## height above the ground; the right hand still on the handle.
+var _broom_hold := 0.0
+var _broom_lift := 0.0
+var _broom_two_hands := true
+## The tea glass: in his hand, or on the table at _glass_spot (body frame).
+var _glass_in_hand := true
+var _glass_spot := Vector3(-0.16, 0.73, 0.46)
 ## Microseconds all townspeople spent posing their bodies (a cost gauge for tests).
 static var anim_usec := 0
 
@@ -134,6 +147,11 @@ func _ready() -> void:
 	elif act == Act.TEA:
 		_prop = _tea_glass()
 		rig.add_child(_prop)
+		if tea_table.is_finite():
+			# On the near side of the table, clear of the glasses standing on it.
+			var c := to_local(tea_table)
+			var toward := Vector3(-0.12, 0.0, 0.2) - Vector3(c.x, 0.0, c.z)
+			_glass_spot = Vector3(c.x, c.y, c.z) + toward.normalized() * minf(0.27, toward.length())
 	rig.reset()
 	Settings.changed.connect(_apply_quality)
 	_apply_quality()
@@ -207,7 +225,13 @@ func greet(line := -1) -> void:
 	_line = (line if line >= 0 else _line) % LINES
 	say(tr("SAY_%s_%d" % [String(person).to_upper(), _line + 1]))
 	_line += 1
-	_greet_t = 0.0
+	# A greeting under way isn't started over (the hand would jump back): while the hand
+	# is on the heart it stays there longer.
+	var hold := Vector2(1.3, 2.4) if act == Act.TEA else Vector2(0.45, GREET_SECONDS - 0.5)
+	if _greet_t >= _greet_len():
+		_greet_t = 0.0
+	elif _greet_t > hold.x and _greet_t < hold.y:
+		_greet_t = hold.x
 	_welcomed_at = _clock
 	if act == Act.WALK or act == Act.SWEEP:
 		_stop_t = 3.2
@@ -452,14 +476,26 @@ func _sweep_move(delta: float) -> void:
 
 # --- Animation -------------------------------------------------------------------------------
 
+func _greet_len() -> float:
+	return TEA_GREET if act == Act.TEA else GREET_SECONDS
+
+
 func _animate(delta: float, cam: Vector3) -> void:
 	rig.time += delta
 	rig.begin()
-	var greeting := _greet_t < GREET_SECONDS
-	var g := sin(clampf(_greet_t / GREET_SECONDS, 0.0, 1.0) * PI) if greeting else 0.0
+	var greeting := _greet_t < _greet_len()
+	# g: the nod and bow; the hand goes to the heart (or waves) and stays till near the end.
+	var g := 0.0
+	var hand := 0.0
+	if greeting:
+		if act == Act.TEA:
+			g = sin(clampf((_greet_t - 0.9) / 1.8, 0.0, 1.0) * PI)
+		else:
+			g = sin(clampf(_greet_t / GREET_SECONDS, 0.0, 1.0) * PI)
+			hand = smoothstep(0.0, 0.45, _greet_t) * (1.0 - smoothstep(GREET_SECONDS - 0.5, GREET_SECONDS, _greet_t))
 	match act:
 		Act.BENCH:
-			rig.sit(seat_height, 0.2, not greeting)
+			rig.sit(seat_height, 0.2)
 		Act.TEA:
 			rig.sit(seat_height, 0.1, false)
 		Act.WALK:
@@ -473,7 +509,7 @@ func _animate(delta: float, cam: Vector3) -> void:
 				rig.rot_x(&"spine_02", 0.16)
 			else:
 				rig.move_pelvis(Vector3(0.0, -0.035, -0.03))
-				rig.stance(0.36, false)
+				rig.stance(0.42, false)
 		Act.WRITE:
 			rig.stance(0.32, false)
 		Act.TILL:
@@ -499,15 +535,16 @@ func _animate(delta: float, cam: Vector3) -> void:
 		Act.WALK:
 			if hands_behind:
 				_hands_behind()
-			elif _speed <= 0.05:
+			elif _speed <= 0.05 or greeting:
 				rig.relaxed_arms()
 		Act.STAND:
 			if hands_behind:
 				_hands_behind()
 			else:
 				rig.relaxed_arms()
-	if greeting:
-		_arms_greet(g)
+	if hand > 0.0:
+		_arms_greet(hand)
+	_place_props()
 	if _speed > 0.05 and act == Act.WALK:
 		var ph := fposmod(rig.gait_phase * 2.0, 1.0)
 		if ph < _last_step_phase and cam.distance_to(global_position) < 14.0:
@@ -658,7 +695,7 @@ func _arms_talk() -> void:
 
 
 func _hands_behind() -> void:
-	var c := Vector3(0.0, rig.pelvis_y + 0.06, -0.2)
+	var c := Vector3(0.0, rig.pelvis_y + 0.09, -0.24)
 	rig.reach("_l", c + Vector3(0.05, 0.0, 0.0), Vector3(0.8, 0.0, 0.2))
 	rig.orient_hand("_l", Vector3(-1, -0.3, 0), Vector3(0, 0, -1))
 	rig.reach("_r", c + Vector3(-0.04, 0.02, -0.02), Vector3(-0.8, 0.0, 0.2))
@@ -671,8 +708,10 @@ var _broom_head := Vector3(0, 0, 0.5)
 
 
 ## The broom: strokes from his right to his left across the ground in front, the head
-## lifted on the way back; the top hand leads, the lower one pushes.
-func _arms_sweep(_delta: float) -> void:
+## lifted on the way back; the left fist at the top leads, the right one lower down
+## pushes, the handle through both. Stopped to greet, he stands it upright at his left
+## side in the left hand (the right one goes to his heart).
+func _arms_sweep(delta: float) -> void:
 	var stroke := fmod(rig.time * 0.95 + rig.seed_phase, 1.0)
 	var bx := 0.0
 	var lift := 0.0
@@ -693,74 +732,115 @@ func _arms_sweep(_delta: float) -> void:
 			if _camera_pos().distance_to(global_position) < 18.0:
 				Audio.play("brush", global_position + transform.basis.z * 0.6, -15.0, 0.15, &"Effects", 3.0, 0.75)
 		_last_stroke = stroke
-	var head := Vector3(bx, 0.02 + lift, 0.74)
+	# Stopped to greet, or stepping on: the broom stood (carried) upright at his left.
+	_broom_hold = move_toward(_broom_hold, 1.0 if _stop_t > 0.0 or _speed > 0.05 else 0.0, delta * 2.5)
+	var up := smoothstep(0.0, 1.0, _broom_hold)
+	# The left fist near the top at his waist, the right one a forearm lower down the
+	# handle (both within reach of the bent-over body), the bristles out in front.
+	var y0 := rig.pelvis_y
+	var head := Vector3(bx - 0.14, lift, 0.6).lerp(Vector3(0.36, 0.05 if _speed > 0.05 else 0.0, 0.3), up)
+	var top := Vector3(-0.07 + bx * 0.25, y0 + 0.3, 0.3).lerp(Vector3(0.25, y0 + 0.08, 0.2), up)
 	_broom_head = head
-	var top := Vector3(0.1 + bx * 0.25, 0.97, 0.3)
-	rig.rot_y(&"spine_02", bx * 0.25)
+	_broom_lift = head.y
+	rig.rot_y(&"spine_02", bx * 0.25 * (1.0 - up))
 	var axis := (top - head).normalized()
-	rig.reach("_l", top, _pole("_l"))
-	rig.orient_hand("_l", Vector3(-1, 0.1, 0.1), Vector3(0.1, -0.3, -1))
-	rig.curl("_l", 0.8, 0.6)
-	var low := top.lerp(head, 0.38)
-	rig.reach("_r", low, _pole("_r"))
-	rig.orient_hand("_r", Vector3(-1, -0.25, 0.2), Vector3(0, 0.3, 1))
-	rig.curl("_r", 0.8, 0.6)
-	var b := Basis()
-	b.y = axis
-	b.x = Vector3.RIGHT.slide(axis).normalized()
-	b.z = b.x.cross(b.y)
-	_prop.transform = Transform3D(b, head - axis * 0.02)
+	var low := top - axis * 0.23
+	rig.hold("_l", top, axis, Vector3(-1, 0.1, 0.1), _pole("_l"), 0.85)
+	var grip := rig.hold_pose("_r", low, axis, Vector3(-1, -0.25, 0.2))
+	_broom_two_hands = up <= 0.0
+	if _broom_two_hands:
+		rig.hold("_r", low, axis, Vector3(-1, -0.25, 0.2), _pole("_r"), 0.85)
+	else:
+		# The right hand lets go and hangs at his side while the broom stands.
+		rig.pose_between("_r", grip, rig.relaxed_pose("_r"), up, _pole("_r"), 0.85, 0.35)
 
 
+## Nuri Hoca at his tea: the glass in his right hand, raised to sip now and then; the left
+## hand on its thigh. Greeted, he puts the glass down on the table, lays his hand on his
+## heart, then takes the glass up again.
 func _arms_tea() -> void:
 	var t := fmod(rig.time + rig.seed_phase, 16.0)
 	var sip := smoothstep(0.0, 0.8, t) * (1.0 - smoothstep(2.4, 3.2, t))
+	var gt := _greet_t if _greet_t < TEA_GREET else -1.0
 	# The left hand on its thigh.
 	var knee := rig.pos(rig.bi(&"calf_l"))
 	var hip := rig.pos(rig.bi(&"thigh_l"))
 	rig.reach("_l", hip.lerp(knee, 0.6) + Vector3(0.02, 0.07, 0.0), Vector3(0.6, -0.2, -1.0))
 	rig.orient_hand("_l", Vector3(-0.25, -0.35, 1.0), Vector3(0, -1, 0))
 	rig.curl("_l", 0.3, 0.3)
-	var rest := Vector3(-0.1, seat_height + 0.28, 0.3)
-	var mouth := rig.eye_point() + Vector3(-0.01, -0.12, 0.06)
-	var hand := rest.lerp(mouth + Vector3(-0.02, -0.05, 0.02), sip)
-	if is_speaking() and sip < 0.05:
-		hand += Vector3(rig.wobble(3.0, 1.0) * 0.04, rig.wobble(2.4, 2.0) * 0.05 + 0.08, 0.05)
-	rig.reach("_r", hand, _pole("_r"))
-	rig.orient_hand("_r", Vector3(0.9, 0.35 + sip * 0.6, 0.3), Vector3(0.1, 0.0, -1.0))
-	rig.curl("_r", 0.6, 0.5)
+	# The glass held in front of him, or at his lips, tipped towards him.
+	var at := Vector3(-0.07, seat_height + 0.31, 0.3).lerp(rig.eye_point() + Vector3(-0.01, -0.17, 0.085), sip)
+	if is_speaking() and sip < 0.05 and gt < 0.0:
+		at += Vector3(rig.wobble(3.0, 1.0) * 0.04, rig.wobble(2.4, 2.0) * 0.05 + 0.06, 0.04)
+	var glass_up := Vector3(0.0, cos(sip * 0.55), -sin(sip * 0.55))
+	# Greeted: down on the table (0-0.8 s), hand on the heart (0.8-2.9 s), up again.
+	var down := 0.0
+	var heart := 0.0
+	_glass_in_hand = true
+	if gt >= 0.0:
+		if gt < 0.8:
+			down = smoothstep(0.0, 0.8, gt)
+		elif gt < 2.9:
+			down = 1.0
+			_glass_in_hand = false
+			heart = smoothstep(0.8, 1.3, gt) * (1.0 - smoothstep(2.4, 2.9, gt))
+		else:
+			down = 1.0 - smoothstep(2.9, 3.6, gt)
+	if down > 0.0:
+		rig.rot_x(&"spine_02", down * (1.0 - heart) * 0.22)
+		at = at.lerp(_glass_spot + Vector3(0.0, 0.042, 0.0), down) + Vector3(0.0, sin(down * PI) * 0.05, 0.0)
+		glass_up = glass_up.slerp(Vector3.UP, down)
+	rig.hold("_r", at, glass_up, Vector3(0.3, -0.1, 1.0), _pole("_r"), 0.62)
+	if heart > 0.0:
+		rig.hand_on_heart("_r", heart)
 	if sip > 0.5:
 		rig.rot_x(&"head", -sip * 0.12)
-	var hb := rig.bi(&"hand_r")
-	var q := rig.acc(hb)
-	var palm := rig.pos(hb) + q * ((rig.pos_rest("middle_01_r") - rig.pos_rest("hand_r")) * 0.6)
-	_prop.transform = Transform3D(Basis(), palm + Vector3(0.0, -0.035, 0.0))
-	_prop.rotation.x = -sip * 0.5
 
 
 ## Right hand on the heart and a nod ("hoş geldin"); the young man waves instead.
-func _arms_greet(g: float) -> void:
-	if g < 0.05:
-		return
+## `amount`: 0 at the work .. 1 on the heart.
+func _arms_greet(amount: float) -> void:
 	if waves:
-		var up := rig.pos(rig.bi(&"upperarm_r"))
-		var target := up + Vector3(-0.18, 0.28 * g, 0.18)
-		rig.reach("_r", target, Vector3(-1, -0.4, -0.2))
-		rig.orient_hand("_r", Vector3(0.2 * sin(_greet_t * 12.0), 1.0, 0.1), Vector3(0, 0, 1))
-		rig.curl("_r", 0.05, 0.1)
+		rig.wave("_r", amount, _greet_t * 11.0)
+	elif act != Act.TEA:
+		rig.hand_on_heart("_r", amount)
+	if act == Act.SWEEP and amount > 0.02:
+		_broom_two_hands = false
+
+
+## Held things go where the hands holding them are now (the pose just made).
+func _place_props() -> void:
+	if _prop == null:
 		return
-	var chest := rig.chest_point()
-	var rest_hand := rig.pos(rig.bi(&"hand_r"))
-	rig.reach("_r", rest_hand.lerp(chest + Vector3(0.05, 0.0, 0.02), g), _pole("_r"))
-	rig.orient_hand("_r", Vector3(1.0, 0.35, 0.0).lerp(Vector3(0.12, -1, 0.2), 1.0 - g), Vector3(0, 0, -1))
-	rig.curl("_r", 0.1, 0.2)
+	match act:
+		Act.SWEEP:
+			# The handle through the left fist (and the right one while it holds on), the
+			# bristles on the ground (or lifted off it).
+			var gl := rig.grip_point("_l")
+			var axis := (gl - rig.grip_point("_r")).normalized() if _broom_two_hands else (gl - _broom_head).normalized()
+			# (a fist that fell short of its place on the handle: the handle through the
+			# top one to where the bristles should be)
+			if axis.y < 0.3 or (gl.y - _broom_lift) / axis.y > 1.44:
+				axis = (gl - _broom_head).normalized()
+			var head := gl - axis * ((gl.y - _broom_lift) / axis.y)
+			var z := (Vector3.RIGHT - axis * axis.x).normalized()
+			_prop.transform = Transform3D(Basis(axis.cross(z), axis, z), head)
+		Act.TEA:
+			if _glass_in_hand:
+				# Upright along the fist's thumb side, held a little below its middle.
+				var ax := rig.hand_axes("_r")
+				var up := ax.z.normalized()
+				var x := (ax.x - up * ax.x.dot(up)).normalized()
+				_prop.transform = Transform3D(Basis(x, up, x.cross(up)), rig.grip_point("_r") - up * 0.042)
+			else:
+				_prop.transform = Transform3D(Basis(), _glass_spot)
 
 
 # --- Props -----------------------------------------------------------------------------------
 
 static func _broom() -> Node3D:
 	var mb := MeshBuilder.new()
-	mb.cylinder(&"wood", Transform3D(Basis(), Vector3(0, 0.3, 0)), 0.013, 0.012, 1.1, 8, Color(0.55, 0.42, 0.28))
+	mb.cylinder(&"wood", Transform3D(Basis(), Vector3(0, 0.3, 0)), 0.013, 0.012, 1.2, 8, Color(0.55, 0.42, 0.28))
 	mb.box_at(&"metal", Vector3(0, 0.29, 0), Vector3(0.05, 0.05, 0.05), Color(0.6, 0.15, 0.1))
 	for k in 9:
 		var a := (float(k) / 8.0 - 0.5) * 0.7

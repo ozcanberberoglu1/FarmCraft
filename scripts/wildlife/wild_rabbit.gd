@@ -22,7 +22,8 @@ const NOTICE := Vector3(11.0, 17.0, 6.0)
 const RUN_SPEED := Vector2(5.2, 8.2)
 ## Seconds of flat-out running it has in it; it gets its wind back three times slower.
 const STAMINA := 7.0
-const WANDER_SPEED := 1.1
+## A few lazy hops (about a body length each).
+const WANDER_SPEED := 0.75
 ## It stops running once the farmer is this far behind (m).
 const SAFE := 26.0
 ## E catches it this close (m, flat); running into it this close does too.

@@ -60,11 +60,12 @@ func _ready() -> void:
 	var bench := Vector3(Town.MARKET.position.x - 0.9, town._y(195, 12) + 0.15, 12.3)
 	_person(&"elder", &"farmer", Townsperson.Act.BENCH, bench + Vector3(0, 0, 0.12), 0.0,
 			{"seat_height": 0.48, "tints": {"cloth_male_casualsuit05": Color(0.7, 0.7, 0.72)}})
-	# Nuri Hoca on the chair at the tea table (the chair faces the table).
+	# Nuri Hoca on the chair at the tea table (the chair faces the table; both as
+	# Town._market_front places them, the table's top 73 cm up).
 	var chair_yaw := PI * 0.5 + 0.2
 	var chair := Vector3(Town.MARKET.position.x + 4.35, fy, Town.MARKET.end.y + 0.95)
 	_person(&"teacher", &"elder", Townsperson.Act.TEA, chair + Vector3(sin(chair_yaw), 0, cos(chair_yaw)) * 0.1, chair_yaw,
-			{"seat_height": 0.45})
+			{"seat_height": 0.45, "tea_table": Vector3(Town.MARKET.position.x + 5.15, fy + 0.73, Town.MARKET.end.y + 0.98)})
 	# Walkers.
 	var n := 15.3
 	var s := 24.75

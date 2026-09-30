@@ -3,15 +3,23 @@ extends RigidBody3D
 ## An item lying in the world. After a short delay it is pulled toward a nearby
 ## player and collected (partially, if the inventory is nearly full): it hops up in an
 ## arc toward the player's pocket, shrinking as it goes.
+## Eggs (HAND_ONLY) are never pulled in: the farmer looks at one and takes it with E, one
+## egg at a time (it flies into the hand or down into its hotbar slot).
 
 const MAGNET_RANGE := 2.4
 const ARM_DELAY := 0.6
 ## Where a pickup flies to, in the camera's space: a pocket just under the view.
 const POCKET := Vector3(0.22, -0.55, -0.35)
+## Items only ever taken by hand (E), one at a time; the reach of their grab target (on
+## the interaction layer only: a little more than the egg itself, easier to aim at).
+const HAND_ONLY: Array[StringName] = [&"egg"]
+const GRAB_RADIUS := 0.09
 
 var stack: ItemStack
 ## Harvest pops seek the player from further away.
 var seek := false
+## Taken by hand only (HAND_ONLY): no pull toward the player.
+var by_hand := false
 var _age := 0.0
 var _flying := false
 var _mi: MeshInstance3D
@@ -60,12 +68,25 @@ func _ready() -> void:
 	cs.shape = box
 	add_child(cs)
 	rotation.y = randf() * TAU
+	by_hand = stack.item.id in HAND_ONLY
+	if by_hand:
+		add_to_group(&"interactable")
+		var grab := StaticBody3D.new()
+		grab.name = "Grab"
+		grab.collision_layer = 4
+		grab.collision_mask = 0
+		var gs := CollisionShape3D.new()
+		var sphere := SphereShape3D.new()
+		sphere.radius = GRAB_RADIUS
+		gs.shape = sphere
+		grab.add_child(gs)
+		add_child(grab)
 
 
 func _physics_process(delta: float) -> void:
 	_age += delta
 	var player := Game.player as Player
-	if player == null or _age < ARM_DELAY:
+	if player == null or _age < ARM_DELAY or (by_hand and not _flying):
 		return
 	var target := player.global_position + Vector3(0, 0.9, 0)
 	var magnet := 8.0 if seek else MAGNET_RANGE
@@ -113,3 +134,32 @@ func _collect() -> void:
 		_mi.scale = Vector3.ONE * _mi_scale
 	else:
 		queue_free()
+
+
+# --- Taken by hand (eggs) -----------------------------------------------------------------
+
+func interact_prompt(_player: Node) -> String:
+	return tr("ACTION_TAKE_EGG") if by_hand and not _flying and not is_queued_for_deletion() else ""
+
+
+## E: one egg into the bag (the rest of a dropped stack stays lying here), a soft sound
+## as it comes off the straw or the ground, and it flies into the hand (or its slot).
+func interact(player: Node) -> void:
+	if not by_hand or _flying or is_queued_for_deletion():
+		return
+	var one := stack.copy()
+	one.count = 1
+	if PlayerState.inventory.add_stack(one) > 0:
+		Game.notify(tr("MSG_INVENTORY_FULL"), Color(1.0, 0.5, 0.4))
+		return
+	var id := stack.item.id
+	var from := _mi.global_transform
+	stack.count -= 1
+	if stack.count <= 0:
+		collision_layer = 0
+		queue_free()
+	Audio.play("soft", global_position, -12.0, 0.1, &"Effects", 3.0, 1.7)
+	Game.notify("+1x %s" % one.item.display_name())
+	Events.item_picked_up.emit(id, 1)
+	if player is Player:
+		(player as Player).show_take(id, from)

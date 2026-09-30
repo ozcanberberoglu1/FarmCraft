@@ -241,6 +241,9 @@ func _add(species: StringName, adult: bool, animal_name := "", home: AnimalHousi
 	a.adult = adult
 	a.growth = float(info["grow_days"]) if adult else 0.0
 	a.wool = 1.0 if adult else 0.0
+	# A grown sheep comes in full fleece and a grown cow in milk: the first shearing or
+	# milking (the story's next goal) needn't wait for a morning.
+	a.product_ready = adult and species in [&"sheep", &"cow"]
 	a.affection = 100.0
 	animals.append(a)
 	_spawn(a)
@@ -695,7 +698,11 @@ func load_data(d: Dictionary) -> void:
 	new_game()
 	_next_id = int(d.get("next_id", 1))
 	for ad: Dictionary in d.get("animals", []):
-		animals.append(AnimalData.from_dict(ad))
+		var a := AnimalData.from_dict(ad)
+		# Saves from when a bought sheep came in full fleece that could not be shorn.
+		if a.species == &"sheep" and a.adult and a.wool >= 0.999:
+			a.product_ready = true
+		animals.append(a)
 	var homes: Dictionary = d.get("homes", {})
 	for k: Variant in homes:
 		_homes[int(str(k))] = String(homes[k])

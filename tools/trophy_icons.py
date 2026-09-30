@@ -10,7 +10,9 @@ import os
 from PIL import Image, ImageDraw, ImageFilter
 
 DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "art", "icons", "items")
-SPECIES = ["rudd", "crucian", "perch", "crayfish", "carp", "tench", "trout", "zander", "pike", "catfish"]
+SPECIES = ["rudd", "crucian", "perch", "crayfish", "carp", "tench", "trout", "zander", "pike", "catfish",
+           "roach", "bleak", "gudgeon", "bream", "chub", "barbel", "eel", "grass_carp", "silver_carp", "brown_trout",
+           "sturgeon"]
 
 
 def star(cx, cy, r_out, r_in, n=5):

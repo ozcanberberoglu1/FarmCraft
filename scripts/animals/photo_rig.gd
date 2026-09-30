@@ -5,8 +5,9 @@ extends AnimalRig
 ## It is scaled to the game's size, stood on the ground facing -Z, its materials are
 ## swapped for the photo animal shaders (coat variants, wetness, shorn fleece), and
 ## it is animated by its own clips where it has one for the mode, otherwise by
-## AnimalRig's procedural gait through a map from the canonical bone names to the
-## model's bones. Switching between clips and procedural motion cross-fades the pose.
+## AnimalRig's procedural gait (legs placed by IK on planted feet) through a map from the
+## canonical bone names to the model's bones. Switching between clips and procedural
+## motion cross-fades the pose.
 
 const SOURCE_DIR := "res://art/models/animals/source/"
 const BLEND_TIME := 0.35
@@ -14,10 +15,19 @@ const BLEND_TIME := 0.35
 ## Per species:
 ##   height     height of the `body` bone above the hooves, metres
 ##   bones      canonical bone -> model bone (root, body, neck1, neck2, head, ear_l/r,
-##              tail1..3, {f,r}{l,r}_{up,lo,ft}; wing_l/r for birds)
+##              tail1..3, {f,r}{l,r}_{up,lo,ft}, f{l,r}_sh shoulder blades; wing_l/r for birds)
 ##   clips      AnimalRig.Mode name -> clip name, or a list to pick from (IDLE)
-##   gallop     clip used for fast walking / running and the speed from which it takes over
-##   clip_speed clip name -> ground speed of the clip at full size, m/s
+##   feet       leg (fl, rl...) -> a foot bone outside the leg's chain carried at its end
+##   ik_legs    the legs stay on AnimalRig's IK while a clip plays (clips without steps:
+##              a clip's own leg shifts would slide the planted feet)
+##   gallop     clip used for running and fast walking, and the speed (m/s, full size) from
+##              which it takes over; between the WALK clip's top speed (PARAMS trot_at) and
+##              this the animal trots on the procedural gait
+##   clip_speed clip name -> ground speed of the clip at full size, m/s (measured: how fast a
+##              planted foot moves back under the body)
+##   trot       clip whose body motion goes on over the legs trotting (on IK)
+##   stance     {clip, leg key -> time}: legs measured where they stand in a clip (models
+##              whose rest pose is no standing pose)
 ##   pin        bones whose horizontal position is held (clips with root motion)
 ##   split      [lo, hi, dark_mean, light_mean] luminance split of the coat texture
 ##   variants   per coat variant: {material name or "*": {dark, light, recolor}}
@@ -35,12 +45,15 @@ const MODELS := {
 			"neck1": "Cow_Neck_01SHJnt_23", "neck2": "Cow_Neck_02SHJnt_20", "head": "Cow_Head_TopSHJnt_18",
 			"ear_l": "Cow_l_Ear_01_01SHJnt_15", "ear_r": "Cow_r_Ear_01_01SHJnt_17",
 			"tail1": "Cow_Tail_01_01SHJnt_46", "tail2": "Cow_Tail_01_02SHJnt_45", "tail3": "Cow_Tail_01_04SHJnt_44",
+			"fl_sh": "Cow_l_Clavicle_01_01SHJnt_6", "fr_sh": "Cow_r_Clavicle_01_01SHJnt_13",
 			"fl_up": "Cow_l_FrontLeg_HipSHJnt_5", "fl_lo": "Cow_l_FrontLeg_Knee1SHJnt_4", "fl_ft": "Cow_l_FrontLeg_Knee2SHJnt_3",
 			"fr_up": "Cow_r_FrontLeg_HipSHJnt_12", "fr_lo": "Cow_r_FrontLeg_Knee1SHJnt_11", "fr_ft": "Cow_r_FrontLeg_Knee2SHJnt_10",
 			"rl_up": "Cow_l_HindLeg_HipSHJnt_34", "rl_lo": "Cow_l_HindLeg_Knee1SHJnt_33", "rl_ft": "Cow_l_HindLeg_Knee2SHJnt_32",
 			"rr_up": "Cow_r_HindLeg_HipSHJnt_40", "rr_lo": "Cow_r_HindLeg_Knee1SHJnt_39", "rr_ft": "Cow_r_HindLeg_Knee2SHJnt_38",
 		},
+		# Its one clip is standing about (head, ears, tail): no steps in it.
 		"clips": {"IDLE": "Animation"},
+		"ik_legs": true,
 		"params": {"fold_front": [1.25, -2.65, 0.3], "fold_rear": [-0.55, 2.05, -0.3], "lie_drop": 0.62},
 		"split": [0.16, 0.27, 0.07, 0.66],
 		"materials": {"material_0": {"keep_u_edge": 0.12}},
@@ -57,6 +70,7 @@ const MODELS := {
 			"neck1": "BN_Neck_00_06_06", "neck2": "BN_Neck_02_011_011", "head": "BN_Head_00_016_015",
 			"ear_l": "BN_L_Ear_00_023_022", "ear_r": "BN_R_Ear_00_025_024",
 			"tail1": "BN_Tail_00_061_067", "tail2": "BN_Tail_01_062_068", "tail3": "BN_Tail_02_063_069",
+			"fl_sh": "BN_L_Clavicle_038_039", "fr_sh": "BN_R_Clavicle_043_045",
 			"fl_up": "BN_L_UpperArm_039_040", "fl_lo": "BN_L_Hand_041_042", "fl_ft": "BN_L_Toe_042_043",
 			"fr_up": "BN_R_UpperArm_044_046", "fr_lo": "BN_R_Hand_046_048", "fr_ft": "BN_R_Toe_047_049",
 			"rl_up": "BN_L_Thing_051_054", "rl_lo": "BN_L_HorseLink_053_056", "rl_ft": "BN_L_Foot_054_057",
@@ -64,8 +78,13 @@ const MODELS := {
 		},
 		"clips": {"IDLE": ["Skeleton|1 Ilde", "Skeleton|2 Ilde", "Skeleton|3 Ilde"], "WALK": "Skeleton|Walk",
 			"RUN": "Skeleton|Gallop", "GRAZE": "Skeleton|6 Eat", "EAT": "Skeleton|6 Eat", "SLEEP": "Skeleton|Sleep"},
-		"gallop": ["Skeleton|Gallop", 2.6],
-		"clip_speed": {"Skeleton|Walk": 1.6, "Skeleton|Gallop": 8.5},
+		# Walk: a lateral-sequence four-beat walk, 1 s a stride, 1.2 m/s. Gallop: 0.96 s a
+		# stride, about 6 m/s. Trotting between them is procedural.
+		"gallop": ["Skeleton|Gallop", 6.0],
+		"trot": "Skeleton|Walk",
+		"clip_speed": {"Skeleton|Walk": 1.2, "Skeleton|Gallop": 6.0},
+		# The rest pose is no standing pose: each leg measured at mid-stance in the walk.
+		"stance": {"clip": "Skeleton|Walk", "fl": 0.48, "fr": 0.98, "rl": 0.27, "rr": 0.72},
 		"pin": ["BN_Root_01_01"],
 		"split": [0.34, 0.5, 0.22, 0.66],
 		"variants": [
@@ -95,7 +114,11 @@ const MODELS := {
 			"rl_up": "BackLeg.L_2", "rl_lo": "BackLowerLeg.L_0",
 			"rr_up": "BackLeg.R_6", "rr_lo": "BackLowerLeg.R_4",
 		},
+		# The pasterns and hooves are skinned to the rig's IK controls (children of the root).
+		"feet": {"fl": "IKFrontLeg.L_32", "fr": "IKFrontLeg.R_36", "rl": "IKBackLeg.L_30", "rr": "IKBackLeg.R_34"},
+		# Its one clip is standing about (a paw at the ground now and then): no steps in it.
 		"clips": {"IDLE": "Animation"},
+		"ik_legs": true,
 		"params": {"fold_front": [1.25, -2.65, 0.0], "fold_rear": [-0.55, 2.05, 0.0], "lie_drop": 0.3},
 		"split": [0.3, 0.5, 0.2, 0.7],
 		"variants": [
@@ -188,6 +211,12 @@ var _blend := 1.0
 var _age_scales := {}
 var _pins: Array[int] = []
 var _baby := false
+## The clip plays under legs placed by IK (a trot over the walk's body motion).
+var _clip_ik := false
+var _next_ik := false
+
+static var _stances := {}
+static var _moves := {}
 
 static var _sources := {}
 static var _mode_names: Array = Mode.keys()
@@ -284,6 +313,12 @@ func _setup(model: Node3D) -> void:
 	for key: String in canon:
 		_prepare_bone(canon[key])
 	_square_up(canon)
+	_sample_stances()
+	var feet: Dictionary = model_cfg.get("feet", {})
+	for leg in legs:
+		if feet.has(leg["key"]):
+			leg["ctrl"] = skeleton.find_bone(feet[leg["key"]])
+	_setup_ik()
 	_swap_materials()
 
 
@@ -299,6 +334,11 @@ func _normalize(model: Node3D, canon: Dictionary) -> void:
 		pts.append(to_rig * skeleton.get_bone_global_rest(i).origin)
 	var head: Vector3 = pts[canon.get("head", 0)]
 	var root: Vector3 = pts[canon.get("root", 0)]
+	# Facing along the body: from between the hind legs to between the forelegs (the
+	# head may be turned in the model's pose); a bird from its root to its head.
+	if canon.has("fl_up") and canon.has("fr_up") and canon.has("rl_up") and canon.has("rr_up"):
+		head = (pts[canon["fl_up"]] + pts[canon["fr_up"]]) * 0.5
+		root = (pts[canon["rl_up"]] + pts[canon["rr_up"]]) * 0.5
 	var yaw := PI - atan2(head.x - root.x, head.z - root.z)
 	var y_min := INF
 	for p in pts:
@@ -414,6 +454,83 @@ func _pose_offset(idx: int, offset: Vector3) -> void:
 		return
 	var d := (c[2] as Basis) * (_frame * offset * _unit)
 	skeleton.set_bone_pose_position(idx, skeleton.get_bone_rest(idx).origin + d)
+
+
+## A leg bone's rotation in the squared-up stance (what _pose_rot sets for no turn), or
+## where the leg stands in a clip ("stance").
+func _ref_rot(idx: int, leg: Dictionary) -> Quaternion:
+	var st: Dictionary = _stances.get(species, {})
+	if st.has(leg["key"]):
+		return (st[leg["key"]][0] as Array)[idx]
+	var c: Array = _conv.get(idx, [])
+	if c.is_empty():
+		return super._ref_rot(idx, leg)
+	return (c[0] as Quaternion) * (_neutral.get(idx, Quaternion.IDENTITY) as Quaternion) * (c[1] as Quaternion)
+
+
+func _ref_parent(idx: int, leg: Dictionary) -> Transform3D:
+	var st: Dictionary = _stances.get(species, {})
+	if st.has(leg["key"]):
+		return (st[leg["key"]][1] as Array)[idx]
+	return super._ref_parent(idx, leg)
+
+
+## Models whose rest pose is no standing pose (the horse's): each leg measured where it
+## stands under the body in a clip ("stance": clip and, per leg, the time), once a species.
+func _sample_stances() -> void:
+	var cfg_st: Dictionary = model_cfg.get("stance", {})
+	if cfg_st.is_empty() or player == null or _stances.has(species):
+		return
+	var st := {}
+	var anim := player.get_animation(cfg_st["clip"])
+	for key: String in cfg_st:
+		if key != "clip":
+			st[key] = _clip_pose(anim, float(cfg_st[key]))
+	_stances[species] = st
+
+
+## A clip's pose at `time`, read from its tracks (no player needed): every bone's local
+## rotation and its global pose (skeleton space).
+func _clip_pose(anim: Animation, time: float) -> Array:
+	var n := skeleton.get_bone_count()
+	var rots: Array = []
+	var local: Array = []
+	for i in n:
+		var r := skeleton.get_bone_rest(i)
+		rots.append(r.basis.get_rotation_quaternion())
+		local.append([r.origin, r.basis.get_scale()])
+	for t in anim.get_track_count():
+		var path := anim.track_get_path(t)
+		if path.get_subname_count() == 0:
+			continue
+		var bi := skeleton.find_bone(path.get_concatenated_subnames())
+		if bi < 0:
+			continue
+		match anim.track_get_type(t):
+			Animation.TYPE_ROTATION_3D:
+				rots[bi] = anim.rotation_track_interpolate(t, time)
+			Animation.TYPE_POSITION_3D:
+				local[bi][0] = anim.position_track_interpolate(t, time)
+			Animation.TYPE_SCALE_3D:
+				local[bi][1] = anim.scale_track_interpolate(t, time)
+	var globs: Array = []
+	globs.resize(n)
+	var done := 0
+	while done < n:
+		for i in n:
+			if globs[i] != null:
+				continue
+			var p := skeleton.get_bone_parent(i)
+			if p >= 0 and globs[p] == null:
+				continue
+			var xf := Transform3D(Basis(rots[i as int] as Quaternion) * Basis.from_scale(local[i][1]), local[i][0])
+			globs[i] = xf if p < 0 else (globs[p] as Transform3D) * xf
+			done += 1
+	return [rots, globs]
+
+
+func _legs_ik() -> bool:
+	return _clip == "" or _clip_ik or bool(model_cfg.get("ik_legs", false))
 
 
 ## Babies: a bone is lengthened along its own length axis (the direction to its
@@ -542,14 +659,22 @@ func set_wool(amount: float) -> void:
 
 # --- Animation ----------------------------------------------------------------------------
 
-## The clip for this mode and speed, "" for procedural motion.
+## The clip for this mode and speed, "" for procedural motion; _next_ik set when the legs
+## trot on IK under it.
 func _clip_for(mode: int, speed: float) -> String:
+	_next_ik = false
 	if player == null:
 		return ""
 	var clips: Dictionary = model_cfg.get("clips", {})
 	var gallop: Array = model_cfg.get("gallop", [])
-	if not gallop.is_empty() and (mode == Mode.RUN or (mode == Mode.WALK and speed / scale.x >= float(gallop[1]))):
+	var v := speed / maxf(scale.x, 0.01)
+	if not gallop.is_empty() and (mode == Mode.RUN or (mode == Mode.WALK and v >= float(gallop[1]))):
 		return gallop[0]
+	if mode == Mode.WALK and v > float(cfg.get("trot_at", 1e9)):
+		# Too fast for the walk clip, not yet galloping: trotting (procedural legs, under a
+		# clip's body motion where the model has one: "trot").
+		_next_ik = model_cfg.has("trot")
+		return model_cfg.get("trot", "")
 	var entry: Variant = clips.get(_mode_names[mode], "")
 	if entry is Array:
 		# Keep the current idle while it is one of the choices.
@@ -561,37 +686,83 @@ func _clip_for(mode: int, speed: float) -> String:
 
 func animate(delta: float, speed: float, mode: int) -> void:
 	var clip := _clip_for(mode, speed)
-	if clip != _clip:
+	if clip != _clip or _next_ik != _clip_ik:
 		_snapshot()
-		_clip = clip
-		if clip != "":
+		if clip != _clip and clip != "":
 			player.play(clip)
+		_clip = clip
+		_clip_ik = _next_ik
 	if _clip != "":
 		var natural := float((model_cfg.get("clip_speed", {}) as Dictionary).get(_clip, 0.0)) * scale.x
-		player.speed_scale = clampf(speed / natural, 0.55, 1.6) if natural > 0.0 and speed > 0.05 else 1.0
+		player.speed_scale = clampf(speed / natural, 0.5, 2.0) if natural > 0.0 and speed > 0.05 else 1.0
+		if _clip_ik:
+			# One loop of the clip a stride of the gait the legs walk.
+			player.speed_scale = clampf(_gait_rate(speed / maxf(scale.x, 0.01)) * player.current_animation_length, 0.3, 3.0)
 		player.advance(delta)
 		for idx in _pins:
 			var p := skeleton.get_bone_pose_position(idx)
 			var r := skeleton.get_bone_rest(idx).origin
 			skeleton.set_bone_pose_position(idx, Vector3(r.x, p.y, r.z))
+		var root: int = _b.get("root", -1)
+		if _legs_ik() and _leg_extra > 0.0 and root >= 0 and _conv.has(root):
+			# A young one's body up on its longer legs over the clip too (from where the clip
+			# puts it, or its rest when the clip does not move it).
+			var up := (_conv[root][2] as Basis) * (_frame * Vector3(0, _age_raise(), 0) * _unit)
+			var base := skeleton.get_bone_pose_position(root) if _moves_bone(_clip, root) else skeleton.get_bone_rest(root).origin
+			skeleton.set_bone_pose_position(root, base + up)
 	else:
 		skeleton.reset_bone_poses()
 		for n: Node3D in _nodes:
 			if n.transform != _nodes[n]:
 				n.transform = _nodes[n]
-	# The procedural state always advances; it only poses bones without a clip.
-	super.animate(delta, speed, mode)
-	if _blend < 1.0:
-		_blend = minf(_blend + delta / BLEND_TIME, 1.0)
-		var w := smoothstep(0.0, 1.0, _blend)
-		for idx: int in _snap:
-			var s: Array = _snap[idx]
-			skeleton.set_bone_pose_rotation(idx, (s[0] as Quaternion).slerp(skeleton.get_bone_pose_rotation(idx), w))
-			skeleton.set_bone_pose_position(idx, (s[1] as Vector3).lerp(skeleton.get_bone_pose_position(idx), w))
-		for n: Node3D in _node_snap:
-			n.transform = (_node_snap[n] as Transform3D).interpolate_with(n.transform, w)
+	# Young legs lengthened before the legs are placed on their feet.
 	for idx: int in _age_scales:
 		skeleton.set_bone_pose_scale(idx, _age_scales[idx])
+	# The procedural state always advances; it only poses bones without a clip (and the
+	# legs by IK where they stay on it, see _legs_ik).
+	super.animate(delta, speed, mode)
+	if not model_cfg.get("ik_legs", false):
+		_cross_fade(delta)
+	for idx: int in _age_scales:
+		skeleton.set_bone_pose_scale(idx, _age_scales[idx])
+
+
+## Whether a clip has a position track for a bone.
+func _moves_bone(clip: String, bone: int) -> bool:
+	var key := "%s/%s/%d" % [species, clip, bone]
+	if not _moves.has(key):
+		var anim := player.get_animation(clip)
+		var bone_name := skeleton.get_bone_name(bone)
+		_moves[key] = false
+		for t in anim.get_track_count():
+			if anim.track_get_type(t) == Animation.TYPE_POSITION_3D and anim.track_get_path(t).get_concatenated_subnames() == bone_name:
+				_moves[key] = true
+	return _moves[key]
+
+
+## Legs that stay on IK are placed after the body's cross-fade (on the hips as drawn).
+func _place_legs(fk: float, delta: float) -> void:
+	if model_cfg.get("ik_legs", false):
+		_cross_fade(delta)
+	super._place_legs(fk, delta)
+
+
+## Cross-fades the pose from the one captured when its source changed (_snapshot); legs
+## that stay on IK are left to it.
+func _cross_fade(delta: float) -> void:
+	if _blend >= 1.0:
+		return
+	_blend = minf(_blend + delta / BLEND_TIME, 1.0)
+	var w := smoothstep(0.0, 1.0, _blend)
+	var keep_legs: bool = model_cfg.get("ik_legs", false)
+	for idx: int in _snap:
+		if keep_legs and _ik_bones.has(idx):
+			continue
+		var s: Array = _snap[idx]
+		skeleton.set_bone_pose_rotation(idx, (s[0] as Quaternion).slerp(skeleton.get_bone_pose_rotation(idx), w))
+		skeleton.set_bone_pose_position(idx, (s[1] as Vector3).lerp(skeleton.get_bone_pose_position(idx), w))
+	for n: Node3D in _node_snap:
+		n.transform = (_node_snap[n] as Transform3D).interpolate_with(n.transform, w)
 
 
 func _snapshot() -> void:

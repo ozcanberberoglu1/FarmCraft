@@ -37,7 +37,8 @@ static func ring(at: Vector3, radius := 0.8, life := 2.2, strength := 1.0) -> vo
 
 
 static func _free_ring() -> MeshInstance3D:
-	_rings = _rings.filter(func(n: MeshInstance3D) -> bool: return is_instance_valid(n) and n.get_parent() == Game.world)
+	# (assign: filter() hands back an untyped Array.)
+	_rings.assign(_rings.filter(func(n: MeshInstance3D) -> bool: return is_instance_valid(n) and n.get_parent() == Game.world))
 	for r in _rings:
 		if not r.visible:
 			return r
@@ -110,7 +111,7 @@ static func spray(at: Vector3, size := 1.0) -> void:
 
 
 static func _emitter(mesh: Mesh, puff := false) -> CPUParticles3D:
-	_spray = _spray.filter(func(n: CPUParticles3D) -> bool: return is_instance_valid(n) and n.get_parent() == Game.world)
+	_spray.assign(_spray.filter(func(n: CPUParticles3D) -> bool: return is_instance_valid(n) and n.get_parent() == Game.world))
 	for e in _spray:
 		if not e.emitting and e.has_meta(&"puff") == puff:
 			return e

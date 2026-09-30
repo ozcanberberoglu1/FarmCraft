@@ -51,7 +51,8 @@ const SETS := {
 const LOOPS := {
 	"day": "ambience/farm_day.mp3", "night": "ambience/night_crickets.mp3", "wind": "ambience/wind.mp3",
 	"rain": "ambience/rain_light.mp3", "rain_heavy": "ambience/rain_heavy.mp3",
-	"barn": "ambience/barn.mp3", "coop": "ambience/coop.mp3",
+	# The animal housing beds (animal_beds): a cow barn, hens with their rooster, hens alone.
+	"barn": "ambience/barn.mp3", "coop": "ambience/coop.mp3", "coop_hens": "ambience/coop_hens.ogg",
 	"engine": "sfx/vehicle/engine_loop.mp3",
 	"hooves_walk": "sfx/animals/horse_walk_dirt.mp3", "hooves_gallop": "sfx/animals/horse_gallop_dirt.mp3",
 	"hooves_road": "sfx/animals/horse_trot_road.mp3",
@@ -96,6 +97,11 @@ const LEAD_IN := {
 }
 ## Seconds between the roof, housing and hoof-surface probes (the fades smooth the steps).
 const PROBE_SECONDS := 0.1
+## The animal housing beds and their full level. Each is a recording of those animals
+## only, so it plays only where the farm keeps them (animal_beds): the barn's is of cows
+## (sheep and horses there are heard by their own voices, _update_animals), the coop's
+## has a rooster crowing among the hens, "coop_hens" is the same coop with the crow cut.
+const ANIMAL_BEDS := {"barn": 0.45, "coop": 0.6, "coop_hens": 0.6}
 ## A crow held far too long (long_crow): the take it is made of, and where in it the last
 ## long note is held (seconds).
 const CROW_TAKE := "sfx/animals/rooster_1.mp3"
@@ -111,9 +117,10 @@ var _pool_3d: Array[AudioStreamPlayer3D] = []
 var _loops := {}
 var _indoors := 0.0
 var _probe_t := 0.0
-## Last probe results: under a roof, animals per housing, hooves on a road.
+## Last probe results: under a roof, the animal beds that play (animal_beds), hooves on
+## a road.
 var _inside := false
-var _housed := {"barn": 0, "coop": 0}
+var _beds := {}
 var _hooves_on_road := false
 var _lowpass: AudioEffectLowPassFilter
 ## Catches the peaks of loud moments (a close axe blow, a door, thunder) before they clip.
@@ -156,7 +163,7 @@ func _ready() -> void:
 	_music.finished.connect(func() -> void: _music_gap = 1.0 if _music_state == "carnival" else randf_range(45.0, 110.0))
 	add_child(_music)
 	for key: String in LOOPS:
-		var positional: bool = key in ["barn", "coop", "engine", "hooves_walk", "hooves_gallop", "hooves_road"]
+		var positional: bool = key in ANIMAL_BEDS or key in ["engine", "hooves_walk", "hooves_gallop", "hooves_road"]
 		_loops[key] = Loop.new(self, _stream(LOOPS[key]), positional, &"Effects" if key.begins_with("engine") or key.begins_with("hooves") else &"Ambience")
 	Events.lightning.connect(_on_lightning)
 	Events.money_changed.connect(_on_money)
@@ -600,19 +607,55 @@ func _update_ambience(delta: float, in_world: bool, probe: bool) -> void:
 	(_loops["rain"] as Loop).update(delta, clampf(rain * 1.6, 0.0, 1.0) * 0.8 * gate)
 	(_loops["rain_heavy"] as Loop).update(delta, clampf((rain - 0.55) * 2.2, 0.0, 1.0) * 0.8 * gate)
 	(_loops["carnival_crowd"] as Loop).update(delta, (Carnival.crowd_level() * 0.9 * inside) if in_world else 0.0)
-	# Animal housing hums with its animals (positional, near the buildings).
-	var farm: Node = Game.world.get("farm") if in_world and Game.world else null
-	for kind: String in _housed:
-		if probe:
-			_housed[kind] = Animals.count_in(kind)
+	# Animal housing hums with its animals (positional, at the buildings), only with the
+	# animals each recording is of.
+	if probe:
+		_beds = animal_beds((Game.player as Node3D).global_position) if in_world else {}
+	for key: String in ANIMAL_BEDS:
 		var level := 0.0
 		var at := Vector3.ZERO
-		if farm:
-			var housing: Node3D = farm.get(kind)
-			if housing and int(_housed[kind]) > 0:
-				level = (0.45 if kind == "barn" else 0.6) * (0.4 + 0.6 * daylight)
-				at = housing.global_position + Vector3(0, 1.5, 0)
-		(_loops[kind] as Loop).update(delta, level, at)
+		if _beds.has(key):
+			var bed: Array = _beds[key]
+			at = bed[0]
+			# A few animals sound thinner than a full house.
+			level = float(ANIMAL_BEDS[key]) * (0.4 + 0.6 * daylight) * (0.6 + 0.4 * clampf((int(bed[1]) - 1) / 3.0, 0.0, 1.0))
+		(_loops[key] as Loop).update(delta, level, at)
+
+
+## The animal beds that play for a listener at `from`, by loop: [where, how many]. A bed
+## plays at the housing nearest to the listener that keeps its animals: "barn" where
+## cows live, "coop" where grown hens live with a rooster, "coop_hens" where they live
+## without one. A farm without those animals has no such bed (a sheep's barn is heard by
+## its sheep alone).
+func animal_beds(from: Vector3) -> Dictionary:
+	var beds := {}
+	var farm: Farm = Game.world.get("farm") if Game.world else null
+	if farm == null:
+		return beds
+	for h: AnimalHousing in farm.housings():
+		var cows := 0
+		var hens := 0
+		var roosters := 0
+		for a: AnimalData in Animals.animals:
+			if Animals.housing_of(a) != h:
+				continue
+			match a.species:
+				&"cow":
+					cows += 1
+				&"chicken":
+					hens += 1 if a.adult else 0
+				&"rooster":
+					roosters += 1 if a.adult else 0
+		var at := h.center() + Vector3(0, 1.5, 0)
+		var found := {}
+		if cows > 0:
+			found["barn"] = cows
+		if hens > 0:
+			found["coop" if roosters > 0 else "coop_hens"] = hens + roosters
+		for key: String in found:
+			if not beds.has(key) or from.distance_to(at) < from.distance_to((beds[key] as Array)[0]):
+				beds[key] = [at, found[key]]
+	return beds
 
 
 func _update_vehicle(delta: float, in_world: bool) -> void:

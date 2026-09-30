@@ -2,7 +2,9 @@
 class_name FishModels
 extends RefCounted
 ## The fishing models (tools/blender/make_fishing.py, art/models/fish): every fish and
-## its cooked variant, the crayfish, the old boot, the fishing rod and its float.
+## its cooked variant, the crayfish, the old boot, the rods (the standard rod, the cane
+## pole, the carbon and carp rods), the float and the market's bait (maggots, sweetcorn,
+## cheese, live minnows, the spinner).
 ##   real_mesh: as modelled, at the species' typical size (fish lie along +X, head
 ##     forward, back up, centred on their length; the rod stands along +Y with the hand
 ##     at the origin; the float's waterline is at the origin).
@@ -13,6 +15,11 @@ extends RefCounted
 const DIR := "res://art/models/fish/"
 ## The rod's tip ring (the line leaves it) in its model space.
 const ROD_TIP := Vector3(0.0, 1.667, 0.0)
+## Each rod's tip ring (they are built to different lengths).
+const ROD_TIPS := {
+	&"fishing_rod": ROD_TIP, &"cane_rod": Vector3(0.0, 2.254, 0.0), &"carbon_rod": Vector3(0.0, 2.1, 0.0),
+	&"carp_rod": Vector3(0.0, 2.6, 0.0),
+}
 ## Item-size fish are this long (a small fish keeps its size).
 const ITEM_LEN_MIN := 0.2
 const ITEM_LEN_MAX := 0.34
@@ -25,6 +32,11 @@ static var _flop_mats := {}
 
 static func has(id: StringName) -> bool:
 	return ResourceLoader.exists(DIR + String(id) + ".gltf")
+
+
+## The tip ring of rod `id` in its model space.
+static func rod_tip(id: StringName) -> Vector3:
+	return ROD_TIPS.get(id, ROD_TIP)
 
 
 ## The model as built, joined into one mesh (cached).

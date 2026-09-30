@@ -37,7 +37,7 @@ const SIDE_GRIME := 0.45
 var kind: StringName
 var info: Dictionary
 var owned := true
-## Seconds a vehicle for sale has stood still (see _hold_on_display).
+## Seconds a parked vehicle has stood still (see _hold_when_parked).
 var _settle_t := 0.0
 var price := 0
 var fuel := 0.0
@@ -552,11 +552,12 @@ func teleport(xf: Transform3D) -> void:
 	sleeping = false
 
 
-## Stock waiting for a buyer at the dealer: once it has settled on its wheels it is held
-## still, so nothing nudges or creeps it off its spot over a long session (a heavy tractor
-## would slowly roll on a parked brake); a test drive or the sale lets it go.
-func _hold_on_display(delta: float) -> void:
-	if owned or driver != null:
+## Parked with nobody at the wheel (the player's own or stock at the dealer): once it has
+## settled on its wheels it is held still, so it never creeps off over a long session (a
+## heavy tractor or a truck on a slight slope would roll slowly on the parked brake);
+## getting in lets it go.
+func _hold_when_parked(delta: float) -> void:
+	if driver != null:
 		if freeze:
 			freeze = false
 			sleeping = false
@@ -627,7 +628,7 @@ func speed_kmh() -> float:
 
 
 func _physics_process(delta: float) -> void:
-	_hold_on_display(delta)
+	_hold_when_parked(delta)
 	var fwd := forward_speed()
 	var throttle := 0.0
 	var steer_in := 0.0

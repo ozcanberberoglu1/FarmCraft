@@ -39,6 +39,9 @@ const POSES := {
 	# The fishing rod: held at the reel seat, low on the right, the rod rising ahead to the
 	# left of centre, the reel hanging under it.
 	&"fishing_rod": [Vector3(0.24, -0.34, -0.44), Vector3(0, -82, 55), 1.0, Vector3.ZERO],
+	&"cane_rod": [Vector3(0.24, -0.34, -0.44), Vector3(0, -82, 55), 1.0, Vector3.ZERO],
+	&"carbon_rod": [Vector3(0.24, -0.34, -0.44), Vector3(0, -82, 55), 1.0, Vector3.ZERO],
+	&"carp_rod": [Vector3(0.24, -0.34, -0.44), Vector3(0, -82, 55), 1.0, Vector3.ZERO],
 	# A crate of hens is carried in front with both hands, its long side across the view.
 	&"chicken_crate": [Vector3(0.02, -0.46, -0.64), Vector3(4, 90, 0), 0.95],
 	&"rooster_crate": [Vector3(0.02, -0.46, -0.64), Vector3(4, 90, 0), 0.95],
@@ -50,6 +53,12 @@ const POSES := {
 	&"rope": [Vector3(0.28, -0.3, -0.55), Vector3(24, 25, 0), 0.8],
 	&"dough": [Vector3(0.27, -0.28, -0.5), Vector3(18, 25, 0), 0.9],
 	&"worm": [Vector3(0.26, -0.26, -0.48), Vector3(22, 25, 0), 1.0],
+	# The market's bait: a tin, a bucket, a lure in the palm.
+	&"maggot": [Vector3(0.26, -0.26, -0.48), Vector3(22, 25, 0), 1.0],
+	&"sweetcorn": [Vector3(0.26, -0.27, -0.48), Vector3(18, 25, 0), 1.0],
+	&"cheese_bait": [Vector3(0.26, -0.26, -0.48), Vector3(24, 25, 0), 1.0],
+	&"minnow": [Vector3(0.3, -0.4, -0.62), Vector3(8, 25, 0), 0.9],
+	&"spinner": [Vector3(0.22, -0.2, -0.4), Vector3(30, 40, 0), 1.0],
 	&"nails": [Vector3(0.26, -0.27, -0.48), Vector3(14, 25, 0), 1.0],
 	# A sapling is carried upright by its root ball.
 	&"sapling": [Vector3(0.28, -0.46, -0.62), Vector3(0, 20, 6), 0.85],

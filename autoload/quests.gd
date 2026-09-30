@@ -128,9 +128,10 @@ const TUTORIAL := [
 	# made at the bench, bait, a fish from the pond by the house, a campfire made and put
 	# down to cook it on, and the meal.
 	# The rope and the bait on the same trip to the market, then the rod at the bench.
-	{"chapter": 9, "id": "rope", "kind": "check", "arg": "has:rope", "count": 2, "xp": 3, "at": "buy:rope", "past": "has:fishing_rod"},
+	{"chapter": 9, "id": "rope", "kind": "check", "arg": "has:rope", "count": 2, "xp": 3, "at": "buy:rope", "past": "rods"},
 	{"chapter": 9, "id": "bait", "kind": "check", "arg": "bait", "count": 1, "xp": 3, "at": "bait", "past": "caught"},
-	{"chapter": 9, "id": "rod", "kind": "crafted", "arg": "fishing_rod", "count": 1, "xp": 6, "ever": true, "at": "craft:fishing_rod", "past": "has:fishing_rod"},
+	# Any rod will do (the cane rod, the standard one or a better one).
+	{"chapter": 9, "id": "rod", "kind": "check", "arg": "rods", "count": 1, "xp": 6, "at": "craft:fishing_rod", "past": "rods"},
 	{"chapter": 9, "id": "fish", "kind": "caught", "arg": "", "count": 1, "xp": 8, "ever": true, "at": "pond"},
 	{"chapter": 9, "id": "campfire", "kind": "crafted", "arg": "campfire", "count": 1, "xp": 4, "ever": true, "at": "craft:campfire", "past": "has:campfire"},
 	{"chapter": 9, "id": "cook", "kind": "cooked", "arg": "", "count": 1, "xp": 6, "ever": true, "at": "campfire"},
@@ -696,6 +697,8 @@ func _check_progress(arg: String, count := 1) -> int:
 			return _animal_count(StringName(what))
 		"has":
 			return PlayerState.inventory.count_item(StringName(what)) + _placed_count(StringName(what))
+		"rods":
+			return _rod_count()
 		"bench":
 			match what:
 				"kit":
@@ -718,6 +721,15 @@ func _bench_built() -> bool:
 		if StringName(e["id"]) == &"workbench" and String(e.get("stage", "done")) == "done":
 			return true
 	return false
+
+
+## Fishing rods of any kind in the bag (the cane rod up to the carp rod).
+func _rod_count() -> int:
+	var n := 0
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and st.item.tool_type == &"fishing_rod":
+			n += st.count
+	return n
 
 
 ## Bait in the bag (worms, dough: ItemTable category "bait").
@@ -1215,7 +1227,7 @@ func _target(at: String) -> Variant:
 					return _target("bench")
 			return _buy_target(&"dough", 1)
 		"pond":
-			if PlayerState.inventory.count_item(&"fishing_rod") == 0:
+			if _rod_count() == 0:
 				return _craft_target(&"fishing_rod", from)
 			if _bait_count() == 0:
 				_hint = tr("HINT_NEED_BAIT")
