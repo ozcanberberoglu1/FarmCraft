@@ -99,7 +99,7 @@ func _process(delta: float) -> void:
 		return
 	# Work sounds: hammer blows and boards set down, somewhere on the frame.
 	_knock -= delta
-	if _knock > 0.0 or Game.is_ui_open():
+	if _knock > 0.0 or Game.is_paused():
 		return
 	_knock = randf_range(0.6, 2.2)
 	var at := global_transform * Vector3(randf_range(-house.size.x, house.size.x) * 0.5, randf_range(0.4, FRONT_H), randf_range(-house.size.y, house.size.y) * 0.5)

@@ -21,6 +21,94 @@ const WHEEL_PARTS := ["Tire_Rubber", "Tire_Rim", "Tire_Hardware", "Tire_Brake"]
 static var _plate_cache := {}
 ## Modelled parts by scene path: node name -> mesh.
 static var _detail_cache := {}
+## Small single-colour textures by colour (untextured source materials).
+static var _flat_cache := {}
+
+
+## The entry's model, ready to dress: the downloaded (or Blender-built) scene with its
+## modelled wheels ("detail"), the load baked into its bed cut away ("strip_parts"),
+## the parts another body replaces taken off ("hide_parts": node names containing one
+## of them) and that body added ("extra": a scene in the same model frame).
+static func build_model(info: Dictionary) -> Node3D:
+	var model := (load(info["model"]) as PackedScene).instantiate() as Node3D
+	if info.has("detail"):
+		add_detail(model, info["detail"])
+	var hide: Array = info.get("hide_parts", [])
+	if not hide.is_empty():
+		var gone: Array[Node] = []
+		for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+			for part: String in hide:
+				if part in String(mi.name):
+					gone.append(mi)
+					break
+		for n in gone:
+			n.get_parent().remove_child(n)
+			n.free()
+	if info.has("strip_parts"):
+		ModelStrip.strip_parts(model, info["strip_parts"][0], info["strip_parts"][1])
+	if info.has("extra"):
+		var extra := (load(info["extra"]) as PackedScene).instantiate() as Node3D
+		extra.name = "Extra"
+		model.add_child(extra)
+	return model
+
+
+## What the dressing shaders make of a source material, by its name: "paint" (a name
+## with "Bodymat"), "trim" (the pickup's "UCB_BOTTOM" atlas, or "Trim_<kind>"),
+## "interior" ("Interior"), "wheel" ("Tire_*"), or "" (left as it is, or a lamp or
+## pane that Vehicle dresses by the mesh's name).
+static func role_of(src: BaseMaterial3D) -> String:
+	var n := src.resource_name
+	if "Bodymat" in n:
+		return "paint"
+	if "UCB_BOTTOM" in n or n.begins_with("Trim_"):
+		return "trim"
+	if "Interior" in n:
+		return "interior"
+	if "Tire" in n:
+		return "wheel"
+	return ""
+
+
+## The shader material for a surface whose source material has a dressing role (see
+## role_of), made once per vehicle and kept in `mats` (one paint for the whole body,
+## one per trim, cab or wheel material); null when it has none.
+static func surface_material(src: BaseMaterial3D, info: Dictionary, mats: Dictionary) -> ShaderMaterial:
+	var role := role_of(src)
+	if role == "":
+		return null
+	var key := "paint" if role == "paint" else "%s:%s" % [role, src.resource_name]
+	if not mats.has(key):
+		match role:
+			"paint":
+				mats[key] = paint(src, info)
+			"trim":
+				mats[key] = trim(src, info)
+			"interior":
+				mats[key] = interior(src)
+			_:
+				mats[key] = wheel(src, info)
+	return mats[key]
+
+
+## A 4 x 4 texture of one colour, standing in for an untextured material's map.
+static func flat_texture(c: Color) -> Texture2D:
+	var key := c.to_html()
+	if not _flat_cache.has(key):
+		var img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+		img.fill(c)
+		_flat_cache[key] = ImageTexture.create_from_image(img)
+	return _flat_cache[key]
+
+
+## The source's colour map, or its colour as a flat one.
+static func albedo_of(src: BaseMaterial3D) -> Texture2D:
+	return src.albedo_texture if src.albedo_texture else flat_texture(Color(src.albedo_color, 1.0))
+
+
+## The source's occlusion / roughness / metal map, or its roughness and metalness as a flat one.
+static func orm_of(src: BaseMaterial3D) -> Texture2D:
+	return src.metallic_texture if src.metallic_texture else flat_texture(Color(1.0, src.roughness, src.metallic))
 
 
 ## Modelled parts that stand in for the downloaded model's own (tools/build_pickup_hd.py):
@@ -54,8 +142,10 @@ static func add_detail(model: Node3D, path: String) -> void:
 
 ## Body paint from the model's paint material (its panel-line normals and occlusion)
 ## and the entry's "paint" look.
-static func paint(src: StandardMaterial3D, info: Dictionary) -> ShaderMaterial:
-	var mat := _shader_mat("res://shaders/vehicle_paint.gdshader", info.get("paint", {"paint": Color(0.07, 0.12, 0.26)}), info)
+static func paint(src: BaseMaterial3D, info: Dictionary) -> ShaderMaterial:
+	var look: Dictionary = (info.get("paint", {"paint": Color(0.07, 0.12, 0.26)}) as Dictionary).duplicate()
+	look.merge(info.get("body_shape", {}), true)
+	var mat := _shader_mat("res://shaders/vehicle_paint.gdshader", look, info)
 	if src.normal_texture:
 		mat.set_shader_parameter("normal_tex", src.normal_texture)
 		mat.set_shader_parameter("has_normal", true)
@@ -66,18 +156,34 @@ static func paint(src: StandardMaterial3D, info: Dictionary) -> ShaderMaterial:
 
 
 ## Bumpers, bull bar, underbody and bed trim from the model's trim atlas and the
-## entry's "trim" look.
-static func trim(src: StandardMaterial3D, info: Dictionary) -> ShaderMaterial:
-	var mat := _shader_mat("res://shaders/vehicle_trim.gdshader", info.get("trim", {}), info)
-	mat.set_shader_parameter("albedo_tex", src.albedo_texture)
-	mat.set_shader_parameter("orm_tex", src.metallic_texture)
+## entry's "trim" look. A "Trim_<kind>" material (Blender-built parts) has no atlas:
+## its own colour, roughness and metalness, or the photo texture its "trims" look names
+## ("tex", art/textures/<tex>/: colour and ARM maps on the mesh's UVs), with no lamp
+## sprites or tail lamps; the look of that kind goes over the vehicle's.
+static func trim(src: BaseMaterial3D, info: Dictionary) -> ShaderMaterial:
+	var look: Dictionary = (info.get("trim", {}) as Dictionary).duplicate()
+	look.merge(info.get("body_shape", {}), true)
+	var tex := ""
+	if not "UCB_BOTTOM" in src.resource_name:
+		look.merge({"tail_x": -99.0, "lens_rect": Vector3(9, 9, 9)}, true)
+		var kind := src.resource_name.trim_prefix("Trim_")
+		look.merge((info.get("trims", {}) as Dictionary).get(kind, {}), true)
+		tex = String(look.get("tex", ""))
+		look.erase("tex")
+	var mat := _shader_mat("res://shaders/vehicle_trim.gdshader", look, info)
+	if tex != "":
+		mat.set_shader_parameter("albedo_tex", Mats.texture(tex, "diff.jpg"))
+		mat.set_shader_parameter("orm_tex", Mats.texture(tex, "arm.jpg"))
+	else:
+		mat.set_shader_parameter("albedo_tex", albedo_of(src))
+		mat.set_shader_parameter("orm_tex", orm_of(src))
 	set_wear_textures(mat)
 	return mat
 
 
 ## A tyre, rim, hardware or brake material of the modelled wheels (by the name of
 ## `src`, see WHEEL_PARTS) with the entry's "wheel" look.
-static func wheel(src: StandardMaterial3D, info: Dictionary) -> ShaderMaterial:
+static func wheel(src: BaseMaterial3D, info: Dictionary) -> ShaderMaterial:
 	var mat := _shader_mat("res://shaders/vehicle_wheel.gdshader", info.get("wheel", {}), info)
 	mat.set_shader_parameter("part", maxi(WHEEL_PARTS.find(src.resource_name), 0))
 	mat.set_shader_parameter("pit_albedo", load(PIT_TEX % "diff"))
@@ -88,12 +194,17 @@ static func wheel(src: StandardMaterial3D, info: Dictionary) -> ShaderMaterial:
 ## as metal, here moulded plastic and vinyl; the mirror glass and chrome stay mirrors.
 ## The body stays out of SDFGI (it moves), so the cab would get the open sky's bounce
 ## light as if it had no roof: it is occluded down to what the windows let in.
-static func interior(src: StandardMaterial3D) -> ShaderMaterial:
+static func interior(src: BaseMaterial3D) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/vehicle_interior.gdshader")
-	mat.set_shader_parameter("albedo_tex", src.albedo_texture)
-	mat.set_shader_parameter("orm_tex", src.metallic_texture)
-	mat.set_shader_parameter("tint", src.albedo_color)
+	if src.albedo_texture:
+		mat.set_shader_parameter("albedo_tex", src.albedo_texture)
+		mat.set_shader_parameter("tint", src.albedo_color)
+	else:
+		# Untextured (Blender-built cabs): the colour is the tint over white.
+		mat.set_shader_parameter("albedo_tex", flat_texture(Color.WHITE))
+		mat.set_shader_parameter("tint", Color(src.albedo_color, 1.0))
+	mat.set_shader_parameter("orm_tex", orm_of(src))
 	mat.set_shader_parameter("cab_ambient", CAB_AMBIENT)
 	return mat
 

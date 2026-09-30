@@ -7,6 +7,8 @@ Sources (see art/audio/CREDITS.md):
   - Mixkit (mixkit.co), Mixkit free license (free for commercial use in games, no
     attribution needed, files may not be redistributed on their own): animals, ambience,
     weather, vehicle, tool actions, coins and music.
+  - The carnival night's band organ, crowd and fireworks: CC0 recordings from Freesound,
+    cut by tools/build_carnival_audio.py (run at the end too; needs numpy and soundfile).
   - The recorded farm-work sounds (axe, pickaxe, hoe, scythe, harvest, planting, watering,
     felled trees, split boulders) are cut and mixed from public-domain / CC0 recordings
     (Wikimedia Commons, OpenGameArt, Freesound) and Mixkit recordings by
@@ -86,6 +88,9 @@ MIXKIT_MUSIC = {
     "music/day_wind_leaves.mp3": 617,
     "music/day_the_long_road.mp3": 52,
     "music/night_relaxation.mp3": 749,
+    # The fair's tunes on a carnival night in town (Carnival).
+    "music/carnival_kidding_around.mp3": 9,
+    "music/carnival_fun_and_games.mp3": 6,
 }
 
 # Kenney packs: zip url -> {file in zip (basename): output path}.
@@ -166,6 +171,11 @@ def main():
         build_foley.build()
     except ImportError as e:
         print(f"skipped the farm-work sounds ({e}): pip install numpy scipy soundfile, then run tools/build_foley.py")
+    try:
+        import build_carnival_audio
+        build_carnival_audio.build()
+    except ImportError as e:
+        print(f"skipped the carnival sounds ({e}): pip install numpy soundfile, then run tools/build_carnival_audio.py")
 
 
 if __name__ == "__main__":

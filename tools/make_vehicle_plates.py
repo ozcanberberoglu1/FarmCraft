@@ -18,6 +18,13 @@ W, H = 512, 248
 PLATES = {
     "pickup_90": ("15 BK", "905", False),
     "pickup_old": ("15 AY", "172", True),
+    "pickup_canopy": ("15 AC", "418", False),
+    "pickup_stake": ("15 DE", "263", True),
+    "pickup_box": ("15 FT", "731", False),
+    "wagon": ("15 KM", "586", True),
+    "tractor": ("15 TR", "045", True),
+    "truck": ("15 LK", "550", False),
+    "offroad": ("15 YA", "379", True),
 }
 # Kept at or below ~0.8 sRGB like every bright albedo in the game.
 WHITE = (206, 206, 200)

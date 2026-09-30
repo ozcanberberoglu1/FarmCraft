@@ -61,6 +61,8 @@ Downloaded by `tools/fetch_audio.py`; the recorded farm-work sounds are built by
 | music/day_wind_leaves.mp3 | Wind Leaves (Eugenio Mininni) | music 617 |
 | music/day_the_long_road.mp3 | The Long Road (Ahjay Stelino) | music 52 |
 | music/night_relaxation.mp3 | Relaxation 05 | music 749 |
+| music/carnival_kidding_around.mp3 | Kidding Around | music 9 |
+| music/carnival_fun_and_games.mp3 | Fun and Games | music 6 |
 
 ## Farm-work sounds (`sfx/tools/axe_*`, `tree_crack_*`, `tree_fall_*`, `pick_*`, `rock_break_*`, `hoe_*`, `scythe_*`, `harvest_*`, `seeds_*`, `plant_*`, `water_can_*`, `pick_crop_*`)
 
@@ -143,3 +145,16 @@ Built by `tools/fetch_poultry_audio.py`. None needs attribution or share-alike.
 | squeak_* | Mouse squeak (1019), Little squeak (1018), pitched down | Mixkit | Mixkit free licence |
 | scuffle_* | Footsteps on tall grass (532) | Mixkit | Mixkit free licence |
 | thump_* | A rabbit's alarm thump, synthesised in the script | FarmCraft | (original) |
+
+## Carnival night (`music/carnival_band_organ.ogg`, `ambience/carnival_crowd.ogg`, `sfx/carnival/*`)
+
+Cut, faded and levelled by `tools/build_carnival_audio.py` from Freesound's previews of these CC0 recordings
+(none needs attribution or share-alike). The fair's other tunes are the Mixkit tracks above.
+
+| Used for | Recording | Author / source | Licence |
+|---|---|---|---|
+| music/carnival_band_organ.ogg (its first tune, 0-143 s) | *Large Band Organ at Carousel* | CHallSmith, https://freesound.org/people/CHallSmith/sounds/870752/ | CC0 |
+| ambience/carnival_crowd.ogg (4-124 s) | *crowd medium ext active park outside museum voices dirt movement could be fairground amusement park* | kyles, https://freesound.org/people/kyles/sounds/629887/ | CC0 |
+| sfx/carnival/firework_1.ogg | *FRWKRec_Single Firework With City Reverb_Jaku5* | jakubp.jp, https://freesound.org/people/jakubp.jp/sounds/552699/ | CC0 |
+| sfx/carnival/firework_2.ogg, firework_3.ogg | *Outdoor Clean Explosions (Fireworks on New Year's Eve 2021)* | unfa, https://freesound.org/people/unfa/sounds/613672/ | CC0 |
+| sfx/carnival/crackle_1.ogg | *Firework Crackle* | LukaCafuka, https://freesound.org/people/LukaCafuka/sounds/750682/ | CC0 |

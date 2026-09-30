@@ -5,6 +5,11 @@ var player: Node3D = null
 var world: Node3D = null
 var hud: CanvasLayer = null
 
+## Screens that stop real-time countdowns (cooking, a build going up, cleaning a catch).
+## The farm's own screens (the bag, a chest, a shop, the workbench...) let them run on.
+const PAUSING_UI: Array[StringName] = [&"pause", &"settings", &"saves", &"title", &"confirm", &"sleep",
+		&"letter", &"level_up"]
+
 var _ui_stack: Array[StringName] = []
 
 
@@ -18,6 +23,15 @@ func _ready() -> void:
 
 func is_ui_open() -> bool:
 	return not _ui_stack.is_empty()
+
+
+## Whether a screen that stops the game's real-time countdowns is open (PAUSING_UI): the
+## pause menu, not the bag, a shop or the workbench, which let them run on.
+func is_paused() -> bool:
+	for ui_name in _ui_stack:
+		if ui_name in PAUSING_UI:
+			return true
+	return false
 
 
 func top_ui() -> StringName:

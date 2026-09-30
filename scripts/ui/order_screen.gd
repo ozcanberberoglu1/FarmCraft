@@ -72,8 +72,11 @@ func _card(o: Dictionary) -> Control:
 	right.add_theme_constant_override("separation", 8)
 	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(right)
-	var price := UiTheme.price(int(o["reward"]), 26)
+	var price := UiTheme.price(roundi(int(o["reward"]) * Economy.carnival_factor()), 26)
 	price.size_flags_horizontal = Control.SIZE_SHRINK_END
+	if Carnival.is_on():
+		price.add_theme_constant_override("separation", 8)
+		price.add_child(CarnivalBanner.badge())
 	right.add_child(price)
 	var b := UiTheme.button(tr("UI_DELIVER"), "success", Vector2(200, 46), "check", 18)
 	b.disabled = have < need

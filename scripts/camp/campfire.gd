@@ -483,7 +483,7 @@ static func _fish_transform(mesh: Mesh) -> Transform3D:
 
 func _update_cooking(delta: float) -> void:
 	var cooking := 0
-	var paused := Game.is_ui_open()
+	var paused := Game.is_paused()
 	for i in SPITS:
 		var s := _spits[i]
 		if s.is_empty():

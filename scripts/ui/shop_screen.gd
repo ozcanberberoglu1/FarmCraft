@@ -225,6 +225,9 @@ func _make_tile(entry: Dictionary) -> ShopTile:
 	var price_row := UiTheme.price(_price(entry), 20)
 	price_row.position = Vector2(12, TILE.y - 36)
 	t.add_child(price_row)
+	if _tab == "sell" and Carnival.is_on():
+		price_row.add_theme_constant_override("separation", 5)
+		price_row.add_child(CarnivalBanner.badge(12, false))
 	if _tab == "sell":
 		var trend := Economy.price_trend(entry["id"])
 		if trend != 0:
@@ -263,6 +266,9 @@ func _fill_extra() -> void:
 	for c in _extra.get_children():
 		c.queue_free()
 	if _tab == "sell":
+		# A carnival night: the town pays double until it ends.
+		if Carnival.is_on():
+			_extra.add_child(CarnivalBanner.strip(tr("SHOP_CARNIVAL_STRIP") % Carnival.letter_args()["end"], COLS * (TILE.x + 10) - 10))
 		var worth := _load_value(_cargo())
 		if worth > 0:
 			var sell_all := UiTheme.button(tr("SHOP_SELL_LOAD") % UiTheme.money(worth), "success",
@@ -397,7 +403,11 @@ func _show_detail() -> void:
 				UiTheme.RED, 18, 20))
 	var price := _price(_sel)
 	_detail.add_child(UiTheme.separator())
-	_detail.add_child(_info_row(tr("SHOP_UNIT"), UiTheme.price(price, 22)))
+	var unit := UiTheme.price(price, 22)
+	if _tab == "sell" and Carnival.is_on():
+		unit.add_theme_constant_override("separation", 8)
+		unit.add_child(CarnivalBanner.badge(14))
+	_detail.add_child(_info_row(tr("SHOP_UNIT"), unit))
 	var in_bed: int = _in_cargo(_sel) if _tab == "sell" else 0
 	_detail.add_child(_info_row(tr("SHOP_IN_BAG"), UiTheme.make_label(str(_owned(_sel) - in_bed), UiTheme.heading(22, UiTheme.TEXT, 700, 0))))
 	if in_bed > 0:

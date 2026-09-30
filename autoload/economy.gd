@@ -6,6 +6,7 @@ extends Node
 ##   - saturation: every unit sold today lowers the price a little (floor 0.6);
 ##     it recovers overnight
 ##   - season: crops sold out of their season fetch 20% more
+##   - carnival: twice the price for what is sold in town on a carnival night (Carnival)
 
 ## Grandpa's savings, in dollars: enough for the first two hens (his old pickup comes
 ## with the farm; the dealership's better one is a later purchase). From then on money
@@ -78,7 +79,14 @@ func season_factor(item_id: StringName) -> float:
 
 ## Today's price of one unit in whole dollars (what the shops show).
 func sell_price(item_id: StringName, quality := 0) -> int:
-	return roundi(_price_at(item_id, quality, int(sold_today.get(item_id, 0))))
+	return roundi(_price_at(item_id, quality, int(sold_today.get(item_id, 0))) * carnival_factor())
+
+
+## A carnival night (Carnival, 20:00 to 23:00) pays double for everything sold in town:
+## the market counter, a pickup's load sold there and the orders on the board. The
+## shipping bin's courier pays the usual price.
+func carnival_factor(reason := "REPORT_SALES") -> float:
+	return 1.0 if reason == "REPORT_SHIPPING" else Carnival.pay_factor()
 
 
 ## One unit's price once `sold` units of the item were sold today, unrounded (at least
@@ -105,7 +113,7 @@ func quote(item_id: StringName, count: int, quality := 0, factor := 1.0, already
 	var total := 0.0
 	for i in count:
 		total += _price_at(item_id, quality, sold + i) * factor
-	return roundi(total)
+	return roundi(total * carnival_factor())
 
 
 func buy_price(item_id: StringName) -> int:
@@ -130,7 +138,7 @@ func sell(item_id: StringName, count: int, quality := 0, reason := "REPORT_SALES
 	for i in count:
 		sum += _price_at(item_id, quality, int(sold_today.get(item_id, 0))) * factor
 		sold_today[item_id] = int(sold_today.get(item_id, 0)) + 1
-	var total := roundi(sum)
+	var total := roundi(sum * carnival_factor(reason))
 	add_money(total, reason)
 	Events.item_sold.emit(item_id, count, total)
 	return total

@@ -165,6 +165,7 @@ func refresh_body() -> void:
 		_look = look
 		var old := rig
 		rig = AnimalModels.create_rig(data.species, _look)
+		rig.carry_on(old)
 		add_child(rig)
 		old.queue_free()
 		_wet_shown = -1.0

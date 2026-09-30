@@ -3,6 +3,8 @@ extends ModalScreen
 ## Grandpa Osman's letters, on a sheet of paper over the blurred game: the one waiting
 ## when a new game begins (why the player is here and what to do first), and the last
 ## one when the story's goals are done. Paragraphs are separated by "|" in the texts.
+## Other letters come from the town: Beyza's on the morning of a carnival day
+## ("carnival", Carnival), signed with its own LETTER_<KIND>_SIGN.
 ## Putting the first letter down turns to his notebook: the first chapter's line shows
 ## under the first goal.
 
@@ -11,7 +13,7 @@ const INK := Color(0.2, 0.15, 0.11)
 const INK_SOFT := Color(0.36, 0.29, 0.22)
 
 var _sheet: PanelContainer
-## The letter on the sheet: "intro" or "final".
+## The letter on the sheet: "intro", "final" or "carnival".
 var _kind := ""
 
 
@@ -20,9 +22,11 @@ func _ready() -> void:
 	close_actions = [&"pause"]
 
 
-## `kind`: "intro" or "final".
-func open(kind: String) -> void:
+## `kind`: "intro", "final" or "carnival"; `args` fill {placeholders} in its body.
+func open(kind: String, args := {}) -> void:
 	_kind = kind
+	if kind == "carnival" and args.is_empty():
+		args = Carnival.letter_args()
 	for c in get_children():
 		c.queue_free()
 	add_child(UiTheme.backdrop())
@@ -60,12 +64,15 @@ func open(kind: String) -> void:
 	rule.color = Color(INK_SOFT, 0.35)
 	rule.custom_minimum_size = Vector2(0, 2)
 	col.add_child(rule)
-	for para in tr("LETTER_%s_BODY" % kind.to_upper()).split("|"):
+	for para in tr("LETTER_%s_BODY" % kind.to_upper()).format(args).split("|"):
 		var l := UiTheme.make_label(para.strip_edges(), UiTheme.text(20, INK, 500))
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.custom_minimum_size = Vector2(700, 0)
 		col.add_child(l)
-	var sign := UiTheme.make_label(tr("LETTER_SIGN"), UiTheme.heading(24, INK_SOFT, 600, 1))
+	# Grandpa signs his own; a letter from someone else carries its sender's name.
+	var sign_key := "LETTER_%s_SIGN" % kind.to_upper()
+	var sign := UiTheme.make_label(tr(sign_key) if tr(sign_key) != sign_key else tr("LETTER_SIGN"),
+			UiTheme.heading(24, INK_SOFT, 600, 1))
 	sign.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	col.add_child(sign)
 	col.add_child(UiTheme.spacer(6))

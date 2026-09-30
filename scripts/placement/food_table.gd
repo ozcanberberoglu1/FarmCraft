@@ -268,7 +268,7 @@ func _start_cleaning(player: Player) -> void:
 
 
 func _process(delta: float) -> void:
-	if _t < 0.0 or Game.is_ui_open():
+	if _t < 0.0 or Game.is_paused():
 		return
 	_t += delta
 	Events.action_progress_updated.emit(clampf(_t / CLEAN_SECONDS, 0.0, 1.0))

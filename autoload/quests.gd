@@ -127,9 +127,10 @@ const TUTORIAL := [
 	# Fishing, shown once: rope from the town market for a rod (RecipeTable: 2), the rod
 	# made at the bench, bait, a fish from the pond by the house, a campfire made and put
 	# down to cook it on, and the meal.
+	# The rope and the bait on the same trip to the market, then the rod at the bench.
 	{"chapter": 9, "id": "rope", "kind": "check", "arg": "has:rope", "count": 2, "xp": 3, "at": "buy:rope", "past": "has:fishing_rod"},
-	{"chapter": 9, "id": "rod", "kind": "crafted", "arg": "fishing_rod", "count": 1, "xp": 6, "ever": true, "at": "craft:fishing_rod", "past": "has:fishing_rod"},
 	{"chapter": 9, "id": "bait", "kind": "check", "arg": "bait", "count": 1, "xp": 3, "at": "bait", "past": "caught"},
+	{"chapter": 9, "id": "rod", "kind": "crafted", "arg": "fishing_rod", "count": 1, "xp": 6, "ever": true, "at": "craft:fishing_rod", "past": "has:fishing_rod"},
 	{"chapter": 9, "id": "fish", "kind": "caught", "arg": "", "count": 1, "xp": 8, "ever": true, "at": "pond"},
 	{"chapter": 9, "id": "campfire", "kind": "crafted", "arg": "campfire", "count": 1, "xp": 4, "ever": true, "at": "craft:campfire", "past": "has:campfire"},
 	{"chapter": 9, "id": "cook", "kind": "cooked", "arg": "", "count": 1, "xp": 6, "ever": true, "at": "campfire"},
@@ -282,6 +283,19 @@ var _bench_spot_searched := false
 var _hint := ""
 ## The first day's pace is set on GameClock.time_scale (given back when the day is over).
 var _paced := false
+## A building just finished (see _guide_to): the dot floats over it first (a Vector3),
+## with a line on its pill, until the player is within NEW_BUILDING_NEAR metres or its
+## time is up (counted while no screen is open): NEW_BUILDING_TIME, only
+## NEW_BUILDING_BRIEF while the goal has a place of its own (its dot comes back after).
+const NEW_BUILDING_NEAR := 8.0
+const NEW_BUILDING_TIME := 180.0
+const NEW_BUILDING_BRIEF := 20.0
+var _new_building: Variant = null
+var _new_building_text := ""
+var _new_building_shown := 0.0
+## Automated runs leave new buildings unmarked (their checks read the goal's dot)
+## unless a test turns this on.
+var guide_in_tests := false
 
 
 func _ready() -> void:
@@ -332,6 +346,9 @@ func _ready() -> void:
 	Events.food_eaten.connect(func(id: StringName) -> void: _count("eaten", String(id), 1))
 	Events.campfire_lit.connect(func(_fire: Node) -> void: _nudge())
 	Events.placed.connect(func(_id: StringName) -> void: _nudge())
+	# A building just finished: the dot shows where it went up.
+	FarmState.project_built.connect(_on_project_built)
+	Events.building_completed.connect(_on_building_completed)
 	_start.call_deferred()
 
 
@@ -575,6 +592,7 @@ func _nudge() -> void:
 ## catches up with the tally.
 func _process(delta: float) -> void:
 	_pace()
+	_tick_new_building(delta)
 	if tutorial_done() or SaveGame.loading:
 		_waypoint = null
 		return
@@ -917,6 +935,78 @@ func pace_for(hour: float) -> float:
 
 # --- Waypoints ----------------------------------------------------------------------------
 
+## Where the HUD's dot floats: over a building just finished first, else at the goal's
+## place (waypoint()).
+func guide_point() -> Variant:
+	return _new_building if _new_building != null else waypoint()
+
+
+## The line on the dot's pill while it shows a new building ("" otherwise).
+func guide_label() -> String:
+	return _new_building_text if _new_building != null else ""
+
+
+## A project from the construction board (or mended by hand) is built: its gate or door.
+func _on_project_built(id: StringName) -> void:
+	var at: Variant = null
+	match id:
+		&"barn_1", &"barn_2":
+			var g := WorldLayout.gate_point(WorldLayout.BARN_PEN, WorldLayout.BARN_GATE, 0.0)
+			at = _ground(g.x, g.z, 1.9)
+		&"coop_1", &"coop_2":
+			var g := WorldLayout.gate_point(WorldLayout.COOP_PEN, WorldLayout.COOP_GATE, 0.0)
+			at = _ground(g.x, g.z, 1.6)
+		&"house_1", &"house_2", &"house_3":
+			at = _target("house_door")
+		&"warehouse_1", &"warehouse_2":
+			var door := WaypointMarker.anchor(&"warehouse")
+			at = door.global_position if door else _warehouse_door()
+		_:
+			var lot: Dictionary = WorldLayout.FIELD_LOTS.get(id, {})
+			if not lot.is_empty():
+				var g := WorldLayout.gate_point(lot["rect"], lot["gates"][0], 0.0)
+				at = _ground(g.x, g.z, 1.6)
+	_guide_to(at, tr("PROJECT_" + String(id).to_upper()))
+
+
+## A kit building finished on its site (a coop, the workbench): its door or top.
+func _on_building_completed(id: StringName, building: Node) -> void:
+	if building is ChickenCoop:
+		_guide_to((building as ChickenCoop).door_point() + Vector3(0, 1.4, 0), tr("HOUSING_COOP"))
+	elif building is Workbench:
+		_guide_to((building as Workbench).top_point(), tr("PROJECT_" + String(id).to_upper()))
+	elif building is Node3D and (building as Node3D).is_inside_tree():
+		_guide_to((building as Node3D).global_position + Vector3(0, 2.0, 0), tr("PROJECT_" + String(id).to_upper()))
+
+
+## Points the dot at `at` (a Vector3; null: nowhere) for the building `building_name`
+## just finished (instead of an older one's), unless the player stands by it already.
+func _guide_to(at: Variant, building_name: String) -> void:
+	if typeof(at) != TYPE_VECTOR3 or (DebugTools.is_automated() and not guide_in_tests):
+		return
+	_new_building = null
+	_new_building_text = ""
+	var p := _player()
+	if p and Vector2(p.global_position.x - at.x, p.global_position.z - at.z).length() < NEW_BUILDING_NEAR:
+		return
+	_new_building = at
+	_new_building_text = tr("HINT_NEW_BUILDING") % building_name
+	_new_building_shown = 0.0
+
+
+## Drops the new building's dot once the player is there or its time is up.
+func _tick_new_building(delta: float) -> void:
+	if _new_building == null:
+		return
+	var at: Vector3 = _new_building
+	var p := _player()
+	var there := p != null and Vector2(p.global_position.x - at.x, p.global_position.z - at.z).length() < NEW_BUILDING_NEAR
+	if not Game.is_ui_open() and not SaveGame.loading:
+		_new_building_shown += delta
+	if there or _new_building_shown >= (NEW_BUILDING_BRIEF if waypoint() != null else NEW_BUILDING_TIME):
+		_new_building = null
+		_new_building_text = ""
+
 ## Where the dot points for a goal's "at" (a Vector3 or a Node3D; null for none).
 func _target(at: String) -> Variant:
 	if at == "" or Game.world == null:
@@ -1115,13 +1205,15 @@ func _target(at: String) -> Variant:
 		"buy":
 			return _buy_target(StringName(at.get_slice(":", 1)), maxi(int(current().get("count", 1)) - step_count, 1))
 		"bait":
-			# Dough is kneaded from wheat at the bench; else worms or dough from the market.
-			var dough: Dictionary = RecipeTable.crafting(&"dough")
-			var wheat := int((dough.get("items", {}) as Dictionary).get(&"wheat", 2))
-			if PlayerState.inventory.count_item(&"wheat") >= wheat and _bench_built():
-				_hint = tr("HINT_DOUGH")
-				return _target("bench")
-			return _buy_target(&"worm", 1)
+			# In town (buying the rope): dough from the market on the same trip. At home with
+			# wheat and a bench, dough can be kneaded there instead.
+			if not _near("town"):
+				var dough: Dictionary = RecipeTable.crafting(&"dough")
+				var wheat := int((dough.get("items", {}) as Dictionary).get(&"wheat", 2))
+				if PlayerState.inventory.count_item(&"wheat") >= wheat and _bench_built():
+					_hint = tr("HINT_DOUGH")
+					return _target("bench")
+			return _buy_target(&"dough", 1)
 		"pond":
 			if PlayerState.inventory.count_item(&"fishing_rod") == 0:
 				return _craft_target(&"fishing_rod", from)
@@ -1646,7 +1738,8 @@ func deliver(o: Dictionary) -> bool:
 			if e["id"] == item and need > 0:
 				need -= v.cargo.take(item, mini(need, int(e["count"])), int(e["quality"]))
 	orders.erase(o)
-	var reward := int(o["reward"])
+	# A carnival night pays double for an order delivered in town too.
+	var reward := roundi(int(o["reward"]) * Economy.carnival_factor())
 	Economy.add_money(reward, "REPORT_ORDERS")
 	Events.order_delivered.emit(item, int(o["count"]), reward)
 	Game.notify(tr("MSG_ORDER_DONE") % [ItemDB.get_item(item).display_name(), UiTheme.money(reward)], UiTheme.GOLD)
@@ -1676,6 +1769,8 @@ func new_game() -> void:
 
 func _reset_cache() -> void:
 	_waypoint = null
+	_new_building = null
+	_new_building_text = ""
 	_wp_left = 0.0
 	_poll = 0.0
 	_coop_spot = null

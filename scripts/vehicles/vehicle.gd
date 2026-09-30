@@ -37,6 +37,8 @@ const SIDE_GRIME := 0.45
 var kind: StringName
 var info: Dictionary
 var owned := true
+## Seconds a vehicle for sale has stood still (see _hold_on_display).
+var _settle_t := 0.0
 var price := 0
 var fuel := 0.0
 var cargo: Stockpile
@@ -61,24 +63,20 @@ var _beams: Array[SpotLight3D] = []
 var _fills: Array[SpotLight3D] = []
 var _dash_light: OmniLight3D
 var _tail_light: OmniLight3D
-var _head_mat: StandardMaterial3D
-var _brake_mat: StandardMaterial3D
-var _reverse_mat: StandardMaterial3D
-var _paint: ShaderMaterial
-## Body panels painted with _paint (each gets its own frame, see VehicleLook.fit_frame).
-var _paint_meshes: Array[MeshInstance3D] = []
+## Lamp materials by role ("head", "brake", "reverse"): one per source material, all
+## switched together.
+var _lamps := {"head": [], "brake": [], "reverse": []}
+## Dressing materials by VehicleLook.surface_material key ("paint", "trim:<name>", ...).
+var _mats := {}
+## Paint and trim meshes (each gets its own frame, see VehicleLook.fit_frame).
+var _framed: Array[MeshInstance3D] = []
 ## Wheel arches in the model frame: front and rear axle x, hub height, opening radius.
 var _arches := Vector4(1.93, -1.23, 0.385, 0.47)
-var _trim_mat: ShaderMaterial
-## Trim meshes (bumpers, bull bar, underbody, bed trim) drawn with _trim_mat.
-var _trim_meshes: Array[MeshInstance3D] = []
-## Wheel materials by part (VehicleLook.WHEEL_PARTS).
-var _wheel_mats := {}
-var _interior_mat: ShaderMaterial
-## Tail lamp and side marker glow last given to _trim_mat (set only when it changes).
+## Tail lamp and side marker glow last given to the trim (set only when it changes).
 var _trim_glow := Vector2(-1.0, -1.0)
-var _glass_mat: ShaderMaterial
-var _cover_mat: StandardMaterial3D
+## Window glass and lamp covers by source material.
+var _glass_mats := {}
+var _cover_mats := {}
 var _throttle := 0.0
 var _out_of_fuel_told := false
 var _manual_lights := false
@@ -145,17 +143,12 @@ func _mb(m: Vector3) -> Vector3:
 
 
 func _build_model() -> void:
-	var scene: PackedScene = load(info["model"])
 	var holder := Node3D.new()
 	holder.name = "Model"
 	holder.rotation.y = -PI * 0.5
 	add_child(holder)
-	var model := scene.instantiate() as Node3D
+	var model := VehicleLook.build_model(info)
 	holder.add_child(model)
-	if info.has("detail"):
-		VehicleLook.add_detail(model, info["detail"])
-	if info.has("strip_parts"):
-		ModelStrip.strip_parts(model, info["strip_parts"][0], info["strip_parts"][1])
 	_bed = CargoBed.new()
 	_bed.name = "Load"
 	# Packages are placed per frame while they drop in and in one jump when the load
@@ -207,10 +200,11 @@ func _build_model() -> void:
 		w.damping_relaxation = float(susp.get("relaxation", 2.6))
 		# The rear grips a little more than the front: at the limit the truck runs wide
 		# instead of swinging its tail round.
-		w.wheel_friction_slip = 6.0 if key.begins_with("r") else 5.6
+		var grip := float(info.get("grip", 6.0))
+		w.wheel_friction_slip = grip if key.begins_with("r") else grip - 0.4
 		w.wheel_roll_influence = float(susp.get("roll_influence", 0.05))
 		w.use_as_steering = key.begins_with("f")
-		w.use_as_traction = key.begins_with("r")
+		w.use_as_traction = key.begins_with("r") or info.get("drive", "rwd") == "4wd"
 		_mounts[key] = w.position
 		add_child(w)
 		mi.reparent(w, true)
@@ -226,7 +220,7 @@ func _build_model() -> void:
 		_steer_pivot.position = to_local(_center_of(sm))
 		sm.reparent(_steer_pivot, true)
 		# Column tilts forward and down.
-		_steer_axis = Vector3(0, -0.36, 1).normalized()
+		_steer_axis = (info.get("steer_axis", Vector3(0, -0.36, 1)) as Vector3).normalized()
 
 
 static func gravity_sag(stiffness: float) -> float:
@@ -240,9 +234,11 @@ func _center_of(mi: MeshInstance3D) -> Vector3:
 
 ## Paint gets the clear-coated, weathered body shader (vehicle_paint), the bumpers, bull
 ## bar and underbody the trim shader (vehicle_trim), the wheels the tyre, rim and brake
-## shader (vehicle_wheel); lamps get their own emissive copies with a reflector look,
-## lenses a glossy face. "glass" gives the windows dust (and a crack) and can yellow
-## the lamp covers; "plate" puts a number plate over the model's own.
+## shader (vehicle_wheel), the cab its interior shader (see VehicleLook.surface_material);
+## lamps (by mesh name: "headlights", "brakelights", "reverselights", a name or a list)
+## get their own emissive copies with a reflector look, lenses a glossy face. "glass"
+## gives the windows dust (and a crack) and can yellow the lamp covers; "plate" puts a
+## number plate over the model's own.
 func _restyle(mi: MeshInstance3D) -> void:
 	var n := String(mi.name)
 	var glass: Dictionary = info.get("glass", {})
@@ -252,52 +248,60 @@ func _restyle(mi: MeshInstance3D) -> void:
 		var src := mi.get_active_material(si) as StandardMaterial3D
 		if src == null:
 			continue
-		if src.resource_name == "UTLTRUCK90_Bodymat" or "Bodymat" in src.resource_name:
-			if _paint == null:
-				_paint = VehicleLook.paint(src, info)
-			mi.set_surface_override_material(si, _paint)
-			if mi not in _paint_meshes:
-				_paint_meshes.append(mi)
-		elif String(info.get("headlights", "~")) in n:
+		var role := VehicleLook.role_of(src)
+		if role == "paint":
+			mi.set_surface_override_material(si, VehicleLook.surface_material(src, info, _mats))
+			if mi not in _framed:
+				_framed.append(mi)
+		elif _names_in(_as_list(info.get("headlights")), n):
 			# Chrome reflector bowls behind the lenses.
-			_head_mat = _emissive(src, info.get("lamp_color", Color(1.0, 0.95, 0.85)), 0.45)
-			mi.set_surface_override_material(si, _head_mat)
-		elif String(info.get("brakelights", "~")) in n:
-			_brake_mat = _emissive(src, BRAKE_RED, 0.15)
-			mi.set_surface_override_material(si, _brake_mat)
-		elif String(info.get("reverselights", "~")) in n:
-			_reverse_mat = _emissive(src, Color(1.0, 1.0, 0.95), 0.3)
-			mi.set_surface_override_material(si, _reverse_mat)
+			mi.set_surface_override_material(si, _lamp("head", src, info.get("lamp_color", Color(1.0, 0.95, 0.85)), 0.45))
+		elif _names_in(_as_list(info.get("brakelights")), n):
+			mi.set_surface_override_material(si, _lamp("brake", src, BRAKE_RED, 0.15))
+		elif _names_in(_as_list(info.get("reverselights")), n):
+			mi.set_surface_override_material(si, _lamp("reverse", src, Color(1.0, 1.0, 0.95), 0.3))
 		elif _names_in(glass.get("panes", []), n) and src.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
 			mi.set_surface_override_material(si, _worn_glass(src))
 			_fit_pane(mi, si, glass)
 		elif _names_in(glass.get("covers", []), n):
-			if _cover_mat == null:
-				# Lenses with a glossy face; an old one sun-yellowed and hazy underneath.
-				# Alpha stays so the lamps still shine through.
-				_cover_mat = src.duplicate() as StandardMaterial3D
-				var tint: Color = glass.get("cover_tint", Color.WHITE)
-				_cover_mat.albedo_color = Color(src.albedo_color.r * tint.r, src.albedo_color.g * tint.g,
-						src.albedo_color.b * tint.b, src.albedo_color.a)
-				_cover_mat.roughness = float(glass.get("cover_haze", 0.04))
-				_cover_mat.clearcoat_enabled = true
-				_cover_mat.clearcoat = 1.0
-				_cover_mat.clearcoat_roughness = 0.03
-			mi.set_surface_override_material(si, _cover_mat)
-		elif "UCB_BOTTOM" in src.resource_name:
-			if _trim_mat == null:
-				_trim_mat = VehicleLook.trim(src, info)
-			mi.set_surface_override_material(si, _trim_mat)
-			if mi not in _trim_meshes:
-				_trim_meshes.append(mi)
-		elif "Interiors" in src.resource_name:
-			if _interior_mat == null:
-				_interior_mat = VehicleLook.interior(src)
-			mi.set_surface_override_material(si, _interior_mat)
-		elif "Tire" in src.resource_name:
-			if not _wheel_mats.has(src.resource_name):
-				_wheel_mats[src.resource_name] = VehicleLook.wheel(src, info)
-			mi.set_surface_override_material(si, _wheel_mats[src.resource_name])
+			mi.set_surface_override_material(si, _cover(src, glass))
+		elif role != "":
+			mi.set_surface_override_material(si, VehicleLook.surface_material(src, info, _mats))
+			if role == "trim" and mi not in _framed:
+				_framed.append(mi)
+
+
+static func _as_list(v: Variant) -> Array:
+	if v is Array:
+		return v
+	return [] if v == null else [String(v)]
+
+
+## The emissive copy of a lamp's material for `role`, one per source material.
+func _lamp(role: String, src: StandardMaterial3D, color: Color, metal: float) -> StandardMaterial3D:
+	for m: StandardMaterial3D in _lamps[role]:
+		if m.resource_name == src.resource_name:
+			return m
+	var m := _emissive(src, color, metal)
+	m.resource_name = src.resource_name
+	(_lamps[role] as Array).append(m)
+	return m
+
+
+## A lamp lens with a glossy face; an old one sun-yellowed and hazy underneath. Alpha
+## stays so the lamps still shine through.
+func _cover(src: StandardMaterial3D, glass: Dictionary) -> StandardMaterial3D:
+	if not _cover_mats.has(src.resource_name):
+		var m := src.duplicate() as StandardMaterial3D
+		var tint: Color = glass.get("cover_tint", Color.WHITE)
+		m.albedo_color = Color(src.albedo_color.r * tint.r, src.albedo_color.g * tint.g,
+				src.albedo_color.b * tint.b, src.albedo_color.a)
+		m.roughness = float(glass.get("cover_haze", 0.04))
+		m.clearcoat_enabled = true
+		m.clearcoat = 1.0
+		m.clearcoat_roughness = 0.03
+		_cover_mats[src.resource_name] = m
+	return _cover_mats[src.resource_name]
 
 
 ## Whether the mesh name contains one of `names`.
@@ -308,18 +312,26 @@ static func _names_in(names: Array, mesh_name: String) -> bool:
 	return false
 
 
-## One dusty glass material for every window of this vehicle; each pane's place in
-## the texture atlas goes into its instance uniforms (_fit_pane).
+## One dusty glass material for the windows of this vehicle (per source material);
+## each pane's place in the texture atlas goes into its instance uniforms (_fit_pane).
+## An untextured (Blender-built) pane's colour is the tint, its alpha how much of the
+## view it keeps back.
 func _worn_glass(src: StandardMaterial3D) -> ShaderMaterial:
-	if _glass_mat == null:
+	if not _glass_mats.has(src.resource_name):
 		var glass: Dictionary = info["glass"]
-		_glass_mat = ShaderMaterial.new()
-		_glass_mat.shader = load("res://shaders/vehicle_glass.gdshader")
-		_glass_mat.set_shader_parameter("albedo_tex", src.albedo_texture)
-		_glass_mat.set_shader_parameter("tint", src.albedo_color)
-		_glass_mat.set_shader_parameter("grime", float(glass.get("grime", 0.5)))
-		_glass_mat.set_shader_parameter("clarity_loss", float(glass.get("clarity_loss", 0.22)))
-	return _glass_mat
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/vehicle_glass.gdshader")
+		m.set_shader_parameter("albedo_tex", VehicleLook.albedo_of(src))
+		m.set_shader_parameter("grime", float(glass.get("grime", 0.5)))
+		var loss := float(glass.get("clarity_loss", 0.22))
+		if src.albedo_texture:
+			m.set_shader_parameter("tint", src.albedo_color)
+		else:
+			m.set_shader_parameter("tint", Color(1, 1, 1, 1))
+			loss = maxf(loss, src.albedo_color.a)
+		m.set_shader_parameter("clarity_loss", loss)
+		_glass_mats[src.resource_name] = m
+	return _glass_mats[src.resource_name]
 
 
 ## Tells the glass shader where this pane lies in the texture atlas, oriented so +x
@@ -416,11 +428,11 @@ func _build_body() -> void:
 	# Paint dust and rust are placed in the model frame (height, arches, sides); the
 	# panels have their own origins, e.g. the bed sits lower than the cab.
 	var model := get_node("Model") as Node3D
-	for mi: MeshInstance3D in _paint_meshes + _trim_meshes:
+	for mi: MeshInstance3D in _framed:
 		VehicleLook.fit_frame(mi, model)
-	for mat: ShaderMaterial in [_paint, _trim_mat]:
-		if mat:
-			mat.set_shader_parameter("arches", _arches)
+	for key: String in _mats:
+		if key == "paint" or key.begins_with("trim:"):
+			(_mats[key] as ShaderMaterial).set_shader_parameter("arches", _arches)
 	_apply_quality()
 	Settings.changed.connect(_apply_quality)
 
@@ -429,16 +441,17 @@ func _build_body() -> void:
 ## once per map and skip the rust relief and the cab's moulded grain.
 func _apply_quality() -> void:
 	var detail := 1.0 if Settings.quality >= Settings.Quality.HIGH else 0.0
-	for mat: ShaderMaterial in [_paint, _trim_mat, _interior_mat]:
-		if mat:
-			mat.set_shader_parameter("detail", detail)
+	for key: String in _mats:
+		if not key.begins_with("wheel:"):
+			(_mats[key] as ShaderMaterial).set_shader_parameter("detail", detail)
 
 
 func _build_lights() -> void:
 	var lamp: Color = info.get("lamp_color", Color(1.0, 0.93, 0.8))
+	var at: Vector3 = info.get("beam_pos", Vector3(2.62, 0.87, 0.62))
 	for side: float in [-1.0, 1.0]:
 		var beam := SpotLight3D.new()
-		beam.position = _mb(Vector3(2.62, 0.87, side * 0.62))
+		beam.position = _mb(Vector3(at.x, at.y, side * at.z))
 		# Spot lights shine along their -Z: aim forward and slightly down.
 		beam.basis = Basis.looking_at(Vector3(0, -0.07, 1), Vector3.UP)
 		beam.spot_range = 55.0
@@ -462,7 +475,7 @@ func _build_lights() -> void:
 		_fills.append(fill)
 	# Instrument backlight, on with the lights.
 	_dash_light = OmniLight3D.new()
-	_dash_light.position = _mb(Vector3(1.2, 1.2, -0.38))
+	_dash_light.position = _mb(info.get("dash_pos", Vector3(1.2, 1.2, -0.38)))
 	_dash_light.light_color = Color(1.0, 0.62, 0.3)
 	_dash_light.omni_range = 0.32
 	_dash_light.omni_attenuation = 2.0
@@ -470,7 +483,7 @@ func _build_lights() -> void:
 	_dash_light.shadow_enabled = false
 	add_child(_dash_light)
 	_tail_light = OmniLight3D.new()
-	_tail_light.position = _mb(Vector3(-2.55, 0.62, 0.0))
+	_tail_light.position = _mb(info.get("tail_pos", Vector3(-2.55, 0.62, 0.0)))
 	_tail_light.light_color = Color(1.0, 0.12, 0.06)
 	_tail_light.omni_range = 2.0
 	_tail_light.light_energy = 0.0
@@ -539,6 +552,24 @@ func teleport(xf: Transform3D) -> void:
 	sleeping = false
 
 
+## Stock waiting for a buyer at the dealer: once it has settled on its wheels it is held
+## still, so nothing nudges or creeps it off its spot over a long session (a heavy tractor
+## would slowly roll on a parked brake); a test drive or the sale lets it go.
+func _hold_on_display(delta: float) -> void:
+	if owned or driver != null:
+		if freeze:
+			freeze = false
+			sleeping = false
+		_settle_t = 0.0
+		return
+	if freeze:
+		return
+	_settle_t += delta
+	if _settle_t > 1.5 and linear_velocity.length() < 0.05 and angular_velocity.length() < 0.05:
+		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+		freeze = true
+
+
 func set_driver(d: Node) -> void:
 	var was := driver
 	driver = d
@@ -596,6 +627,7 @@ func speed_kmh() -> float:
 
 
 func _physics_process(delta: float) -> void:
+	_hold_on_display(delta)
 	var fwd := forward_speed()
 	var throttle := 0.0
 	var steer_in := 0.0
@@ -623,7 +655,9 @@ func _physics_process(delta: float) -> void:
 		elif has_fuel and fwd > -max_rev:
 			force = -float(info.get("reverse_force", 2000.0)) * -throttle
 			reversing = true
-	engine_force = force
+	# VehicleBody3D gives every driven wheel the whole engine force: four-wheel drive
+	# shares it out instead of doubling it.
+	engine_force = force * (0.5 if info.get("drive", "rwd") == "4wd" else 1.0)
 	brake = brake_force * absf(throttle) if braking else (0.0 if driver else brake_force * 0.3)
 	# Coasting: engine braking and rolling resistance.
 	if absf(throttle) < 0.05 and driver:
@@ -746,30 +780,33 @@ func set_lights(on: bool) -> void:
 	if _dash_light:
 		_dash_light.light_energy = 0.09 if on else 0.0
 		_dash_light.visible = on
-	if _head_mat:
-		_head_mat.emission_energy_multiplier = 4.0 * LAMP_GLOW * energy if on else 0.0
+	for m: StandardMaterial3D in _lamps["head"]:
+		m.emission_energy_multiplier = 4.0 * LAMP_GLOW * energy if on else 0.0
 	_set_light_states(false, false)
 
 
 func _set_light_states(braking: bool, reversing: bool) -> void:
 	var tail := BRAKE_GLOW if braking else (TAIL_GLOW if lights_on else 0.0)
-	if _brake_mat:
-		_brake_mat.emission_energy_multiplier = tail
+	for m: StandardMaterial3D in _lamps["brake"]:
+		m.emission_energy_multiplier = tail
 	var glow := Vector2(tail, 1.2 if lights_on else 0.0)
-	if _trim_mat and glow != _trim_glow:
+	if glow != _trim_glow:
 		# The tail lamps on the bed's corners (trim atlas) and the amber side markers.
 		_trim_glow = glow
-		_trim_mat.set_shader_parameter("tail_glow", glow.x)
-		_trim_mat.set_shader_parameter("marker_glow", glow.y)
-	if _reverse_mat:
-		_reverse_mat.emission_energy_multiplier = (4.0 if reversing else 0.0) * LAMP_GLOW
+		for key: String in _mats:
+			if key.begins_with("trim:"):
+				(_mats[key] as ShaderMaterial).set_shader_parameter("tail_glow", glow.x)
+				(_mats[key] as ShaderMaterial).set_shader_parameter("marker_glow", glow.y)
+	for m: StandardMaterial3D in _lamps["reverse"]:
+		m.emission_energy_multiplier = (4.0 if reversing else 0.0) * LAMP_GLOW
 	_tail_light.light_energy = 0.6 if braking else (0.12 if lights_on else 0.0)
 
 
 ## Where the driver steps out (left side), on the ground; the right side if blocked.
 func exit_point() -> Vector3:
+	var eyes: Vector3 = info.get("eyes", Vector3(0.4, 1.5, -0.38))
 	for side: float in [1.0, -1.0]:
-		var p := to_global(Vector3(side * 1.75, 0.0, 0.4))
+		var p := to_global(Vector3(side * (half_width() + 0.78), 0.0, eyes.x - _mid_x))
 		p.y = maxf(TerrainData.height(p.x, p.z), global_position.y - 0.5) + 0.15
 		var q := PhysicsShapeQueryParameters3D.new()
 		var cap := CapsuleShape3D.new()
@@ -782,6 +819,26 @@ func exit_point() -> Vector3:
 		if get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty():
 			return p
 	return global_position + Vector3(0, 2.2, 0)
+
+
+## Half the body's width (its collision boxes).
+func half_width() -> float:
+	var w := 0.9
+	for box: Array in info.get("boxes", []):
+		w = maxf(w, (box[1] as Vector3).z * 0.5)
+	return w
+
+
+## The body's length (its collision boxes).
+func body_length() -> float:
+	var lo := INF
+	var hi := -INF
+	for box: Array in info.get("boxes", []):
+		var c: Vector3 = box[0]
+		var sz: Vector3 = box[1]
+		lo = minf(lo, c.x - sz.x * 0.5)
+		hi = maxf(hi, c.x + sz.x * 0.5)
+	return hi - lo if hi > lo else 5.3
 
 
 func driver_eye_global() -> Vector3:
@@ -986,7 +1043,7 @@ func clear_spot_near(xf: Transform3D) -> Transform3D:
 	var q := PhysicsShapeQueryParameters3D.new()
 	var box := BoxShape3D.new()
 	# Body frame: width across X, length along Z; kept clear of the ground.
-	box.size = Vector3(2.1, 1.3, 5.6)
+	box.size = Vector3(half_width() * 2.0 + 0.2, 1.3, body_length() + 0.3)
 	q.shape = box
 	q.collision_mask = 1
 	q.exclude = [get_rid()]

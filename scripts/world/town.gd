@@ -2,7 +2,8 @@ class_name Town
 extends Node3D
 ## The town of Yeşilova along the county road: a general market (buy seeds and raw
 ## materials, sell produce, also straight from a parked pickup), a filling station, the
-## car dealership with a better pickup for sale, the Animal Market (a small farm yard
+## car dealership (Yeşilova Oto Galeri: used pickups, vans, a truck, an estate, a 4x4 and
+## a tractor on the lot and in the showroom), the Animal Market (a small farm yard
 ## with animals of every kind on show: buy them there, hens in crates loaded into the
 ## pickup parked in the street), a couple of houses, pavements, street lamps and signs.
 ## Built from BuildingKit pieces.
@@ -21,6 +22,26 @@ const MARKET := Rect2(196, -4, 20, 14)
 const PARKING := Rect2(186, -2, 9.5, 15.3)
 const DEALER := Rect2(232, -10, 30, 18)
 const DEALER_LOT := Rect2(232, 8, 30, 5.3)
+## Where the dealership shows what it sells (VehicleTable.FOR_SALE): x, z and heading
+## (degrees, 90: nose east). On the lot in a row along the street, or in the showroom
+## behind the glass (one on the turntable), each with its price board.
+const DEALER_SPOTS := {
+	&"pickup_stake": Vector3(236.3, 10.65, 90.0),
+	&"pickup_90": Vector3(242.3, 10.65, 90.0),
+	&"pickup_box": Vector3(250.3, 10.65, 90.0),
+	&"truck": Vector3(257.4, 10.65, 90.0),
+	&"pickup_canopy": Vector3(237.6, 2.2, 45.0),
+	&"wagon": Vector3(242.0, -2.0, 25.0),
+	&"offroad": Vector3(251.2, 2.3, -45.0),
+	&"tractor": Vector3(258.2, 1.4, -110.0),
+}
+## The dealership's turntable in the showroom (x, z, radius) and how fast it turns
+## (radians a second).
+const TURNTABLE := Vector3(242.0, -2.0, 3.2)
+const TURN_SPEED := 0.12
+## Where a vehicle bought in the showroom is brought out: the service bay's apron on
+## the east side, nose to the street.
+const DELIVERY := Vector3(264.4, -1.2, 0.0)
 const STATION := Rect2(194, 23.5, 34, 23.5)
 const CANOPY := Rect2(199, 29, 24, 10)
 const KIOSK := Rect2(202, 41, 18, 7)
@@ -49,9 +70,10 @@ const FORECOURT_X := Vector2(196.0, 216.0)
 ## Fuel price per litre, in dollars.
 const FUEL_PRICE := 0.5
 
-## Kerbs are bevelled into mountable kerbs across the driveways (x from, x to).
+## Kerbs are bevelled into mountable kerbs across the driveways (x from, x to): on the
+## south side the filling station's and the Animal Market lane's.
 const DRIVEWAYS_N: Array[Vector2] = [Vector2(186.0, 195.5), Vector2(232.0, 262.0)]
-const DRIVEWAYS_S: Array[Vector2] = [Vector2(194.0, 228.0)]
+const DRIVEWAYS_S: Array[Vector2] = [Vector2(194.0, 228.0), Vector2(246.1, 252.1)]
 ## Storm drains in the gutters (x) on each side of the street.
 const DRAINS_N: Array[float] = [199.5, 223.0, 247.5, 270.0]
 const DRAINS_S: Array[float] = [190.5, 212.5, 239.0, 268.5]
@@ -135,7 +157,17 @@ var market_pens := {}
 var herd: MarketHerd
 var market_avoid := {}
 var pumps: Array[Node3D] = []
+## The dealer's pickup on the lot (the Lightbody '90), and everything the dealership
+## sells (VehicleTable.FOR_SALE order), bought or not.
 var for_sale: Vehicle
+var dealer_stock: Array[Vehicle] = []
+## The showroom's spot lights over the cars (they cast shadows on High and Ultra).
+var _showroom_spots: Array[SpotLight3D] = []
+## The turntable's deck and the car for sale on it, which turns with it once it has
+## settled on its wheels (see _turn_showroom).
+var _deck: MeshInstance3D
+var _turn_vehicle: Vehicle
+var _turn_settle := 2.0
 ## Grandpa's old pickup: the player's from the first day, parked by the farm warehouse.
 var farm_truck: Vehicle
 var _lamps: Array[Light3D] = []
@@ -204,10 +236,18 @@ func _ready() -> void:
 			# The garden paths from the gates to the door steps, the bales by the market office.
 			Rect2(272.6, 8.0, 1.8, 4.0), Rect2(274.6, 27.0, 1.8, 4.0), Rect2(RANCH_OFFICE.position.x - 1.1, RANCH_OFFICE.position.y + 2.0, 0.9, 5.6)]:
 		Game.world.block_grass(r)
-	_spawn_vehicle_for_sale()
+	_spawn_dealer_stock()
 	_spawn_farm_truck()
+	# The townspeople (scripts/npc): at the counters, the pumps, the dealer's, on the pavements.
+	add_child(TownPeople.new())
+	# Carnival nights (Carnival): the town's dressing, built only on those evenings.
+	add_child(TownCarnival.new())
 	Settings.changed.connect(_apply_quality)
 	_apply_quality()
+
+
+func _physics_process(delta: float) -> void:
+	_turn_showroom(delta)
 
 
 func _process(_delta: float) -> void:
@@ -235,6 +275,8 @@ func _apply_quality() -> void:
 	for mmi in _prop_nodes:
 		mmi.visibility_range_end = float(mmi.get_meta(&"range")) * DETAIL_RANGE[q]
 	_wires_mi.visibility_range_end = 120.0 if q == Settings.Quality.LOW else 220.0
+	for l in _showroom_spots:
+		l.shadow_enabled = q >= Settings.Quality.HIGH
 
 
 ## Ground decals fade out under snow (the road's own paint does too); all of them
@@ -285,6 +327,8 @@ static func _materials() -> Dictionary:
 		_mats[&"t_pavers"] = _photo("patterned_concrete_pavers", {"uv_scale": 1.0 / 1.8, "ao_strength": 1.0, "weathering": 0.65})
 		_mats[&"t_brick"] = _photo("red_brick_03", {"uv_scale": 0.5, "grime_top": 0.9, "weathering": 0.1})
 		_mats[&"t_plaster"] = _photo("painted_plaster_wall", {"uv_scale": 0.4, "grime_top": 0.8, "weathering": 0.08})
+		# The dealership's showroom windows: clean plate glass, the cars behind plain to see.
+		_mats[&"t_showroom_glass"] = Mats._window_glass({"clarity": 0.9, "dirt": 0.08, "wobble": 0.0, "tint": Color(0.62, 0.68, 0.7)})
 		var print_mat := StandardMaterial3D.new()
 		print_mat.albedo_texture = load("res://art/textures/town/town_print_albedo.png")
 		print_mat.vertex_color_use_as_albedo = true
@@ -1248,11 +1292,18 @@ func _dealer(mb: MeshBuilder, cols: Array) -> void:
 	var y0 := _y(DEALER.get_center().x, DEALER.get_center().y) + 0.15
 	var h := 5.6
 	BuildingKit.shell(mb, cols, DEALER, y0, h, 0.3, &"t_plaster", Color(0.6, 0.6, 0.6), {
-		"s": [{"at": 7.0, "w": 11.0, "bottom": 0.25, "top": 4.8, "glass": true, "mullions": 2.75},
+		"s": [{"at": 7.0, "w": 11.0, "bottom": 0.25, "top": 4.8, "glass": false},
 			{"at": 15.0, "w": 3.0, "bottom": 0.0, "top": 3.0, "glass": false},
-			{"at": 23.0, "w": 11.0, "bottom": 0.25, "top": 4.8, "glass": true, "mullions": 2.75}],
+			{"at": 23.0, "w": 11.0, "bottom": 0.25, "top": 4.8, "glass": false}],
 		"e": [{"at": 9.0, "w": 5.0, "bottom": 0.0, "top": 3.6, "glass": false}],
 	})
+	# The showroom's plate glass: clear enough to show the cars inside from the street.
+	for cx: float in [DEALER.position.x + 7.0, DEALER.position.x + 23.0]:
+		var gz := DEALER.end.y - 0.15
+		_glass("DealerGlass").box_at(&"t_showroom_glass", Vector3(cx, y0 + 2.525, gz), Vector3(11.0 - 0.14, 4.55 - 0.14, 0.02), Color.WHITE)
+		for k in range(1, 4):
+			mb.box_at(&"metal", Vector3(cx - 5.5 + 11.0 * k / 4.0, y0 + 2.525, gz), Vector3(0.05, 4.55, 0.34), Color(0.13, 0.14, 0.15))
+		cols.append([Vector3(cx, y0 + 2.525, gz), Vector3(11.0, 4.55, 0.3), 0.0])
 	var fz := DEALER.end.y + 0.02
 	mb.box_at(&"sign", Vector3(DEALER.get_center().x, y0 + 5.35, fz + 0.1), Vector3(DEALER.size.x + 0.3, 1.0, 0.22), Color(0.1, 0.2, 0.36))
 	BuildingKit.sign(self, "YEŞİLOVA OTO GALERİ", Vector3(DEALER.get_center().x, y0 + 5.35, fz + 0.24), 0.0, 140, Color(1, 1, 1))
@@ -1262,23 +1313,47 @@ func _dealer(mb: MeshBuilder, cols: Array) -> void:
 	mb.box_at(&"metal", desk + Vector3(0, 0.92, 0), Vector3(2.3, 0.05, 1.1), Color(0.8, 0.8, 0.78))
 	mb.box_at(&"metal", desk + Vector3(-0.4, 1.15, -0.2), Vector3(0.6, 0.4, 0.04), Color(0.08, 0.08, 0.09))
 	_interactable(desk + Vector3(0, 0.5, 0), Vector3(2.2, 1.0, 1.0), "ACTION_DEALER",
-			func() -> void: Game.hud.open_dealer(for_sale))
-	var turntable := Vector3(DEALER.position.x + 10.0, y0 + 0.02, DEALER.position.y + 8.0)
-	mb.cylinder(&"concrete", Transform3D(Basis(), turntable), 3.2, 3.2, 0.12, 48, Color(0.72, 0.72, 0.72))
+			func() -> void: Game.hud.open_dealer(null))
+	# The turntable: a low steel disc with a rubber-edged deck (it takes a car).
+	var turntable := Vector3(TURNTABLE.x, y0 + 0.02, TURNTABLE.y)
+	mb.cylinder(&"metal", Transform3D(Basis(), turntable), TURNTABLE.z, TURNTABLE.z, 0.1, 64, Color(0.2, 0.2, 0.21))
+	# The deck turns (see _turn_showroom): its own mesh, with a ring of seams.
+	var deck := MeshBuilder.new()
+	deck.cylinder(&"concrete", Transform3D(Basis(), Vector3(0, 0.1, 0)), TURNTABLE.z - 0.06, TURNTABLE.z - 0.06, 0.02, 64, Color(0.62, 0.62, 0.62))
+	for k in 12:
+		var a := TAU * k / 12.0
+		deck.box(&"metal", Transform3D(Basis(Vector3.UP, -a), Vector3(cos(a), 0, sin(a)) * (TURNTABLE.z - 0.5) + Vector3(0, 0.121, 0)),
+				Vector3(0.9, 0.004, 0.02), Color(0.35, 0.35, 0.36))
+	_deck = MeshInstance3D.new()
+	_deck.name = "TurntableDeck"
+	_deck.mesh = deck.build(_materials())
+	_deck.position = turntable
+	_deck.visibility_range_end = 120.0
+	add_child(_deck)
+	var disc := StaticBody3D.new()
+	disc.name = "Turntable"
+	var disc_shape := CollisionShape3D.new()
+	var cylinder := CylinderShape3D.new()
+	cylinder.radius = TURNTABLE.z
+	cylinder.height = 0.12
+	disc_shape.shape = cylinder
+	disc.position = turntable + Vector3(0, 0.06, 0)
+	disc.add_child(disc_shape)
+	add_child(disc)
 	for p: Vector3 in [Vector3(DEALER.position.x + 2.0, y0, DEALER.end.y - 1.6), Vector3(DEALER.end.x - 2.0, y0, DEALER.end.y - 1.6)]:
 		mb.cylinder(&"concrete", Transform3D(Basis(), p), 0.35, 0.3, 0.6, 16, Color(0.3, 0.3, 0.3))
 		mb.blob(&"foliage", Transform3D(Basis(), p + Vector3(0, 1.0, 0)), 0.55, 2, Color(0.25, 0.4, 0.18), 0.2, 2.0, 7, 0.0, true, 0.0)
 	for lx in 4:
 		mb.box_at(&"glow", Vector3(DEALER.position.x + 4.0 + lx * 7.3, y0 + h - 0.1, DEALER.get_center().y), Vector3(2.4, 0.04, 0.3), Color(1.0, 0.98, 0.94))
-	var light := OmniLight3D.new()
-	light.position = Vector3(DEALER.get_center().x, y0 + h - 0.8, DEALER.get_center().y)
-	light.light_energy = 1.4
-	light.omni_range = 16.0
-	add_child(light)
-	# Price board on the lot.
-	var board := Vector3(DEALER_LOT.position.x + 16.0, _y(248, 12) + 0.15, DEALER_LOT.end.y - 0.4)
-	mb.box_at(&"metal", board + Vector3(0, 0.6, 0), Vector3(0.08, 1.2, 0.08), Color(0.2, 0.2, 0.2))
-	mb.box_at(&"sign", board + Vector3(0, 1.35, 0), Vector3(1.6, 0.7, 0.06), Color(0.95, 0.8, 0.2))
+	for lx: float in [-7.5, 7.5]:
+		var light := OmniLight3D.new()
+		light.position = Vector3(DEALER.get_center().x + lx, y0 + h - 0.8, DEALER.get_center().y)
+		light.light_energy = 1.3
+		light.omni_range = 13.0
+		light.light_color = Color(1.0, 0.97, 0.92)
+		add_child(light)
+	_showroom_lights(mb, y0, h)
+	_showroom_dressing(mb, cols, y0)
 	_dealer_dressing(mb, cols, y0)
 
 
@@ -1598,15 +1673,183 @@ func vehicle_at_poultry() -> Vehicle:
 	return LiveCrates.vehicle_near(poultry_stall.global_position)
 
 
-func _spawn_vehicle_for_sale() -> void:
-	var p := Vector3(DEALER_LOT.position.x + 8.0, 0.0, DEALER_LOT.get_center().y)
-	p.y = _y(p.x, p.z) + 0.25
-	for_sale = Vehicle.create(&"pickup_90", Transform3D(Basis(Vector3.UP, PI * 0.5), p), true)
-	add_child(for_sale)
-	for_sale.reset_physics_interpolation()
-	var price := BuildingKit.sign(self, UiTheme.money(for_sale.price),
-			Vector3(DEALER_LOT.position.x + 16.0, _y(248, 12) + 1.5, DEALER_LOT.end.y - 0.36), 0.0, 90, Color(0.12, 0.1, 0.05), Color(0, 0, 0, 0), false)
-	for_sale.changed.connect(func() -> void: price.visible = not for_sale.owned)
+## Everything the dealership sells, each on its spot (DEALER_SPOTS) with its price
+## board; `for_sale` is the Lightbody '90 on the lot. A loaded game puts the ones the
+## player bought where they were left.
+func _spawn_dealer_stock() -> void:
+	dealer_stock.clear()
+	for kind: StringName in VehicleTable.FOR_SALE:
+		var spot: Vector3 = DEALER_SPOTS.get(kind, Vector3(DEALER_LOT.get_center().x, DEALER_LOT.get_center().y, 90.0))
+		var v := Vehicle.create(kind, dealer_spot(kind), true)
+		add_child(v)
+		v.reset_physics_interpolation()
+		dealer_stock.append(v)
+		if kind == &"pickup_90":
+			for_sale = v
+		var board := _price_board(Vector2(spot.x, spot.y), v)
+		v.changed.connect(func() -> void: board.visible = not v.owned)
+		if Vector2(spot.x, spot.y).distance_to(Vector2(TURNTABLE.x, TURNTABLE.y)) < 0.1:
+			_turn_vehicle = v
+
+
+## The car for sale on the turntable turns slowly with the deck: once it has settled on
+## its wheels it is frozen and turned by hand (a moving deck would drag it about); as
+## soon as it is bought, driven or moved off, it is a free body again.
+func _turn_showroom(delta: float) -> void:
+	if _turn_vehicle == null or not is_instance_valid(_turn_vehicle):
+		return
+	var v := _turn_vehicle
+	var on := not v.owned and v.driver == null \
+			and Vector2(v.global_position.x - TURNTABLE.x, v.global_position.z - TURNTABLE.y).length() < 0.6
+	if not on:
+		if v.freeze:
+			v.freeze = false
+			v.sleeping = false
+		_turn_settle = 2.0
+		return
+	if _turn_settle > 0.0:
+		_turn_settle -= delta
+		return
+	if not v.freeze:
+		v.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		v.freeze = true
+	var step := TURN_SPEED * delta
+	var xf := v.global_transform
+	xf.basis = Basis(Vector3.UP, step) * xf.basis
+	v.global_transform = xf
+	_deck.rotate_y(step)
+
+
+## Where the dealership shows `kind` (on the floor, the turntable or the lot).
+func dealer_spot(kind: StringName) -> Transform3D:
+	var spot: Vector3 = DEALER_SPOTS.get(kind, Vector3(DEALER_LOT.get_center().x, DEALER_LOT.get_center().y, 90.0))
+	var p := Vector3(spot.x, 0.0, spot.y)
+	if showroom_has(p):
+		p.y = _y(DEALER.get_center().x, DEALER.get_center().y) + 0.17 + 0.25
+		if Vector2(p.x, p.z).distance_to(Vector2(TURNTABLE.x, TURNTABLE.y)) < TURNTABLE.z:
+			p.y += 0.12
+	else:
+		p.y = _y(p.x, p.z) + 0.25
+	return Transform3D(Basis(Vector3.UP, deg_to_rad(spot.z)), p)
+
+
+## Whether `p` is inside the showroom.
+static func showroom_has(p: Vector3) -> bool:
+	return DEALER.grow(-0.3).has_point(Vector2(p.x, p.z))
+
+
+## A price board by a vehicle for sale: a yellow A-board on the lot, facing the street,
+## or a lit stand beside it in the showroom.
+func _price_board(at: Vector2, v: Vehicle) -> Node3D:
+	var root := Node3D.new()
+	root.name = "PriceBoard_%s" % v.kind
+	add_child(root)
+	var mb := MeshBuilder.new()
+	var inside := showroom_has(Vector3(at.x, 0.0, at.y))
+	var base: Vector3
+	var yaw := 0.0
+	if inside:
+		# In front of the car, turned to the glass.
+		var fwd := v.global_basis.z
+		var side := v.global_basis.x
+		base = v.global_position + fwd * (v.body_length() * 0.5 - 0.4) + side * (v.half_width() + 0.55)
+		if Vector2(at.x, at.y).distance_to(Vector2(TURNTABLE.x, TURNTABLE.y)) < TURNTABLE.z:
+			# Off the turning deck, on the side of the glass.
+			base = Vector3(TURNTABLE.x + 1.3, 0.0, TURNTABLE.y + TURNTABLE.z + 0.45)
+		base.y = _y(DEALER.get_center().x, DEALER.get_center().y) + 0.17
+		var face := (Vector3(base.x, 0.0, DEALER.end.y + 4.0) - Vector3(base.x, 0.0, base.z)).normalized()
+		yaw = atan2(face.x, face.z)
+		var b := Basis(Vector3.UP, yaw)
+		mb.cylinder(&"metal", Transform3D(b, base), 0.18, 0.18, 0.03, 20, Color(0.12, 0.12, 0.13))
+		mb.cylinder(&"metal", Transform3D(b, base), 0.02, 0.02, 0.95, 8, Color(0.6, 0.6, 0.62))
+		mb.box(&"metal", Transform3D(b * Basis(Vector3.RIGHT, deg_to_rad(-20.0)), base + Vector3(0, 1.0, 0)), Vector3(0.62, 0.42, 0.025), Color(0.08, 0.1, 0.16))
+		mb.box(&"sign", Transform3D(b * Basis(Vector3.RIGHT, deg_to_rad(-20.0)), base + Vector3(0, 1.0, 0) + b * Vector3(0, 0, 0.014)), Vector3(0.58, 0.38, 0.004), Color(0.95, 0.95, 0.93))
+	else:
+		# In front of the car's middle, on the lot's front edge.
+		base = Vector3(at.x, _y(at.x, DEALER_LOT.end.y - 0.55) + 0.15, DEALER_LOT.end.y - 0.55)
+		var legs := Color(0.2, 0.2, 0.2)
+		for sx: float in [-0.42, 0.42]:
+			for sz: float in [-0.12, 0.12]:
+				mb.cylinder_between(&"metal", base + Vector3(sx, 0, sz * 2.2), base + Vector3(sx, 0.95, sz * 0.3), 0.018, 0.016, 6, legs)
+		mb.box(&"sign", Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-8.0)), base + Vector3(0, 0.78, 0.07)), Vector3(1.0, 0.56, 0.03), Color(0.95, 0.8, 0.2))
+		mb.box(&"sign", Transform3D(Basis(Vector3.RIGHT, deg_to_rad(8.0)), base + Vector3(0, 0.78, -0.07)), Vector3(1.0, 0.56, 0.03), Color(0.95, 0.8, 0.2))
+	var mi := MeshInstance3D.new()
+	mi.mesh = mb.build(_materials())
+	mi.visibility_range_end = 90.0
+	root.add_child(mi)
+	var label := BuildingKit.sign(root, UiTheme.money(v.price), Vector3.ZERO, yaw, 72 if inside else 96,
+			Color(0.08, 0.1, 0.16) if inside else Color(0.12, 0.1, 0.05), Color(0, 0, 0, 0), false)
+	if inside:
+		label.position = base + Vector3(0, 1.0, 0) + Basis(Vector3.UP, yaw) * Vector3(0, 0.0, 0.03)
+		label.rotation = Vector3(deg_to_rad(-20.0), yaw, 0.0)
+	else:
+		label.position = base + Vector3(0, 0.8, 0.105)
+		label.rotation.x = deg_to_rad(-8.0)
+	label.visibility_range_end = 60.0
+	root.visible = not v.owned
+	return root
+
+
+## Inside the showroom: posters and the campaign banner on the back wall, a stack of
+## tyres and a drum of oil by the workshop door, a tyre rack.
+func _showroom_dressing(mb: MeshBuilder, cols: Array, y0: float) -> void:
+	var back := DEALER.position.y + 0.31
+	_print(mb, "banner", Vector3(DEALER.position.x + 11.0, y0 + 3.9, back), Vector3.BACK, Vector2(4.4, 1.1))
+	_print(mb, "poster_oil", Vector3(DEALER.position.x + 3.5, y0 + 1.8, back), Vector3.BACK, Vector2(0.8, 1.2))
+	_print(mb, "poster_sale", Vector3(DEALER.position.x + 18.5, y0 + 1.8, back), Vector3.BACK, Vector2(0.8, 1.2))
+	_print(mb, "hours", Vector3(DEALER.position.x + 21.0, y0 + 1.6, back), Vector3.BACK, Vector2(0.8, 0.4))
+	# Tyres stacked by the workshop door, one leaning on them; an oil drum.
+	var tx := DEALER.end.x - 1.2
+	var tz := DEALER.position.y + 2.2
+	for k in 4:
+		_prop("old_tyre", Vector3(tx, y0 + 0.02 + 0.083 + k * 0.165, tz), k * 0.9, 1.0, Basis(Vector3.RIGHT, PI * 0.5))
+	_prop("old_tyre", Vector3(tx - 0.72, y0 + 0.02 + 0.3, tz + 0.1), PI * 0.5, 1.0, Basis(Vector3.FORWARD, 0.2))
+	_prop("barrel_03", Vector3(tx, y0 + 0.02, tz + 1.3), 0.4)
+	cols.append([Vector3(tx - 0.3, y0 + 0.4, tz + 0.5), Vector3(1.6, 0.8, 2.0), 0.0])
+
+
+## Spot lights over the cars in the showroom, and a warm one over the desk.
+func _showroom_lights(mb: MeshBuilder, y0: float, h: float) -> void:
+	for kind: StringName in DEALER_SPOTS:
+		var spot: Vector3 = DEALER_SPOTS[kind]
+		if not showroom_has(Vector3(spot.x, 0.0, spot.y)):
+			continue
+		var at := Vector3(spot.x, y0 + h - 0.12, spot.y)
+		mb.cylinder(&"metal", Transform3D(Basis(), at + Vector3(0, -0.12, 0)), 0.12, 0.1, 0.12, 12, Color(0.1, 0.1, 0.11))
+		mb.box_at(&"glow", at + Vector3(0, -0.125, 0), Vector3(0.14, 0.01, 0.14), Color(1.0, 0.97, 0.9))
+		var l := SpotLight3D.new()
+		l.position = at + Vector3(0, -0.2, 0)
+		l.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
+		l.spot_range = 9.0
+		l.spot_angle = 44.0
+		l.spot_attenuation = 0.7
+		l.light_energy = 4.5
+		l.light_color = Color(1.0, 0.96, 0.9)
+		l.shadow_enabled = false
+		add_child(l)
+		_showroom_spots.append(l)
+
+
+## A vehicle just bought: one from the showroom is brought round to the service bay's
+## apron (DELIVERY), or the nearest clear spot to it. True when it was moved.
+func deliver(v: Vehicle) -> bool:
+	if v == null or not showroom_has(v.global_position):
+		return false
+	v.freeze = false
+	var p := Vector3(DELIVERY.x, 0.0, DELIVERY.y)
+	p.y = _y(p.x, p.z) + 0.3
+	var xf := Transform3D(Basis(Vector3.UP, deg_to_rad(DELIVERY.z)), p)
+	var q := PhysicsShapeQueryParameters3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(v.half_width() * 2.0 + 0.2, 1.3, v.body_length() + 0.3)
+	q.shape = box
+	q.collision_mask = 1
+	q.exclude = [v.get_rid()]
+	q.transform = Transform3D(xf.basis, p + Vector3(0, 1.1, 0))
+	if not get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty():
+		xf = v.clear_spot_near(xf)
+	v.teleport(xf)
+	return true
 
 
 ## Grandpa's pickup comes with the farm (a loaded game moves it to where it was left).
@@ -1832,6 +2075,52 @@ func _market_gate(mb: MeshBuilder, cols: Array) -> void:
 	# The gate leaves, open along the sides of the lane.
 	_field_gate(mb, Vector3(xa + 0.2, y, z + 0.1), Vector3(xa + 0.25, y, z + 2.75))
 	_field_gate(mb, Vector3(xb - 0.2, y, z + 0.1), Vector3(xb - 0.25, y, z + 2.75))
+	# Dropped kerbs: concrete ramps up onto the pavement from the lane and from the
+	# office door, so nobody has to hop up the pavement's edge.
+	_pavement_ramp(mb, cols, MARKET_LANE.position.x - 0.3, MARKET_LANE.end.x + 0.3, 1.1)
+	var door_x := RANCH_OFFICE.end.x - 6.8
+	_pavement_ramp(mb, cols, door_x - 1.0, door_x + 1.0, 0.9)
+
+
+## The south pavement's top at `x` (its 8 m slab's, see _pavements).
+func _walk_s_top(x: float) -> float:
+	var i := clampi(floori((x - WALK_S.position.x) / 8.0), 0, ceili(WALK_S.size.x / 8.0) - 1)
+	var s0 := WALK_S.position.x + i * 8.0
+	var s1 := minf(s0 + 8.0, WALK_S.end.x)
+	return _y((s0 + s1) * 0.5, WALK_S.get_center().y) + 0.15
+
+
+## A cast concrete ramp (a dropped kerb) from the south pavement's back edge down to
+## the ground over `length` metres, from x `x0` to `x1`: in strips of about a metre,
+## each starting flush with the slab it meets, with a few grip grooves across it. Its
+## collision is the sloped top, so feet and wheels roll up it.
+func _pavement_ramp(mb: MeshBuilder, cols: Array, x0: float, x1: float, length: float) -> void:
+	var z0 := WALK_S.end.y
+	var z1 := z0 + length
+	var n := maxi(roundi(x1 - x0), 1)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(x0 * 10.0)
+	for k in n:
+		var xa := x0 + (x1 - x0) * k / n
+		var xb := x0 + (x1 - x0) * (k + 1) / n
+		var xc := (xa + xb) * 0.5
+		var head := _walk_s_top(xc)
+		var foot := maxf(_y(xa, z1), _y(xb, z1)) + 0.012
+		var bottom := foot - 0.2
+		var col := Color(0.53, 0.53, 0.51).lightened(rng.randf_range(-0.04, 0.03))
+		var p: Array[Vector3] = [Vector3(xa + 0.004, bottom, z0), Vector3(xb - 0.004, bottom, z0), Vector3(xb - 0.004, head, z0),
+				Vector3(xa + 0.004, head, z0), Vector3(xa + 0.004, bottom, z1), Vector3(xb - 0.004, bottom, z1),
+				Vector3(xb - 0.004, foot, z1), Vector3(xa + 0.004, foot, z1)]
+		mb.hexa(&"concrete", p, col)
+		var slope := atan2(head - foot, length)
+		var b := Basis(Vector3.RIGHT, slope)
+		var mid := Vector3(xc, (head + foot) * 0.5, (z0 + z1) * 0.5)
+		cols.append([mid - b.y * 0.15, Vector3(xb - xa, 0.3, Vector2(length, head - foot).length()), b])
+		for g in 4:
+			var t := 0.2 + g * 0.2
+			var at := Vector3(xc, lerpf(head, foot, t), lerpf(z0, z1, t)) + b.y * 0.001
+			_fine.box(&"concrete", Transform3D(b, at), Vector3(xb - xa - 0.06, 0.004, 0.018), Color(0.3, 0.3, 0.29))
+	Game.world.block_grass(Rect2(x0, z0, x1 - x0, length + 0.2))
 
 
 ## A timber five-bar field gate from its hinge `a` to its latch end `b` (on the ground):

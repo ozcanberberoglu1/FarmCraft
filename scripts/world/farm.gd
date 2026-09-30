@@ -217,4 +217,6 @@ func _on_project_built(id: StringName) -> void:
 			var wh := get_node_or_null("Warehouse") as Warehouse
 			if wh:
 				wh.set_level(FarmState.warehouse_level(), true)
-	Game.notify(tr("MSG_BUILT") % tr("PROJECT_" + String(id).to_upper()), Color(0.55, 1.0, 0.45))
+	# Out of sight from here: the story's dot shows where it went up (Quests._guide_to).
+	var line := tr("MSG_BUILT_FOLLOW") if Quests.guide_label() != "" else tr("MSG_BUILT")
+	Game.notify(line % tr("PROJECT_" + String(id).to_upper()), Color(0.55, 1.0, 0.45))

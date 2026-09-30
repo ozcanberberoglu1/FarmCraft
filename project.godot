@@ -35,6 +35,7 @@ Quests="*res://autoload/quests.gd"
 DebugTools="*res://autoload/debug_tools.gd"
 SaveGame="*res://autoload/save_game.gd"
 Audio="*res://autoload/audio.gd"
+Carnival="*res://autoload/carnival.gd"
 
 [debug]
 
@@ -98,6 +99,10 @@ wind_strength={
 "value": 1.0
 }
 wetness={
+"type": "float",
+"value": 0.0
+}
+rain_amount={
 "type": "float",
 "value": 0.0
 }

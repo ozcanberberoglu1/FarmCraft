@@ -81,6 +81,16 @@ func run(scenario: String) -> void:
 			await _food()
 		"rooster":
 			await _rooster()
+		"hens":
+			await _hens()
+		"dealer":
+			await _dealer()
+		"people":
+			await _people()
+		"fixes":
+			await _fixes()
+		"carnival":
+			await _carnival()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -111,6 +121,11 @@ func run(scenario: String) -> void:
 			await _nature()
 			await _food()
 			await _rooster()
+			await _hens()
+			await _dealer()
+			await _people()
+			await _fixes()
+			await _carnival()
 			# Last: it ends by starting a new game.
 			await _save_load()
 		_:
@@ -652,6 +667,23 @@ func _weather() -> void:
 	var bed: Node3D = get_first_bed()
 	_check(Game.player.global_position.distance_to(bed.global_position) < 2.5, "woke up next to the bed")
 	GameClock.running = false
+
+	# Drops ring the pond only while rain falls; the ground stays wet a while after.
+	Weather.force(Weather.Kind.RAIN)
+	Weather.wetness = 1.0
+	for i in 60:
+		await _seconds(0.1)
+		if Weather.rain_fall > 0.6:
+			break
+	var raining_rings := Weather.rain_fall
+	Weather.force(Weather.Kind.SUNNY)
+	for i in 60:
+		await _seconds(0.1)
+		if Weather.rain_fall <= 0.0:
+			break
+	_check(raining_rings > 0.6 and Weather.rain_fall <= 0.0 and Weather.wetness > 0.5,
+			"the pond's rain rings stop with the rain (%.2f -> %.2f) while the ground stays wet (%.2f)" % [raining_rings, Weather.rain_fall, Weather.wetness])
+	Weather.forced = -1
 
 
 func _resources() -> void:
@@ -2444,7 +2476,7 @@ func _coop() -> void:
 ## the pocket.
 ## The second day's story and what it makes: the workbench kit bought at the board and
 ## put up near the house in a minute, the recipes and their market goods, the knife, the
-## rope bought, the rod, bait, a fish, a campfire, a meal (the fishing, the fire and eating
+## rope and bait bought, the rod, a fish, a campfire, a meal (the fishing, the fire and eating
 ## themselves are other tests': their events stand in for them here).
 func _progression() -> void:
 	var player: Player = Game.player
@@ -2612,7 +2644,7 @@ func _progression() -> void:
 	await _idle_frames(2)
 	_check(Quests.current()["id"] == "rope", "the knife ends the workshop: fishing begins with the rod's rope")
 
-	# (5) Fishing: rope from the market, the rod, bait, a fish, a campfire, a meal.
+	# (5) Fishing: rope and bait from the market, the rod, a fish, a campfire, a meal.
 	Economy.money = 0
 	Quests._hint = ""
 	Quests._target("buy:rope")
@@ -2625,16 +2657,24 @@ func _progression() -> void:
 	inv.add_item(&"rope", 2)
 	Quests._poll = 0.0
 	await _idle_frames(2)
-	_check(Quests.current()["id"] == "rod", "two ropes move on to the rod")
+	_check(Quests.current()["id"] == "bait", "two ropes move on to the bait, bought on the same trip")
+	# In town the bait comes from the market (dough), not a trip back to the bench.
+	var at_player := player.global_transform
+	var tc := WorldLayout.TOWN_CENTER
+	player.global_position = Vector3(tc.x, TerrainData.height(tc.x, tc.y) + 0.3, tc.y)
+	Quests._hint = ""
+	var to_bait: Variant = Quests._target("bait")
+	_check(to_bait != null and str(to_bait) == str(Quests._target("market")), "in town, the dot for bait points at the market")
+	player.global_transform = at_player
+	inv.add_item(&"dough", 3)
+	Quests._poll = 0.0
+	await _idle_frames(2)
+	_check(Quests.current()["id"] == "rod", "dough in the bag moves on to the rod")
 	inv.add_item(&"wood", 5)
 	_check(screen.craft(&"fishing_rod") and inv.count_item(&"fishing_rod") == 1, "the rod is made from wood and rope")
 	Quests._poll = 0.0
 	await _idle_frames(2)
-	_check(Quests.current()["id"] == "bait", "the rod moves on to bait")
-	inv.add_item(&"worm", 3)
-	Quests._poll = 0.0
-	await _idle_frames(2)
-	_check(Quests.current()["id"] == "fish", "worms in the bag move on to the fish")
+	_check(Quests.current()["id"] == "fish", "the rod moves on to the fish")
 	Quests._hint = ""
 	var pond: Variant = Quests._target("pond")
 	_check(pond is Vector3 and Vector2((pond as Vector3).x, (pond as Vector3).z).distance_to(WorldLayout.POND_CENTER) < WorldLayout.POND_RADIUS + 1.0,
@@ -4456,6 +4496,24 @@ func _camp() -> void:
 		if not sp.is_empty():
 			left = float(sp["left"])
 	_check(left > 6.0 and left < 8.0 and cooked_items.is_empty(), "still cooking a few seconds in (%.1f s left)" % left)
+	# The bag open: the fish go on cooking. The pause menu: they wait.
+	var spit_left := func() -> float:
+		for sp: Dictionary in fire._spits:
+			if not sp.is_empty():
+				return float(sp["left"])
+		return 0.0
+	Game.push_ui(&"inventory")
+	var before_bag: float = spit_left.call()
+	await _seconds(1.0)
+	var after_bag: float = spit_left.call()
+	Game.pop_ui(&"inventory")
+	Game.push_ui(&"pause")
+	await _seconds(0.6)
+	var after_pause: float = spit_left.call()
+	Game.pop_ui(&"pause")
+	_check(before_bag - after_bag > 0.8 and absf(after_pause - after_bag) < 0.05,
+			"cooking goes on with the bag open (%.1f -> %.1f s) and waits in the pause menu" % [before_bag, after_bag])
+	left = after_pause
 	# The rest of the ten seconds.
 	await _seconds(left + 1.2)
 	_check(inv.count_item(cooked) == 2 and cooked_items.size() == 2 and fire.cook_status().is_empty(),
@@ -6062,3 +6120,1127 @@ func _bone_height(n: Animal, bone: String) -> float:
 	var sk := n.rig.skeleton
 	var p := sk.global_transform * sk.get_bone_global_pose(int(n.rig._b.get(bone, 0))).origin
 	return p.y - n.housing.ground_height(p)
+
+
+# --- Townspeople -------------------------------------------------------------------------------
+
+## Yeşilova's townspeople: every workplace has its worker at his post and loaded, nobody
+## stands in a vehicle; the walkers walk and keep off the street but for the zebra
+## crossing; the market counter, the pumps, the dealer's desk and the Animal Market
+## hatch still open their screens (from the point and from the worker standing there);
+## a local answers E with a line of his own, a walker stops for it.
+## With -- --people-shots=/abs/dir it also saves a few screenshots.
+func _people() -> void:
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	for scr: Control in [Game.hud.shop_screen, Game.hud.dealer_screen, Game.hud.rancher_screen]:
+		if scr.visible:
+			scr.hide_screen()
+	await _frames(3)
+	var people := {}
+	for p: Townsperson in tree.get_nodes_in_group(Townsperson.GROUP):
+		people[p.person] = p
+	_check(people.size() == 10, "Yeşilova has its 10 townspeople (%d)" % people.size())
+	var loaded := people.values().all(func(p: Townsperson) -> bool:
+		return p.rig != null and p.rig.body.mesh != null and p.rig.body.mesh.get_surface_count() >= 5 and p.rig.skeleton.get_bone_count() > 40)
+	_check(loaded, "every townsperson has a dressed, rigged body")
+	var dealer: TownPoint = null
+	for c in town.get_children():
+		if c is TownPoint and (c as TownPoint).prompt_key == "ACTION_DEALER":
+			dealer = c
+	var posts := [[&"shopkeeper", town.market_counter, 1.6], [&"salesman", dealer, 1.8], [&"rancher", town.market_office, 2.2],
+		[&"attendant", town.pumps[0], 1.2]]
+	for post: Array in posts:
+		var who: Townsperson = people.get(post[0])
+		var at: Node3D = post[1]
+		var d := 99.0 if who == null or at == null else Vector2(who.global_position.x - at.global_position.x, who.global_position.z - at.global_position.z).length()
+		_check(d < float(post[2]), "%s is at his post (%.2f m from it)" % [post[0], d])
+	var in_vehicle: Array[String] = []
+	for p: Townsperson in people.values():
+		for v: Node3D in tree.get_nodes_in_group(Vehicle.GROUP):
+			var l := v.global_transform.affine_inverse() * p.global_position
+			if absf(l.x) < 1.1 and absf(l.z) < 2.6 and absf(l.y) < 2.0:
+				in_vehicle.append(String(p.person))
+	_check(in_vehicle.is_empty(), "nobody stands in a vehicle %s" % [in_vehicle])
+	# The walkers walk, on the pavements (over the street only on the zebra crossing).
+	var walkers: Array[Townsperson] = []
+	for p: Townsperson in people.values():
+		if p.act == Townsperson.Act.WALK:
+			walkers.append(p)
+	player.global_position = Vector3(215.0, _people_floor(215.0, 19.0, 3.0) + 0.1, 19.0)
+	var start := walkers.map(func(w: Townsperson) -> Vector3: return w.global_position)
+	var walked := walkers.map(func(_w: Townsperson) -> float: return 0.0)
+	var last := start.duplicate()
+	var on_road: Array[String] = []
+	for k in 64:
+		await _seconds(0.25)
+		for i in walkers.size():
+			var p := walkers[i].global_position
+			walked[i] += Vector2(p.x - last[i].x, p.z - last[i].z).length()
+			last[i] = p
+			if p.z > Town.WALK_N.end.y + 0.05 and p.z < Town.WALK_S.position.y - 0.05 and absf(p.x - Town.CROSSING_X) > 1.8:
+				on_road.append("%s at (%.1f, %.1f)" % [walkers[i].person, p.x, p.z])
+	var moved := walked.all(func(m: float) -> bool: return m > 3.0)
+	_check(walkers.size() == 3 and moved, "the walkers walk (%s m)" % [walked.map(func(m: float) -> String: return "%.1f" % m)])
+	_check(on_road.is_empty(), "the walkers keep off the street but for the crossing %s" % [on_road.slice(0, 3)])
+	if DebugTools.args.has("people-shots"):
+		# A walker from the side, a few frames of the gait.
+		for wi in walkers.size():
+			var wk := walkers[wi]
+			for k in 3:
+				var fwd := wk.global_basis.z
+				var side := fwd.cross(Vector3.UP).normalized()
+				player.global_position = wk.global_position + side * 3.2 + fwd * 0.6
+				_look_at(player, wk.global_position + Vector3(0, 0.9, 0))
+				await _people_shot("gait_%s_%d" % [wk.person, k])
+				await _seconds(0.23)
+	var bodies_ok := walkers.all(func(w: Townsperson) -> bool:
+		return absf(w.global_position.y - _people_floor(w.global_position.x, w.global_position.z, w.global_position.y + 1.0)) < 0.2)
+	_check(bodies_ok, "the walkers keep their feet on the ground")
+	# Posing the bodies stays cheap with most of them in view (the market front).
+	player.global_position = Vector3(203.0, _people_floor(203.0, 17.5, 0.5) + 0.05, 17.5)
+	_look_at(player, Vector3(201.0, 1.0, 11.0))
+	await _frames(10)
+	Townsperson.anim_usec = 0
+	var f0 := Engine.get_process_frames()
+	await _seconds(2.0)
+	var per_frame := float(Townsperson.anim_usec) / maxf(float(Engine.get_process_frames() - f0), 1.0) / 1000.0
+	_check(per_frame < 3.0, "posing the townspeople costs %.2f ms a frame" % per_frame)
+	# The market counter and the grocer both open the shop.
+	var shop: Townsperson = people[&"shopkeeper"]
+	var cp := town.market_counter.global_position
+	var floor_y := cp.y - 0.6
+	player.global_position = Vector3(cp.x - 0.2, floor_y + 0.05, cp.z - 1.5)
+	await _frames(6)
+	_look_at(player, cp)
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_SHOP_MARKET")) and not _last_prompt.contains(tr("PERSON_SHOPKEEPER")),
+			"the counter keeps its prompt (%s)" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(Game.hud.shop_screen.visible, "E at the counter opens the market")
+	Game.hud.shop_screen.close_screen()
+	await _frames(4)
+	_look_at(player, shop.global_position + Vector3(0, 1.45, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("PERSON_SHOPKEEPER")) and _last_prompt.contains(tr("ACTION_SHOP_MARKET")),
+			"the grocer offers his shop (%s)" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(Game.hud.shop_screen.visible and shop.is_speaking(), "E at the grocer greets and opens the market")
+	await _people_shot("shopkeeper")
+	Game.hud.shop_screen.close_screen()
+	await _frames(4)
+	# The dealer's desk and the dealer.
+	var salesman: Townsperson = people[&"salesman"]
+	var dp := dealer.global_position
+	player.global_position = Vector3(dp.x - 0.3, dp.y - 0.5 + 0.05, dp.z + 1.7)
+	await _frames(6)
+	_look_at(player, dp)
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_DEALER")), "the dealer's desk keeps its prompt")
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(Game.hud.dealer_screen.visible, "E at the desk opens the dealer's")
+	Game.hud.dealer_screen.hide_screen()
+	await _frames(4)
+	_look_at(player, salesman.global_position + Vector3(0, 1.45, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("PERSON_SALESMAN")) and _last_prompt.contains(tr("ACTION_DEALER")), "the dealer offers his cars")
+	await _people_shot("salesman")
+	# The pumps: the attendant only greets until the player's vehicle stands at a pump.
+	var att: Townsperson = people[&"attendant"]
+	var pump: TownPoint = town.pumps[0]
+	var truck := town.farm_truck
+	var truck_home := truck.global_transform
+	var fuel := truck.fuel
+	# Nothing of the player's at the pumps to begin with.
+	var moved_away := {}
+	for v: Vehicle in tree.get_nodes_in_group(Vehicle.GROUP):
+		for pp: Node3D in town.pumps:
+			if v.global_position.distance_to(pp.global_position) < 9.0 and not moved_away.has(v):
+				moved_away[v] = v.global_transform
+				v.teleport(Transform3D(v.global_basis, Vector3(275.0 + moved_away.size() * 6.0, v.global_position.y + 0.3, 20.0)))
+	await _frames(10)
+	var island_y := pump.global_position.y - 0.95
+	player.global_position = Vector3(pump.global_position.x - 2.0, island_y - 0.1, att.global_position.z + 0.3)
+	await _frames(6)
+	_look_at(player, att.global_position + Vector3(0, 1.4, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("PERSON_ATTENDANT")) and _last_prompt.contains(tr("ACTION_GREET")), "with no vehicle at the pumps the attendant greets")
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(att.is_speaking() and not Game.is_ui_open(), "E at the attendant: his greeting")
+	await _people_shot("attendant")
+	truck.teleport(Transform3D(Basis(), pump.global_position + Vector3(2.2, 0.0, 0.0)))
+	await _frames(20)
+	truck.fuel = 5.0
+	player.global_position = Vector3(pump.global_position.x - 2.0, island_y - 0.1, pump.global_position.z)
+	await _frames(6)
+	_look_at(player, pump.global_position)
+	await _frames(8)
+	_check(_last_prompt.contains(pump.interact_prompt(player)) and pump.interact_prompt(player) != tr("ACTION_REFUEL_NO_VEHICLE"),
+			"the pump keeps its prompt with the pickup at it")
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(truck.fuel > 30.0, "E at the pump refuels the pickup")
+	truck.fuel = 5.0
+	_look_at(player, att.global_position + Vector3(0, 1.4, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("PERSON_ATTENDANT")) and not _last_prompt.contains(tr("ACTION_GREET")), "with the pickup at the pump the attendant fills it")
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(truck.fuel > 30.0, "E at the attendant fills the pickup")
+	truck.teleport(truck_home)
+	truck.fuel = fuel
+	for v: Vehicle in moved_away:
+		v.teleport(moved_away[v])
+	await _frames(10)
+	# The Animal Market hatch (the stockman behind it).
+	var hp := town.market_office.global_position
+	player.global_position = Vector3(hp.x + 1.6, _people_floor(hp.x + 1.6, hp.z, hp.y) + 0.05, hp.z)
+	await _frames(6)
+	_look_at(player, hp)
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_SHOP_ANIMALS")), "the hatch keeps its prompt")
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(Game.hud.rancher_screen.visible, "E at the hatch opens the Animal Market")
+	Game.hud.rancher_screen.close_screen()
+	await _frames(4)
+	await _people_shot("rancher")
+	# A local answers a greeting with one of his lines.
+	var elder: Townsperson = people[&"elder"]
+	var ep := elder.global_position
+	player.global_position = Vector3(ep.x + 0.3, _people_floor(ep.x + 0.3, ep.z + 1.9, ep.y + 0.5) + 0.05, ep.z + 1.9)
+	await _frames(6)
+	_look_at(player, ep + Vector3(0, 1.0, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("PERSON_ELDER")) and _last_prompt.contains(tr("ACTION_GREET")), "Osman Dede can be greeted")
+	await _press_key(KEY_E)
+	await _frames(3)
+	var said: String = elder._bubble.text
+	_check(elder.is_speaking() and (said == tr("SAY_ELDER_1") or said == tr("SAY_ELDER_2")), "he answers: %s" % said)
+	await _seconds(0.6)
+	await _people_shot("elder")
+	# A walker stops for a greeting.
+	var w := walkers[0]
+	w.greet()
+	await _seconds(0.8)
+	var a := w.global_position
+	await _seconds(0.5)
+	_check(w.global_position.distance_to(a) < 0.05 and w.is_speaking(), "a walker stops to answer a greeting")
+	await _frames(3)
+
+
+func _people_floor(x: float, z: float, near_y: float) -> float:
+	var q := PhysicsRayQueryParameters3D.create(Vector3(x, near_y + 1.5, z), Vector3(x, near_y - 6.0, z), 1)
+	var hit := Game.player.get_world_3d().direct_space_state.intersect_ray(q)
+	return (hit["position"] as Vector3).y if not hit.is_empty() else near_y
+
+
+func _people_shot(shot_name: String) -> void:
+	if not DebugTools.args.has("people-shots"):
+		return
+	await _idle_frames(10)
+	var dir := String(DebugTools.args["people-shots"])
+	DirAccess.make_dir_recursive_absolute(dir)
+	Game.player.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+
+
+# --- The used-car dealership ------------------------------------------------------------
+
+## Yeşilova Oto Galeri: every vehicle it sells (VehicleTable.FOR_SALE) stands on its spot
+## on all four wheels (on the lot or in the showroom, with its price board), drives a few
+## metres on the street with the player at the wheel and gets out again, can be bought
+## with enough money (the dealer screen lists them all; one from the showroom is brought
+## round to the service bay) and comes back owned, where it was parked, after a save
+## and a load. Earlier scenarios may have bought or moved some of them.
+func _dealer() -> void:
+	var player: Player = Game.player
+	# With -- --dealer-shots=/abs/dir: the view from each driver's seat.
+	var shots := String(DebugTools.args.get("dealer-shots", ""))
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var stock := town.dealer_stock
+	_check(stock.size() == VehicleTable.FOR_SALE.size() and stock.size() >= 6 and town.for_sale in stock,
+			"the dealership has %d vehicles for sale" % stock.size())
+	var kinds := {}
+	for v in stock:
+		kinds[v.kind] = true
+	_check(kinds.size() == stock.size(), "each vehicle for sale is a different kind")
+	# Standing on their spots, wheels on the ground (the ones not bought yet).
+	player.global_position = Vector3(247.0, TerrainData.height(247.0, 18.0) + 0.3, 18.0)
+	await _seconds(2.5)
+	# Parked for a good while (a minute of physics), nothing creeps off its spot.
+	var parked_at := {}
+	for v in stock:
+		parked_at[v] = v.global_position
+	Engine.time_scale = 6.0
+	await _seconds(10.0)
+	Engine.time_scale = 1.0
+	var creep := 0.0
+	var creeper := &""
+	for v in stock:
+		var moved: float = v.global_position.distance_to(parked_at[v])
+		if moved > creep:
+			creep = moved
+			creeper = v.kind
+	_check(creep < 0.1, "parked for a minute, no vehicle creeps off its spot (%.2f m at most, %s)" % [creep, creeper])
+	var inside := 0
+	for v in stock:
+		var touching := 0
+		for key: String in ["fl", "fr", "rl", "rr"]:
+			if (v._wheels[key] as VehicleWheel3D).is_in_contact():
+				touching += 1
+		var spot := town.dealer_spot(v.kind)
+		print("DEALER %s owned=%s at %s spot %s wheels %d" % [v.kind, v.owned, v.global_position, spot.origin, touching])
+		if v.owned:
+			continue
+		if Town.showroom_has(v.global_position):
+			inside += 1
+		_check(touching == 4 and v.global_basis.y.y > 0.97 and Vector2(v.global_position.x, v.global_position.z).distance_to(Vector2(spot.origin.x, spot.origin.z)) < 0.5,
+				"%s stands on its spot on four wheels (%d touching)" % [v.kind, touching])
+		var board := town.get_node_or_null("PriceBoard_%s" % v.kind) as Node3D
+		_check(board != null and board.visible, "%s has its price board" % v.kind)
+	_check(inside >= 3, "%d vehicles stand in the showroom" % inside)
+	# The dealer screen lists them all.
+	Game.hud.open_dealer(null)
+	await _frames(3)
+	var screen: DealerScreen = Game.hud.dealer_screen
+	_check(screen.visible and screen._vehicle != null and screen._stock().size() == stock.size(), "the desk opens the dealer's list")
+	screen.close_screen()
+	await _frames(3)
+	# Each one drives on the street, then is bought.
+	Economy.money = maxi(Economy.money, 20000)
+	var parked := {}
+	var i := 0
+	for v in stock:
+		var street := Vector3(186.0, 0.0, 20.0)
+		street.y = TerrainData.height(street.x, street.z) + 0.6
+		v.teleport(Transform3D(Basis(Vector3.UP, PI * 0.5), street))
+		await _frames(30)
+		player.enter_vehicle(v)
+		await _frames(5)
+		_check(player.driving == v, "got into the %s" % v.kind)
+		if shots != "":
+			await _shot("%s/drive_%s.png" % [shots, v.kind])
+		var start := v.global_position
+		var fuel := v.fuel
+		Input.action_press("move_forward")
+		await _seconds(2.5)
+		var kmh := v.speed_kmh()
+		Input.action_release("move_forward")
+		var moved := v.global_position.distance_to(start)
+		Input.action_press("move_back")
+		await _seconds(1.5)
+		Input.action_release("move_back")
+		await _seconds(0.5)
+		_check(moved > 5.0 and kmh > 10.0 and kmh <= float(v.info["max_speed"]) + 3.0 and v.global_basis.y.y > 0.95 and v.fuel < fuel,
+				"the %s drives (%.1f m, %.0f km/h)" % [v.kind, moved, kmh])
+		player.exit_vehicle()
+		await _frames(8)
+		_check(player.driving == null and player.visible and player.global_position.distance_to(v.global_position) < v.half_width() + 3.0,
+				"got out of the %s" % v.kind)
+		if not v.owned:
+			# Back on its spot, then bought at the dealer's screen.
+			v.teleport(town.dealer_spot(v.kind))
+			await _frames(20)
+			var from_showroom := Town.showroom_has(v.global_position)
+			var money := Economy.money
+			Game.hud.open_dealer(v)
+			await _frames(3)
+			_check(screen.visible and screen._vehicle == v, "E at the %s opens its card" % v.kind)
+			screen._buy()
+			await _frames(3)
+			_check(v.owned and Economy.money == money - v.price and not screen.visible, "bought the %s for %d" % [v.kind, v.price])
+			if from_showroom:
+				_check(not Town.showroom_has(v.global_position), "the %s is brought out of the showroom (%s)" % [v.kind, v.global_position])
+			var board := town.get_node_or_null("PriceBoard_%s" % v.kind) as Node3D
+			_check(board == null or not board.visible, "the %s's price board is gone" % v.kind)
+		# Parked in a row north of town for the save.
+		var p := Vector3(208.0 + 7.0 * i, 0.0, -40.0)
+		p.y = TerrainData.height(p.x, p.z) + 0.6
+		v.teleport(Transform3D(Basis(Vector3.UP, PI), p))
+		v.fuel = 7.0 + i
+		i += 1
+	await _seconds(2.0)
+	# A full load of firewood fills every slot of each load space and stays inside it.
+	for v in stock:
+		v.cargo.from_dict({"capacity": v.cargo.capacity, "items": {}})
+		v.cargo.add(&"wood", v.cargo.capacity)
+	await _seconds(2.2)
+	for v in stock:
+		var bed := v.load_view()
+		var want := mini(bed.slots.size(), ceili(float(v.cargo.capacity) / bed.units_per_slot()))
+		_check(v.cargo.total() == v.cargo.capacity and bed.package_count() == want and bed.load_top() <= float(v.info["bed_top"]) + 0.03,
+				"the %s takes a full load: %d units in %d of %d slots, top %.2f m" % [v.kind, v.cargo.total(), bed.package_count(), bed.slots.size(), bed.load_top()])
+		if shots != "":
+			v.chase_camera = true
+			player.enter_vehicle(v)
+			await _frames(5)
+			await _shot("%s/load_%s.png" % [shots, v.kind])
+			player.exit_vehicle()
+			v.chase_camera = false
+			await _frames(5)
+		v.cargo.from_dict({"capacity": v.cargo.capacity, "items": {}})
+	await _seconds(1.0)
+	for v in stock:
+		parked[v.kind] = [v.global_position, v.fuel]
+	# Saved and loaded: all the player's, where they were left.
+	var slot := "slot_4"
+	_check(SaveGame.save(slot), "saved with the bought vehicles")
+	for v in stock:
+		v.owned = false
+	_check(SaveGame.load_game(slot), "loading the save started")
+	await _until_loaded()
+	town = tree.get_first_node_in_group(&"town") as Town
+	var back := 0
+	for v in town.dealer_stock:
+		var d: Array = parked.get(v.kind, [])
+		if not d.is_empty() and v.owned and v.global_position.distance_to(d[0]) < 0.8 and is_equal_approx(v.fuel, float(d[1])):
+			back += 1
+		else:
+			print("DEALER not back: %s owned=%s at %s (was %s)" % [v.kind, v.owned, v.global_position, d])
+	_check(back == town.dealer_stock.size(), "all %d bought vehicles are back after loading" % back)
+	SaveGame.delete(slot)
+
+
+# --- Poultry standing about -----------------------------------------------------------------
+
+## Standing still looks like standing: a hen, the rooster and a chick left to themselves
+## walk no gait and play no clip (one foot always planted where it stood, the body up),
+## yet keep looking about. Then a stretch of their ordinary day (hens, the rooster and
+## chicks waking at first light, out into the yard, at the feeder and the nests, in to roost
+## at dusk) in which no bird ever lies down or keels over outside the roost and the nests,
+## treads on the spot or plays a clip, and only the rooster faints, only after a crow.
+## With -- --hens-shots=/abs/dir it also saves contact sheets of each standing about (six
+## frames half a second apart).
+func _hens() -> void:
+	await _close_screens()
+	_free_hands()
+	var hour := GameClock.get_hour_float()
+	var clock_ran := GameClock.running
+	var money := Economy.money
+	GameClock.set_time_of_day(9.0)
+	Weather.force(Weather.Kind.SUNNY)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null, "a test coop stands")
+	if coop == null:
+		return
+	var h := coop.housing
+	h.door.set_open(true)
+	var hens: Array[Animal] = []
+	for i in 4:
+		hens.append(Animals.node_of(Animals.release(&"chicken", h)))
+	var rn := Animals.node_of(Animals.release(&"rooster", h))
+	# Two downy chicks and a pullet of the first hen's.
+	var chicks: Array[Animal] = []
+	for i in 3:
+		var c := Animals.hatch(h, h.door_outside(), hens[0].data)
+		c.species = &"chicken"
+		if i == 2:
+			c.growth = 2.6
+		var n := Animals.node_of(c)
+		n.visible = true
+		n._set_state(Animal.State.IDLE, 1.0)
+		n.refresh_body()
+		chicks.append(n)
+	var flock: Array[Animal] = []
+	flock.append_array(hens)
+	flock.append(rn)
+	flock.append_array(chicks)
+	_check(chicks[0]._look == &"chick" and chicks[2]._look == &"chicken" and rn.rig is PhotoRig and hens[0].rig is PhotoRig,
+			"four hens, the rooster, two chicks and a pullet (%s, %s)" % [chicks[0]._look, chicks[2]._look])
+
+	# (1) Standing about: a hen, the rooster and a chick (on its own a moment) in the yard.
+	var stand: Array[Animal] = [hens[0], rn, chicks[0]]
+	var mom := chicks[0].data.mother
+	chicks[0].data.mother = -1
+	var yard := h.door_outside() + h.front() * 2.6
+	for i in stand.size():
+		var n := stand[i]
+		var p := yard + h.frame.basis * Vector3((i - 1) * 1.3, 0, 0)
+		p.y = h.ground_height(p)
+		n.global_position = p
+		n.indoors = false
+		n.rotation.y = h.frame.basis.get_euler().y + PI * 0.5
+		n.reset_physics_interpolation()
+		n._set_state(Animal.State.IDLE, 60.0)
+	await _seconds(1.0)
+	var rec := {}
+	for n in stand:
+		rec[n] = {"l": _bone_local(n, "fl_ft").origin, "r": _bone_local(n, "fr_ft").origin, "phase": n.rig._phase,
+			"head": _bone_local(n, "head").basis.get_rotation_quaternion(), "turns": 0, "planted": 0.0, "moved": 0.0,
+			"low": 1.0, "gait": false, "clip": false, "node": false, "next": n.rig._time + 0.25}
+	var t_end := Time.get_ticks_msec() + 6000
+	while Time.get_ticks_msec() < t_end:
+		await tree.process_frame
+		for n in stand:
+			var r: Dictionary = rec[n]
+			var dl: float = _bone_local(n, "fl_ft").origin.distance_to(r["l"])
+			var dr: float = _bone_local(n, "fr_ft").origin.distance_to(r["r"])
+			r["planted"] = maxf(r["planted"], minf(dl, dr))
+			r["moved"] = maxf(r["moved"], maxf(dl, dr))
+			r["low"] = minf(r["low"], _bone_height(n, "body") / _stand_height(n))
+			r["gait"] = r["gait"] or n.rig._phase != r["phase"] or n._mode != AnimalRig.Mode.IDLE
+			r["clip"] = r["clip"] or _plays_clip(n)
+			r["node"] = r["node"] or _clip_moved_node(n)
+			if n.rig._time >= r["next"]:
+				r["next"] = n.rig._time + 0.25
+				var q := _bone_local(n, "head").basis.get_rotation_quaternion()
+				if q.angle_to(r["head"]) > 0.1:
+					r["turns"] += 1
+				r["head"] = q
+	for n in stand:
+		var r: Dictionary = rec[n]
+		var who := "the chick" if n == chicks[0] else ("the rooster" if n == rn else "a hen")
+		_check(not r["gait"] and not r["clip"] and not r["node"] and r["planted"] < 0.006,
+				"%s standing still walks no gait and plays no clip: a foot always where it stood (%.1f mm, the other up to %.1f cm)"
+				% [who, r["planted"] * 1000.0, r["moved"] * 100.0])
+		_check(r["low"] > 0.85 and r["turns"] >= 2, "%s stays up (%.0f%% of standing height at the lowest) and looks about (%d head turns in 6 s)"
+				% [who, r["low"] * 100.0, r["turns"]])
+	if DebugTools.args.has("hens-shots"):
+		# Nothing between the camera and the birds: the rocks and tall grass round the yard.
+		for g: StringName in [&"rocks", &"grass_patches"]:
+			for node in tree.get_nodes_in_group(g):
+				if (node as Node3D).global_position.distance_to(coop.global_position) < 12.0:
+					(node as Node3D).visible = false
+		for n in stand:
+			await _hens_sheet(n, h, "hens_idle_%s" % ("chick" if n == chicks[0] else String(n.data.species)))
+		# Each thing a hen does standing about, held for the camera: preening either side,
+		# scratching, pecking, a shake and a flick of the tail.
+		var acts: Array[Callable] = []
+		for a: Array in [[AnimalRig.BirdAct.PREEN, -1.0], [AnimalRig.BirdAct.PREEN, 1.0], [AnimalRig.BirdAct.SCRATCH, 1.0],
+				[AnimalRig.BirdAct.PECK, 1.0]]:
+			acts.append(func(r: AnimalRig) -> void:
+				r._start_act(a[0], 3.0)
+				r._act_side = a[1])
+		acts.append(func(r: AnimalRig) -> void: r._shake = 1.0)
+		acts.append(func(r: AnimalRig) -> void: r._flick = 1.0)
+		await _hens_sheet(hens[0], h, "hens_idle_acts", acts)
+	chicks[0].data.mother = mom
+
+	# (2) Their day, in play (the rooster's crows may end in a faint): from first light, and
+	# at dusk in to roost.
+	Animal.faint_in_tests = true
+	var stats := {}
+	for n in flock:
+		stats[n] = {"topple": 0.0, "lie": 0.0, "tread": 0.0, "tread_run": 0.0, "clip": 0, "node": 0, "faint": 0, "worst": 1.0}
+	GameClock.set_time_of_day(5.0)
+	for n in flock:
+		n.teleport_home(true)
+	rn._crow_day = -1
+	GameClock.running = true
+	Engine.time_scale = 4.0
+	var eggs_at := 6.0
+	var t_cap := Time.get_ticks_msec() + 150000
+	while GameClock.get_hour_float() < 7.0 and Time.get_ticks_msec() < t_cap:
+		await tree.process_frame
+		if eggs_at > 0.0 and GameClock.get_hour_float() >= eggs_at:
+			# Two hens have an egg due now; one is hungry.
+			eggs_at = -1.0
+			for hn in [hens[1], hens[2]]:
+				coop.egg_due(hn.data, ItemStack.Quality.NORMAL)
+				coop.entry["lay"][str(hn.data.id)]["at"] = GameClock.total_minutes + 1.0
+			hens[3].data.fullness = 50.0
+		if GameClock.get_hour_float() >= 6.5 and not stats.has("fainted") and rn._faint_t < 0.0 and rn._crow_t < 0.0:
+			# Seen to faint at least once (his crows came out plain so far).
+			stats["fainted"] = true
+			rn.crow(true)
+		for n in flock:
+			_hen_sample(n, stats[n], rn)
+		if rn.fainted():
+			stats["fainted"] = true
+	var dawn_done := GameClock.get_hour_float() >= 7.0
+	var laid: int = 2 - int(coop.wants_to_lay(hens[1].data.id)) - int(coop.wants_to_lay(hens[2].data.id))
+	GameClock.set_time_of_day(19.2)
+	for n in flock:
+		(stats[n] as Dictionary).erase("pos")
+	t_cap = Time.get_ticks_msec() + 150000
+	while GameClock.get_hour_float() < 20.75 and Time.get_ticks_msec() < t_cap:
+		await tree.process_frame
+		for n in flock:
+			_hen_sample(n, stats[n], rn)
+	var dusk_done := GameClock.get_hour_float() >= 20.75
+	Engine.time_scale = 1.0
+	GameClock.running = clock_ran
+	Animal.faint_in_tests = false
+	# (A brood of chicks doesn't always all settle under her: not checked here.)
+	var awake := PackedStringArray()
+	for n in flock:
+		if not n.data.is_chick() and (n.state != Animal.State.SLEEP or n.rig._lie < 0.9):
+			awake.append("%s %d %s" % [n._look, n.data.id, Animal.State.keys()[n.state]])
+	_check(dawn_done and dusk_done and laid >= 1 and awake.is_empty(),
+			"a day's stretch: first light to 7:00 (%d of 2 due eggs laid in the nests), 19:12 to 20:45, the grown birds gone to roost (not: %s)"
+			% [laid, ", ".join(awake)])
+	var topple := PackedStringArray()
+	var lie := PackedStringArray()
+	var tread := PackedStringArray()
+	var clip := 0
+	var leak := 0
+	for n in flock:
+		var s: Dictionary = stats[n]
+		var who := "%s %d" % [n._look, n.data.id]
+		if s["topple"] > 0.0:
+			topple.append("%s %.1f s (%.0f%%)" % [who, s["topple"], s["worst"] * 100.0])
+		if s["lie"] > 0.0:
+			lie.append("%s %.1f s" % [who, s["lie"]])
+		if s["tread_run"] >= 1.0:
+			tread.append("%s %.1f s (longest %.1f s)" % [who, s["tread"], s["tread_run"]])
+		clip += int(s["clip"]) + int(s["node"])
+		leak += int(s["faint"])
+	_check(topple.is_empty(), "no bird ever keels over (body below half its standing height, not lying down): %s" % ", ".join(topple))
+	_check(lie.is_empty(), "they lie down only on the roost and the nests: %s" % ", ".join(lie))
+	_check(tread.is_empty(), "none treads on the spot (legs walking, not getting anywhere, a second or more): %s" % ", ".join(tread))
+	_check(clip == 0 and leak == 0, "no bird plays a clip (%d frames) and none but the rooster faints (%d frames)" % [clip, leak])
+	_check(stats.has("fainted") and rn.rig.faint == 0.0 and rn._faint_t < 0.0, "the rooster fainted after a crow and is up again")
+
+	for a in Animals.animals.duplicate():
+		if Animals.housing_of(a) == h:
+			Animals.sell(a)
+	FarmState.remove_placed(coop.entry)
+	coop.queue_free()
+	GameClock.set_time_of_day(hour)
+	Economy.money = money
+	Weather.forced = -1
+	await _frames(3)
+
+
+## One sample of a bird in _hens' day (per rendered frame): keeled over (its body under
+## half its standing height, not lying down or the rooster fainted), lying down with no
+## roost or nest under it, treading (its legs walking over half-second windows while it
+## gets nowhere), a clip playing and any faint but the rooster's.
+func _hen_sample(n: Animal, s: Dictionary, rooster: Animal) -> void:
+	var rig := n.rig
+	if s.get("rig") != rig or not s.has("pos"):
+		s["rig"] = rig
+		s["pos"] = n.global_position
+		s["phase"] = rig._phase
+		s["time"] = rig._time
+		s["walked"] = 0.0
+		s["went"] = 0.0
+		s["span"] = 0.0
+		s["run"] = 0.0
+		s["rest"] = rig._time
+		return
+	var dt := rig._time - float(s["time"])
+	s["time"] = rig._time
+	var pos := n.global_position
+	var was: Vector3 = s["pos"]
+	s["pos"] = pos
+	var ph := rig._phase
+	s["walked"] += fposmod(ph - float(s["phase"]), 1.0) * float(rig.cfg["stride"])
+	s["phase"] = ph
+	s["went"] += Vector2(pos.x - was.x, pos.z - was.z).length()
+	s["span"] += dt
+	if s["span"] >= 0.5:
+		var gait: float = s["walked"] / s["span"]
+		var ground: float = s["went"] / s["span"]
+		if gait > 0.1 and ground < 0.05 and ground < gait * 0.3:
+			s["tread"] += s["span"]
+			s["run"] += s["span"]
+			s["tread_run"] = maxf(s["tread_run"], s["run"])
+		else:
+			s["run"] = 0.0
+		s["walked"] = 0.0
+		s["went"] = 0.0
+		s["span"] = 0.0
+	if n.state == Animal.State.SLEEP or n.state == Animal.State.NEST or n.state == Animal.State.HATCH:
+		s["rest"] = rig._time
+	var out := n == rooster and n._faint_t >= 0.0
+	var up := _bone_height(n, "body") / _stand_height(n)
+	if up < 0.5 and rig._lie < 0.3 and not out:
+		s["topple"] += dt
+		s["worst"] = minf(s["worst"], up)
+	# Getting up takes AnimalRig's lie rate (0.7 a second) from lying flat.
+	if rig._lie > 0.05 and rig._time - float(s["rest"]) > 1.6:
+		s["lie"] += dt
+	if _plays_clip(n):
+		s["clip"] += 1
+	if _clip_moved_node(n):
+		s["node"] += 1
+	if n != rooster and (rig.faint > 0.0 or rig.tremble > 0.0 or rig.wobble > 0.0):
+		s["faint"] += 1
+
+
+## A canonical bone's pose in the animal's own frame.
+func _bone_local(n: Animal, bone: String) -> Transform3D:
+	var sk := n.rig.skeleton
+	return n.global_transform.affine_inverse() * sk.global_transform * sk.get_bone_global_pose(int(n.rig._b.get(bone, 0)))
+
+
+## Height of an animal's body bone above the ground when it stands (metres).
+func _stand_height(n: Animal) -> float:
+	var hh := float(n.rig.cfg.get("hip_height", 0.2))
+	if n.rig is PhotoRig:
+		hh = float((n.rig as PhotoRig).model_cfg.get("height", hh))
+	return hh * n.rig.scale.x
+
+
+func _plays_clip(n: Animal) -> bool:
+	return n.rig is PhotoRig and (n.rig as PhotoRig)._clip != ""
+
+
+## Whether a plain node a clip moves (the hen's armature parent) is off where it was set up.
+func _clip_moved_node(n: Animal) -> bool:
+	if not n.rig is PhotoRig:
+		return false
+	var nodes: Dictionary = (n.rig as PhotoRig)._nodes
+	for node: Node3D in nodes:
+		if not node.transform.is_equal_approx(nodes[node]):
+			return true
+	return false
+
+
+## Six frames of `n` standing about, half a second apart, side on, in one sheet (or with
+## `acts`, one for each, a moment after it is started on its rig).
+func _hens_sheet(n: Animal, h: AnimalHousing, file: String, acts: Array[Callable] = []) -> void:
+	var dir := String(DebugTools.args["hens-shots"])
+	DirAccess.make_dir_recursive_absolute(dir)
+	var cam := Camera3D.new()
+	cam.fov = 40.0
+	Game.world.add_child(cam)
+	var size := maxf(_stand_height(n) / 0.27, 0.4)
+	var side := n.global_basis.x
+	cam.global_position = n.global_position + side * 1.5 * size + h.front() * 0.3 * size + Vector3(0, 0.55 * size, 0)
+	cam.look_at(n.global_position + Vector3(0, 0.18 * size, 0), Vector3.UP)
+	cam.make_current()
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = false
+	await _seconds(0.3)
+	var sheet: Image = null
+	for i in 6:
+		if not acts.is_empty():
+			n._set_state(Animal.State.IDLE, 60.0)
+			n.rig._act_wait = 60.0
+			acts[i].call(n.rig)
+			await _seconds(0.25 if i >= 4 else 0.7)
+		await RenderingServer.frame_post_draw
+		var img := tree.root.get_viewport().get_texture().get_image()
+		img.resize(img.get_width() / 2, img.get_height() / 2, Image.INTERPOLATE_BILINEAR)
+		if sheet == null:
+			sheet = Image.create(img.get_width() * 3, img.get_height() * 2, false, img.get_format())
+		sheet.blit_rect(img, Rect2i(Vector2i.ZERO, img.get_size()), Vector2i((i % 3) * img.get_width(), (i / 3) * img.get_height()))
+		if acts.is_empty():
+			await _seconds(0.5)
+	if not acts.is_empty():
+		n.rig._act_wait = 2.0
+	sheet.save_png("%s/%s.png" % [dir, file])
+	print("SHOT %s/%s.png" % [dir, file])
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = true
+	Game.player.camera.make_current()
+	cam.queue_free()
+
+
+# --- Carnival nights -------------------------------------------------------------------------
+
+## Carnival nights (Carnival, TownCarnival): day 5 and then every seventh day; Beyza's
+## letter on those mornings only (never twice, remembered through a save, dropped once
+## the night is over); double pay for what is sold in town from 20:00 to 23:00 only (the
+## counter's price, a quote, a sale, an order; the shipping bin's courier pays as ever)
+## with a "×2" in the shop; the town's dressing only on those evenings (19:30 to 23:00);
+## the 20:00 banner, the fireworks and the 23:00 note; the fair's music and crowd in town.
+func _carnival() -> void:
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var dressing := town.get_node_or_null("Carnival") as TownCarnival
+	for i in 8:
+		if not Game.hud.sleep_screen.is_busy():
+			break
+		Game.hud.sleep_screen.confirm()
+		await _frames(3)
+	for n in Game.hud.find_children("*", "ModalScreen", true, false):
+		if (n as ModalScreen).visible:
+			(n as ModalScreen).hide_screen()
+	if player.driving:
+		player.exit_vehicle()
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_money := Economy.money
+	var kept_letter := Carnival.letter_day
+	var kept_pos := player.global_position
+	Carnival.testing = true
+	_check(dressing != null, "the town has its carnival dressing node")
+	var days: Array[int] = []
+	for d in range(1, 30):
+		if Carnival.is_carnival_day(d):
+			days.append(d)
+	_check(days == [5, 12, 19, 26] and Carnival.next_carnival_day(6) == 12, "a carnival on day 5, then every week (%s)" % str(days))
+
+	# --- Beyza's letter: on the mornings of day 5 and day 12 only ---
+	Carnival.letter_day = 0
+	var letters: Array[int] = []
+	var shown := false
+	for d: int in [4, 5, 6, 11, 12, 13]:
+		GameClock.day = d
+		GameClock.minute = float(GameClock.DAY_START_MINUTE)
+		Events.day_started.emit(d)
+		if Carnival.letter_pending:
+			letters.append(d)
+			Carnival.open_letter()
+			await _idle_frames(2)
+			var screen: LetterScreen = Game.hud.letter_screen
+			var text := PackedStringArray()
+			for l in screen.find_children("*", "Label", true, false):
+				text.append((l as Label).text)
+			var all := " ".join(text)
+			shown = screen.visible and all.contains("20:00") and all.contains("23:00") and all.contains(tr("LETTER_CARNIVAL_SIGN"))
+			screen.hide_screen()
+			await _idle_frames(1)
+	_check(letters == [5, 12], "Beyza's letter comes on the carnival mornings only (%s)" % str(letters))
+	_check(shown, "the letter tells the hours (20:00 to 23:00) and is signed by Beyza")
+	_check(not Game.is_ui_open(), "the letter closes")
+	# Read once: a load of the same morning brings it no more; an unread one waits, but
+	# not past the night.
+	GameClock.day = 12
+	GameClock.minute = 8.0 * 60.0
+	Carnival.load_data(Carnival.save_data())
+	var after_read := Carnival.letter_pending
+	Carnival.load_data({"letter_day": 5})
+	var unread := Carnival.letter_pending
+	GameClock.minute = 23.5 * 60.0
+	Carnival.load_data({"letter_day": 5})
+	var too_late := Carnival.letter_pending
+	_check(not after_read and unread and not too_late,
+			"no letter twice after a load (read %s, unread %s, after 23:00 %s)" % [after_read, unread, too_late])
+	Carnival.load_data({"letter_day": 12})
+	# In play it opens by itself once the player is free: not over another window.
+	Carnival.testing_letter = true
+	var cues: Array[String] = []
+	var on_cue := func(text: String, _c: Color) -> void: cues.append(text)
+	Events.notification_requested.connect(on_cue)
+	GameClock.day = 19
+	GameClock.minute = float(GameClock.DAY_START_MINUTE)
+	Game.hud.pause_menu.show_screen()
+	Events.day_started.emit(19)
+	await _seconds(3.0)
+	var waited: bool = not Game.hud.letter_screen.visible and Carnival.letter_pending
+	Game.hud.pause_menu.hide_screen()
+	await _seconds(3.2)
+	var opened: bool = Game.hud.letter_screen.visible and not Carnival.letter_pending and Carnival.letter_day == 19
+	_check(waited and opened and cues.has(tr("MSG_CARNIVAL_LETTER")),
+			"the letter waits while a window is open, then a note and the letter come (waited %s, opened %s)" % [waited, opened])
+	Events.notification_requested.disconnect(on_cue)
+	Game.hud.letter_screen.hide_screen()
+	Carnival.testing_letter = false
+	await _idle_frames(2)
+
+	# --- Double pay in town, 20:00 to 23:00 of a carnival day only ---
+	GameClock.day = 12
+	GameClock.set_time_of_day(19.9)
+	var price_before := Economy.sell_price(&"pumpkin")
+	var quote_before := Economy.quote(&"pumpkin", 5)
+	GameClock.set_time_of_day(20.5)
+	var price_on := Economy.sell_price(&"pumpkin")
+	var quote_on := Economy.quote(&"pumpkin", 5)
+	_check(Carnival.is_on() and absi(price_on - price_before * 2) <= 1 and absi(quote_on - quote_before * 2) <= 1,
+			"from 20:00 the town pays double (price %d -> %d, 5 pumpkins %d -> %d)" % [price_before, price_on, quote_before, quote_on])
+	var money := Economy.money
+	var paid := Economy.sell(&"pumpkin", 5)
+	_check(paid == quote_on and Economy.money == money + paid, "a sale pays what the doubled quote said (%d)" % paid)
+	_check(Economy.carnival_factor("REPORT_SHIPPING") == 1.0 and Economy.carnival_factor() == 2.0,
+			"the shipping bin's courier still pays the usual price")
+	var o := Quests._order(&"carrot", 3, GameClock.day + 2, 0)
+	Quests.orders.append(o)
+	PlayerState.inventory.add_item(&"carrot", 3)
+	money = Economy.money
+	var delivered := Quests.deliver(o)
+	_check(delivered and Economy.money - money == int(o["reward"]) * 2,
+			"an order delivered tonight pays double (%d for a $%d order)" % [Economy.money - money, int(o["reward"])])
+	# The shop shows it: the strip over the list and "×2" by the prices.
+	PlayerState.inventory.add_item(&"pumpkin", 4)
+	Game.hud.open_shop(ShopStock.town_market())
+	Game.hud.shop_screen._set_tab("sell")
+	await _idle_frames(2)
+	var badges := 0
+	for l in Game.hud.shop_screen.find_children("*", "Label", true, false):
+		if (l as Label).text == "×2" and (l as Label).is_visible_in_tree():
+			badges += 1
+	_check(badges >= 2, "the market's sell list shows the carnival's ×2 (%d badges)" % badges)
+	Game.hud.shop_screen.close_screen()
+	await _idle_frames(2)
+	GameClock.set_time_of_day(23.1)
+	var price_after := Economy.sell_price(&"pumpkin")
+	_check(not Carnival.is_on() and price_after == roundi(Economy._price_at(&"pumpkin", 0, int(Economy.sold_today.get(&"pumpkin", 0)))),
+			"after 23:00 prices are back to normal (%d)" % price_after)
+	GameClock.day = 11
+	GameClock.set_time_of_day(21.0)
+	_check(Economy.carnival_factor() == 1.0 and not Carnival.is_dressed(), "other nights pay the usual price")
+
+	# --- The town's dressing: only 19:30 to 23:00 of a carnival day ---
+	player.global_position = Vector3(228.0, TerrainData.height(228.0, 20.0) + 0.1, 20.0)
+	player.look_at_yaw_pitch(0.0, 0.0)
+	await _idle_frames(3)
+	var other_night := dressing.root == null
+	GameClock.day = 12
+	GameClock.set_time_of_day(19.2)
+	await _idle_frames(3)
+	var before_dusk := dressing.root == null
+	GameClock.set_time_of_day(19.6)
+	await _idle_frames(3)
+	var built := dressing.root != null
+	for i in 30:
+		if not dressing.building:
+			break
+		await _idle_frames(1)
+	_check(other_night and before_dusk and built, "the town dresses up on the carnival evening only, from 19:30 (other night bare %s, 19:12 bare %s, 19:36 dressed %s)" % [other_night, before_dusk, built])
+	if built:
+		var lights := dressing.root.find_children("*", "OmniLight3D", true, false).size()
+		_check(dressing.bulb_count() > 900 and dressing.build_ms < 60.0,
+				"hundreds of bulbs and lanterns (%d), %d real lights (the fireworks' flash included), put up in frames of at most %.1f ms"
+				% [dressing.bulb_count(), lights, dressing.build_ms])
+		var in_walk := 0
+		for body in dressing.root.find_children("*", "StaticBody3D", true, false):
+			for cs in (body as Node).get_children():
+				var p := (cs as Node3D).global_position
+				if Town.WALK_N.has_point(Vector2(p.x, p.z)) or Town.WALK_S.has_point(Vector2(p.x, p.z)) \
+						or (p.z > Town.WALK_N.end.y and p.z < Town.WALK_S.position.y):
+					in_walk += 1
+		_check(in_walk == 0, "nothing of the fair stands in the street or on the pavements")
+	# --- 20:00: the banner, fireworks and the fair's music in town ---
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	GameClock.set_time_of_day(19.95)
+	await _idle_frames(2)
+	var banners := Game.hud.find_children("*", "CarnivalBanner", true, false).size()
+	GameClock.set_time_of_day(20.02)
+	await _idle_frames(3)
+	banners = Game.hud.find_children("*", "CarnivalBanner", true, false).size() - banners
+	_check(banners == 1, "at 20:00 a banner says the carnival has begun")
+	_check(Carnival.music_on(), "the fair's music is on while the player is in town")
+	await _seconds(4.5)
+	var sparks := 0
+	if dressing.fireworks:
+		for n in dressing.fireworks.get_children():
+			if n is CPUParticles3D and (n as CPUParticles3D).emitting:
+				sparks += 1
+	_check(sparks > 0, "fireworks go up over the fair (%d bursts in the air)" % sparks)
+	var lit := float(dressing._bulb_mat.get_shader_parameter("power")) if dressing.root else 0.0
+	_check(lit > 0.9, "the bulbs are lit (%.2f)" % lit)
+	if not Audio._silent:
+		player.global_position = Vector3(226.0, TerrainData.height(226.0, -17.0) + 0.1, -17.0)
+		await _seconds(3.0)
+		var crowd := float(Audio._loops["carnival_crowd"].level)
+		_check(crowd > 0.3, "the fair's crowd murmurs on the fairground (%.2f)" % crowd)
+		_check(Audio._music_state == "carnival" and Audio._music.playing, "the music changed to the fair's (%s)" % Audio._last_track.get_file())
+	# Out of town the farm's music comes back.
+	player.global_position = Vector3(-8.0, TerrainData.height(-8.0, 6.0) + 0.1, 6.0)
+	await _idle_frames(2)
+	_check(not Carnival.music_on(), "out of town the fair's music stops")
+	if not Audio._silent:
+		await _seconds(5.0)
+		_check(Audio._music_state != "carnival", "the farm's music comes back out of town (%s)" % Audio._music_state)
+	# --- 23:00: the note, and the dressing comes down ---
+	GameClock.set_time_of_day(23.02)
+	await _idle_frames(3)
+	_check(notes.has(tr("MSG_CARNIVAL_OVER")), "at 23:00 a note says the carnival is over")
+	_check(dressing.root == null or not is_instance_valid(dressing.root), "after 23:00 the dressing is taken down")
+	Events.notification_requested.disconnect(on_note)
+	GameClock.day = 19
+	GameClock.set_time_of_day(21.0)
+	await _idle_frames(3)
+	_check(dressing.root != null, "the next carnival (day 19) dresses the town again")
+	for i in 30:
+		if not dressing.building:
+			break
+		await _idle_frames(1)
+	GameClock.day = 20
+	await _idle_frames(3)
+	_check(dressing.root == null, "and the night after is ordinary again")
+
+	# Put everything back.
+	for b in Game.hud.find_children("*", "CarnivalBanner", true, false):
+		b.queue_free()
+	Carnival.testing = false
+	Carnival.testing_letter = false
+	Carnival.letter_day = kept_letter
+	Carnival.letter_pending = false
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	Economy.money = kept_money
+	Events.money_changed.emit(Economy.money, 0)
+	player.global_position = kept_pos
+	await _idle_frames(3)
+
+
+# --- Fixes: kerbs and the new building's dot ------------------------------------------
+
+## Walking out of the Animal Market (the lane through the gate, the office door) up the
+## dropped kerbs onto the pavement and down onto the street, then up a full kerb onto the
+## north pavement: never stalled, never a jump. A barn built from the construction board
+## far away: the dot floats over its gate with the barn's name on its pill, the
+## notification says to follow it, and it goes once the player gets there (or after a
+## while: sooner when the story's goal has a place of its own, whose dot comes back).
+## -- --fix-shots=/abs/dir also saves a view of the market's gate and of the dot.
+func _fixes() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	if player.riding:
+		player.dismount()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("fix-shots", ""))
+	# Nobody in the way: the townspeople step aside, vehicles near the walks are moved off.
+	var people: Array[Node] = tree.get_nodes_in_group(Townsperson.GROUP)
+	var layers := []
+	for n: Node in people:
+		layers.append((n as CollisionObject3D).collision_layer)
+		(n as CollisionObject3D).collision_layer = 0
+	var moved := []
+	for v: Node in tree.get_nodes_in_group(Vehicle.GROUP):
+		var vp := (v as Vehicle).global_position
+		if (vp.x > 234.0 and vp.x < 272.0 and vp.z > 15.0 and vp.z < 36.0):
+			moved.append([v, (v as Vehicle).global_transform])
+			(v as Vehicle).teleport(Transform3D(Basis(), Vector3(vp.x, vp.y + 40.0, vp.z - 120.0)))
+	await _frames(5)
+	var gate_x := Town.MARKET_LANE.get_center().x - 0.5
+	if shots != "":
+		player.global_position = Vector3(gate_x, TerrainData.height(gate_x, 21.0) + 0.1, 21.0)
+		player.look_at_yaw_pitch(PI, -0.25)
+		await _shot("%s/market_gate_ramp.png" % shots)
+	# Through the gate: from the lane, north (-z) onto the street.
+	var walk := await _fix_walk(player, Vector3(gate_x, 0.0, 33.0), 0.0, func(p: Vector3) -> bool: return p.z < Town.WALK_S.position.y - 0.4)
+	_check(walk["done"] and walk["min_speed"] > 3.0 and walk["max_up"] < 2.5,
+			"out of the Animal Market's gate onto the street without a jump (min %.2f m/s, rise %.2f m/s, %.1f s)"
+			% [walk["min_speed"], walk["max_up"], walk["time"]])
+	# Back in from the street: up the kerb and the ramp, through the gate.
+	walk = await _fix_walk(player, Vector3(gate_x, 0.0, 21.8), PI, func(p: Vector3) -> bool: return p.z > Town.MARKET_LANE.position.y + 1.5)
+	_check(walk["done"] and walk["min_speed"] > 3.0 and walk["max_up"] < 2.5,
+			"from the street up the kerb into the market without a jump (min %.2f m/s, %.1f s)" % [walk["min_speed"], walk["time"]])
+	# Out of the office door (its floor sits up a step), onto the pavement.
+	var door_x := Town.RANCH_OFFICE.end.x - 6.8
+	walk = await _fix_walk(player, Vector3(door_x, 0.0, Town.RANCH_OFFICE.position.y + 1.4), 0.0,
+			func(p: Vector3) -> bool: return p.z < Town.WALK_S.get_center().y)
+	_check(walk["done"] and walk["min_speed"] > 3.0 and walk["max_up"] < 2.5,
+			"out of the market office's door onto the pavement without a jump (min %.2f m/s, %.1f s)" % [walk["min_speed"], walk["time"]])
+	# Kerbs elsewhere: from the street up onto the north pavement, and from the ground
+	# behind the south pavement up its full 15 cm edge (no ramp there).
+	var kx := 268.0
+	var low := _fix_floor(kx, 18.8)
+	var high := _fix_floor(kx, 14.8)
+	walk = await _fix_walk(player, Vector3(kx, 0.0, 18.8), 0.0, func(p: Vector3) -> bool: return p.z < 14.8)
+	_check(walk["done"] and walk["min_speed"] > 3.0 and walk["max_up"] < 2.5 and absf(player.global_position.y - high) < 0.06,
+			"from the street up a %.0f cm kerb onto the north pavement without a jump (min %.2f m/s, %.1f s)"
+			% [(high - low) * 100.0, walk["min_speed"], walk["time"]])
+	kx = 261.0
+	low = _fix_floor(kx, 28.4)
+	high = _fix_floor(kx, 25.4)
+	walk = await _fix_walk(player, Vector3(kx, 0.0, 28.4), 0.0, func(p: Vector3) -> bool: return p.z < 25.4)
+	_check(high - low > 0.1 and walk["done"] and walk["min_speed"] > 3.0 and walk["max_up"] < 2.5
+			and absf(player.global_position.y - high) < 0.06,
+			"up the south pavement's %.0f cm edge from the ground without a jump (min %.2f m/s, %.1f s)"
+			% [(high - low) * 100.0, walk["min_speed"], walk["time"]])
+	for i in people.size():
+		if is_instance_valid(people[i]):
+			(people[i] as CollisionObject3D).collision_layer = layers[i]
+	for m: Array in moved:
+		if is_instance_valid(m[0]):
+			(m[0] as Vehicle).teleport(m[1])
+
+	# The open barn built from the construction board, the player by the board.
+	Quests.guide_in_tests = true
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var board := WorldLayout.BOARD_POS
+	player.global_position = Vector3(board.x + 1.5, TerrainData.height(board.x + 1.5, board.z + 2.0) + 0.1, board.z + 2.0)
+	player.look_at_yaw_pitch(-PI * 0.5 + 0.35, 0.0)
+	await _frames(5)
+	FarmState.built[&"barn_1"] = true
+	FarmState.project_built.emit(&"barn_1")
+	await _idle_frames(4)
+	var gate := WorldLayout.gate_point(WorldLayout.BARN_PEN, WorldLayout.BARN_GATE, 0.0)
+	var barn := tr("PROJECT_BARN_1")
+	var at: Variant = Quests.guide_point()
+	_check(typeof(at) == TYPE_VECTOR3 and Vector2((at as Vector3).x, (at as Vector3).z).distance_to(Vector2(gate.x, gate.z)) < 1.0
+			and Quests.guide_label() == tr("HINT_NEW_BUILDING") % barn,
+			"a barn just built: the dot floats over its gate ('%s')" % Quests.guide_label())
+	_check(notes.has(tr("MSG_BUILT_FOLLOW") % barn), "the notification says to follow the dot (%s)" % [notes])
+	await _frames(40)
+	var wp: WaypointMarker = Game.hud.waypoint
+	_check(wp.visible and wp.world_point.distance_to(at) < 0.1 and wp._label.text.begins_with(Quests.guide_label()),
+			"the HUD's dot shows it with the barn's name ('%s', a=%.2f)" % [wp._label.text, wp.modulate.a])
+	if shots != "":
+		await _shot("%s/barn_dot.png" % shots)
+	# It stays a while, then goes once the player is at the gate.
+	await _seconds(1.0)
+	_check(Quests.guide_label() != "", "it stays while the player is away")
+	player.global_position = Vector3(gate.x - 5.0, TerrainData.height(gate.x - 5.0, gate.z) + 0.1, gate.z)
+	await _idle_frames(4)
+	_check(Quests.guide_label() == "" and is_same(Quests.guide_point(), Quests.waypoint()), "within 8 m of the barn the dot is done")
+	# Built again from far: left alone it times out (3 minutes).
+	player.global_position = Vector3(board.x + 1.5, TerrainData.height(board.x + 1.5, board.z + 2.0) + 0.1, board.z + 2.0)
+	await _frames(5)
+	FarmState.project_built.emit(&"barn_1")
+	await _idle_frames(2)
+	Quests._new_building_shown = Quests.NEW_BUILDING_TIME - 0.2
+	await _seconds(0.5)
+	_check(Quests.guide_label() == "", "after three minutes the dot is done")
+	# A kit building finished while a goal has its own place: the new building's dot
+	# first, briefly, then the goal's again.
+	var step := Quests.step
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests._nudge()
+	await _idle_frames(4)
+	var goal_dot: Variant = Quests.waypoint()
+	var kit := Node3D.new()
+	Game.world.add_child(kit)
+	kit.global_position = gate + Vector3(0, TerrainData.height(gate.x, gate.z), 6.0)
+	Events.building_completed.emit(&"workbench", kit)
+	await _idle_frames(2)
+	_check(goal_dot != null and typeof(Quests.guide_point()) == TYPE_VECTOR3 and Quests.guide_label() == tr("HINT_NEW_BUILDING") % tr("PROJECT_WORKBENCH"),
+			"a kit building done far away shows first, before the goal's dot")
+	Quests._new_building_shown = Quests.NEW_BUILDING_BRIEF - 0.2
+	await _seconds(0.5)
+	_check(Quests.guide_label() == "" and Quests.waypoint() != null and is_same(Quests.guide_point(), Quests.waypoint()),
+			"after a few seconds the goal's dot is back")
+	kit.queue_free()
+	Quests.step = step
+	Quests._nudge()
+	Events.notification_requested.disconnect(on_note)
+	Quests.guide_in_tests = false
+	await _idle_frames(2)
+
+
+## The walkable floor under (x, z) (the pavement, the road or the ground).
+func _fix_floor(x: float, z: float) -> float:
+	var q := PhysicsRayQueryParameters3D.create(Vector3(x, 60.0, z), Vector3(x, -60.0, z), 1)
+	var hit := Game.player.get_world_3d().direct_space_state.intersect_ray(q)
+	return float((hit.get("position", Vector3.ZERO) as Vector3).y)
+
+
+## Walks the player from `from` (on the floor there) heading `yaw` with W held until
+## `arrived` says so (at most 8 s): {done, time, min_speed (after the first half
+## second), max_up (the highest upward speed: a jump is 4.8)}.
+func _fix_walk(player: Player, from: Vector3, yaw: float, arrived: Callable) -> Dictionary:
+	player.velocity = Vector3.ZERO
+	player.global_position = Vector3(from.x, _fix_floor(from.x, from.z) + 0.05, from.z)
+	player.look_at_yaw_pitch(yaw, 0.0)
+	await _frames(10)
+	var r := {"done": false, "time": 0.0, "min_speed": INF, "max_up": 0.0}
+	var dt := 1.0 / Engine.physics_ticks_per_second
+	Input.action_press("move_forward")
+	while r["time"] < 8.0:
+		await tree.physics_frame
+		r["time"] += dt
+		var v := player.velocity
+		if r["time"] > 0.5:
+			r["min_speed"] = minf(r["min_speed"], Vector2(v.x, v.z).length())
+		r["max_up"] = maxf(r["max_up"], v.y)
+		if arrived.call(player.global_position):
+			r["done"] = true
+			break
+	Input.action_release("move_forward")
+	await _frames(10)
+	return r

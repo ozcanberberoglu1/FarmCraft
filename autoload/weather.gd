@@ -47,6 +47,9 @@ var wind := 0.8
 ## Debug: fixed wind strength when >= 0 (flicker measurements).
 var wind_override := -1.0
 var precip := 0.0
+## Rain falling right now, eased (0..1; snow is not rain): drops on the water ring only
+## while it falls, however wet the ground still is (shader global rain_amount).
+var rain_fall := 0.0
 var flash := 0.0
 var autumn := 0.0
 var leaf_drop := 0.0
@@ -205,9 +208,12 @@ func _process(delta: float) -> void:
 	fog_boost = lerpf(fog_boost, look[3], rate)
 	wind = lerpf(wind, look[4], rate) if wind_override < 0.0 else wind_override
 	precip = lerpf(precip, 1.0 if raining_now else 0.0, clampf(delta * 0.5, 0.0, 1.0))
+	var raining := raining_now and k != Kind.SNOW
+	rain_fall = move_toward(rain_fall, (1.0 if k == Kind.STORM else 0.75) if raining else 0.0, delta * 0.4)
 	_update_season(delta)
 	_update_fx(delta, k)
 	_set_global(&"wetness", wetness)
+	_set_global(&"rain_amount", rain_fall)
 	_set_global(&"snow_amount", snow_cover)
 	_set_global(&"wind_strength", wind)
 	_set_global(&"autumn_amount", autumn)

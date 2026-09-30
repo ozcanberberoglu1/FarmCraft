@@ -41,8 +41,20 @@ uniform float scale_scale = 0.9;
 uniform vec4 arches = vec4(1.93, -1.23, 0.385, 0.47);
 // The cab's inside: centre and half length.
 uniform vec4 cab = vec4(0.9, 1.3, 0.0, 0.62);
+// The cab's inside: its half width and the x its front face stops at (not the
+// bonnet's back edge in front of the windshield).
+uniform float cab_half_w = 0.92;
+uniform float cab_front = 1.42;
 // The narrow gap between the cab's back and the bed's front wall (its x).
 uniform float gap_x = 0.135;
+// An open bed that loads scuff: from x forward of its front wall, half width, floor and
+// rail heights (half width 0: none); the front wall's inside faces lie behind
+// bed_walls.x, the tailgate's in front of bed_walls.y.
+uniform vec4 bed_box = vec4(0.0, 0.82, 0.55, 1.2);
+uniform vec2 bed_walls = vec2(-1.0, -1.5);
+// Heights the road dust fades out between, and the sills (where rust starts) end.
+uniform vec2 low_band = vec2(0.42, 1.05);
+uniform vec2 sill_band = vec2(0.58, 0.95);
 // 1: full detail; 0 (Low / Medium quality): one projection per map, no rust relief.
 uniform float detail = 1.0;
 
@@ -124,8 +136,8 @@ void fragment() {
 	// Inside the cab (the back of the outer panels, the pillars' inner faces) the
 	// paint stays clean; not the bonnet's back edge in front of the windshield.
 	vec3 to_cab = cab.xyz - p;
-	bool in_cab = abs(to_cab.x) < cab.w && abs(to_cab.z) < 0.92 && abs(to_cab.y) < 0.5 && dot(nf, to_cab) > 0.0
-			&& nf.y < 0.4 && p.x < 1.42;
+	bool in_cab = abs(to_cab.x) < cab.w && abs(to_cab.z) < cab_half_w && abs(to_cab.y) < 0.5 && dot(nf, to_cab) > 0.0
+			&& nf.y < 0.4 && p.x < cab_front;
 	float outside = FRONT_FACING && !in_cab ? 1.0 : 0.0;
 	// Faces looking into the gap behind the cab see only its back wall: dark, no sky
 	// in their gloss.
@@ -143,7 +155,7 @@ void fragment() {
 
 	// Dust and mud: heavy low on the body, sprayed up and back from each tyre, caked
 	// on the arch lips and into the panel gaps; a film on the tops.
-	float low = 1.0 - smoothstep(0.42, 1.05, h + (n - 0.5) * 0.3);
+	float low = 1.0 - smoothstep(low_band.x, low_band.y, h + (n - 0.5) * 0.3);
 	float behind_f = arches.x - p.x;
 	float behind_r = arches.y - p.x;
 	float spray = 0.0;
@@ -161,10 +173,11 @@ void fragment() {
 	dirt = clamp(dirt * wear * 1.25, 0.0, 1.0) * outside;
 	// Inside the bed: scuffed by every load, dust in the corners. Only the floor and
 	// the walls' inner faces (the outer skins sit further out than the inner walls).
-	float bed = (1.0 - smoothstep(-0.05, 0.1, p.x)) * (1.0 - smoothstep(0.8, 0.84, abs(p.z)))
-			* step(0.55, h) * (1.0 - smoothstep(1.15, 1.25, h)) * outside;
+	float bed = (1.0 - smoothstep(bed_box.x - 0.05, bed_box.x + 0.1, p.x))
+			* (1.0 - smoothstep(bed_box.y - 0.02, bed_box.y + 0.02, abs(p.z)))
+			* step(bed_box.z, h) * (1.0 - smoothstep(bed_box.w - 0.05, bed_box.w + 0.05, h)) * outside;
 	float inward = max(step(0.7, nf.y), step(0.5, -sign(p.z) * nf.z));
-	inward = max(inward, max(step(0.5, -nf.x) * step(-1.0, p.x), step(0.5, nf.x) * step(p.x, -1.5)));
+	inward = max(inward, max(step(0.5, -nf.x) * step(bed_walls.x, p.x), step(0.5, nf.x) * step(p.x, bed_walls.y)));
 	bed *= inward;
 
 	float broad = vnoise3(p * 0.6 + 11.0);
@@ -194,7 +207,7 @@ void fragment() {
 	if (rust > 0.0) {
 		// How far gone each spot is: the sills and door bottoms, the arches, water on
 		// flat tops, in patches.
-		float sill = 1.0 - smoothstep(0.58, 0.95, h + (n - 0.5) * 0.22 + (broad - 0.5) * 0.3);
+		float sill = 1.0 - smoothstep(sill_band.x, sill_band.y, h + (n - 0.5) * 0.22 + (broad - 0.5) * 0.3);
 		float patchy = vnoise3(p * 1.1 + 3.7) * 0.6 + n * 0.4;
 		float sev = rust * (0.06 + 1.1 * sill * vert + 1.2 * arch + 0.1 * top + 0.5 * bed) * (0.3 + 1.2 * patchy) * outside;
 		// Spots break through first, then join into scale.
@@ -220,7 +233,7 @@ void fragment() {
 			}
 		}
 		// Rust bleeds down the panels below the spots.
-		float above = rust * (0.06 + 0.95 * (1.0 - smoothstep(0.58, 0.95, h - 0.16)) * vert) * (0.3 + 1.2 * patchy);
+		float above = rust * (0.06 + 0.95 * (1.0 - smoothstep(sill_band.x, sill_band.y, h - 0.16)) * vert) * (0.3 + 1.2 * patchy);
 		float run = vnoise2(vec2(p.x * 26.0 + p.z * 19.0, h * 1.4)) * 0.7 + vnoise2(vec2(p.x * 61.0, h * 3.0)) * 0.3;
 		float bleed = smoothstep(0.35, 0.8, above) * smoothstep(0.45, 0.75, run) * side * (1.0 - rusted);
 		col = mix(col, col * 0.65 + rc * 0.3, bleed * 0.55);

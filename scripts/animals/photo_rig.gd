@@ -114,7 +114,9 @@ const MODELS := {
 			"fl_up": "CHICKEN_-L-Thigh_028", "fl_lo": "CHICKEN_-L-HorseLink_030", "fl_ft": "CHICKEN_-L-Foot_031",
 			"fr_up": "CHICKEN_-R-Thigh_016", "fr_lo": "CHICKEN_-R-HorseLink_018", "fr_ft": "CHICKEN_-R-Foot_019",
 		},
-		"clips": {"IDLE": "Take 001"},
+		# No clips: its one ("Take 001", 7.6 s) is a showreel, not an idle: a hop, keeling over
+		# onto its side (0.65-1.3 s), walking and running on the spot, a peck, and it moves the
+		# armature's parent node. The birds are posed by AnimalRig (gait, pecking, standing about).
 		"split": [0.12, 0.3, 0.08, 0.55],
 		"variants": [
 			{},
@@ -127,7 +129,7 @@ const MODELS := {
 		# Pullets (the chick model covers the first half of growing up).
 		"age_scale": [0.5, 1.0, 0.5, 1.0],
 	},
-	# The hen repainted and restyled by tools/blender/build_rooster.py: same skeleton and clip.
+	# The hen repainted and restyled by tools/blender/build_rooster.py: same skeleton.
 	&"rooster": {
 		"height": 0.28,
 		"bones": {
@@ -137,7 +139,7 @@ const MODELS := {
 			"fl_up": "CHICKEN_-L-Thigh_028", "fl_lo": "CHICKEN_-L-HorseLink_030", "fl_ft": "CHICKEN_-L-Foot_031",
 			"fr_up": "CHICKEN_-R-Thigh_016", "fr_lo": "CHICKEN_-R-HorseLink_018", "fr_ft": "CHICKEN_-R-Foot_019",
 		},
-		"clips": {"IDLE": "Take 001"},
+		# The hen's showreel clip is left out here too (see "chicken").
 		"split": [0.04, 0.22, 0.05, 0.42],
 		"variants": [
 			{},

@@ -68,9 +68,12 @@ func open() -> void:
 func open_market(at: Vector3, focus: StringName = &"") -> void:
 	_stall_at = at
 	if focus != &"" and not AnimalTable.get_species(focus).is_empty():
+		if focus != _selected:
+			_order = _default_order(focus)
 		_selected = focus
 	elif _selected == &"" or AnimalTable.get_species(_selected).is_empty():
 		_selected = AnimalTable.ORDER[0]
+		_order = _default_order(_selected)
 	window.set_heading(tr("UI_RANCHER"), "paw", tr("UI_RANCHER_HINT"))
 	_money.text = UiTheme.money(Economy.money)
 	_order = clampi(_order, 1, LiveCrates.MAX_ORDER)
@@ -78,6 +81,11 @@ func open_market(at: Vector3, focus: StringName = &"") -> void:
 	_tabs.select("buy")
 	_fill()
 	show_screen()
+
+
+## How many crates an order starts at: a pair of hens (the first coop's), one of anything else.
+func _default_order(species: StringName) -> int:
+	return 2 if species == &"chicken" else 1
 
 
 ## The hen stall: the market on crated hens.
@@ -234,6 +242,7 @@ func _species_card(species: StringName) -> Button:
 	b.pressed.connect(func() -> void:
 		if _selected != species:
 			_selected = species
+			_order = _default_order(species)
 			Audio.ui("click", -8.0)
 			_fill())
 	return b
@@ -381,7 +390,8 @@ func _fill_crate_order(box: VBoxContainer, species: StringName) -> void:
 	var why := why_not(species, true, _order)
 	if why != "":
 		box.add_child(UiTheme.paragraph(why, 16, UiTheme.RED, 700))
-	var buy := UiTheme.button(tr("RANCHER_BUY_CRATES") % [_order, UiTheme.money(each * _order)], "success", Vector2(712, 58), "check", 22)
+	var buy := UiTheme.button(tr("RANCHER_BUY_CRATES") % [_order, Animals.species_name(species), UiTheme.money(each * _order)],
+			"success", Vector2(712, 58), "check", 22)
 	buy.disabled = why != ""
 	buy.pressed.connect(func() -> void:
 		var got := LiveCrates.buy(species, _order, _stall_at)

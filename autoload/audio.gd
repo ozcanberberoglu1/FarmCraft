@@ -44,6 +44,8 @@ const SETS := {
 	"click": ["sfx/ui/click.ogg"], "hover": ["sfx/ui/hover.ogg"], "open": ["sfx/ui/open.ogg"], "close": ["sfx/ui/close.ogg"],
 	"confirm": ["sfx/ui/confirm.ogg"], "error": ["sfx/ui/error.ogg"], "toggle": ["sfx/ui/toggle.ogg"],
 	"drop": ["sfx/ui/drop.ogg"], "notify": ["sfx/ui/notify.ogg"],
+	# A carnival night's fireworks: the burst, and the glitter crackling after it.
+	"firework": "sfx/carnival/firework_%d.ogg", "firework_crackle": "sfx/carnival/crackle_%d.ogg",
 }
 ## Looping beds and engines, cross-faded so recordings that don't loop cleanly never click.
 const LOOPS := {
@@ -53,10 +55,15 @@ const LOOPS := {
 	"engine": "sfx/vehicle/engine_loop.mp3",
 	"hooves_walk": "sfx/animals/horse_walk_dirt.mp3", "hooves_gallop": "sfx/animals/horse_gallop_dirt.mp3",
 	"hooves_road": "sfx/animals/horse_trot_road.mp3",
+	# The fairground's crowd on a carnival night (Carnival.crowd_level).
+	"carnival_crowd": "ambience/carnival_crowd.ogg",
 }
 const DAY_MUSIC: Array[String] = ["music/day_relaxing_country.mp3", "music/day_relaxing_in_nature.mp3",
 	"music/day_wind_leaves.mp3", "music/day_the_long_road.mp3"]
 const NIGHT_MUSIC: Array[String] = ["music/night_relaxation.mp3"]
+## A carnival night in town (Carnival.music_on): the fair's tunes, one after another.
+const CARNIVAL_MUSIC: Array[String] = ["music/carnival_band_organ.ogg", "music/carnival_kidding_around.mp3",
+	"music/carnival_fun_and_games.mp3"]
 ## What each finished action sounds like: [set, volume dB, optional pitch, optional
 ## seconds]. It plays on the final stroke's impact tick (see Player._fire_cue); swings add
 ## a swoosh before it. With seconds, a long recording is faded out that far in, so it
@@ -145,7 +152,8 @@ func _ready() -> void:
 	AudioServer.add_bus_effect(0, _limiter)
 	_music = AudioStreamPlayer.new()
 	_music.bus = &"Music"
-	_music.finished.connect(func() -> void: _music_gap = randf_range(45.0, 110.0))
+	# The fair plays on without a pause; the farm's music leaves quiet stretches.
+	_music.finished.connect(func() -> void: _music_gap = 1.0 if _music_state == "carnival" else randf_range(45.0, 110.0))
 	add_child(_music)
 	for key: String in LOOPS:
 		var positional: bool = key in ["barn", "coop", "engine", "hooves_walk", "hooves_gallop", "hooves_road"]
@@ -591,6 +599,7 @@ func _update_ambience(delta: float, in_world: bool, probe: bool) -> void:
 	(_loops["wind"] as Loop).update(delta, wind * gate * (1.0 - _indoors * 0.4))
 	(_loops["rain"] as Loop).update(delta, clampf(rain * 1.6, 0.0, 1.0) * 0.8 * gate)
 	(_loops["rain_heavy"] as Loop).update(delta, clampf((rain - 0.55) * 2.2, 0.0, 1.0) * 0.8 * gate)
+	(_loops["carnival_crowd"] as Loop).update(delta, (Carnival.crowd_level() * 0.9 * inside) if in_world else 0.0)
 	# Animal housing hums with its animals (positional, near the buildings).
 	var farm: Node = Game.world.get("farm") if in_world and Game.world else null
 	for kind: String in _housed:
@@ -670,19 +679,24 @@ func _update_animals(delta: float, player: Node3D) -> void:
 
 
 ## Quiet stretches between tracks; day tracks by day (and on the title screen), the
-## night track after dark, nothing while sleeping.
+## night track after dark, nothing while sleeping. On a carnival night in town the fair's
+## tunes take over (the track playing fades out first) and hand back when it ends or the
+## player leaves town.
 func _update_music(delta: float) -> void:
 	var hour := GameClock.get_hour_float()
 	var title := Game.hud != null and is_instance_valid(Game.hud) and (Game.hud.get("title_screen") as Control) != null \
 			and (Game.hud.get("title_screen") as Control).visible
 	var state := "day" if title else ("night" if (hour >= 20.5 or hour < 5.5) else "day")
+	if not title and Carnival.music_on():
+		state = "carnival"
 	var sleeping := Game.top_ui() == &"sleep"
 	if _music.playing:
 		if sleeping or state != _music_state:
 			_music_fade = maxf(_music_fade - delta / 3.0, 0.0)
 			if _music_fade <= 0.0:
 				_music.stop()
-				_music_gap = 4.0
+				# Into the fair or out of it the next tune follows at once.
+				_music_gap = 0.5 if state == "carnival" or _music_state == "carnival" else 4.0
 		else:
 			_music_fade = minf(_music_fade + delta / 4.0, 1.0)
 		_music.volume_db = linear_to_db(maxf(_music_fade, 0.0001))
@@ -691,12 +705,15 @@ func _update_music(delta: float) -> void:
 		return
 	# Pick the next track while the gap runs and load it in the background (a whole
 	# mp3 of several MB would stall the frame it starts on).
-	var list: Array[String] = NIGHT_MUSIC if state == "night" else DAY_MUSIC
+	var list: Array[String] = CARNIVAL_MUSIC if state == "carnival" else (NIGHT_MUSIC if state == "night" else DAY_MUSIC)
 	if _next_track not in list:
 		var options := list.filter(func(t: String) -> bool: return t != _last_track)
 		_next_track = (options if not options.is_empty() else list).pick_random()
 		if not _streams.has(_next_track) and ResourceLoader.exists(DIR + _next_track):
 			ResourceLoader.load_threaded_request(DIR + _next_track)
+	# The fair doesn't wait out the farm's quiet stretch.
+	if state == "carnival":
+		_music_gap = minf(_music_gap, 1.0)
 	_music_gap -= delta
 	if _music_gap > 0.0:
 		return

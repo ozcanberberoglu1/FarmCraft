@@ -7,6 +7,8 @@ shader_type spatial;
 render_mode blend_mix, cull_back, diffuse_burley, specular_schlick_ggx;
 
 #include "res://shaders/include/nature.gdshaderinc"
+// Rain falling right now (Weather.rain_fall), 0..1.
+global uniform float rain_amount;
 
 uniform vec3 shallow_color : source_color = vec3(0.26, 0.28, 0.18);
 uniform vec3 deep_color : source_color = vec3(0.07, 0.095, 0.075);
@@ -92,10 +94,11 @@ void fragment() {
 	float k = ripple_strength * (0.6 + wind_strength * 0.6);
 	float h = ripple(p, t);
 	vec2 grad = vec2(ripple(p + vec2(e, 0.0), t) - h, ripple(p + vec2(0.0, e), t) - h) / e * k;
-	if (wetness > 0.05) {
+	// Drops ring the water only while rain is falling (the banks may stay wet for hours).
+	if (rain_amount > 0.02) {
 		float rh = rain_rings(p, t);
 		grad += vec2(rain_rings(p + vec2(0.02, 0.0), t) - rh, rain_rings(p + vec2(0.0, 0.02), t) - rh) / 0.02
-				* 0.012 * wetness;
+				* 0.012 * rain_amount;
 	}
 	vec3 n_world = normalize(vec3(-grad.x, 1.0, -grad.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);

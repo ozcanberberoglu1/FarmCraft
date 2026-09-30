@@ -224,8 +224,8 @@ func _process(delta: float) -> void:
 	if is_built():
 		set_process(false)
 		return
-	# Real time of play: not while a menu or the map is open.
-	if Game.is_ui_open():
+	# Real time of play: on while the bag or a shop is open, not in the pause menu.
+	if Game.is_paused():
 		return
 	var left := maxf(seconds_left() - delta, 0.0)
 	entry["build_left"] = left

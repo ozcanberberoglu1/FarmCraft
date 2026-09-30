@@ -19,3 +19,22 @@ with lug nuts and hub caps, brake discs and drums, and its steering wheel are mo
 for this game by tools/build_pickup_hd.py (Blender, headless) and replace the model's
 own low-poly wheels and steering wheel. The sidewall lettering is cut from Barlow
 Condensed Bold (art/fonts, SIL Open Font License 1.1). No outside assets.
+
+## The pickup's other bodies (pickup_90/canopy.glb, stake.glb, box.glb)
+
+The fibreglass canopy, the stake-bed deck and the aluminium box body that go on the
+Lightbody '90 chassis (the game hides the steel bed where they replace it) are modelled
+for this game by tools/blender/build_pickup_variants.py (Blender, headless). No outside
+assets; the deck's planks are drawn with Poly Haven's "Weathered Brown Planks" (CC0,
+art/textures/weathered_brown_planks).
+
+## Estate, four-by-four, light truck and tractor (wagon/, offroad/, truck/, tractor/)
+
+The "Atmaca 1600" estate, the "Kaya 88" four-by-four, the "Yayla 35" dropside truck and
+the "Tarla 45" tractor are fictional vehicles modelled for this game from primitives by
+tools/blender/build_wagon.py, build_offroad.py, build_truck.py and build_tractor.py
+(shared kit: tools/blender/vehicle_kit.py). Their road wheels are the pickup's modelled
+wheel (tools/build_pickup_hd.py) fitted to each tyre size; the tractor's bar-lug and
+ribbed tyres, rims and lettering are modelled in build_tractor.py (lettering in Barlow
+Condensed Bold, SIL Open Font License 1.1). No outside assets; Turkish number plates
+by tools/make_vehicle_plates.py.

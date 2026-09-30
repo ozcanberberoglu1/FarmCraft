@@ -38,6 +38,11 @@ const FAINT_ROLL := 0.7
 const FAINT_WINGS := Vector2(1.7, 1.5)
 const FAINT_NECK := Vector3(-0.35, 0.3, 0.9)
 const FAINT_HEAD := Vector3(0.4, 0.2, 0.9)
+## A bird standing about (Mode.IDLE, not moving; see _update_bird_idle): seconds between
+## the quick turns of its head, and between the things it does now and then.
+const BIRD_LOOK := Vector2(0.35, 2.0)
+const BIRD_ACT := Vector2(2.0, 6.0)
+enum BirdAct { NONE, PECK, SCRATCH, PREEN }
 
 var species: StringName
 var cfg: Dictionary
@@ -68,6 +73,23 @@ var faint := 0.0
 var tremble := 0.0
 var wobble := 0.0
 var fluff := 0.0
+## A bird standing about: how far into it (fading in and out); where its head looks (neck
+## pitch, yaw, head tilt), where it turns to next and when; what it is doing now and then
+## (a BirdAct), for how long, on which side (-1 left, 1 right) and the wait for the next;
+## its tail's flick, a shake of its feathers (both 1 -> 0) and the weight shift (-1..1).
+var _rest := 0.0
+var _gaze := Vector3.ZERO
+var _gaze_to := Vector3.ZERO
+var _gaze_wait := randf_range(BIRD_LOOK.x, BIRD_LOOK.y)
+var _act := BirdAct.NONE
+var _act_t := 0.0
+var _act_len := 0.0
+var _act_side := 1.0
+var _act_wait := randf_range(BIRD_ACT.x * 0.5, BIRD_ACT.y)
+var _flick := 0.0
+var _shake := 0.0
+var _lean := 0.0
+var _lean_to := 0.0
 
 static var _scenes: Dictionary = {}
 
@@ -123,6 +145,14 @@ func _collect_legs() -> void:
 				offset = (0.25 if left else 0.75) if front else (0.0 if left else 0.5)
 			legs.append({"up": _b[prefix + "_up"], "lo": _b[prefix + "_lo"], "ft": _b.get(prefix + "_ft", -1),
 				"front": front, "offset": offset, "side": side[1]})
+
+
+## Takes over the pose state of the rig this one replaces (a chick's body swapped for a
+## pullet's): one lying down stays down, a lowered head stays lowered.
+func carry_on(from: AnimalRig) -> void:
+	_lie = from._lie
+	_head_down = from._head_down
+	_phase = from._phase
 
 
 func _bone(bone_name: String) -> int:
@@ -212,7 +242,24 @@ func animate(delta: float, speed: float, mode: int) -> void:
 	# A faint: trembling in small fast shakes, a slow sway getting up, a quick ruffle after.
 	var shake := (sin(_time * 53.0) + sin(_time * 37.0 + 1.3)) * 0.5 * tremble
 	var stagger := sin(_time * 4.2) * wobble
-	var ruffle := sin(_time * 34.0) * fluff
+	# Birds standing about (never while crowing or in a faint): see _update_bird_idle.
+	var rest := 0.0
+	var dip := 0.0
+	var rake := 0.0
+	var preen := 0.0
+	if biped:
+		_update_bird_idle(delta, mode == Mode.IDLE and speed < 0.05 and crow == 0.0 and faint == 0.0 and tremble == 0.0
+				and wobble == 0.0)
+		rest = smoothstep(0.0, 1.0, _rest)
+		var env := smoothstep(0.0, 0.25, _act_t) * (1.0 - smoothstep(_act_len - 0.3, _act_len, _act_t))
+		if _act == BirdAct.PECK:
+			dip = env * rest
+		elif _act == BirdAct.SCRATCH:
+			rake = smoothstep(0.0, 0.12, _act_t) * (1.0 - smoothstep(_act_len - 0.2, _act_len, _act_t)) * rest
+		elif _act == BirdAct.PREEN:
+			preen = env * rest
+	var fluffed := maxf(fluff, sin(PI * _shake) * rest)
+	var ruffle := sin(_time * 34.0) * fluffed
 
 	for leg in legs:
 		var ph := TAU * (_phase + float(leg["offset"]))
@@ -220,6 +267,11 @@ func animate(delta: float, speed: float, mode: int) -> void:
 			ph = TAU * (_phase + float(GALLOP.get(leg["offset"], 0.0)))
 		var swing := amp * sin(ph)
 		var lift := maxf(0.0, cos(ph)) * amp * knee_scale
+		if rake > 0.0 and float(leg["side"]) == _act_side:
+			# Scratching: the foot reaches forward in the air and rakes back over the ground.
+			var rp := TAU * 2.2 * _act_t
+			swing = lerpf(swing, 0.42 * sin(rp), rake)
+			lift = lerpf(lift, maxf(0.0, cos(rp)) * 0.42 * knee_scale, rake)
 		var front: bool = leg["front"]
 		var knee := -lift if (front or biped) else lift * 0.9
 		var foot := lift * (0.6 if front else -0.5)
@@ -242,7 +294,11 @@ func animate(delta: float, speed: float, mode: int) -> void:
 		_rot("root", Vector3(-faint * 0.1 + stagger * 0.05, stagger * 0.08, faint * FAINT_ROLL + stagger * 0.16))
 	var pitch := (sin(TAU * _phase) * 0.06 if running else 0.0) + lie * 0.03 + crow * 0.1 + shake * 0.06
 	var roll := sin(TAU * _phase) * amp * 0.04 + shake * 0.05 + ruffle * 0.2
-	_rot("body", Vector3(pitch, 0, roll))
+	# Standing about: breathing, the weight on one foot then the other, leaning into a
+	# scratch or a peck, turned a little toward the wing it preens.
+	pitch += (sin(_time * 2.3 + _seed) * 0.012 - rake * 0.1 - dip * 0.06) * rest
+	roll += (_lean * 0.05 + preen * _act_side * 0.06) * rest
+	_rot("body", Vector3(pitch, preen * -_act_side * 0.12, roll))
 
 	var idle := (1.0 - _head_down) * (1.0 - clampf(speed, 0.0, 1.0))
 	var nd: float = cfg["neck_down"]
@@ -250,21 +306,27 @@ func animate(delta: float, speed: float, mode: int) -> void:
 	var nod := sin(_time * 0.7 + _seed) * 0.04 * idle
 	if running:
 		nod += sin(TAU * _phase) * 0.08
+	var head := Vector3(-_head_down * float(cfg["head_down"]) + crow * 0.38, look_yaw * 0.3 * (1.0 - crow), shake * 0.2)
 	if biped:
 		_peck = move_toward(_peck, 0.0, delta * 5.0)
-		if mode == Mode.GRAZE or mode == Mode.EAT:
+		if mode == Mode.GRAZE or mode == Mode.EAT or dip > 0.6:
 			_peck_timer -= delta
 			if _peck_timer <= 0.0:
 				_peck_timer = randf_range(0.35, 1.1)
 				_peck = 1.0
 		var bob_head := sin(TAU * _phase * 2.0) * 0.12 * clampf(speed * 2.0, 0.0, 1.0)
-		var neck := Vector3(-_head_down * nd - _peck * 0.7 + bob_head - lie * 0.3 + crow * 0.45 + shake * 0.15,
-				look_yaw * 1.5 * (1.0 - crow), ruffle * 0.3)
+		# The head held still between quick turns (not in a peck or preening), or turned
+		# back into the wing to preen, nibbling.
+		var g := _gaze * idle * (1.0 - crow) * (1.0 - dip) * (1.0 - preen) * (1.0 - lie * 0.8)
+		var nibble := sin(_time * 21.0) * 0.08 * preen
+		var neck := Vector3(-_head_down * nd - _peck * 0.7 + bob_head - lie * 0.3 + crow * 0.45 + shake * 0.15
+				+ g.x * 0.4 - dip * nd * 0.8 - preen * 0.3, g.y * 0.6 + preen * _act_side * -1.5, ruffle * 0.3)
 		_rot("neck1", neck.lerp(FAINT_NECK, faint))
+		head = Vector3(-_head_down * float(cfg["head_down"]) + crow * 0.38 + g.x * 0.6 - dip * 0.35 - preen * 0.35 + nibble,
+				g.y * 0.4 + preen * _act_side * -0.7, shake * 0.2 + g.z + preen * _act_side * 0.3)
 	else:
 		_rot("neck1", Vector3(-_head_down * nd * 0.55 + nod - lie * 0.2, look_yaw * 0.6, 0))
 		_rot("neck2", Vector3(-_head_down * nd * 0.45, look_yaw * 0.4, 0))
-	var head := Vector3(-_head_down * float(cfg["head_down"]) + crow * 0.38, look_yaw * 0.3 * (1.0 - crow), shake * 0.2)
 	_rot("head", head.lerp(FAINT_HEAD, faint))
 
 	# Ears flick now and then.
@@ -277,8 +339,11 @@ func animate(delta: float, speed: float, mode: int) -> void:
 	_rot("ear_r", Vector3(0, 0, _ear_flick * 0.3 * sin(_time * 3.0)))
 
 	var sway := sin(_time * 1.4 + _seed) * 0.16 + sin(_time * 3.3 + _seed) * 0.05
+	if biped:
+		# A bird's tail barely sways: now and then it flicks, side to side.
+		sway = sin(_time * 1.1 + _seed) * 0.02 + sin((1.0 - _flick) * TAU * 2.5) * 0.22 * _flick
 	# Limp and flat on the ground in a faint, up a moment as he fluffs himself.
-	var lift_tail := (0.25 if running else 0.05) - lie * 0.2 - faint * 0.6 + fluff * 0.2
+	var lift_tail := (0.25 if running else 0.05) - lie * 0.2 - faint * 0.6 + fluffed * 0.2
 	_rot("tail1", Vector3(-lift_tail, 0, sway + faint * 0.4))
 	_rot("tail2", Vector3(-lift_tail * 0.5, 0, sway * 1.2))
 	_rot("tail3", Vector3(0, 0, sway * 1.4))
@@ -286,7 +351,65 @@ func animate(delta: float, speed: float, mode: int) -> void:
 		# Running flutters the wings; a crow starts with a few strong beats.
 		var beat := crow * (1.0 - smoothstep(0.55, 0.9, crow)) if crow > 0.0 else 0.0
 		var flap := sin(_time * 18.0) * 0.4 * (1.0 if running else 0.0) + sin(_time * 14.0) * 0.7 * beat
-		# Fallen open in a faint, quivering, held out a little in a ruffle.
-		var splay := shake * 0.3 + fluff * 0.35
-		_rot("wing_l", Vector3(0, 0, flap + splay + faint * FAINT_WINGS.x))
-		_rot("wing_r", Vector3(0, 0, -flap - splay - faint * FAINT_WINGS.y))
+		# Fallen open in a faint, quivering, held out a little in a ruffle; the one preened
+		# lifted a little from the body.
+		var splay := shake * 0.3 + fluffed * 0.35
+		var lift_l := preen * 0.3 if _act_side < 0.0 else 0.0
+		var lift_r := preen * 0.3 if _act_side > 0.0 else 0.0
+		_rot("wing_l", Vector3(0, 0, flap + splay + lift_l + faint * FAINT_WINGS.x))
+		_rot("wing_r", Vector3(0, 0, -flap - splay - lift_r - faint * FAINT_WINGS.y))
+
+
+## A bird standing about (`standing`): its head held still between quick turns, looking
+## about with one eye and the other; now and then a peck at something on the ground (a few
+## quick jabs), a scratch with one foot (then a look and a peck at what it turned up), a
+## preen under one wing, a flick of the tail, a shake of its feathers, the weight moved
+## onto the other foot. Only the upper body and the scratching foot move: the feet stay
+## where they stand. Anything under way fades out once it moves off.
+func _update_bird_idle(delta: float, standing: bool) -> void:
+	_rest = move_toward(_rest, 1.0 if standing else 0.0, delta * (2.0 if standing else 5.0))
+	_flick = move_toward(_flick, 0.0, delta * 2.8)
+	_shake = move_toward(_shake, 0.0, delta * 1.5)
+	_lean = lerpf(_lean, _lean_to, 1.0 - exp(-delta * 2.5))
+	_gaze_wait -= delta
+	if _gaze_wait <= 0.0:
+		_gaze_wait = randf_range(BIRD_LOOK.x, BIRD_LOOK.y)
+		# Sideways to look with one eye, now and then a long look round, tilted up or down.
+		var far := 1.7 if randf() < 0.2 else 1.0
+		_gaze_to = Vector3(randf_range(-0.3, 0.15), randf_range(-0.6, 0.6) * far, randf_range(-0.45, 0.45) if randf() < 0.45 else 0.0)
+	# A bird's eyes hardly move in its head: the head snaps to where it looks.
+	_gaze = _gaze.lerp(_gaze_to, 1.0 - exp(-delta * 16.0))
+	if _act != BirdAct.NONE:
+		_act_t += delta
+		if _act_t >= _act_len:
+			var scratched := _act == BirdAct.SCRATCH
+			_act = BirdAct.NONE
+			if scratched and standing:
+				# A look at what the scratch turned up, and a peck.
+				_start_act(BirdAct.PECK, randf_range(0.8, 1.4))
+	if not standing or _act != BirdAct.NONE:
+		return
+	_act_wait -= delta
+	if _act_wait > 0.0:
+		return
+	_act_wait = randf_range(BIRD_ACT.x, BIRD_ACT.y)
+	var roll := randf()
+	if roll < 0.3:
+		_start_act(BirdAct.PECK, randf_range(0.8, 1.6))
+	elif roll < 0.45:
+		_start_act(BirdAct.SCRATCH, randf_range(0.9, 1.3))
+	elif roll < 0.57:
+		_start_act(BirdAct.PREEN, randf_range(1.5, 3.0))
+	elif roll < 0.75:
+		_flick = 1.0
+	elif roll < 0.8:
+		_shake = 1.0
+	else:
+		_lean_to = randf_range(0.4, 1.0) * (-1.0 if _lean_to > 0.0 else 1.0)
+
+
+func _start_act(act: BirdAct, length: float) -> void:
+	_act = act
+	_act_t = 0.0
+	_act_len = length
+	_act_side = -1.0 if randf() < 0.5 else 1.0

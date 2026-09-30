@@ -150,6 +150,7 @@ func _collect() -> Dictionary:
 		"clock": GameClock.save_data(), "economy": Economy.save_data(), "weather": Weather.save_data(),
 		"farm": FarmState.save_data(), "animals": Animals.save_data(), "bag": PlayerState.save_data(),
 		"progress": Progress.save_data(), "achievements": Achievements.save_data(), "quests": Quests.save_data(),
+		"carnival": Carnival.save_data(),
 		"plots": _collect_group(&"farm_plots"), "troughs": _collect_group(&"troughs"),
 		"vehicles": vehicles, "play_seconds": play_seconds,
 		"player": {"pos": spot, "yaw": player.rotation.y, "pitch": player.head.rotation.x},
@@ -236,6 +237,7 @@ func load_game(slot: String) -> bool:
 		Progress.load_data(data.get("progress", {}))
 		Achievements.load_data(data.get("achievements", {}))
 		Quests.load_data(data.get("quests", {}))
+		Carnival.load_data(data.get("carnival", {}))
 		play_seconds = float(data.get("play_seconds", 0.0)))
 	return true
 
@@ -253,6 +255,7 @@ func new_game() -> void:
 		Progress.new_game()
 		Achievements.new_game()
 		Quests.new_game()
+		Carnival.new_game()
 		play_seconds = 0.0)
 
 

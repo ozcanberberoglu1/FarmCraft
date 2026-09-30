@@ -33,6 +33,12 @@ const KICK_GAIN := 33.0
 ## Shake at full trauma (degrees: pitch, yaw, roll); trauma fades at TRAUMA_FADE per second.
 const SHAKE_DEG := Vector3(2.0, 2.0, 3.0)
 const TRAUMA_FADE := 2.4
+## Kerbs, door sills and single steps up to this high (metres) are walked up without a
+## jump (see _step_up); the capsule alone rides over about 10 cm.
+const STEP_HEIGHT := 0.25
+## How far past the edge a step-up carries the body at least, so it lands on the top
+## rather than on the edge's arris even when walking slowly.
+const STEP_REACH := 0.12
 
 @export var walk_speed := 4.3
 @export var sprint_speed := 7.0
@@ -91,6 +97,8 @@ var _bob := Vector3.ZERO
 ## Sprint held on the last physics tick (widens the view).
 var _sprinting := false
 var _last_step_sign := 1.0
+## The eye's lag behind a step-up (metres, <= 0), eased away so a kerb isn't a jolt.
+var _step_ease := 0.0
 var _last_prompt := PackedStringArray()
 var _prompt_timer := 0.0
 
@@ -211,6 +219,8 @@ func _physics_process(delta: float) -> void:
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z).lerp(wish, clampf(acceleration * control * delta, 0.0, 1.0))
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
+	if on_floor:
+		_step_up(delta)
 	move_and_slide()
 	if riding:
 		_update_riding(delta)
@@ -231,7 +241,42 @@ func _process(delta: float) -> void:
 	if jolt != Vector3.ZERO:
 		look = look * Basis.from_euler(jolt)
 	var eye := get_global_transform_interpolated().origin + global_basis * head.position + look * (_bob + Vector3(0, _kick.w, 0))
+	_step_ease *= exp(-delta * 11.0)
+	eye.y += _step_ease
 	camera.global_transform = Transform3D(look, eye)
+
+
+## Walks up a kerb, a sill or a step in the way (up to STEP_HEIGHT): when this tick's
+## move is blocked by something steeper than a floor, and there is room to go up, over
+## and down onto a walkable top, the body is lifted to that top's height and this tick's
+## move_and_slide carries it over the edge (the eye eases up after it). Only onto static
+## things (never onto an animal, a townsperson or a vehicle).
+func _step_up(delta: float) -> bool:
+	var motion := Vector3(velocity.x, 0.0, velocity.z) * delta
+	if motion.length_squared() < 0.000001:
+		return false
+	var from := global_transform
+	var hit := KinematicCollision3D.new()
+	if not test_move(from, motion, hit) or hit.get_normal().angle_to(Vector3.UP) <= floor_max_angle:
+		return false
+	var raised := from
+	raised.origin.y += STEP_HEIGHT
+	if test_move(from, Vector3.UP * STEP_HEIGHT, hit):
+		raised.origin = from.origin + hit.get_travel()
+	var reach := motion.normalized() * maxf(motion.length(), STEP_REACH)
+	if test_move(raised, reach, hit):
+		return false
+	raised.origin += reach
+	if not test_move(raised, Vector3.DOWN * (STEP_HEIGHT + 0.05), hit):
+		return false
+	var top := raised.origin + hit.get_travel()
+	var rise := top.y - from.origin.y
+	if rise < 0.02 or rise > STEP_HEIGHT + 0.01 or hit.get_normal().angle_to(Vector3.UP) > floor_max_angle \
+			or not hit.get_collider() is StaticBody3D or hit.get_collider() is AnimatableBody3D:
+		return false
+	global_position.y = top.y + 0.005
+	_step_ease -= rise
+	return true
 
 
 ## Punches the view (pitch, yaw, roll in degrees and a dip in metres at its peak) and adds
