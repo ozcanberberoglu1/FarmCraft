@@ -203,8 +203,11 @@ static func _find_source(species_id: StringName) -> String:
 	if not DirAccess.dir_exists_absolute(dir):
 		return ""
 	for f in DirAccess.get_files_at(dir):
-		if f.get_extension() in ["gltf", "glb"]:
-			return dir.path_join(f)
+		# An exported game packs only the imported scene: the folder lists
+		# "scene.gltf.import" (or ".remap"), and the resource still loads by its own name.
+		var file := f.trim_suffix(".import").trim_suffix(".remap")
+		if file.get_extension() in ["gltf", "glb"]:
+			return dir.path_join(file)
 	return ""
 
 
