@@ -237,7 +237,7 @@ func interact(_player: Node) -> void:
 	var id: StringName = next["id"]
 	var q := int(next["quality"])
 	if LiveCrates.put_in_hand(id, 1, q) <= 0:
-		Game.notify(tr("MSG_INVENTORY_FULL"), UiTheme.RED)
+		Game.notify(LiveCrates.hands_full_message(), UiTheme.RED)
 		return
 	FarmState.warehouse.take(id, 1, q)
 	Audio.animal_voice(AnimalTable.species_of_crate(id), true, _marker.global_position - Vector3(0, 0.8, 0), -10.0)

@@ -121,6 +121,9 @@ static func procedural(id: StringName) -> ArrayMesh:
 		&"fertilizer": _sack(mb, Color(0.22, 0.44, 0.27), Color(0.95, 0.95, 0.9), &"veg_gloss", false)
 		&"manure": _sack(mb, Color(0.6, 0.5, 0.36), Color(0.0, 0.0, 0.0, 0.0), &"cloth", true)
 		&"truck_key": _truck_key(mb)
+		&"dog_food":
+			_dog_food(mb)
+			overrides[&"print"] = _print_material("dog_food_print")
 		&"chicken_crate", &"rooster_crate":
 			var rng := RandomNumberGenerator.new()
 			rng.seed = 5
@@ -870,6 +873,48 @@ static func _sack(mb: MeshBuilder, color: Color, band: Color, mat: StringName, o
 	else:
 		mb.cylinder(mat, Transform3D(Basis(), Vector3(0, 0.165, 0)), 0.03, 0.045, 0.03, 12, color.darkened(0.08))
 		mb.box_at(mat, Vector3(0, 0.2, 0), Vector3(0.1, 0.03, 0.012), color.darkened(0.05))
+
+
+## A 3 kg bag of dog food (Zeynep's errands, SideStory): a gusseted plastic bag standing
+## on its broad foot, narrowing to a crimped heat seal at the top, printed front and back
+## (art/textures/items/dog_food_print.png, tools/make_item_prints.py: the front on the
+## left half, the back on the right), plain red on the gussets.
+static func _dog_food(mb: MeshBuilder) -> void:
+	var w := 0.22
+	var h := 0.3
+	var d := 0.09
+	var top := 0.012
+	var red := Color(0.62, 0.2, 0.13)
+	var hw := w * 0.5
+	var p: Array[Vector3] = [Vector3(-hw, 0, -d * 0.5), Vector3(hw, 0, -d * 0.5), Vector3(hw * 0.98, h, -top),
+		Vector3(-hw * 0.98, h, -top), Vector3(-hw, 0, d * 0.5), Vector3(hw, 0, d * 0.5), Vector3(hw * 0.98, h, top),
+		Vector3(-hw * 0.98, h, top)]
+	mb.hexa(&"veg_gloss", p, red)
+	# The printed faces a hair off the bag, front (+Z) and back (-Z).
+	var n_front := (p[5] - p[4]).cross(p[7] - p[4]).normalized() * 0.0015
+	mb.quad(&"print", p[4] + n_front, p[5] + n_front, p[6] + n_front, p[7] + n_front, Color.WHITE,
+			Vector2(0.0, 1.0), Vector2(0.5, 1.0), Vector2(0.5, 0.0), Vector2(0.0, 0.0))
+	var n_back := (p[0] - p[1]).cross(p[2] - p[1]).normalized() * 0.0015
+	mb.quad(&"print", p[1] + n_back, p[0] + n_back, p[3] + n_back, p[2] + n_back, Color.WHITE,
+			Vector2(0.5, 1.0), Vector2(1.0, 1.0), Vector2(1.0, 0.0), Vector2(0.5, 0.0))
+	# The crimped seal along the top, and a carry hole punched through it.
+	mb.box_at(&"veg_gloss", Vector3(0, h + 0.014, 0), Vector3(w * 0.98, 0.03, 0.006), red.darkened(0.12))
+	for k in 14:
+		var x := -hw * 0.92 + k * (w * 0.92 / 13.0)
+		mb.box_at(&"veg_gloss", Vector3(x, h + 0.014, 0.0033), Vector3(0.0015, 0.024, 0.0015), red.darkened(0.16))
+	mb.box_at(&"veg_gloss", Vector3(0, h + 0.017, 0), Vector3(0.042, 0.009, 0.0075), red.darkened(0.6))
+
+
+## The printed face of a packaged item (art/textures/items/<file>.png).
+static func _print_material(file: String) -> Material:
+	var m := StandardMaterial3D.new()
+	var path := "res://art/textures/items/%s.png" % file
+	if ResourceLoader.exists(path):
+		m.albedo_texture = load(path)
+	m.roughness = 0.42
+	m.metallic_specular = 0.55
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	return m
 
 
 static func _medicine(mb: MeshBuilder) -> void:

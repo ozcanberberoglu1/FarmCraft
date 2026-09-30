@@ -24,6 +24,9 @@ var night_rock_serial := 0
 ## The farm warehouse: produce and materials stocked by the unit. Its capacity follows
 ## warehouse_level() (a new farm starts with Grandpa's run-down shed).
 var warehouse := Stockpile.new(ProjectTable.WAREHOUSE_CAPACITY[0])
+## Crated animals bought at the Animal Market, waiting on the ground in front of the
+## seller for the farmer to take them (LiveCrates, shown by MarketCrates).
+var market_crates := Stockpile.new(LiveCrates.MAX_WAITING)
 ## Manure on the heap by the barn (fills overnight from the animals' bedding).
 var manure := 0.0
 const MANURE_MAX := ManureMound.MAX
@@ -207,6 +210,7 @@ func new_game() -> void:
 	placed.clear()
 	flags.clear()
 	warehouse.from_dict({"capacity": ProjectTable.WAREHOUSE_CAPACITY[0], "items": {}})
+	market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	# Automated runs keep an empty warehouse (like the farm built at launch).
 	if not DebugTools.is_automated():
 		warehouse.add(&"feed", STARTER_FEED)
@@ -219,7 +223,7 @@ func save_data() -> Dictionary:
 	return {"built": built.keys().map(func(k): return String(k)), "storage": inv, "depleted": depleted,
 		"stumps": stumps.duplicate(true), "saplings": saplings.duplicate(true), "sapling_serial": sapling_serial,
 		"night_rocks": night_rocks.duplicate(true), "night_rock_serial": night_rock_serial,
-		"warehouse": warehouse.to_dict(), "manure": manure,
+		"warehouse": warehouse.to_dict(), "market_crates": market_crates.to_dict(), "manure": manure,
 		"placed": placed.duplicate(true), "flags": flags.duplicate(true)}
 
 
@@ -242,6 +246,8 @@ func load_data(d: Dictionary) -> void:
 		storage[id] = i
 	warehouse.from_dict({"capacity": ProjectTable.WAREHOUSE_CAPACITY[warehouse_level()],
 		"items": (d.get("warehouse", {}) as Dictionary).get("items", {})})
+	market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING,
+		"items": (d.get("market_crates", {}) as Dictionary).get("items", {})})
 	manure = float(d.get("manure", 0.0))
 	placed = (d.get("placed", []) as Array).duplicate(true)
 	# Saves from before the first-day walkthrough have no flags: their farm is lived in

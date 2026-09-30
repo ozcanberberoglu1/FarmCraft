@@ -32,7 +32,7 @@ MPFB = ("https://extensions.blender.org/download/sha256:4f0a879d64a39bf646fbf5f5
         "add-on-mpfb-v2.0.17.zip", "4f0a879d64a39bf646fbf5f53601ac678855da329d650617dca5737548239a87")
 PACK_URL = "https://files.makehumancommunity.org/asset_packs/%s/%s_cc0.zip"
 # All CC0 (see each pack's packs/<name>.json for the per-asset authors).
-PACKS = ["makehuman_system_assets", "skins02", "shirts01", "pants01", "shoes01", "hats01", "bodyparts05"]
+PACKS = ["makehuman_system_assets", "skins01", "skins02", "shirts01", "pants01", "shoes01", "hats01", "bodyparts05"]
 
 
 def arg(name, default=None):

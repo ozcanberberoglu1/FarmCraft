@@ -55,6 +55,10 @@ const MARKET_LANE := Rect2(246.4, 29.3, 5.4, 25.7)
 const COOP_RUN := Rect2(236.8, 38.3, 7.8, 8.7)
 const HENHOUSE := Rect2(237.3, 43.5, 2.0, 2.6)
 const HEN_STALL := Rect2(244.7, 40.4, 1.6, 3.2)
+## Where bought crates wait (MarketCrates): the first crate's centre (x, z), the row
+## running south (+z) along the lane's west edge from just inside the gate, in front of
+## the open gate leaf and short of the office hatch.
+const MARKET_PICKUP := Vector2(246.82, 30.2)
 const HAY_BARN := Rect2(236.8, 47.6, 9.0, 7.0)
 const HORSE_PADDOCK := Rect2(252.0, 29.8, 16.0, 8.2)
 const COW_PADDOCK := Rect2(252.0, 38.0, 16.0, 8.4)
@@ -154,6 +158,8 @@ var poultry_marker: Marker3D
 ## &"coop" for the run -> [Rect2]).
 var market_office: Node3D
 var market_pens := {}
+## The pickup spot inside the gate where the crates bought here wait (LiveCrates).
+var market_crates: MarketCrates
 var herd: MarketHerd
 var market_avoid := {}
 var pumps: Array[Node3D] = []
@@ -234,7 +240,9 @@ func _ready() -> void:
 			Rect2(268, -2, 11, 10), Rect2(270, 31, 11, 11), Rect2(196, 10, 20, 3.3),
 			MARKET_SIDE_YARD, KIOSK.grow(0.3), Rect2(BUS_STOP.x - 1.9, BUS_STOP.y - 1.0, 3.8, 1.9), Rect2(DEALER.end.x + 0.3, -4.5, 4.4, 6.0),
 			# The garden paths from the gates to the door steps, the bales by the market office.
-			Rect2(272.6, 8.0, 1.8, 4.0), Rect2(274.6, 27.0, 1.8, 4.0), Rect2(RANCH_OFFICE.position.x - 1.1, RANCH_OFFICE.position.y + 2.0, 0.9, 5.6)]:
+			Rect2(272.6, 8.0, 1.8, 4.0), Rect2(274.6, 27.0, 1.8, 4.0),
+			# Karamel's doghouse and bowls in Zeynep's garden (ZeynepHome).
+			Rect2(267.9, 8.6, 2.2, 1.9), Rect2(RANCH_OFFICE.position.x - 1.1, RANCH_OFFICE.position.y + 2.0, 0.9, 5.6)]:
 		Game.world.block_grass(r)
 	_spawn_dealer_stock()
 	_spawn_farm_truck()
@@ -1666,7 +1674,8 @@ func vehicle_at_market() -> Vehicle:
 
 
 ## The player's vehicle parked by the Animal Market's hen stall (in the street in front
-## will do) whose bed takes the crates bought there (null: they go into the bag).
+## will do) with room in its bed, if any (the crates bought there wait at the pickup
+## spot, MarketCrates, for the farmer to load them).
 func vehicle_at_poultry() -> Vehicle:
 	if poultry_stall == null:
 		return null
@@ -1693,8 +1702,9 @@ func _spawn_dealer_stock() -> void:
 
 
 ## The car for sale on the turntable turns slowly with the deck: once it has settled on
-## its wheels it is frozen and turned by hand (a moving deck would drag it about); as
-## soon as it is bought, driven or moved off, it is a free body again.
+## its wheels it is held on display and turned by hand about the deck's middle, wheels
+## and all (Vehicle.turn_on_display; a moving deck would drag it about); as soon as it
+## is bought, driven or moved off, it is a free body again.
 func _turn_showroom(delta: float) -> void:
 	if _turn_vehicle == null or not is_instance_valid(_turn_vehicle):
 		return
@@ -1702,21 +1712,15 @@ func _turn_showroom(delta: float) -> void:
 	var on := not v.owned and v.driver == null \
 			and Vector2(v.global_position.x - TURNTABLE.x, v.global_position.z - TURNTABLE.y).length() < 0.6
 	if not on:
-		if v.freeze:
-			v.freeze = false
-			v.sleeping = false
+		# Only the hold of the display is let go: parked elsewhere it is held still as any.
+		v.end_display()
 		_turn_settle = 2.0
 		return
 	if _turn_settle > 0.0:
 		_turn_settle -= delta
 		return
-	if not v.freeze:
-		v.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-		v.freeze = true
 	var step := TURN_SPEED * delta
-	var xf := v.global_transform
-	xf.basis = Basis(Vector3.UP, step) * xf.basis
-	v.global_transform = xf
+	v.turn_on_display(step, Vector3(TURNTABLE.x, 0.0, TURNTABLE.y))
 	_deck.rotate_y(step)
 
 
@@ -1879,17 +1883,19 @@ static func farm_truck_home() -> Transform3D:
 ## dealer's office with its porch and, beside it, a timber gate arch with the name board
 ## over a packed-earth lane that runs down between the pens. West of the lane the coop
 ## run (a henhouse, hens and whatever else lives in a coop, behind chicken wire) with
-## the hen stall at its fence (crated hens for the pickup parked in the street) and the
-## hay barn at the back; east of it the horse paddock, the cow paddock and the sheep
-## pen, each with a field gate onto the lane, troughs, a hay rack or a shelter. The
-## animals on show (MarketHerd) are never the player's. E at the office (its street
-## window or the hatch onto the lane), the hen stall or a pen's gate opens the market
-## (RancherScreen.open_market), at that pen's kind.
+## the hen stall at its fence (crated hens) and the hay barn at the back; east of it the
+## horse paddock, the cow paddock and the sheep pen, each with a field gate onto the
+## lane, troughs, a hay rack or a shelter. The animals on show (MarketHerd) are never
+## the player's. E at the office (its street window or the hatch onto the lane), the hen
+## stall or a pen's gate opens the market (RancherScreen.open_market), at that pen's
+## kind. Crates bought there wait just inside the gate by the hatch (MARKET_PICKUP,
+## MarketCrates) for the farmer to carry to the pickup parked in the street.
 func _animal_market(cols: Array) -> void:
 	var yard := MeshBuilder.new()
 	_market_lane(yard)
 	_market_office(yard, cols)
 	_market_gate(yard, cols)
+	_market_pickup_spot()
 	_market_paddocks(yard, cols)
 	_market_coop_run(yard, cols)
 	_hen_stall(yard, cols)
@@ -2031,6 +2037,19 @@ func _market_office(mb: MeshBuilder, cols: Array) -> void:
 			_square_bale(mb, bales + Vector3(0, 0.2 + layer * 0.4, -1.8 + k * 0.92 + layer * 0.46), (k - 2) * 0.035,
 					layer * 0.03 + (k % 2) * 0.03)
 	cols.append([bales + Vector3(0, 0.6, 0), Vector3(0.5, 1.2, 4.6), 0.0])
+
+
+## The pickup spot (MARKET_PICKUP): the crates bought here wait on the lane's packed earth,
+## their row along the lane's edge (MarketCrates' +X runs south).
+func _market_pickup_spot() -> void:
+	var lane := MARKET_LANE.get_center()
+	# The lane is a flat slab (see _market_lane): the crates stand on its top.
+	var top := maxf(_y(lane.x, (WALK_S.end.y + MARKET_LANE.end.y) * 0.5) + 0.015, _y(MARKET_PICKUP.x, MARKET_PICKUP.y))
+	market_crates = MarketCrates.new()
+	market_crates.name = "MarketCrates"
+	market_crates.position = Vector3(MARKET_PICKUP.x, top, MARKET_PICKUP.y)
+	market_crates.rotation.y = -PI * 0.5
+	add_child(market_crates)
 
 
 ## A shadowless warm light that comes on with the street lamps.
@@ -2415,8 +2434,8 @@ static func _net_material() -> StandardMaterial3D:
 ## tin roof falling to the lane, a painted fascia with the name and a striped valance, a
 ## trestle counter with crated hens on it (live ones), the stock stacked behind, empty
 ## crates at the side, feed sacks and straw, the price chalked on a board and a bulb for
-## the evening. E at the counter buys hens in crates: they go into the bed of the pickup
-## parked in the street, else into the bag.
+## the evening. E at the counter buys hens in crates: they wait at the market's pickup
+## spot by the gate (MarketCrates) for the farmer to load them into the pickup.
 func _hen_stall(mb: MeshBuilder, cols: Array) -> void:
 	var c := HEN_STALL.get_center()
 	var y0 := _y(c.x, c.y) + 0.02
@@ -2614,11 +2633,17 @@ func _houses(mb: MeshBuilder, cols: Array) -> void:
 				{"at": 5.5, "w": 1.1, "bottom": 0.0, "top": 2.2, "glass": false},
 				{"at": 8.5, "w": 1.6, "bottom": 0.9, "top": 2.3, "glass": true}]}
 		BuildingKit.shell(mb, cols, r, y0, 3.0, 0.3, &"t_plaster", spec[2], ops, &"floor", false)
-		# Door leaf (closed) in the doorway.
 		var door_x := r.position.x + 5.5
 		var door_z := r.end.y - 0.15 if front == "s" else r.position.y + 0.15
-		mb.box_at(&"wood", Vector3(door_x, y0 + 1.1, door_z), Vector3(1.0, 2.2, 0.06), Color(0.36, 0.24, 0.16))
-		cols.append([Vector3(door_x, y0 + 1.1, door_z), Vector3(1.1, 2.2, 0.3), 0.0])
+		if idx == 0:
+			# Zeynep's house (ZeynepHome): a working door, the hallway behind it, and the
+			# door step to stand on.
+			_zeynep_hallway(mb, r, y0)
+			cols.append([Vector3(door_x, y0 - 0.1, r.end.y + 0.35), Vector3(1.6, 0.2, 0.7), 0.0])
+		else:
+			# Door leaf (closed) in the doorway.
+			mb.box_at(&"wood", Vector3(door_x, y0 + 1.1, door_z), Vector3(1.0, 2.2, 0.06), Color(0.36, 0.24, 0.16))
+			cols.append([Vector3(door_x, y0 + 1.1, door_z), Vector3(1.1, 2.2, 0.3), 0.0])
 		# Hip-less gable roof along X over the flat roof slab.
 		var rise := 2.2
 		mb.prism(&"roof", Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(r.get_center().x, y0 + 3.45, r.get_center().y)), r.size.y + 0.8, rise, r.size.x + 0.8, Color(0.5, 0.5, 0.5))
@@ -2630,8 +2655,27 @@ func _houses(mb: MeshBuilder, cols: Array) -> void:
 		gf.points = fd["points"]
 		gf.gaps = fd["gaps"]
 		gf.closed = true
+		if idx == 0:
+			# Open along the house: the fence runs from one front corner of the house round
+			# the garden to the other, so the door is free.
+			var pts := PackedVector2Array([Vector2(r.position.x, garden.position.y + 0.05), Vector2(garden.position.x, garden.position.y + 0.05),
+					Vector2(garden.position.x, garden.end.y)])
+			var gate := garden.get_center().x
+			pts.append(Vector2(gate - 0.7, garden.end.y))
+			pts.append(Vector2(gate + 0.7, garden.end.y))
+			pts.append_array([Vector2(garden.end.x, garden.end.y), Vector2(garden.end.x, garden.position.y + 0.05),
+					Vector2(r.end.x, garden.position.y + 0.05)])
+			gf.points = pts
+			gf.gaps = PackedInt32Array([3])
+			gf.closed = false
 		add_child(gf)
 		_house_details(mb, r, y0, front == "s", idx)
+		if idx == 0:
+			var home := ZeynepHome.new()
+			home.house = r
+			home.floor_y = y0
+			home.garden = garden
+			add_child(home)
 		# The service drop from the pole ends on a bracket on the east wall by the front.
 		var drop := Vector3(r.end.x + 0.14, y0 + 2.75, r.end.y - 0.5 if front == "s" else r.position.y + 0.5)
 		mb.box_at(&"metal", drop + Vector3(-0.07, 0, 0), Vector3(0.14, 0.04, 0.04), IRON)
@@ -2706,6 +2750,103 @@ func _house_details(mb: MeshBuilder, r: Rect2, y0: float, faces_south: bool, idx
 		for dx: float in [-0.2, 0.2]:
 			_cable(a + Vector3(dx, 0, 0), b + Vector3(dx, 0, 0), 0.06, 0.004, Color(0.8, 0.8, 0.78))
 		_hang_washing(a + Vector3(0.2, 0, 0), b + Vector3(0.2, 0, 0), 0.06)
+
+
+## The hallway behind Zeynep's front door (ZeynepHome), for when it stands open: warm
+## cream walls under a lower ceiling, a kilim on the wooden floor, a coat rack with her
+## jacket and a scarf, a shoe cabinet with a plant and a bowl for keys, shoes by it, two
+## framed pictures, a pendant lamp (ZeynepHome lights it) and a painted inner door at
+## the far end. Seen only through the doorway: no colliders.
+func _zeynep_hallway(mb: MeshBuilder, r: Rect2, y0: float) -> void:
+	var dx := r.position.x + 5.5
+	var zi := r.end.y - 0.3
+	var x0 := dx - 1.45
+	var x1 := dx + 1.45
+	var z0 := zi - 2.75
+	var top := y0 + 2.62
+	var wall := Color(0.58, 0.53, 0.45)
+	var wood := Color(0.36, 0.27, 0.2)
+	var paint := Color(0.88, 0.85, 0.79)
+	# Side walls, the far wall round the inner door, and the ceiling.
+	for x: float in [x0 - 0.05, x1 + 0.05]:
+		mb.box_at(&"plaster_in", Vector3(x, (y0 + top) * 0.5, (z0 + zi) * 0.5), Vector3(0.1, top - y0, zi - z0), wall)
+		mb.box_at(&"wood_in", Vector3(x + (0.055 if x < dx else -0.055), y0 + 0.06, (z0 + zi) * 0.5), Vector3(0.012, 0.1, zi - z0), wood, Vector3.ZERO, true)
+	var inner_w := 0.84
+	var inner_h := 2.04
+	for sx: float in [-1.0, 1.0]:
+		var w := (x1 - x0 - inner_w) * 0.5
+		mb.box_at(&"plaster_in", Vector3(dx + sx * (inner_w * 0.5 + w * 0.5), (y0 + top) * 0.5, z0 - 0.05), Vector3(w, top - y0, 0.1), wall)
+	mb.box_at(&"plaster_in", Vector3(dx, (y0 + inner_h + top) * 0.5, z0 - 0.05), Vector3(inner_w, top - y0 - inner_h, 0.1), wall)
+	mb.box_at(&"plaster_in", Vector3(dx, top + 0.03, (z0 + zi) * 0.5), Vector3(x1 - x0 + 0.2, 0.06, zi - z0 + 0.1), Color(0.62, 0.6, 0.56))
+	# The inner door: a painted panel door in a wooden casing, a brass lever.
+	mb.box_at(&"paint_in", Vector3(dx, y0 + inner_h * 0.5, z0 + 0.01), Vector3(inner_w - 0.04, inner_h - 0.02, 0.04), paint)
+	for py: float in [0.55, 1.45]:
+		mb.box_at(&"paint_in", Vector3(dx, y0 + py, z0 + 0.034), Vector3(inner_w - 0.24, 0.7, 0.01), paint.darkened(0.06))
+	for sx: float in [-1.0, 1.0]:
+		mb.box_at(&"wood_in", Vector3(dx + sx * (inner_w * 0.5 + 0.03), y0 + inner_h * 0.5, z0 + 0.02), Vector3(0.07, inner_h + 0.04, 0.03), wood)
+	mb.box_at(&"wood_in", Vector3(dx, y0 + inner_h + 0.04, z0 + 0.02), Vector3(inner_w + 0.13, 0.07, 0.03), wood, Vector3.ZERO, true)
+	mb.box_at(&"metal", Vector3(dx + inner_w * 0.5 - 0.1, y0 + 1.02, z0 + 0.05), Vector3(0.11, 0.018, 0.03), Color(0.78, 0.62, 0.3))
+	# A kilim on the floor, clear of the front door's swing.
+	var rug := Vector3(dx + 0.05, y0 + 0.028, z0 + 1.0)
+	mb.box_at(&"cloth", rug, Vector3(1.05, 0.012, 1.55), Color(0.55, 0.13, 0.1))
+	mb.box_at(&"cloth", rug + Vector3(0, 0.002, 0), Vector3(0.85, 0.012, 1.35), Color(0.82, 0.72, 0.55))
+	mb.box_at(&"cloth", rug + Vector3(0, 0.004, 0), Vector3(0.72, 0.012, 1.22), Color(0.6, 0.16, 0.12))
+	for k in 3:
+		var c := rug + Vector3(0, 0.006, (k - 1) * 0.38)
+		mb.box_at(&"cloth", c, Vector3(0.28, 0.012, 0.28), Color(0.16, 0.2, 0.34), Vector3(0, 45, 0))
+		mb.box_at(&"cloth", c + Vector3(0, 0.002, 0), Vector3(0.13, 0.012, 0.13), Color(0.9, 0.6, 0.2), Vector3(0, 45, 0))
+	# The coat rack on the east wall by the door, her mustard jacket and a scarf on it.
+	var rack_x := x1 - 0.02
+	mb.box_at(&"wood_in", Vector3(rack_x, y0 + 1.74, zi - 0.75), Vector3(0.03, 0.1, 0.95), wood, Vector3.ZERO, true)
+	for k in 4:
+		_fine.box_at(&"metal", Vector3(rack_x - 0.045, y0 + 1.72, zi - 1.1 + k * 0.23), Vector3(0.07, 0.014, 0.014), Color(0.15, 0.15, 0.15))
+	var coat := Vector3(rack_x - 0.1, y0 + 1.27, zi - 0.64)
+	mb.box_at(&"cloth", coat, Vector3(0.13, 0.86, 0.44), Color(0.64, 0.46, 0.16))
+	mb.box_at(&"cloth", coat + Vector3(-0.01, 0.38, 0), Vector3(0.1, 0.12, 0.2), Color(0.58, 0.41, 0.14))
+	for sz: float in [-1.0, 1.0]:
+		mb.box_at(&"cloth", coat + Vector3(-0.02, -0.02, sz * 0.24), Vector3(0.1, 0.72, 0.08), Color(0.6, 0.43, 0.15), Vector3(sz * -4.0, 0, 0))
+	for k in 5:
+		mb.box_at(&"cloth", Vector3(rack_x - 0.06, y0 + 1.36 - k * 0.1, zi - 1.1), Vector3(0.05, 0.1, 0.16),
+				Color(0.2, 0.36, 0.5) if k % 2 == 0 else Color(0.85, 0.82, 0.74))
+	# The shoe cabinet further in, a plant and a bowl for keys on it, shoes by it.
+	var cab := Vector3(x1 - 0.17, y0, z0 + 0.62)
+	mb.box_at(&"paint_in", cab + Vector3(0, 0.42, 0), Vector3(0.32, 0.84, 0.8), paint)
+	mb.box_at(&"wood_in", cab + Vector3(0, 0.855, 0), Vector3(0.36, 0.03, 0.84), Color(0.46, 0.33, 0.22), Vector3.ZERO, true)
+	for sz: float in [-1.0, 1.0]:
+		mb.box_at(&"paint_in", cab + Vector3(-0.162, 0.42, sz * 0.2), Vector3(0.006, 0.76, 0.37), paint.darkened(0.05))
+		mb.box_at(&"metal", cab + Vector3(-0.172, 0.7, sz * 0.03), Vector3(0.014, 0.06, 0.014), Color(0.78, 0.62, 0.3))
+	mb.cylinder(&"clay", Transform3D(Basis(), cab + Vector3(0, 0.87, 0.24)), 0.065, 0.085, 0.13, 12, Color(0.62, 0.34, 0.2))
+	mb.blob(&"veg", Transform3D(Basis.from_scale(Vector3(1.0, 1.2, 1.0)), cab + Vector3(0, 1.08, 0.24)), 0.13, 1, Color(0.3, 0.46, 0.2), 0.3, 3.0, 7, 0.1)
+	mb.cylinder(&"clay", Transform3D(Basis(), cab + Vector3(0.02, 0.87, -0.2)), 0.08, 0.05, 0.04, 14, Color(0.2, 0.36, 0.48))
+	for shoe: Array in [[Vector3(x1 - 0.5, y0 + 0.03, z0 + 1.3), Color(0.9, 0.9, 0.88)], [Vector3(x1 - 0.5, y0 + 0.03, z0 + 1.46), Color(0.9, 0.9, 0.88)],
+			[Vector3(x1 - 0.72, y0 + 0.03, z0 + 1.3), Color(0.32, 0.2, 0.12)], [Vector3(x1 - 0.72, y0 + 0.03, z0 + 1.44), Color(0.32, 0.2, 0.12)]]:
+		var at: Vector3 = shoe[0]
+		mb.box_at(&"cloth", at + Vector3(0, 0.04, 0), Vector3(0.26, 0.08, 0.1), shoe[1], Vector3(0, 90, 0))
+		mb.box_at(&"cloth", at + Vector3(0.06, 0.1, 0), Vector3(0.1, 0.06, 0.09), (shoe[1] as Color).darkened(0.1), Vector3(0, 90, 0))
+	# Two framed pictures on the west wall: a landscape, and Karamel as a puppy.
+	for pic: Array in [[z0 + 1.35, Vector2(0.62, 0.48), 0], [z0 + 0.55, Vector2(0.3, 0.38), 1]]:
+		var pz: float = pic[0]
+		var ps: Vector2 = pic[1]
+		var px := x0 + 0.015
+		var py := y0 + 1.6
+		mb.box_at(&"wood_in", Vector3(px, py, pz), Vector3(0.025, ps.y, ps.x), wood.darkened(0.2))
+		mb.box_at(&"paint_in", Vector3(px + 0.014, py, pz), Vector3(0.006, ps.y - 0.06, ps.x - 0.06), Color(0.93, 0.91, 0.86))
+		var iw := ps.x - 0.14
+		var ih := ps.y - 0.14
+		if int(pic[2]) == 0:
+			mb.box_at(&"paint_in", Vector3(px + 0.018, py + ih * 0.22, pz), Vector3(0.004, ih * 0.56, iw), Color(0.55, 0.7, 0.85))
+			mb.box_at(&"paint_in", Vector3(px + 0.018, py - ih * 0.25, pz), Vector3(0.004, ih * 0.5, iw), Color(0.34, 0.5, 0.26))
+			mb.box_at(&"paint_in", Vector3(px + 0.02, py - ih * 0.02, pz - iw * 0.12), Vector3(0.004, ih * 0.22, iw * 0.55), Color(0.26, 0.4, 0.22), Vector3(-14, 0, 0))
+			mb.box_at(&"paint_in", Vector3(px + 0.021, py + ih * 0.32, pz + iw * 0.3), Vector3(0.004, 0.05, 0.05), Color(0.98, 0.86, 0.5))
+		else:
+			mb.box_at(&"paint_in", Vector3(px + 0.018, py, pz), Vector3(0.004, ih, iw), Color(0.78, 0.74, 0.66))
+			mb.box_at(&"paint_in", Vector3(px + 0.02, py - ih * 0.1, pz), Vector3(0.004, ih * 0.45, iw * 0.6), Color(0.6, 0.4, 0.22))
+			mb.box_at(&"paint_in", Vector3(px + 0.021, py + ih * 0.2, pz), Vector3(0.004, ih * 0.3, iw * 0.4), Color(0.62, 0.42, 0.24))
+	# The pendant lamp: a cloth shade over a warm bulb.
+	var lamp := Vector3(dx, top - 0.36, zi - 1.7)
+	_fine.cylinder_between(&"metal", Vector3(lamp.x, top, lamp.z), lamp + Vector3(0, 0.14, 0), 0.005, 0.005, 4, Color(0.1, 0.1, 0.1))
+	mb.cylinder(&"cloth", Transform3D(Basis(), lamp), 0.2, 0.1, 0.16, 16, Color(0.93, 0.86, 0.7))
+	mb.sphere(&"glow", Transform3D(Basis(), lamp + Vector3(0, 0.03, 0)), Vector3(0.045, 0.05, 0.045), 8, 5, Color(1.0, 0.82, 0.55))
 
 
 ## A geranium in a pot whose soil is at `soil`: a rosette of leaf cards and a few

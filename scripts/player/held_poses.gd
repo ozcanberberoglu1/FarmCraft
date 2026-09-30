@@ -29,6 +29,7 @@ const POSES := {
 	&"hay": [Vector3(0.3, -0.44, -0.74), Vector3(8, 25, 0), 0.78],
 	&"flour": [Vector3(0.3, -0.46, -0.7), Vector3(6, 25, 0), 0.8],
 	&"feed": [Vector3(0.3, -0.46, -0.7), Vector3(6, 25, 0), 0.8],
+	&"dog_food": [Vector3(0.3, -0.44, -0.66), Vector3(4, 20, 0), 0.8],
 	&"manure": [Vector3(0.3, -0.46, -0.7), Vector3(6, 25, 0), 0.8],
 	&"fertilizer": [Vector3(0.3, -0.46, -0.72), Vector3(8, 25, 0), 0.8],
 	&"milk": [Vector3(0.3, -0.46, -0.68), Vector3(4, 25, 0), 0.8],

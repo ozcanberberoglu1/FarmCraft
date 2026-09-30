@@ -159,3 +159,29 @@ Cut, faded and levelled by `tools/build_carnival_audio.py` from Freesound's prev
 | sfx/carnival/firework_1.ogg | *FRWKRec_Single Firework With City Reverb_Jaku5* | jakubp.jp, https://freesound.org/people/jakubp.jp/sounds/552699/ | CC0 |
 | sfx/carnival/firework_2.ogg, firework_3.ogg | *Outdoor Clean Explosions (Fireworks on New Year's Eve 2021)* | unfa, https://freesound.org/people/unfa/sounds/613672/ | CC0 |
 | sfx/carnival/crackle_1.ogg | *Firework Crackle* | LukaCafuka, https://freesound.org/people/LukaCafuka/sounds/750682/ | CC0 |
+
+## Karamel's sounds (`sfx/animals/dog_*`)
+
+Cut, cleaned and levelled from these recordings by `tools/build_dog_audio.py` (the recipe of every take is in the
+script). All are CC0 or Mixkit's free licence: none needs attribution or share-alike.
+
+| Used for | Recording | Author / source | Licence |
+|---|---|---|---|
+| dog_bark_0/1 | Dog barking twice (1) | Mixkit | Mixkit free licence |
+| dog_bark_2/3 | *Dog Bark* | aunrea, https://freesound.org/people/aunrea/sounds/495658/ | CC0 |
+| dog_bark_4 | *Single Dog Bark* | kwahmah_02, https://freesound.org/people/kwahmah_02/sounds/277058/ | CC0 |
+| dog_pant_0/1 | Medium size dog walking pant (58) | Mixkit | Mixkit free licence |
+| dog_pant_2 | *Dog Panting Loop* | qubodup, https://freesound.org/people/qubodup/sounds/827433/ | CC0 |
+| dog_whine_0/1 | *Malinois Dog Whining* | qubodup, https://freesound.org/people/qubodup/sounds/752093/ | CC0 |
+| dog_whine_2 | Dog sad whimper (467) | Mixkit | Mixkit free licence |
+| dog_eat_0/1 | *Dog eating dry kibble* | artemditkovsky, https://freesound.org/people/artemditkovsky/sounds/860329/ | CC0 |
+| dog_eat_2 | *Lab mix eating kible* | Rolly-SFX, https://freesound.org/people/Rolly-SFX/sounds/856229/ | CC0 |
+| dog_eat_3/4 | *Dog Eating Very Wet Food* | qubodup, https://freesound.org/people/qubodup/sounds/741034/ | CC0 |
+
+## Knocks on a door (`sfx/misc/knock_*`)
+
+Built by `tools/build_story_audio.py` (Zeynep's front door, SideStory).
+
+| Used for | Recording | Author / source | Licence |
+|---|---|---|---|
+| knock_0-2 | synthesised in the script (a knuckle's tick over a wooden panel's damped modes, a hallway's early reflections) | — | — |

@@ -28,6 +28,8 @@ const SETS := {
 	"soft": "sfx/misc/soft_%d.ogg", "plank": "sfx/misc/plank_%d.ogg", "metal": "sfx/misc/metal_%d.ogg",
 	"pot": "sfx/misc/pot_%d.ogg", "door_open": ["sfx/misc/door_open.ogg"], "door_close": ["sfx/misc/door_close.ogg"],
 	"creak": ["sfx/misc/creak.ogg"],
+	# Three knocks on a front door (tools/build_story_audio.py).
+	"knock": "sfx/misc/knock_%d.ogg",
 	"coins": ["sfx/money/coins_clink.mp3"], "coins_small": ["sfx/money/coins_small.ogg", "sfx/money/coins_handle.mp3"],
 	"money_bag": ["sfx/money/money_bag.mp3"], "thunder": "sfx/weather/thunder_%d.mp3",
 	"cow": ["sfx/animals/cow_moo_1.mp3", "sfx/animals/cow_moo_2.mp3", "sfx/animals/cow_moo_3.mp3"],
@@ -40,6 +42,10 @@ const SETS := {
 	"chick": "sfx/animals/chick_%d.ogg", "egg_crack": "sfx/animals/egg_crack_%d.ogg",
 	"egg_hatch": ["sfx/animals/egg_hatch.ogg"],
 	"horse": ["sfx/animals/horse_neigh.mp3"], "horse_snort": ["sfx/animals/horse_snort.mp3", "sfx/animals/horse_snore.mp3"],
+	# Karamel, Zeynep's dog (Dog; tools/build_dog_audio.py): a bark, panting, a soft whine,
+	# eating from his bowl.
+	"dog_bark": "sfx/animals/dog_bark_%d.ogg", "dog_pant": "sfx/animals/dog_pant_%d.ogg",
+	"dog_whine": "sfx/animals/dog_whine_%d.ogg", "dog_eat": "sfx/animals/dog_eat_%d.ogg",
 	"engine_start": ["sfx/vehicle/engine_start.mp3"], "car_door": ["sfx/vehicle/door_slam.mp3"],
 	"click": ["sfx/ui/click.ogg"], "hover": ["sfx/ui/hover.ogg"], "open": ["sfx/ui/open.ogg"], "close": ["sfx/ui/close.ogg"],
 	"confirm": ["sfx/ui/confirm.ogg"], "error": ["sfx/ui/error.ogg"], "toggle": ["sfx/ui/toggle.ogg"],

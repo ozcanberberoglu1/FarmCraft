@@ -25,11 +25,11 @@ static func rancher_supplies() -> Dictionary:
 
 
 ## What the town market sells besides the stalls' seeds and materials: feed, the
-## workbench kit, the workbench's hardware (nails, rope) and bait for the rod (worms and
+## workbench kit, the workbench's hardware (nails, rope), bait for the rod (worms and
 ## dough $1, maggots and sweetcorn $2, cheese $3, live minnows $4, a spinner $15: each
-## draws its own fish, FishTable).
+## draws its own fish, FishTable) and dog food (Zeynep's errands, SideStory).
 const MARKET_EXTRAS: Array[StringName] = [&"feed", &"hay", &"fertilizer", &"nails", &"rope", &"worm", &"dough",
-	&"maggot", &"sweetcorn", &"cheese_bait", &"minnow", &"spinner", &"workbench"]
+	&"maggot", &"sweetcorn", &"cheese_bait", &"minnow", &"spinner", &"workbench", &"dog_food"]
 
 
 ## Yeşilova Market: seeds, building materials, hardware, bait and feed; buys all produce.

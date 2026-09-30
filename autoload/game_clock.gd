@@ -5,14 +5,18 @@ extends Node
 enum Season { SPRING, SUMMER, AUTUMN, WINTER }
 
 const MINUTES_PER_DAY := 1440
+## Every morning starts here: the player wakes at 06:00 (see sleep_to_next_morning).
 const DAY_START_MINUTE := 6 * 60
+## A new game's first day starts at noon: the player arrives at Grandpa's farm with the
+## afternoon ahead (Quests paces the first day's story to fit it into the daylight).
+const FIRST_DAY_START_MINUTE := 12 * 60
 const PASS_OUT_MINUTE := 26 * 60
 const DAYS_PER_SEASON := 10
 const TICK_MINUTES := 10.0
 const SEASON_KEYS := ["SEASON_SPRING", "SEASON_SUMMER", "SEASON_AUTUMN", "SEASON_WINTER"]
 
 var day := 1
-var minute := float(DAY_START_MINUTE)
+var minute := float(FIRST_DAY_START_MINUTE)
 ## Monotonic minutes since the start of the game; used by growth/needs simulations.
 var total_minutes := 0.0
 var running := true
@@ -119,5 +123,6 @@ func save_data() -> Dictionary:
 
 func load_data(data: Dictionary) -> void:
 	day = int(data.get("day", 1))
-	minute = float(data.get("minute", DAY_START_MINUTE))
+	# A saved game keeps its time; a new one (no data) starts at noon on day 1.
+	minute = float(data.get("minute", FIRST_DAY_START_MINUTE if day == 1 else DAY_START_MINUTE))
 	total_minutes = float(data.get("total_minutes", 0.0))

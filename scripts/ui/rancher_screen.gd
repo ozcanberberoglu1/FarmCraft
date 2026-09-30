@@ -6,10 +6,10 @@ extends ModalScreen
 ## the chosen kind on the right: what it gives and eats, what the market wants to see
 ## on the farm first (the farm level, the building: LiveCrates.market_lock) and where it
 ## will live, then the purchase. Crated kinds (hens) come in transport crates, as many as
-## the order says, loaded into the bed of the player's pickup parked near where the market
-## was opened (else carried in the bag): no coop needed yet. The others are young or grown,
-## brought straight into their housing by the dealer. Opened at a pen's gate or the hen
-## stall, the market shows that kind first (open_market).
+## the order says, set down in front of the seller at the market's pickup spot by the gate
+## (LiveCrates, MarketCrates) for the farmer to carry to the pickup: no coop needed yet.
+## The others are young or grown, brought straight into their housing by the dealer.
+## Opened at a pen's gate or the hen stall, the market shows that kind first (open_market).
 
 const PORTRAIT_DIR := "res://art/icons/animals/"
 
@@ -20,7 +20,7 @@ var _tab := "buy"
 var _confirm_sell := -1
 ## The kind shown on the right of "Buy".
 var _selected: StringName = &""
-## Where the market was opened (a vehicle parked near it takes the crates).
+## Where the market was opened.
 var _stall_at := Vector3.ZERO
 ## Crated animals in the order being put together.
 var _order := 2
@@ -63,8 +63,7 @@ func open() -> void:
 	open_market(at, &"")
 
 
-## Opens the market at `at` (crates go into a pickup parked near it) on `focus` (&"":
-## the kind last shown, else the first).
+## Opens the market at `at` on `focus` (&"": the kind last shown, else the first).
 func open_market(at: Vector3, focus: StringName = &"") -> void:
 	_stall_at = at
 	if focus != &"" and not AnimalTable.get_species(focus).is_empty():
@@ -339,10 +338,10 @@ func _fill_detail(box: VBoxContainer, species: StringName) -> void:
 		_fill_young_or_grown(box, species, info)
 
 
-## A crated kind: how many, the total, where the crates go, the buy button.
+## A crated kind: how many (no more than the pickup spot still takes), the total, where
+## the crates will wait, the buy button.
 func _fill_crate_order(box: VBoxContainer, species: StringName) -> void:
-	var room := LiveCrates.room_at(species, _stall_at)
-	var most := clampi(mini(room, LiveCrates.MAX_ORDER), 1, LiveCrates.MAX_ORDER)
+	var most := clampi(mini(LiveCrates.market_room(), LiveCrates.MAX_ORDER), 1, LiveCrates.MAX_ORDER)
 	_order = clampi(_order, 1, most)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
@@ -382,11 +381,10 @@ func _fill_crate_order(box: VBoxContainer, species: StringName) -> void:
 	total.add_child(UiTheme.make_label(UiTheme.caps(tr("UI_TOTAL")), UiTheme.heading(18, UiTheme.TEXT_MUTED, 700, 2)))
 	total.add_child(UiTheme.price(each * _order, 32))
 	sums.add_child(total)
-	var v := LiveCrates.vehicle_near(_stall_at)
-	if v:
-		box.add_child(_info("truck", tr("RANCHER_CRATE_TO_BED") % [v.display_name(), v.cargo.space()], UiTheme.GREEN))
-	else:
-		box.add_child(_info("backpack", tr("RANCHER_CRATE_TO_BAG"), UiTheme.TEXT))
+	box.add_child(_info("box", tr("RANCHER_CRATES_WAIT"), UiTheme.TEXT))
+	var waiting := LiveCrates.count_at(&"market")
+	if waiting > 0:
+		box.add_child(_info("clock", tr("RANCHER_CRATES_WAITING") % [waiting, LiveCrates.MAX_WAITING], UiTheme.GOLD_SOFT))
 	var why := why_not(species, true, _order)
 	if why != "":
 		box.add_child(UiTheme.paragraph(why, 16, UiTheme.RED, 700))

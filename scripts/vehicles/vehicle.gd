@@ -39,6 +39,9 @@ var info: Dictionary
 var owned := true
 ## Seconds a parked vehicle has stood still (see _hold_when_parked).
 var _settle_t := 0.0
+## While it is held on display and turned by hand (see turn_on_display): each wheel's
+## pose under the body as it stood (wheel key -> local transform). Empty otherwise.
+var _display_pose := {}
 var price := 0
 var fuel := 0.0
 var cargo: Stockpile
@@ -571,6 +574,37 @@ func _hold_when_parked(delta: float) -> void:
 		freeze = true
 
 
+## Turns the vehicle by hand by `angle` radians about the vertical through `pivot`, as one
+## piece with what it stands on (the showroom's turntable, Town._turn_showroom): it is
+## held frozen (kinematic: it pushes what it turns into) and its wheels keep the pose they
+## had under the body when it went on display. The physics step only places the wheels of
+## a body it moves itself; for one turned by hand it leaves them standing where they were
+## (or rolls them as if the car drove round the deck), so the pose is put back each turn.
+func turn_on_display(angle: float, pivot: Vector3) -> void:
+	if _display_pose.is_empty() or not freeze:
+		_display_pose.clear()
+		for key: String in _wheels:
+			_display_pose[key] = (_wheels[key] as VehicleWheel3D).transform
+	if not freeze or freeze_mode != RigidBody3D.FREEZE_MODE_KINEMATIC:
+		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		freeze = true
+	var turn := Transform3D(Basis(Vector3.UP, angle), pivot) * Transform3D(Basis(), -pivot)
+	global_transform = turn * global_transform
+	for key: String in _display_pose:
+		(_wheels[key] as VehicleWheel3D).transform = _display_pose[key]
+
+
+## Lets a vehicle held on display go: a free body again, whose wheels the physics step
+## places once more (parked, it is held still again once it has settled).
+func end_display() -> void:
+	if _display_pose.is_empty():
+		return
+	_display_pose.clear()
+	freeze = false
+	sleeping = false
+	_settle_t = 0.0
+
+
 func set_driver(d: Node) -> void:
 	var was := driver
 	driver = d
@@ -949,8 +983,8 @@ func live_cargo() -> StringName:
 
 
 ## E at the tailgate: the next crate comes out of the bed into the farmer's hands
-## (onto the crates already in hand, or into a free hotbar slot). False when there is
-## none or no room.
+## (onto the crates already in hand, into a free hotbar slot, or in place of what is in
+## hand: see LiveCrates.put_in_hand). False when there is none or no room.
 func take_live() -> bool:
 	var id := live_cargo()
 	if id == &"":
@@ -960,8 +994,8 @@ func take_live() -> bool:
 		if e["id"] == id:
 			q = int(e["quality"])
 			break
-	if LiveCrates.put_in_hand(id, 1, q) <= 0:
-		Game.notify(tr("MSG_INVENTORY_FULL"), UiTheme.RED)
+	if LiveCrates.put_in_hand(id, 1, q, self) <= 0:
+		Game.notify(LiveCrates.hands_full_message(), UiTheme.RED)
 		return false
 	cargo.take(id, 1, q)
 	Audio.animal_voice(AnimalTable.species_of_crate(id), true, global_position, -8.0)

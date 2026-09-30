@@ -35,7 +35,11 @@ var _shuffle := 0.0
 
 func _ready() -> void:
 	rig = AnimalModels.create_rig(species)
-	rig.scale = Vector3.ONE * SCALE
+	# A longer bird (the rooster) is sized down to a hen's length: his comb and tail stay
+	# inside the crate instead of poking out through its end.
+	var hen_len := (AnimalTable.get_species(&"chicken").get("size", Vector3.ONE) as Vector3).z
+	var own_len := (AnimalTable.get_species(species).get("size", Vector3.ONE) as Vector3).z
+	rig.scale = Vector3.ONE * SCALE * minf(1.0, hen_len / maxf(own_len, 0.01))
 	rig.position = Vector3(0, 0.03, 0)
 	add_child(rig)
 	rig.set_variant(variant % AnimalModels.variant_count(species), false)

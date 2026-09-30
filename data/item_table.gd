@@ -97,6 +97,9 @@ const ITEMS := {
 	&"dough": {"cat": "bait", "stack": 99, "sell": 0, "buy": 1},
 	## A young tree dropped by a felled one: planted and watered it grows into a tree.
 	&"sapling": {"cat": "sapling", "stack": 20, "sell": 2, "buy": 0},
+	## A 3 kg bag of dog food from the town market: Zeynep's dog Karamel eats it
+	## (SideStory's errands).
+	&"dog_food": {"cat": "pet", "stack": 10, "sell": 3, "buy": 12},
 
 	# --- POULTRY agent: the rooster (eggs left under a rooster stay the plain "egg"; the
 	# coop keeps which ones are fertile) ---
@@ -256,7 +259,7 @@ const CATEGORY_KEYS := {
 	"placeable": "CAT_PLACEABLE", "supply": "CAT_SUPPLY", "key": "CAT_KEY", "animal": "CAT_ANIMAL",
 	"material": "CAT_MATERIAL", "bait": "CAT_BAIT", "sapling": "CAT_SAPLING",
 	"fish": "CAT_FISH", "food": "CAT_FOOD", "junk": "CAT_JUNK", "meat": "CAT_MEAT",
-	"forage": "CAT_FORAGE", "game": "CAT_GAME",
+	"forage": "CAT_FORAGE", "game": "CAT_GAME", "pet": "CAT_PET",
 }
 
 ## Items the player starts a new game with: [id, count]

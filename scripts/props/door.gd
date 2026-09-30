@@ -70,6 +70,12 @@ func handle_point() -> Vector3:
 	return _leaf.to_global(Vector3(width - 0.13, 1.02, LEAF_T + 0.03))
 
 
+## A point on the leaf wherever it is: `local` in the leaf's own frame (x from the hinge
+## along it, y up from its foot, z out from its inner face; its outer face at LEAF_T).
+func leaf_point(local: Vector3) -> Vector3:
+	return _leaf.to_global(local)
+
+
 ## Middle of the doorway at chest height (a waypoint target; it does not swing).
 func waypoint_point() -> Vector3:
 	return to_global(Vector3(width * 0.5, 1.2, LEAF_T * 0.5))

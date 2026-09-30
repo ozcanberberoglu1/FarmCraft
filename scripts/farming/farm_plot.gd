@@ -164,6 +164,16 @@ func advance(hours: float) -> void:
 	_refresh()
 
 
+## Brings the crop on to at least `hours` of growth (Quests: the first night brings the
+## first day's sowing on).
+func grow_to(hours: float) -> void:
+	if crop == &"" or withered or growth >= hours:
+		return
+	growth = hours
+	changed.emit()
+	_refresh()
+
+
 func soak(hours := CropTable.WET_HOURS) -> void:
 	if soil != Soil.TILLED:
 		return

@@ -9,8 +9,11 @@ extends Node3D
 ##   walk        a heel-to-toe gait: planted feet (leg IK), pelvis bob, sway and
 ##               twist, counter-rotating shoulders, swinging arms
 ##   sit         on a bench or a chair, hands on the thighs
+##   kneel       down on one knee (by a dog), the toes of that foot tucked under, the
+##               other foot flat in front
 ##   hands       arm IK to targets in the body frame (the till, the broom's handle,
-##               the tea glass, the heart in a greeting, behind the back)
+##               the tea glass, the heart in a greeting, behind the back, a dog's
+##               back, a door's edge, a thing held in both hands)
 ##   look        the head (neck and chest a little) turned to a point
 ##
 ## Rotations are written in the body frame (+Z forward, +Y up, +X the person's left)
@@ -26,7 +29,7 @@ extends Node3D
 ## glass sits in the fist, not at the wrist.
 
 const DIR := "res://art/models/people/"
-const MODELS: Array[StringName] = [&"shopkeeper", &"worker", &"salesman", &"farmer", &"elder", &"villager", &"young"]
+const MODELS: Array[StringName] = [&"shopkeeper", &"worker", &"salesman", &"farmer", &"elder", &"villager", &"young", &"zeynep"]
 ## Skin, lips and cheeks a little warmer and darker than the source scans (Anatolian sun).
 const SKIN_TINT := Color(0.96, 0.87, 0.78)
 ## Bones the rig writes, by role.
@@ -651,6 +654,48 @@ func grip_point(side: String) -> Vector3:
 	return pos(h) + acc(h) * (_grip0[side] as Vector3)
 
 
+## The middle of the palm's skin now (body frame): what palm_on lays on a surface.
+func palm_point(side: String) -> Vector3:
+	var h := bi("hand" + side)
+	return pos(h) + acc(h) * (_palm0[side] as Vector3)
+
+
+## The palm as the skeleton draws it (body frame), for tests.
+func drawn_palm(side: String) -> Vector3:
+	var h := bi("hand" + side)
+	var xf := _rel(skeleton, self) * skeleton.get_bone_global_pose(h)
+	var local := (_rest_rot[h] as Quaternion).inverse() * (_palm0[side] as Vector3)
+	return xf.origin + xf.basis.get_rotation_quaternion() * local
+
+
+## Where the bone's head is as the skeleton draws it (body frame), for tests.
+func drawn_bone(bone: StringName) -> Vector3:
+	return (_rel(skeleton, self) * skeleton.get_bone_global_pose(bi(bone))).origin
+
+
+## The palm laid on a surface at `at` (outward `normal`), the fingers along `fingers`,
+## as a pose: [wrist (body frame), the hand's rotation] (see palm_on, pose_between).
+func palm_pose(side: String, at: Vector3, normal: Vector3, fingers: Vector3) -> Array:
+	var n := normal.normalized()
+	var w := hand_rot(side, (fingers - n * fingers.dot(n)).normalized(), -n)
+	return [at - w * (_palm0[side] as Vector3), w]
+
+
+## The hand as it is posed now: [wrist (body frame), its rotation].
+func hand_pose(side: String) -> Array:
+	var h := bi("hand" + side)
+	return [pos(h), acc(h)]
+
+
+## Turns bone `bone` (and what hangs on it) so its rotation in the body frame, from rest,
+## is `w`, whatever its parents did.
+func set_global(bone: StringName, w: Quaternion) -> void:
+	var i := bi(bone)
+	_q[i] = acc(skeleton.get_bone_parent(i)).inverse() * w
+	if _torso_ids.has(i):
+		_torso_ok = false
+
+
 ## The grip as the skeleton draws it (body frame), for tests.
 func drawn_grip(side: String) -> Vector3:
 	var h := bi("hand" + side)
@@ -928,6 +973,77 @@ func sit(seat_y: float, slouch := 0.1, arms := true) -> void:
 			reach(side, hip.lerp(knee, 0.62) + Vector3(sgn * 0.02, 0.07, 0.0), Vector3(sgn * 0.6, -0.2, -1.0))
 			orient_hand(side, Vector3(-sgn * 0.25, -0.35, 1.0), Vector3(0, -1, 0))
 			curl(side, 0.3, 0.3)
+
+
+## How high the knee's joint is above the ground when it is down on it (the kneecap under).
+const KNEE_DOWN := 0.062
+
+
+## Down on one knee (`side`'s) from standing, `amount` 0 standing .. 1 knelt: the leg
+## steps back and goes down onto its knee, its toes tucked under, the other foot a
+## little forward and flat, its knee up; the pelvis sits over the kneeling thigh. The
+## torso leans `lean` forward and turns `twist` (+ to the left) as it goes down. The
+## stance's breathing and weight shift fade into it; the arms are the caller's.
+## `forward` moves the knelt pose that far ahead (nearer what she kneels to).
+func kneel(amount: float, side: String, lean := 0.3, twist := 0.0, forward := 0.0) -> void:
+	if amount <= 0.001:
+		stance(0.0, false)
+		return
+	var sgn := 1.0 if side == "_l" else -1.0
+	var other := "_r" if side == "_l" else "_l"
+	# The kneeling leg steps back first, the other foot a little forward, then down.
+	var back_s := smoothstep(0.0, 0.5, amount)
+	var front_s := smoothstep(0.25, 0.6, amount)
+	var down := smoothstep(0.2, 1.0, amount)
+	var breath := sin(time * 1.55 + seed_phase)
+	var shift := wobble(0.55, 1.0) * (1.0 - down)
+	rot_z(&"pelvis", -shift * 0.045)
+	rot_y(&"pelvis", wobble(0.3, 2.0) * 0.06 * (1.0 - down) + sgn * 0.14 * down)
+	rot_x(&"pelvis", 0.1 * down)
+	rot_z(&"spine_02", shift * 0.035)
+	rot_y(&"spine_01", (twist * 0.3 - sgn * 0.08) * down)
+	rot_y(&"spine_02", twist * 0.35 * down)
+	rot_y(&"spine_03", twist * 0.35 * down)
+	rot_x(&"spine_01", lean * 0.4 * down)
+	rot_x(&"spine_02", lean * 0.35 * down + breath * 0.008)
+	rot_x(&"spine_03", lean * 0.25 * down - breath * 0.018)
+	rot_z(&"clavicle_l", breath * 0.012)
+	rot_z(&"clavicle_r", -breath * 0.012)
+	# Knelt: the knee on the ground under the hip, a thigh's length below it (the hip a
+	# little forward of it); the shin back along the ground up to the tucked foot.
+	var thigh: float = _len[bi("thigh" + side)]
+	var calf: float = _len[bi("calf" + side)]
+	var knee := Vector3(sgn * 0.11, KNEE_DOWN, -0.08 + forward)
+	var hip_at := knee + Vector3(0.0, cos(0.12), sin(0.12)) * thigh
+	var ball_rest := pos_rest("ball" + side)
+	var foot_len := ball_rest.distance_to(pos_rest("foot" + side))
+	var ankle_h := ball_rest.y + foot_len * 0.97
+	var shin_up := ankle_h - KNEE_DOWN
+	var ankle_back := knee + Vector3(0.0, shin_up, -sqrt(maxf(calf * calf - shin_up * shin_up, 0.01)))
+	var off_knelt := hip_at - pos(bi("thigh" + side))
+	var off_stand := Vector3(shift * 0.03, -0.012 - absf(shift) * 0.012, 0.0)
+	move_pelvis(off_stand.lerp(off_knelt, down))
+	# The kneeling leg: from its standing place back (lifted on the way) to behind the knee.
+	var stand_k := pos_rest("foot" + side) + Vector3(0.0, 0.0, 0.02)
+	stand_k.x *= 1.08
+	var ak := stand_k.lerp(ankle_back, back_s)
+	ak.y += sin(back_s * PI) * 0.06 * (1.0 - down)
+	step(side, ak, Vector3(sgn * 0.15, 0.0, 1.0).lerp(Vector3(sgn * 0.1, -0.75, 0.6), back_s))
+	# Its foot rolls onto the toes and stands on them, the toes bent flat on the ground.
+	var v0 := (ball_rest - pos_rest("foot" + side)).normalized()
+	var toes_down := Quaternion(v0, Vector3(0.0, -0.97, 0.24).normalized())
+	var fk := StringName("foot" + side)
+	set_global(fk, acc(bi(fk)).slerp(toes_down, back_s))
+	var bk := StringName("ball" + side)
+	set_global(bk, acc(bi(bk)).slerp(Quaternion.IDENTITY, back_s))
+	# The other foot a little forward, flat, its knee up and out a little.
+	var stand_f := pos_rest("foot" + other) + Vector3(0.0, 0.0, 0.02)
+	stand_f.x *= 1.08
+	var af := stand_f.lerp(Vector3(-sgn * 0.14, ankle_y, 0.3 + forward), front_s)
+	af.y += sin(front_s * PI) * 0.05
+	step(other, af, Vector3(-sgn * 0.15, 0.0, 1.0).lerp(Vector3(-sgn * 0.3, 0.35, 1.0), front_s))
+	var ff := StringName("foot" + other)
+	set_global(ff, acc(bi(ff)).slerp(Quaternion.IDENTITY, down))
 
 
 ## Turns the head (the neck and chest a little) to look at `target` (body frame);

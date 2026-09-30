@@ -3,8 +3,10 @@ extends StaticBody3D
 ## A vehicle's bed as an interaction target: an invisible box around the bed and
 ## tailgate (layer 4, so it only stops the interaction ray). E loads the goods in
 ## hand; with crated hens aboard, E lifts the next crate out into the farmer's hands
-## (onto the crates already carried, then into a free hotbar slot); otherwise E opens
-## the bed. F opens the bed (crates go back aboard from there).
+## (onto the crates lifted out of this bed already, then into a free hotbar slot);
+## otherwise E opens the bed. Crates brought from elsewhere (the Animal Market's pickup
+## spot, the warehouse) go aboard with E even when the bed holds some of their kind.
+## F opens the bed (crates go back aboard from there too).
 
 var vehicle: Vehicle
 var size := Vector3.ONE
@@ -29,9 +31,10 @@ func _crate_to_take() -> StringName:
 	var s := PlayerState.selected_stack()
 	if not Vehicle.is_cargo(s):
 		return live
-	# Carrying crates of the same kind: pick up another (onto the stack while it has
-	# room, then into a free hotbar slot), so pressing E again never loads them back.
-	if s.item.id == live:
+	# Carrying crates of the same kind lifted out of this bed: pick up another (onto the
+	# stack while it has room, then into a free hotbar slot), so pressing E again never
+	# loads them back. Crates from anywhere else are loaded.
+	if s.item.id == live and LiveCrates.lifted_from == vehicle.get_instance_id():
 		return live
 	return &""
 

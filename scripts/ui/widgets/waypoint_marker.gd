@@ -9,6 +9,8 @@ extends Control
 ## the crosshair so it never hides a prompt, and fades out within a few metres of the
 ## place. Works from the driver's seat (the viewport's current camera); hidden in menus,
 ## on the title, while a game loads and when the goal names no place.
+## A second one follows the side story's goal (HUD.side_waypoint: `source` SideStory),
+## ringed in its own colour, its pill naming who or what it points at.
 
 ## Inset from the screen edges while clamped: left, top, right, bottom (clears the
 ## money and clock cards at the top and the hotbar at the bottom).
@@ -29,6 +31,14 @@ const ANCHOR_GROUP := &"waypoint_anchors"
 ## Points the dot here instead of the story's place (a Vector3 or a Node3D; null for
 ## the story's): tests and screenshot runs.
 var target_override: Variant = null
+## Where the place and the pill's line come from: an object with guide_point() and
+## guide_label() (null: the story's goals, Quests).
+var source: Object = null
+## Screen rects the dot keeps below while it rides the screen's edge (the goal cards at
+## the top left; HUD keeps them up to date).
+var keep_out: Array[Rect2] = []
+## The ring's colour (and the chevron's, and the pulse's).
+var ring_color := UiTheme.GOLD
 ## Where the dot points, whether it is in view, and how far away (metres, on the
 ## ground). Read by tests.
 var world_point := Vector3.ZERO
@@ -91,7 +101,7 @@ func _process(delta: float) -> void:
 		if on_screen:
 			want *= lerpf(0.35, 1.0, clampf((_pos.distance_to(size * 0.5) - 20.0) / CENTER_DIM, 0.0, 1.0))
 		var m := roundi(distance)
-		var line := Quests.guide_label() if typeof(target_override) == TYPE_NIL else ""
+		var line: String = _guide().guide_label() if typeof(target_override) == TYPE_NIL else ""
 		if m != _shown_m or line != _shown_label:
 			_shown_m = m
 			_shown_label = line
@@ -118,7 +128,7 @@ func _process(delta: float) -> void:
 
 ## Reads the goal's place into `world_point`; pops the dot when the place is new.
 func _update_target() -> void:
-	var target: Variant = target_override if typeof(target_override) != TYPE_NIL else Quests.guide_point()
+	var target: Variant = target_override if typeof(target_override) != TYPE_NIL else _guide().guide_point()
 	var point := world_point
 	var id := 0
 	var found := false
@@ -140,6 +150,10 @@ func _update_target() -> void:
 	_has_target = true
 	_target_id = id
 	world_point = point
+
+
+func _guide() -> Object:
+	return source if source != null else Quests
 
 
 func _pop_in() -> void:
@@ -174,14 +188,18 @@ func _place(cam: Camera3D) -> void:
 	var tx := ((hi.x - c.x) if _dir.x > 0.0 else (c.x - lo.x)) / maxf(absf(_dir.x), 0.0001)
 	var ty := ((hi.y - c.y) if _dir.y > 0.0 else (c.y - lo.y)) / maxf(absf(_dir.y), 0.0001)
 	_pos = c + _dir * minf(tx, ty)
+	for r: Rect2 in keep_out:
+		var g := r.grow(RING + 8.0)
+		if g.has_point(_pos):
+			_pos.y = minf(g.end.y + 14.0, hi.y)
 
 
 func _draw() -> void:
 	var s := _pop
 	draw_circle(_pos, (RING + 5.0) * s, Color(0, 0, 0, 0.3))
 	if on_screen:
-		draw_arc(_pos, (RING + 2.0 + _pulse * 16.0) * s, 0.0, TAU, 40, Color(UiTheme.GOLD, 0.55 * (1.0 - _pulse)), 2.0, true)
-	draw_arc(_pos, RING * s, 0.0, TAU, 40, UiTheme.GOLD, 2.6, true)
+		draw_arc(_pos, (RING + 2.0 + _pulse * 16.0) * s, 0.0, TAU, 40, Color(ring_color, 0.55 * (1.0 - _pulse)), 2.0, true)
+	draw_arc(_pos, RING * s, 0.0, TAU, 40, ring_color, 2.6, true)
 	draw_circle(_pos, DOT * s, Color(1, 1, 1, 0.97))
 	if _dir != Vector2.ZERO:
 		# The chevron outside the ring, pointing the way.
@@ -189,4 +207,4 @@ func _draw() -> void:
 		var base := _pos + _dir * (RING + 5.0) * s
 		var side := _dir.orthogonal() * 7.5 * s
 		draw_colored_polygon(PackedVector2Array([tip, base + side, base - side]), Color(0, 0, 0, 0.35))
-		draw_colored_polygon(PackedVector2Array([tip - _dir * 1.5, base + side * 0.8, base - side * 0.8]), UiTheme.GOLD)
+		draw_colored_polygon(PackedVector2Array([tip - _dir * 1.5, base + side * 0.8, base - side * 0.8]), ring_color)

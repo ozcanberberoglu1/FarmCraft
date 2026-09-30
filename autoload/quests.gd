@@ -51,14 +51,15 @@ const CHAIN := 6
 ## "house" or "warehouse"), or "check" (a condition polled each second: "flag:<name>"
 ## (FarmState.flags), "table" (Grandpa's things taken off the worktable), "key" (the
 ## pickup's key found), "driving", "hens:owned" (hens bought, crated or let out),
-## "home" (back in the farmyard), "crates:warehouse" (hen crates stored, or hens let out),
-## "owned:<species>" (bought: crated anywhere, or living on the farm),
-## "kit" (a coop kit made), "coop:started" / "coop:built", "bin:<item or category>"
-## (in the shipping bin, or shipped), "warehouse", "cargo", "near:town", "day:<n>",
-## "level", "built:<project>", "animals:<species>", "has:<item>" (in the bag or put down
-## on the farm), "bench:kit" / "bench:started" / "bench:built" (a workbench bought, put
-## down, finished), "bait" (worms or dough in the bag), "caught" (a fish caught since the
-## story began); the counting ones report progress).
+## "home" (back in the farmyard, no hens left waiting at the Animal Market),
+## "crates:warehouse" (hen crates stored, or hens let out), "owned:<species>" (bought:
+## crated anywhere, or living on the farm), "kit" (a coop kit made), "coop:started" /
+## "coop:built", "bin:<item or category>" (in the shipping bin, or shipped),
+## "warehouse", "cargo", "near:town", "day:<n>", "level", "built:<project>",
+## "animals:<species>", "has:<item>" (in the bag or put down on the farm), "bench:kit" /
+## "bench:started" / "bench:built" (a workbench bought, put down, finished), "bait"
+## (worms or dough in the bag), "caught" (a fish caught since the story began); the
+## counting ones report progress).
 ## Kinds of the second day: "earned" (dollars from sales and orders), "caught" (fish
 ## caught: Events.fish_caught), "cooked" (food cooked on a campfire), "eaten" (food
 ## eaten).
@@ -227,16 +228,27 @@ const MOVED_V6 := {"level_3": "rooster_wait"}
 ## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the first egg still comes, and
 ## there is light to mend the house by); once the day's story is done the clock runs as
 ## usual. Multiplies GameClock.time_scale; the day length setting still applies.
-const FIRST_DAY_PACE := 0.5
+## The day starts at noon (GameClock.FIRST_DAY_START_MINUTE): at the default 15-minute
+## day (Settings: 80 game minutes a real minute) noon to 16:30 takes 13.5 real minutes
+## and the linger to sundown (about 19:15) 10 more, to nightfall (20:00) 13: about the
+## 24 and 26 minutes the story had when the day started at 06:00 (at 0.5 and 0.25).
+const FIRST_DAY_PACE := 0.25
 const LINGER_HOUR := 16.5
-const LINGER_PACE := 0.25
+const LINGER_PACE := 0.2
 ## Grandpa's beds: the far end of the first field is ripe on a new farm, so the first
 ## harvest can be made on day one (the player's own wheat needs 20 wet hours and ripens
-## overnight). Carrots, or wheat out of the carrot seasons. Set once (BEDS_FLAG in
-## FarmState.flags, saved with the farm).
+## overnight, see FIRST_NIGHT_GROWTH). Carrots, or wheat out of the carrot seasons. Set
+## once (BEDS_FLAG in FarmState.flags, saved with the farm).
 const GRANDPA_BEDS := 3
 const GRANDPA_CROP := &"carrot"
 const BEDS_FLAG := "grandpa_beds"
+## The first day starts at noon, so wheat sown that afternoon or evening would not have
+## its 20 wet hours by the second morning, when the story asks for its harvest
+## (harvest2). The first night makes up for the morning the day didn't have: a crop sown
+## and watered on a new farm's first day wakes with at least this many hours of growth
+## (a whole day, as if it had gone in at dawn), so the wheat is ripe and slower crops
+## are a day along.
+const FIRST_NIGHT_GROWTH := 24.0
 ## Back in the farmyard (the "home" check): this close to the warehouse door, on foot or
 ## at the wheel.
 const HOME_RADIUS := 30.0
@@ -282,6 +294,9 @@ var _bench_spot_searched := false
 ## Why the dot points where it does when that isn't the goal's own place (a translated
 ## line under the goal, "" for none): set with the dot (_target), read by goal_hint().
 var _hint := ""
+## Crates in hand in town go to the pickup's bed when it is parked within this many
+## metres (_waiting_crates); farther away they are on their way home by hand.
+const CRATES_TO_TRUCK := 80.0
 ## The first day's pace is set on GameClock.time_scale (given back when the day is over).
 var _paced := false
 ## A building just finished (see _guide_to): the dot floats over it first (a Vector3),
@@ -651,13 +666,18 @@ func _check_progress(arg: String, count := 1) -> int:
 			var p := _player()
 			return 1 if p != null and p.driving != null and p.driving.owned else 0
 		"hens":
-			# Bought: in crates anywhere (the bed, the bag, the warehouse) or let out.
+			# Bought: in crates anywhere (waiting at the market, the bed, the bag, the
+			# warehouse) or let out.
 			var crated := LiveCrates.count_at(&"all", AnimalTable.crate_item(&"chicken"))
 			return maxi(crated + _animal_count(&"chicken"), int(tally.get("bought:chicken", 0)))
 		"home":
-			return 1 if _near("home") else 0
+			# Back with the hens: none of them left waiting at the Animal Market's pickup
+			# spot (the dot sends the farmer back for them, _target("home")).
+			var left := LiveCrates.count_at(&"market", AnimalTable.crate_item(&"chicken"))
+			return 1 if _near("home") and left == 0 else 0
 		"owned":
-			# Bought: in its crate anywhere (the bed, the bag, the warehouse) or living here.
+			# Bought: in its crate anywhere (waiting at the market, the bed, the bag, the
+			# warehouse) or living here.
 			var sp := StringName(what)
 			var crate := AnimalTable.crate_item(sp)
 			var crated := LiveCrates.count_at(&"all", crate) if crate != &"" else 0
@@ -939,7 +959,7 @@ func _paces_day() -> bool:
 			and not DebugTools.is_automated() and FarmHouse.first_day()
 
 
-## The first day's time scale at `hour` (from 6.0, past 24 after midnight) while its
+## The first day's time scale at `hour` (from 12.0, past 24 after midnight) while its
 ## story runs (tests check it).
 func pace_for(hour: float) -> float:
 	return FIRST_DAY_PACE if hour < LINGER_HOUR else LINGER_PACE
@@ -1079,6 +1099,11 @@ func _target(at: String) -> Variant:
 				fallback = town.market_counter.global_position + Vector3(0, 1.5, 0)
 			return _anchor(&"town_chickens", fallback)
 		"home":
+			# Hens still waiting at the market: into the pickup first (every one of them,
+			# even with some carried off already: the goal wants them all home).
+			var hens_waiting: Variant = _waiting_crates(AnimalTable.crate_item(&"chicken"), true)
+			if hens_waiting != null:
+				return hens_waiting
 			# The hens ride in the bed: on foot away from the pickup, back to it first.
 			if p and p.driving == null and LiveCrates.count_at(&"bed") > 0:
 				var truck := _farm_truck()
@@ -1086,6 +1111,9 @@ func _target(at: String) -> Variant:
 					return _anchor(&"truck", _truck_roof_point())
 			return _anchor(&"warehouse", _warehouse_door())
 		"crates":
+			var crates_waiting: Variant = _waiting_crates(AnimalTable.crate_item(&"chicken"))
+			if crates_waiting != null:
+				return crates_waiting
 			if LiveCrates.count_at(&"carried") > 0:
 				return _anchor(&"crate_bay", _warehouse_door())
 			if LiveCrates.count_at(&"bed") > 0:
@@ -1122,6 +1150,12 @@ func _target(at: String) -> Variant:
 				return _target("coop_spot")
 			return null
 		"hens":
+			# The goal's kind (hens, the rooster) still at the market: into the pickup first.
+			var kind := StringName(String(current().get("arg", "")).get_slice(":", 1))
+			var bird_crate := AnimalTable.crate_item(kind if AnimalTable.crate_item(kind) != &"" else &"chicken")
+			var birds_waiting: Variant = _waiting_crates(bird_crate)
+			if birds_waiting != null:
+				return birds_waiting
 			# Crates in hand go to the coop door; else fetch them from where they wait.
 			if LiveCrates.count_at(&"carried") > 0:
 				return _coop_door()
@@ -1244,6 +1278,31 @@ func _target(at: String) -> Variant:
 				_hint = tr("HINT_NEED_FISH")
 				return _target("pond")
 			return fire.global_position + Vector3(0, 1.0, 0)
+	return null
+
+
+## The dot while crates of `crate` bought at the Animal Market are still in town: waiting
+## at the market's pickup spot (MarketCrates), else in the hands (the selected slot: E at
+## the tailgate loads only that) on foot in town with the pickup there, its bed. The line
+## under the goal says to load them into the pickup. null when neither. Crates carried
+## off out of town go on by the goal's own dot first (to the coop door...), unless `every`:
+## the goal wants all of them brought along, and the dot goes back for those still waiting.
+func _waiting_crates(crate: StringName, every := false) -> Variant:
+	var p := _player()
+	var carried := LiveCrates.count_at(&"carried", crate)
+	var in_town := _near("town")
+	if LiveCrates.count_at(&"market", crate) > 0 and (in_town or carried == 0 or every):
+		_hint = tr("HINT_MARKET_CRATES")
+		var town := _town()
+		var fallback: Variant = null
+		if town and town.market_crates:
+			fallback = town.market_crates.global_position + Vector3(0, 1.5, 0)
+		return _anchor(MarketCrates.ANCHOR, fallback)
+	var truck := _farm_truck()
+	if in_town and LiveCrates.count_at(&"hand", crate) > 0 and p and p.driving == null and truck \
+			and truck.global_position.distance_to(p.global_position) < CRATES_TO_TRUCK:
+		_hint = tr("HINT_LOAD_CRATES")
+		return _anchor(&"truck_bed", _truck_roof_point())
 	return null
 
 
@@ -1760,9 +1819,21 @@ func deliver(o: Dictionary) -> bool:
 
 
 ## A night went by: the board is refilled, and a goal waiting for the morning looks now.
-func _on_day_started(_day: int) -> void:
+func _on_day_started(day: int) -> void:
+	if day == 2:
+		_grow_first_sowing()
 	refill_board()
 	_nudge()
+
+
+## The first night on a new farm (see FIRST_NIGHT_GROWTH): every crop sown on the first
+## day and watered (its soil still wet in the morning) has at least a whole day's growth.
+func _grow_first_sowing() -> void:
+	if not FarmHouse.first_day():
+		return
+	for pl: FarmPlot in get_tree().get_nodes_in_group(&"farm_plots"):
+		if pl.harvests == 0 and pl.is_wet():
+			pl.grow_to(FIRST_NIGHT_GROWTH * pl.growth_rate())
 
 
 # --- Save ------------------------------------------------------------------------------------

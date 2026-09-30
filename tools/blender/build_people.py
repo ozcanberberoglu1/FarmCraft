@@ -8,7 +8,9 @@ which downloads MPFB2 and the asset packs and runs this):
 Every character is an MPFB2 human (base mesh, macro phenotype, a CC0 skin, eyes, brows,
 lashes, hair, clothes from the asset packs) on the "game_engine" rig, plus what the
 packs don't have and a Turkish country town needs, modelled here on the body itself:
-the headscarf (yemeni) tied under the chin and the shopkeeper's apron. The body faces
+the headscarf (yemeni) tied under the chin and the shopkeeper's apron. A person may also
+have face targets, recoloured textures and a garment cut away under another (Zeynep's
+T-shirt under her jumper). The body faces
 the clothes cover are deleted, the targets baked, heavy parts decimated, everything
 joined into one skinned mesh (one surface per material: skin, eyes, brows, lashes,
 hair, beard, cloth_*) and exported as <name>.gltf with its textures downsized (skin 2k,
@@ -104,6 +106,32 @@ PEOPLE = {
         "clothes": ["male_casualsuit01", "shoes05"],
         "extras": [],
     },
+    # Zeynep, the new neighbour (25): jeans, an ecru knitted jumper over a T-shirt, brown
+    # ankle boots, her dark-brown hair in a ponytail.
+    "zeynep": {
+        "phenotype": pheno(FEMALE_BASE, age=0.5, muscle=0.45, weight=0.42, height=0.48, proportions=0.6),
+        # A softer, younger face: oval, a narrower jaw, fuller lips, a finer nose, the lids
+        # a little lower and the corners of the mouth up (not staring, a hint of a smile).
+        "targets": {"head-oval": 0.5, "head-age-decr": 0.3, "chin-width-decr": 0.35, "chin-bones-decr": 0.3,
+                    "chin-prominent-decr": 0.2, "mouth-upperlip-volume-incr": 0.35, "mouth-lowerlip-volume-incr": 0.3,
+                    "nose-scale-horiz-decr": 0.25, "nose-point-width-decr": 0.3, "l-eye-scale-incr": 0.15, "r-eye-scale-incr": 0.15,
+                    "l-eye-height2-decr": 0.3, "r-eye-height2-decr": 0.3, "mouth-angles-up": 0.3},
+        "skin": "toigo_light_skin_with_natural_makeup",
+        "hair": "ponytail01", "eyebrows": "eyebrow005", "eyes": "brown", "eyelashes": "eyelashes02",
+        "clothes": ["female_casualsuit01", "toigo_fisherman_sweater", "toigo_ankle_boots_female"],
+        "extras": [],
+        # The T-shirt of the T-shirt and jeans (its UVs: the texture's top half and the sleeves
+        # on the right) is cut away under the jumper; the jeans' waist is tucked under it.
+        "cut": {"female_casualsuit01": [(0.0, 0.565, 1.0, 1.0), (0.73, 0.0, 1.0, 0.425)]},
+        "tuck": [("female_casualsuit01", "toigo_fisherman_sweater")],
+        # Recoloured textures (their files get the variant's name): "mul" multiplies the
+        # colours, "knit" keeps only the texture's light and shade in the new colour, "lips"
+        # turns the skin's painted orange-red lips a muted rose.
+        "colors": {"toigo_fisherman_sweater": ("ecru", "knit", (0.74, 0.67, 0.55)),
+                   "toigo_ankle_boots_female": ("tan", "mul", (0.52, 0.34, 0.21)),
+                   "ponytail01": ("dark", "mul", (0.52, 0.45, 0.42)),
+                   "skin": ("rose", "lips", (0.66, 0.37, 0.36))},
+    },
 }
 # Parts heavier than the rest of the figure together: decimated to about this many vertices.
 MAX_VERTS = 2600
@@ -138,10 +166,12 @@ def build_human(name, spec):
     info["rig"] = "game_engine"
     info["eyes"] = "low-poly.mhclo"
     info["eyebrows"] = spec["eyebrows"] + ".mhclo"
-    info["eyelashes"] = "eyelashes01.mhclo"
+    info["eyelashes"] = spec.get("eyelashes", "eyelashes01") + ".mhclo"
     info["hair"] = (spec["hair"] + ".mhclo") if spec["hair"] else ""
     info["clothes"] = [c + ".mhclo" for c in spec["clothes"]]
     info["skin_mhmat"] = spec["skin"] + ".mhmat"
+    # Face and body shape targets (MakeHuman's, e.g. {"target": "head-oval", "value": 0.5}).
+    info["targets"] = [{"target": t, "value": v} for t, v in spec.get("targets", {}).items()]
     info["skin_material_type"] = "GAMEENGINE"
     info["eyes_material_type"] = "MAKESKIN"
     info["clothes_material_type"] = "GAMEENGINE"
@@ -164,13 +194,36 @@ def read_mhmat(path):
     return keys
 
 
-def texture(src, size, out_name, keep_alpha, iris=False):
+def texture(src, size, out_name, keep_alpha, iris=False, color=None):
     """Copy of `src` at `size` (JPEG unless it keeps alpha) as a Blender image. `iris`:
-    the red-brown irises of the eye texture turned a dark hazel brown."""
+    the red-brown irises of the eye texture turned a dark hazel brown. `color`: (mode,
+    rgb) recolours it: "mul" multiplies, "knit" keeps the texture's light and shade (its
+    luminance over the mean of what is drawn) in the new colour, "lips" turns the most
+    saturated reds of a skin (the painted lips) to that colour, as light as they were."""
     os.makedirs(TMP, exist_ok=True)
     img = bpy.data.images.load(src, check_existing=False)
     if img.size[0] > size:
         img.scale(size, size)
+    if color:
+        import numpy as np
+        px = np.array(img.pixels[:], dtype=np.float32).reshape(-1, 4)
+        rgb = np.array(color[1], dtype=np.float32)
+        if color[0] == "lips":
+            lum = (px[:, :3] * np.array([0.3, 0.55, 0.15], dtype=np.float32)).sum(axis=1, keepdims=True)
+            hi = px[:, :3].max(axis=1)
+            sat = (hi - px[:, :3].min(axis=1)) / np.maximum(hi, 1e-3)
+            k = np.clip((sat - 0.48) / 0.14, 0.0, 1.0)[:, None]
+            k = k * k * (3.0 - 2.0 * k) * (px[:, 0:1] >= px[:, 1:2])
+            rose = rgb * (lum / float((rgb * np.array([0.3, 0.55, 0.15], dtype=np.float32)).sum()))
+            px[:, :3] = px[:, :3] * (1.0 - k) + rose * k
+        elif color[0] == "knit":
+            lum = (px[:, :3] * np.array([0.3, 0.55, 0.15], dtype=np.float32)).sum(axis=1, keepdims=True)
+            drawn = (px[:, 3] > 0.5) & (lum[:, 0] > 0.02)
+            mean = float(lum[drawn].mean()) if drawn.any() else 0.5
+            px[:, :3] = np.clip(lum / max(mean, 1e-3), 0.0, 1.6) * rgb
+        else:
+            px[:, :3] *= rgb
+        img.pixels = np.clip(px, 0.0, 1.0).ravel().tolist()
     if iris:
         import numpy as np
         px = np.array(img.pixels[:], dtype=np.float32).reshape(-1, 4)
@@ -190,10 +243,11 @@ def texture(src, size, out_name, keep_alpha, iris=False):
     return img
 
 
-def make_material(mat_name, mhmat_path, kind, tex_name):
+def make_material(mat_name, mhmat_path, kind, tex_name, color=None):
     """A plain Principled material from a MakeHuman .mhmat (what the glTF export writes);
     its textures are named after `tex_name` (the source asset), so characters wearing
-    the same thing share the files."""
+    the same thing share the files. `color` (variant, mode, rgb) recolours the albedo
+    (see texture), its file then named after the variant too."""
     keys = read_mhmat(mhmat_path)
     folder = os.path.dirname(mhmat_path)
     m = bpy.data.materials.new(mat_name)
@@ -206,7 +260,8 @@ def make_material(mat_name, mhmat_path, kind, tex_name):
         src = os.path.join(folder, os.path.basename(keys["diffuseTexture"]))
         if os.path.exists(src):
             tex = nt.nodes.new("ShaderNodeTexImage")
-            tex.image = texture(src, size, tex_name + "_albedo", alpha, kind == "eyes")
+            tex.image = texture(src, size, tex_name + ("_" + color[0] if color else "") + "_albedo", alpha, kind == "eyes",
+                                color[1:] if color else None)
             nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
             if alpha:
                 nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
@@ -243,13 +298,15 @@ def cloth_material(mat_name, color, pattern=None):
 def assign_materials(name, spec):
     """Every part gets a material named by its role; returns the body object."""
     body = None
+    colors = spec.get("colors", {})
     for o in list(bpy.data.objects):
         if o.type != "MESH":
             continue
         part = o.name.split(".", 1)[1] if "." in o.name else o.name
         if part == "body":
             body = o
-            mat = make_material("skin", find_asset("skins", spec["skin"] + ".mhmat"), "skin", "skin_" + spec["skin"].replace("_with_genitals_and_beard", ""))
+            mat = make_material("skin", find_asset("skins", spec["skin"] + ".mhmat"), "skin", "skin_" + spec["skin"].replace("_with_genitals_and_beard", ""),
+                                colors.get("skin"))
         elif part == "low-poly":
             mat = make_material("eyes", find_asset("eyes", spec["eyes"] + ".mhmat"), "eyes", "eyes_" + spec["eyes"])
         elif part.startswith("eyebrow"):
@@ -257,14 +314,14 @@ def assign_materials(name, spec):
         elif part.startswith("eyelashes"):
             mat = make_material("lashes", find_asset("eyelashes", part + ".mhmat"), "lashes", part)
         elif part == spec["hair"]:
-            mat = make_material("hair", find_asset("hair", part + ".mhmat"), "hair", "hair_" + part)
+            mat = make_material("hair", find_asset("hair", part + ".mhmat"), "hair", "hair_" + part, colors.get(part))
         else:
             clo = find_asset("clothes", part + ".mhclo")
             folder = os.path.dirname(clo)
             mhmats = [f for f in os.listdir(folder) if f.endswith(".mhmat")]
             kind = "beard" if ("moustache" in part or "beard" in part) else "cloth"
             mat = make_material(("beard" if kind == "beard" else "cloth_" + part), os.path.join(folder, mhmats[0]),
-                                "hair" if kind == "beard" else "cloth", part)
+                                "hair" if kind == "beard" else "cloth", part, colors.get(part))
         o.data.materials.clear()
         o.data.materials.append(mat)
     return body
@@ -312,6 +369,27 @@ def tuck(inner, outer, gap=0.007, reach=0.03):
             v.co = loc - nor * gap
             moved += 1
     print("TUCK", inner.name, "under", outer.name, moved)
+
+
+def cut_away(o, rects):
+    """Deletes the faces of garment `o` whose UVs fall in `rects` [(u0, v0, u1, v1), ...]:
+    one part of a two-part garment (the T-shirt of a T-shirt and jeans) that another
+    covers, so none of it pokes through."""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    uv = bm.loops.layers.uv.active
+    dead = []
+    for f in bm.faces:
+        u = sum(loop[uv].uv[0] for loop in f.loops) / len(f.loops)
+        v = sum(loop[uv].uv[1] for loop in f.loops) / len(f.loops)
+        if any(u0 <= u <= u1 and v0 <= v <= v1 for u0, v0, u1, v1 in rects):
+            dead.append(f)
+    bmesh.ops.delete(bm, geom=dead, context="FACES")
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context="VERTS")
+    bm.to_mesh(o.data)
+    bm.free()
+    print("CUT", o.name, len(dead))
 
 
 def hide_covered(body, covers, pushers):
@@ -956,6 +1034,9 @@ def finish(name, spec):
     for o in meshes:
         if o is not body:
             decimate(o, MAX_VERTS)
+    for part, rects in spec.get("cut", {}).items():
+        parts = {o.name.split(".", 1)[-1]: o for o in bpy.data.objects if o.type == "MESH"}
+        cut_away(parts[part], rects)
     for inner, outer in spec.get("tuck", []):
         parts = {o.name.split(".", 1)[-1]: o for o in bpy.data.objects if o.type == "MESH"}
         tuck(parts[inner], parts[outer])

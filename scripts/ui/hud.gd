@@ -5,7 +5,10 @@ extends CanvasLayer
 ## the story's waypoint dot, achievement banners, the morning sale badge, the hotbar
 ## (hidden on a new farm until the first item comes into the bag) with the hunger and
 ## energy bars beside it, and the countdowns over fish cooking on a campfire; owns every
-## menu screen (inventory, shops, construction, animals, pause and settings).
+## menu screen (inventory, shops, construction, animals, pause and settings) and the
+## conversations with townspeople. The side story (SideStory: Zeynep, the new
+## neighbour) has a card of its own under the goal's and a dot of its own, ringed in
+## rose, beside the story's.
 
 const MAX_TOASTS := 5
 ## A prompt line starting with this is a title over the key rows (the aimed object's
@@ -66,11 +69,14 @@ var order_screen: OrderScreen
 var confirm_dialog: ConfirmDialog
 var level_up_screen: LevelUpScreen
 var letter_screen: LetterScreen
+## Conversations with townspeople at the bottom of the screen (Zeynep).
+var dialogue_screen: DialogueScreen
 var vehicle_hud: VehicleHUD
 ## Growth ring and card beside the crosshair while a planted bed is aimed at.
 var crop_card: CropCard
-## The story's guide dot (Quests.waypoint()).
+## The story's guide dot (Quests.waypoint()), and the side story's (SideStory).
 var waypoint: WaypointMarker
+var side_waypoint: WaypointMarker
 ## Top-centre banner for unlocked achievements.
 var achievement_toast: AchievementToast
 ## Hunger and energy at the bottom left (PlayerState.needs).
@@ -90,6 +96,11 @@ var _quest_count: Label
 var _quest_chapter: Label
 var _quest_note: Label
 var _note_left := 0.0
+## The side story's goal (SideStory), under the story's own card.
+var _side_card: GlassPanel
+var _side_text: Label
+var _side_hint: Label
+var _side_hearts: Label
 var _clock_card: GlassPanel
 var _time_label: Label
 var _day_label: Label
@@ -136,8 +147,13 @@ func _ready() -> void:
 	_sale_badge.folding.connect(_close_sale_room)
 	_build_level()
 	_build_quest()
+	_build_side()
 	_build_clock()
 	# Under the crosshair, the prompts and every menu.
+	side_waypoint = WaypointMarker.new()
+	side_waypoint.source = SideStory
+	side_waypoint.ring_color = SideStory.ROSE
+	_root.add_child(side_waypoint)
 	waypoint = WaypointMarker.new()
 	_root.add_child(waypoint)
 	cook_rings = CookRings.new()
@@ -182,6 +198,8 @@ func _ready() -> void:
 	_root.add_child(order_screen)
 	letter_screen = LetterScreen.new()
 	_root.add_child(letter_screen)
+	dialogue_screen = DialogueScreen.new()
+	_root.add_child(dialogue_screen)
 	# Over a shop or the order board, where selling and deliveries raise the level.
 	level_up_screen = LevelUpScreen.new()
 	_root.add_child(level_up_screen)
@@ -212,6 +230,8 @@ func _ready() -> void:
 	PlayerState.hotbar_revealed.connect(_on_hotbar_revealed)
 	Events.morning_sale.connect(show_sale_badge)
 	_on_money_changed(Economy.money, 0)
+	# The side goal of a loaded game shows once everything is up.
+	_refresh_side.call_deferred()
 	# Normal launches open on the title screen; debug and test runs, and a game being
 	# loaded or started, go straight in.
 	if DebugTools.args.is_empty() and not SaveGame.loading:
@@ -239,6 +259,15 @@ func _process(_delta: float) -> void:
 		_refresh_weather()
 	if GameClock.day != _shown_day:
 		_refresh_day()
+	if _side_card.visible:
+		_place_side_card()
+	# The dots riding the screen's left edge keep clear of the goal cards.
+	var cards: Array[Rect2] = []
+	for card: Control in [_quest_card, _side_card]:
+		if card.visible:
+			cards.append(Rect2(card.position, card.size))
+	waypoint.keep_out = cards
+	side_waypoint.keep_out = cards
 
 
 ## "DAY 3 · SPRING 3" under the time (again when the language changes).
@@ -348,6 +377,65 @@ func _refresh_quest() -> void:
 	_quest_chapter.text = UiTheme.caps("%s · %s" % [tr("HUD_CHAPTER") % (Quests.chapter() + 1), Quests.chapter_title(Quests.chapter())])
 	if _crosshair != null:
 		_sync_hud_visibility()
+
+
+## The side story's goal (SideStory) on a card of its own under the story's: a heart,
+## "ZEYNEP · SIDE GOAL" and the friendship's hearts over the goal and its hint.
+func _build_side() -> void:
+	_side_card = GlassPanel.new(Vector4(16, 10, 18, 12), 16.0)
+	_side_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_side_card.position = Vector2(28, QUEST_Y)
+	_side_card.visible = false
+	_root.add_child(_side_card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_side_card.add_child(col)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(head)
+	head.add_child(UiTheme.icon_rect(UiTheme.glyph("heart"), 16, SideStory.ROSE))
+	head.add_child(UiTheme.make_label(UiTheme.caps(tr("HUD_SIDE_GOAL") % tr("PERSON_ZEYNEP")), UiTheme.heading(14, SideStory.ROSE, 700, 3)))
+	head.add_child(UiTheme.expand())
+	_side_hearts = UiTheme.make_label("", UiTheme.heading(16, SideStory.ROSE, 700, 1))
+	head.add_child(_side_hearts)
+	_side_text = UiTheme.make_label("", UiTheme.text(17, UiTheme.TEXT, 600))
+	_side_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_side_text.custom_minimum_size = Vector2(300, 0)
+	col.add_child(_side_text)
+	_side_hint = UiTheme.make_label("", UiTheme.text(15, UiTheme.TEXT_MUTED, 500))
+	_side_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_side_hint.custom_minimum_size = Vector2(300, 0)
+	col.add_child(_side_hint)
+	SideStory.changed.connect(_refresh_side)
+	Relations.changed.connect(func(_w: StringName, _l: int, _p: int) -> void: _refresh_side())
+	_refresh_side()
+
+
+func _refresh_side() -> void:
+	var text := SideStory.goal_text()
+	_side_card.set_meta("active", text != "")
+	_side_text.text = text
+	var hint := SideStory.goal_hint()
+	_side_hint.text = hint
+	_side_hint.visible = hint != ""
+	var lv := Relations.level(SideStory.WHO)
+	_side_hearts.text = "♥ %d/%d" % [lv, Relations.max_level(SideStory.WHO)]
+	_side_hearts.visible = SideStory.met
+	if _crosshair != null:
+		_sync_hud_visibility()
+	if _side_card.visible:
+		_side_card.reset_size()
+		_place_side_card()
+
+
+## Under the story's goal card (or in its place when there is none).
+func _place_side_card() -> void:
+	var y := QUEST_Y + _sale_room
+	if _quest_card.visible:
+		y = _quest_card.position.y + _quest_card.size.y + 10.0
+	_side_card.position.y = y
 
 
 ## Grandpa's line for chapter `index` under the goal, for a while.
@@ -464,6 +552,8 @@ func _sync_hud_visibility() -> void:
 		_level_pill.visible = not title
 	if _quest_card:
 		_quest_card.visible = not title and not menu and bool(_quest_card.get_meta("active", false))
+	if _side_card:
+		_side_card.visible = not title and not menu and bool(_side_card.get_meta("active", false))
 	if title:
 		# Nothing of the last game lingers over the title (their tweens end on their own).
 		if _sale_badge:

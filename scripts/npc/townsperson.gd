@@ -7,9 +7,15 @@ extends AnimatableBody3D
 ## with his hands), TILL (the grocer counting notes at the till), WIPE (the pump
 ## attendant wiping his pump), WRITE (the stockman at his hatch with the ledger), SWEEP
 ## (the shop boy sweeping the forecourt, a step at a time), BENCH (an old man sitting),
-## TEA (sitting with a glass of tea, sipping) and WALK (along a route on the pavements,
+## TEA (sitting with a glass of tea, sipping), WALK (along a route on the pavements,
 ## over the zebra crossing when the street is clear, round the player, vehicles and
-## each other; turning back when the way stays blocked).
+## each other; turning back when the way stays blocked), PET (down on one knee by a dog,
+## stroking its back, the other hand on her knee) and DOORWAY (standing in an open
+## doorway, a hand on the door's edge).
+##
+## Scripted by the story (Zeynep): walk_to() walks a path and calls back, receive()
+## takes a thing in both hands and holds it (drop_held() lets it go), talk() gestures
+## and nods to the player for a line of dialogue.
 ##
 ## E: a worker at a service (the counter, a pump with the player's vehicle at it, the
 ## dealer's desk, the Animal Market hatch) greets and opens it, so standing there never
@@ -17,7 +23,7 @@ extends AnimatableBody3D
 ## own. Workers also welcome the player when he walks up. Animated only within
 ## ANIMATE_RANGE of the camera (less often off screen), drawn up to SHOW_RANGE.
 
-enum Act { STAND, TALK, TILL, WIPE, WRITE, SWEEP, BENCH, TEA, WALK }
+enum Act { STAND, TALK, TILL, WIPE, WRITE, SWEEP, BENCH, TEA, WALK, PET, DOORWAY }
 
 const GROUP := &"townspeople"
 const ANIMATE_RANGE := 60.0
@@ -60,6 +66,15 @@ var sweep_from := Vector3.ZERO
 var sweep_to := Vector3.ZERO
 ## The tea drinker: the middle of his table's top (world), where he puts his glass down.
 var tea_table := Vector3.INF
+## PET: the dog stroked (its pet_point() if it has one, else its position); she turns to
+## have it beside her on the stroking hand's side (PET_ASIDE) and goes down on the knee
+## next to it, the other knee up in front of her, clear of the dog's head (stand her
+## about half a metre from where the hand goes, the dog sitting beside her).
+var pet_target: Node3D
+## PET: the stroking hand, "_l" or "_r" ("": the one on the dog's side as she comes to it).
+var pet_hand := ""
+## DOORWAY: where the hand rests on the door's edge (world); INF: no hand on the door.
+var door_hand := Vector3.INF
 
 var _floor_y := 0.0
 var _yaw := 0.0
@@ -99,6 +114,56 @@ var _glass_in_hand := true
 var _glass_spot := Vector3(-0.16, 0.73, 0.46)
 ## Microseconds all townspeople spent posing their bodies (a cost gauge for tests).
 static var anim_usec := 0
+
+## Getting down on a knee or up again takes this long (seconds).
+const KNEEL_TIME := 0.8
+## One stroke of a dog's back and the hand back to where it starts (seconds, metres).
+const STROKE_TIME := 2.3
+const STROKE_LEN := 0.11
+## How steeply a stroke goes down the back from pet_point (radians).
+const STROKE_SLOPE := 0.3
+## Petting, how far she turns from facing where the hand goes (radians): the dog sits at
+## her side, not in front of the knee that is up and the hand on it.
+const PET_ASIDE := 1.35
+## receive(): the hands out to the thing (seconds), then brought in against her front.
+const TAKE_TIME := 0.75
+const BRING_TIME := 0.8
+## The hand to the door's edge or away (seconds).
+const DOOR_HAND_TIME := 0.5
+
+## PET: 0 standing .. 1 down on the knee; the knee's (and the stroking hand's) side.
+var _kneel := 0.0
+var _pet_side := "_r"
+## The way a stroke runs along the dog's back (body frame, level): its pet_along() if it
+## has one (toward the tail); ZERO: straight on away from her.
+var _pet_along := Vector3.ZERO
+var _door_w := 0.0
+## walk_to(): the points left and what to call at the end; the player stands in her way
+## (she waits for him).
+var _path: Array[Vector3] = []
+var _path_done := Callable()
+var _way_blocked := false
+## talk(): seconds of the line left.
+var _talk_t := 0.0
+## receive(): the thing (held once it is in her hands: a child of the body), seconds
+## since she reached for it, its box (its own frame), the axes of it her hands take
+## (the side, index and sign; and which is up), where it was taken (body frame).
+var _held: Node3D
+var _held_t := 0.0
+var _held_box := AABB()
+var _held_side := Vector3.RIGHT
+var _held_up := Vector3.UP
+var _held_from := Transform3D.IDENTITY
+var _held_in_hand := false
+## How much the hands hold something (0..1: drop_held() lets them fall back).
+var _hold_w := 0.0
+var _hold_last: Array = []
+## Where the dog's stroked and the door's edge were last (body frame), for the hands
+## going back after the story let them go.
+var _pet_last := Vector3(0.0, 0.5, 0.5)
+var _door_last := Vector3(0.3, 1.0, 0.0)
+## talk(): seconds since the line began.
+var _talk_el := 0.0
 
 
 func setup(model: StringName, tints: Dictionary = {}) -> void:
@@ -248,6 +313,91 @@ func is_speaking() -> bool:
 	return _bubble.visible
 
 
+## A one-off walk along `points` (world; the heights follow the ground) at a natural
+## pace, turning smoothly and slowing into the stop; then she stands (STAND) and
+## `on_arrive` is called. From a knee she gets up first.
+func walk_to(points: Array[Vector3], on_arrive: Callable = Callable()) -> void:
+	_path = points.duplicate()
+	_path_done = on_arrive
+	_yaw = rotation.y
+	_wait = 0.0
+	act = Act.WALK
+	if _path.is_empty():
+		_arrive()
+
+
+func is_walking_to() -> bool:
+	return not _path.is_empty()
+
+
+## On a walk_to(), stopped because the player stands in her way.
+func blocked_by_player() -> bool:
+	return _way_blocked and not _path.is_empty()
+
+
+## Ends a walk_to() where she is, without calling back; she stands.
+func stop_walk() -> void:
+	_path.clear()
+	_path_done = Callable()
+	_speed = 0.0
+	_way_blocked = false
+	if act == Act.WALK:
+		act = Act.STAND
+
+
+## Reaches out with both hands for `item` (where it is now), takes it (it becomes a
+## child of her body, in her hands) and holds it against her front until drop_held().
+func receive(item: Node3D) -> void:
+	if item == null:
+		return
+	if _held != null and is_instance_valid(_held) and _held != item:
+		_held.queue_free()
+	_held = item
+	_held_t = 0.0
+	_held_in_hand = false
+	_held_box = _box_of(item)
+	# The hands take it by the sides facing her left and right; it is held with the side
+	# that is most up now up.
+	var local := _body_xf().affine_inverse() * item.global_transform
+	var axes := [local.basis.x.normalized(), local.basis.y.normalized(), local.basis.z.normalized()]
+	var side_i := 0
+	var up_i := 1
+	for k in 3:
+		if absf((axes[k] as Vector3).x) > absf((axes[side_i] as Vector3).x):
+			side_i = k
+	var up_best := -1.0
+	for k in 3:
+		if k != side_i and absf((axes[k] as Vector3).y) > up_best:
+			up_best = absf((axes[k] as Vector3).y)
+			up_i = k
+	var unit := [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	_held_side = (unit[side_i] as Vector3) * signf((axes[side_i] as Vector3).x if absf((axes[side_i] as Vector3).x) > 0.001 else 1.0)
+	_held_up = (unit[up_i] as Vector3) * signf((axes[up_i] as Vector3).y if absf((axes[up_i] as Vector3).y) > 0.001 else 1.0)
+
+
+## Lets go of what she holds: it is freed, the hands go back.
+func drop_held() -> void:
+	if _held != null and is_instance_valid(_held):
+		_held.queue_free()
+	_held = null
+	_held_in_hand = false
+
+
+## What she holds (null: nothing).
+func held() -> Node3D:
+	return _held if _held != null and is_instance_valid(_held) else null
+
+
+## Talks for `seconds` (a line of dialogue): looking at the player, nodding, the free
+## hands moving with the words.
+func talk(seconds: float) -> void:
+	_talk_t = maxf(_talk_t, seconds)
+
+
+func is_talking() -> bool:
+	return _talk_t > 0.0
+
+
 func _camera_pos() -> Vector3:
 	var cam := get_viewport().get_camera_3d()
 	return cam.global_position if cam else global_position + Vector3(0, 50, 0)
@@ -265,6 +415,9 @@ func _process(delta: float) -> void:
 		if _bubble_t <= 0.0:
 			_bubble.visible = false
 	_greet_t += delta
+	_update_story(delta)
+	if not is_visible_in_tree():
+		return
 	if worker and dist < WELCOME_RANGE and _clock - _welcomed_at > WELCOME_COOLDOWN and Game.player and (Game.player as Player).driving == null:
 		greet(0)
 	# Past ANIMATE_RANGE only someone on the move keeps moving his legs (a few times a
@@ -292,7 +445,9 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	_stop_t = maxf(_stop_t - delta, 0.0)
-	if act == Act.WALK:
+	if not _path.is_empty():
+		_walk_path(delta)
+	elif act == Act.WALK:
 		_walk_route(delta)
 	elif act == Act.SWEEP:
 		_sweep_move(delta)
@@ -383,6 +538,65 @@ func _walk_route(delta: float) -> void:
 		_wait = float(target.get("wait", 0.0))
 		_crossing = false
 		_wp = posmod(_wp + _dir, route.size())
+
+
+## walk_to(): on along the path at walk_speed, turning smoothly (nearly on the spot for a
+## sharp turn), slowing into the last point; waits while the player stands in the way
+## (ahead of her, short of where she stops or not well past it: someone she walks up to
+## stands further off) and while she is still getting up off her knee.
+func _walk_path(delta: float) -> void:
+	var here := global_position
+	var target := _path[0]
+	var to := _flat(target) - _flat(here)
+	var last := _path.size() == 1
+	if not last and to.length() < 0.45:
+		_path.remove_at(0)
+		return
+	if last and to.length() < 0.04:
+		_arrive()
+		return
+	var want := walk_speed
+	if last:
+		want = minf(walk_speed, to.length() * 1.3 + 0.12)
+	if _kneel > 0.0:
+		want = 0.0
+	var player := Game.player as Player
+	_way_blocked = false
+	if player and player.driving == null:
+		# Blocked where she is going (not where she faces: turning to go is never blocked).
+		var dir := to.normalized()
+		var rel := _flat(player.global_position) - _flat(here)
+		var along := rel.dot(dir)
+		if along > 0.0 and along < 1.3 and (rel - dir * along).length() < 0.6 and along - to.length() < 0.6:
+			_way_blocked = true
+			want = 0.0
+	var move_yaw := atan2(to.x, to.z)
+	if absf(wrapf(move_yaw - _yaw, -PI, PI)) > 0.9:
+		want *= 0.25
+	_speed = move_toward(_speed, want, delta * (1.6 if want > _speed else 3.0))
+	if want > 0.0 or _speed > 0.0:
+		_yaw = _turn(_yaw, move_yaw, delta * 2.6)
+		rotation.y = _yaw
+	if _speed > 0.001:
+		var d := minf(_speed * delta, to.length())
+		var p := here + to.normalized() * d
+		_probe_t -= delta
+		if _probe_t <= 0.0:
+			_probe_t = 0.15
+			_floor_y = _ground(p.x, p.z, _floor_y)
+		p.y = lerpf(here.y, _floor_y, clampf(delta * 10.0, 0.0, 1.0))
+		global_position = p
+
+
+func _arrive() -> void:
+	_path.clear()
+	_speed = 0.0
+	_way_blocked = false
+	act = Act.STAND
+	var done := _path_done
+	_path_done = Callable()
+	if done.is_valid():
+		done.call()
 
 
 ## A leg of the route over the street (its ends on either side): the zebra crossing.
@@ -493,6 +707,41 @@ func _animate(delta: float, cam: Vector3) -> void:
 		else:
 			g = sin(clampf(_greet_t / GREET_SECONDS, 0.0, 1.0) * PI)
 			hand = smoothstep(0.0, 0.45, _greet_t) * (1.0 - smoothstep(GREET_SECONDS - 0.5, GREET_SECONDS, _greet_t))
+	if _kneel > 0.0 or act == Act.PET:
+		_legs_pet()
+	else:
+		_legs(delta, greeting)
+	if greeting:
+		rig.rot_x(&"spine_03", g * 0.1)
+	_look(delta, cam, g)
+	_arms(delta, greeting)
+	if hand > 0.0:
+		_arms_greet(hand)
+	_place_props()
+	if _speed > 0.05 and act == Act.WALK:
+		var ph := fposmod(rig.gait_phase * 2.0, 1.0)
+		if ph < _last_step_phase and cam.distance_to(global_position) < 14.0:
+			Audio.play("step_concrete", global_position, -21.0, 0.12, &"Effects", 2.0)
+		_last_step_phase = ph
+	rig.commit()
+	if _bubble.visible:
+		_bubble.position = rig.eye_point() + Vector3(0, 0.42, 0)
+
+
+func _legs(delta: float, greeting: bool) -> void:
+	# A hand on a door's edge: the hips shift (the feet stay) and she leans a little so the
+	# arm reaches it easily, away from an edge close by, towards one further off.
+	var door_lean := 0.0
+	if _door_w > 0.0:
+		var side := "_l" if _door_last.x > 0.0 else "_r"
+		var sh := rig.pos_rest("upperarm" + side)
+		var drop := sh.y - _door_last.y
+		var want := sqrt(maxf(0.46 * 0.46 - drop * drop, 0.0))
+		var need := clampf(want - Vector2(_door_last.x - sh.x, _door_last.z - sh.z).length(), -0.1, 0.14)
+		var w := smoothstep(0.0, 1.0, _door_w)
+		var hip := clampf(need, 0.0, 0.07)
+		rig.move_pelvis(Vector3(-signf(_door_last.x) * hip * w, 0.0, 0.0))
+		door_lean = signf(_door_last.x) * (need - hip) / 0.45 * w
 	match act:
 		Act.BENCH:
 			rig.sit(seat_height, 0.2)
@@ -500,7 +749,7 @@ func _animate(delta: float, cam: Vector3) -> void:
 			rig.sit(seat_height, 0.1, false)
 		Act.WALK:
 			if _speed > 0.05:
-				rig.walk(delta, _speed, 0.85 if hands_behind else 1.0, not hands_behind and not greeting)
+				rig.walk(delta, _speed, 0.85 if hands_behind else 1.0, not hands_behind and not greeting and held() == null)
 			else:
 				rig.stance(0.0, false)
 		Act.SWEEP:
@@ -516,9 +765,11 @@ func _animate(delta: float, cam: Vector3) -> void:
 			rig.stance(0.12, false)
 		_:
 			rig.stance(0.0, false)
-	if greeting:
-		rig.rot_x(&"spine_03", g * 0.1)
-	_look(delta, cam, g)
+	if door_lean != 0.0:
+		rig.rot_z(&"spine_01", door_lean)
+
+
+func _arms(delta: float, greeting: bool) -> void:
 	match act:
 		Act.TILL:
 			_arms_till()
@@ -542,22 +793,30 @@ func _animate(delta: float, cam: Vector3) -> void:
 				_hands_behind()
 			else:
 				rig.relaxed_arms()
-	if hand > 0.0:
-		_arms_greet(hand)
-	_place_props()
-	if _speed > 0.05 and act == Act.WALK:
-		var ph := fposmod(rig.gait_phase * 2.0, 1.0)
-		if ph < _last_step_phase and cam.distance_to(global_position) < 14.0:
-			Audio.play("step_concrete", global_position, -21.0, 0.12, &"Effects", 2.0)
-		_last_step_phase = ph
-	rig.commit()
-	if _bubble.visible:
-		_bubble.position = rig.eye_point() + Vector3(0, 0.42, 0)
+		Act.PET, Act.DOORWAY:
+			rig.relaxed_arms()
+	# Zeynep's: the hands to the dog, the door, the words, what she is given.
+	if _kneel > 0.0:
+		_arms_pet()
+	if _door_w > 0.0:
+		_arms_door()
+	if _talk_t > 0.0:
+		_arms_talking()
+	if held() != null or _hold_w > 0.0:
+		_arms_hold()
 
 
 ## The head: to the player when he is close and in front (a worker at work glances
 ## less), else looking about now and then; down at the work while working.
 func _look(delta: float, cam: Vector3, greet_amount: float) -> void:
+	# Talking: at the player; petting: at the dog.
+	if _talk_t > 0.0 or (_kneel > 0.3 and act == Act.PET):
+		var at := to_local(cam) if _talk_t > 0.0 else _pet_last + Vector3(0.0, 0.05, 0.0)
+		_look_w = move_toward(_look_w, 1.0, delta * 1.5)
+		rig.look_at_point(at, 1.0, delta)
+		if greet_amount > 0.0:
+			rig.rot_x(&"head", greet_amount * 0.28)
+		return
 	var local := to_local(cam)
 	var d := local - rig.eye_point()
 	var facing := absf(atan2(d.x, d.z))
@@ -751,8 +1010,12 @@ func _arms_sweep(delta: float) -> void:
 	if _broom_two_hands:
 		rig.hold("_r", low, axis, Vector3(-1, -0.25, 0.2), _pole("_r"), 0.85)
 	else:
-		# The right hand lets go and hangs at his side while the broom stands.
-		rig.pose_between("_r", grip, rig.relaxed_pose("_r"), up, _pole("_r"), 0.85, 0.35)
+		# The right hand lets go and hangs at his side while the broom stands, out round his
+		# hip on the way (straight from the handle to his side it would pass through it,
+		# the more so as his hips sway with a step).
+		var rel := rig.relaxed_pose("_r")
+		var bow := Vector3(-0.08, 0.0, 0.07) * sin(up * PI)
+		rig.pose_between("_r", [(grip[0] as Vector3) + bow, grip[1]], [(rel[0] as Vector3) + bow, rel[1]], up, _pole("_r"), 0.85, 0.35)
 
 
 ## Nuri Hoca at his tea: the glass in his right hand, raised to sip now and then; the left
@@ -795,6 +1058,253 @@ func _arms_tea() -> void:
 		rig.hand_on_heart("_r", heart)
 	if sip > 0.5:
 		rig.rot_x(&"head", -sip * 0.12)
+
+
+# --- Zeynep: the dog, the door, talking, taking things ------------------------------------
+
+## The story's timers and blends, kept up even when she is too far to be posed: the
+## knee (down only once she has turned to the dog), the hand to the door, the line, the
+## thing she is taking (in her hands after TAKE_TIME).
+func _update_story(delta: float) -> void:
+	var petting := act == Act.PET and pet_target != null and is_instance_valid(pet_target)
+	if petting:
+		var pw := _pet_world()
+		_pet_last = to_local(pw)
+		_pet_along = Vector3.ZERO
+		if pet_target.has_method(&"pet_along"):
+			var along: Vector3 = global_basis.inverse() * (pet_target.call(&"pet_along") as Vector3)
+			along.y = 0.0
+			_pet_along = along.normalized() if along.length() > 0.01 else Vector3.ZERO
+		if _kneel <= 0.0:
+			# Turned to have the dog beside her on the stroking hand's side, then down.
+			if pet_hand != "":
+				_pet_side = pet_hand
+			elif absf(_pet_last.x) > 0.1:
+				_pet_side = "_l" if _pet_last.x > 0.0 else "_r"
+			var want := _yaw_to(pw) - (1.0 if _pet_side == "_l" else -1.0) * PET_ASIDE
+			_yaw = _turn(rotation.y, want, delta * 2.2)
+			rotation.y = _yaw
+			petting = absf(wrapf(want - _yaw, -PI, PI)) < 0.25
+	_kneel = move_toward(_kneel, 1.0 if petting else 0.0, delta / KNEEL_TIME)
+	var on_door := act == Act.DOORWAY and door_hand.is_finite() and held() == null
+	if on_door:
+		_door_last = to_local(door_hand)
+	_door_w = move_toward(_door_w, 1.0 if on_door else 0.0, delta / DOOR_HAND_TIME)
+	if _talk_t > 0.0:
+		_talk_el += delta
+		_talk_t = maxf(_talk_t - delta, 0.0)
+	else:
+		_talk_el = 0.0
+	if held() != null:
+		_held_t += delta
+		_hold_w = 1.0
+		if not _held_in_hand and _held_t >= TAKE_TIME:
+			# In her hands: it goes with them now.
+			_held_from = _body_xf().affine_inverse() * _held.global_transform
+			_held.reparent(rig, true)
+			_held_in_hand = true
+			_held_t = 0.0
+	else:
+		_hold_w = move_toward(_hold_w, 0.0, delta / 0.5)
+
+
+## The legs for PET (and getting up from it): down on one knee, leaning to the dog.
+func _legs_pet() -> void:
+	var p := _pet_last
+	var sgn := 1.0 if _pet_side == "_l" else -1.0
+	# Down a little nearer a dog further ahead; bent forward as far as the hand goes ahead
+	# of her, over to the side as far as it goes out to it (a dog beside her), the chest
+	# turned a little to the stroking side.
+	var ahead := p.z
+	var out := absf(p.x)
+	var forward := clampf(ahead - 0.45, -0.1, 0.3)
+	rig.kneel(_kneel, _pet_side, clampf(0.2 + (ahead - forward - 0.25) * 1.2, 0.12, 0.65), sgn * 0.2, forward)
+	var bend := clampf((out - 0.3) * 1.2, 0.0, 0.3) * smoothstep(0.2, 1.0, _kneel)
+	rig.rot_z(&"spine_01", -sgn * bend * 0.45)
+	rig.rot_z(&"spine_02", -sgn * bend * 0.35)
+	rig.rot_z(&"spine_03", -sgn * bend * 0.2)
+
+
+## Stroking the dog's back: the palm flat on it from where its pet_point is, along the
+## back away from her and down it a little, lifted back for the next stroke; the other
+## hand on the raised knee. Faded in and out with the knee.
+func _arms_pet() -> void:
+	var side := _pet_side
+	var other := "_r" if side == "_l" else "_l"
+	var sgn := 1.0 if side == "_l" else -1.0
+	var a := smoothstep(0.45, 1.0, _kneel)
+	var st := _stroke()
+	var pose: Array = rig.palm_pose(side, st[0], st[1], st[2])
+	var from := rig.relaxed_pose(side)
+	rig.reach(side, (from[0] as Vector3).lerp(pose[0], a), Vector3(sgn * 0.75, -0.45, -0.4))
+	rig.set_hand(side, (from[1] as Quaternion).slerp(pose[1], a))
+	rig.curl(side, lerpf(0.35, 0.14, a), lerpf(0.35, 0.15, a))
+	# The other hand on top of the knee that is up, the fingers over its front.
+	var b := smoothstep(0.55, 1.0, _kneel)
+	var knee := rig.pos(rig.bi("calf" + other))
+	var kpose: Array = rig.palm_pose(other, knee + Vector3(sgn * 0.01, 0.058, 0.025), Vector3(0.0, 1.0, 0.25), Vector3(sgn * 0.25, -0.35, 1.0))
+	var kfrom := rig.relaxed_pose(other)
+	rig.reach(other, (kfrom[0] as Vector3).lerp(kpose[0], b), Vector3(-sgn * 0.8, -0.2, -0.5))
+	rig.set_hand(other, (kfrom[1] as Quaternion).slerp(kpose[1], b))
+	rig.curl(other, lerpf(0.35, 0.3, b), 0.3)
+
+
+## Where the stroking palm is now (body frame): [point, the back's outward normal, the
+## way the stroke goes]: from a little before pet_point along the back (toward the tail,
+## or else away from her), sloping down a little, then lifted back.
+func _stroke() -> Array:
+	var p := _pet_last
+	var d := _pet_along if _pet_along != Vector3.ZERO else Vector3(p.x, 0.0, p.z)
+	d = d.normalized() if d.length() > 0.05 else Vector3.BACK
+	var along := d * cos(STROKE_SLOPE) + Vector3.DOWN * sin(STROKE_SLOPE)
+	var n := Vector3.UP * cos(STROKE_SLOPE) + d * sin(STROKE_SLOPE)
+	var u := fposmod(rig.time / STROKE_TIME + rig.seed_phase, 1.0)
+	var s := 0.0
+	var lift := 0.0
+	if u < 0.62:
+		s = lerpf(-0.02, STROKE_LEN - 0.02, smoothstep(0.0, 0.62, u))
+	else:
+		var r := (u - 0.62) / 0.38
+		s = lerpf(STROKE_LEN - 0.02, -0.02, smoothstep(0.0, 1.0, r))
+		lift = sin(r * PI) * 0.045
+	return [p + along * s + n * (0.004 + lift), n, along]
+
+
+## The hand on the open door's edge: down by her hip the palm rests against it, the
+## fingers down round it, the arm hanging; higher up the hand closes loosely round it,
+## the thumb up, the forearm raised.
+func _arms_door() -> void:
+	var at := _door_last
+	var side := "_l" if at.x > 0.0 else "_r"
+	var sgn := 1.0 if side == "_l" else -1.0
+	var sh := rig.pos(rig.bi("upperarm" + side))
+	var toward := Vector3(at.x - sh.x, 0.0, at.z - sh.z)
+	toward = toward.normalized() if toward.length() > 0.01 else Vector3(sgn, 0.0, 0.0)
+	var high := 1.0 - smoothstep(0.2, 0.42, sh.y - at.y)
+	var low_pose := rig.palm_pose(side, at, -toward, Vector3(0.0, -1.0, 0.25) + toward * 0.3)
+	var high_pose := rig.hold_pose(side, at, Vector3.UP, toward)
+	var pose := [(low_pose[0] as Vector3).lerp(high_pose[0], high), (low_pose[1] as Quaternion).slerp(high_pose[1], high)]
+	var t := smoothstep(0.0, 1.0, _door_w)
+	rig.pose_between(side, rig.relaxed_pose(side), pose, t, Vector3(sgn * 0.3, -0.5, -1.0).lerp(Vector3(sgn * 0.7, -0.6, -0.3), high),
+			0.35, lerpf(0.42, 0.5, high))
+
+
+## Talking: the free hands move with the words in front of her (the one that talks
+## most: her right), and she nods now and then.
+func _arms_talking() -> void:
+	var g := minf(_talk_el / 0.4, 1.0) * minf(_talk_t / 0.4, 1.0)
+	g = smoothstep(0.0, 1.0, g)
+	rig.rot_x(&"head", g * (0.07 * pow(maxf(sin(rig.time * 3.1 + rig.seed_phase), 0.0), 3.0) + 0.02 * rig.wobble(1.3, 4.0)))
+	rig.rot_z(&"head", g * 0.05 * rig.wobble(0.6, 5.0))
+	if _kneel > 0.05 or held() != null or _hold_w > 0.0:
+		return
+	var door_side := ("_l" if _door_last.x > 0.0 else "_r") if _door_w > 0.0 else ""
+	for side: String in ["_r", "_l"]:
+		if side == door_side:
+			continue
+		var sgn := 1.0 if side == "_l" else -1.0
+		var w := rig.wobble(2.3, 3.0 if side == "_r" else 7.0)
+		var amount := 0.8 + 0.2 * w if side == "_r" or door_side == "_r" else maxf(rig.wobble(0.45, 9.0), 0.0) * 0.8
+		var t := g * amount
+		if t <= 0.01:
+			continue
+		var to_p := Vector3(sgn * (0.19 + w * 0.03), rig.pelvis_y + 0.17 + w * 0.05, 0.3 + w * 0.03)
+		var to_q := rig.hand_rot(side, Vector3(-sgn * 0.15, 0.12, 1.0), Vector3(-sgn * 0.35, 0.95, 0.0))
+		var from: Array = rig.hand_pose(side)
+		rig.reach(side, (from[0] as Vector3).lerp(to_p, t), Vector3(sgn * 0.6, -0.5, -0.6))
+		rig.set_hand(side, (from[1] as Quaternion).slerp(to_q, t))
+		rig.curl(side, lerpf(0.35, 0.22, t), 0.3)
+
+
+## Taking a thing and holding it: both hands out to its sides where it is, then (in her
+## hands) brought in against her front, upright, its sides in her palms. Let go, the
+## hands go back from where they held it.
+func _arms_hold() -> void:
+	var item := held()
+	var xf := Transform3D.IDENTITY
+	var reach_t := 1.0
+	if item != null:
+		if _held_in_hand:
+			xf = _held_from.interpolate_with(_held_pose(), smoothstep(0.0, 1.0, minf(_held_t / BRING_TIME, 1.0)))
+		else:
+			xf = _body_xf().affine_inverse() * item.global_transform
+			reach_t = smoothstep(0.0, 1.0, minf(_held_t / TAKE_TIME, 1.0))
+	var ext := _held_box.size * 0.5
+	var c := _held_box.get_center()
+	var side_ext := absf(_held_side.dot(ext))
+	var up_ext := absf(_held_up.dot(ext))
+	var fwd := _held_side.cross(_held_up)
+	var poses := {}
+	for side: String in ["_l", "_r"]:
+		var sgn := 1.0 if side == "_l" else -1.0
+		if item != null:
+			var n := (xf.basis * _held_side).normalized() * sgn
+			var at := xf * (c + _held_side * sgn * side_ext - _held_up * up_ext * 0.2) + n * 0.006
+			var fingers := (xf.basis * fwd).normalized() + Vector3.DOWN * 0.45
+			poses[side] = rig.palm_pose(side, at, n, fingers)
+		elif _hold_last.size() == 2:
+			poses[side] = _hold_last[0 if side == "_l" else 1]
+		else:
+			return
+	var w := reach_t if item != null else smoothstep(0.0, 1.0, _hold_w)
+	for side: String in ["_l", "_r"]:
+		var sgn := 1.0 if side == "_l" else -1.0
+		var from: Array = rig.hand_pose(side)
+		var to: Array = poses[side]
+		rig.reach(side, (from[0] as Vector3).lerp(to[0], w), Vector3(sgn * 0.8, -0.6, -0.25))
+		rig.set_hand(side, (from[1] as Quaternion).slerp(to[1], w))
+		rig.curl(side, lerpf(0.35, 0.3, w), lerpf(0.35, 0.25, w))
+	_hold_last = [poses["_l"], poses["_r"]]
+	if item != null and _held_in_hand:
+		# It goes where the hands are (a hand that fell a little short takes it along; never
+		# into her).
+		var want := ((xf * (c + _held_side * side_ext)) + (xf * (c - _held_side * side_ext))) * 0.5
+		var got := (rig.palm_point("_l") + rig.palm_point("_r")) * 0.5
+		var shift := got - want
+		shift.z = maxf(shift.z, 0.0)
+		xf.origin += shift
+		item.transform = xf
+
+
+## Where a thing she was given is held (body frame): upright as it came, its sides to
+## her hands, its back against her front between the waist and the chest.
+func _held_pose() -> Transform3D:
+	var m := Basis(_held_side, _held_up, _held_side.cross(_held_up))
+	var b := m.transposed()
+	var half := (b * (_held_box.size * 0.5)).abs()
+	var y := lerpf(rig.pos_rest("spine_01").y, rig.pos_rest("spine_03").y, 0.7)
+	var front: Vector3 = rig.torso_surface(y, 0.0)[0]
+	var centre := Vector3(front.x, front.y, front.z + half.z + 0.015)
+	return Transform3D(b, centre - b * _held_box.get_center())
+
+
+## The dog's stroked place (world): its pet_point() if it has one.
+func _pet_world() -> Vector3:
+	if pet_target.has_method(&"pet_point"):
+		return pet_target.call(&"pet_point")
+	return pet_target.global_position
+
+
+func _body_xf() -> Transform3D:
+	return rig.global_transform
+
+
+## The box round what `item` draws (its own frame).
+static func _box_of(item: Node3D) -> AABB:
+	var box := AABB()
+	var first := true
+	var inv := item.global_transform.affine_inverse()
+	var meshes: Array[Node] = item.find_children("*", "VisualInstance3D", true, false)
+	if item is VisualInstance3D:
+		meshes.push_front(item)
+	for n: Node in meshes:
+		var vi := n as VisualInstance3D
+		var b := (inv * vi.global_transform) * vi.get_aabb()
+		box = b if first else box.merge(b)
+		first = false
+	if first:
+		box = AABB(Vector3(-0.1, -0.1, -0.1), Vector3(0.2, 0.2, 0.2))
+	return box
 
 
 ## Right hand on the heart and a nod ("hoş geldin"); the young man waves instead.

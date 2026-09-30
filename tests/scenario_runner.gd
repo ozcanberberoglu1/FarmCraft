@@ -91,6 +91,8 @@ func run(scenario: String) -> void:
 			await _people()
 		"people2":
 			await _people2()
+		"people3":
+			await _people3()
 		"fixes":
 			await _fixes()
 		"carnival":
@@ -103,6 +105,18 @@ func run(scenario: String) -> void:
 			await _walk()
 		"rabbit2":
 			await _rabbit2()
+		"turntable":
+			await _scenario_turntable()
+		"noon_start":
+			await _scenario_noon_start()
+		"dog":
+			await _scenario_dog()
+		"zeynep":
+			await _scenario_zeynep()
+		"zeynep_edges":
+			await _scenario_zeynep_edges()
+		"market_crates":
+			await _market_crates()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -1243,8 +1257,8 @@ func _town() -> void:
 	money = Economy.money
 	pump.interact(player)
 	_check(v.fuel > 40.0 and Economy.money < money, "refuelled at the pump (%d gold)" % (money - Economy.money))
-	# The Animal Market's hen stall sells hens in crates, no coop needed; they go into
-	# the bed of the pickup parked on the street in front.
+	# The Animal Market's hen stall sells hens in crates, no coop needed; they wait at the
+	# market's pickup spot by the gate until carried to the pickup parked on the street.
 	var stall := town.poultry_stall
 	_check(stall != null and Town.ANIMAL_MARKET.has_point(Vector2(stall.global_position.x, stall.global_position.z))
 			and town.poultry_marker != null and String(town.poultry_marker.get_meta(&"waypoint", "")) == "town_chickens",
@@ -1265,10 +1279,15 @@ func _town() -> void:
 	Events.crate_stored.connect(on_stored)
 	_check(town.vehicle_at_poultry() == v, "the pickup on the street counts as parked at the stall")
 	_check(LiveCrates.can_buy(&"chicken", 2, stall.global_position) == "", "two crated hens can be bought without a coop")
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	var got := LiveCrates.buy(&"chicken", 2, stall.global_position)
 	await _frames(3)
-	_check(got == 2 and v.cargo.count(&"chicken_crate") == 2 and Economy.money == money - 2 * LiveCrates.price(&"chicken")
-			and bought[0] == 2 and stored.has(&"bed"), "bought 2 crated hens into the bed (%d gold)" % (money - Economy.money))
+	_check(got == 2 and LiveCrates.count_at(&"market", &"chicken_crate") == 2 and v.cargo.count(&"chicken_crate") == 0
+			and Economy.money == money - 2 * LiveCrates.price(&"chicken") and bought[0] == 2,
+			"bought 2 crated hens: they wait at the market's pickup spot, not in the bed (%d gold)" % (money - Economy.money))
+	var loaded: int = await _load_market_crates(v)
+	_check(loaded == 2 and v.cargo.count(&"chicken_crate") == 2 and LiveCrates.count_at(&"market") == 0 and stored.has(&"bed"),
+			"E at the crates and E at the tailgate load both into the bed")
 	await _seconds(1.0)
 	_check(v.load_view().package_count() == 2 and v.load_view().live_count() == 2, "the bed shows 2 crates with a live hen in each")
 	stall.interact(player)
@@ -1277,12 +1296,14 @@ func _town() -> void:
 	_check(rancher.visible and rancher._tab == "buy" and rancher._selected == &"chicken", "E at the stall opens the Animal Market on hens")
 	rancher.close_screen()
 	await _frames(3)
-	# No vehicle of the player's nearby: the crate goes into the bag.
+	# No vehicle of the player's nearby: the crate waits all the same, nothing goes into the bag.
 	v.teleport(Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(280.0, TerrainData.height(280.0, 20.0) + 0.5, 20.0)))
 	await _frames(20)
 	var in_bag := PlayerState.inventory.count_item(&"chicken_crate")
 	_check(town.vehicle_at_poultry() == null and LiveCrates.buy(&"chicken", 1, stall.global_position) == 1
-			and PlayerState.inventory.count_item(&"chicken_crate") == in_bag + 1, "with no vehicle near, the crate goes into the bag")
+			and PlayerState.inventory.count_item(&"chicken_crate") == in_bag and LiveCrates.count_at(&"market") == 1,
+			"with no vehicle near, the crate waits at the pickup spot too")
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	PlayerState.inventory.remove_item(&"chicken_crate", PlayerState.inventory.count_item(&"chicken_crate"))
 	v.cargo.from_dict({"capacity": v.cargo.capacity, "items": {}})
 	Events.animals_bought.disconnect(on_bought)
@@ -1667,6 +1688,7 @@ func _save_load() -> void:
 	GameClock.day = 7
 	GameClock.minute = 15 * 60 + 30
 	FarmState.warehouse.from_dict({"capacity": FarmState.warehouse.capacity, "items": {"tomato|0": 33, "chicken_crate|0": 3}})
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {"chicken_crate|0": 2, "rooster_crate|0": 1}})
 	PlayerState.inventory.add_item(&"carrot", 17)
 	var carrots := PlayerState.inventory.count_item(&"carrot")
 	var plot: FarmPlot = tree.get_nodes_in_group(&"farm_plots")[0]
@@ -1724,6 +1746,7 @@ func _save_load() -> void:
 	Economy.money = 5
 	GameClock.day = 2
 	FarmState.warehouse.from_dict({"capacity": FarmState.warehouse.capacity, "items": {}})
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	PlayerState.inventory.remove_item(&"carrot", carrots)
 	plot.load_data({})
 	v.owned = false
@@ -1780,6 +1803,8 @@ func _save_load() -> void:
 	_check(old_back.cargo.count(&"chicken_crate") == 2 and old_back.load_view().live_count() == 2
 			and FarmState.warehouse.count(&"chicken_crate") == 3 and bay_back.shown() == 3 and bay_back.live_count() == 3
 			and not old_back.is_locked(), "the crated hens are back in the bed and the crate corner; the pickup is unlocked")
+	_check(LiveCrates.count_at(&"market", &"chicken_crate") == 2 and LiveCrates.count_at(&"market", &"rooster_crate") == 1
+			and town.market_crates.shown() == 3, "the crates waiting at the Animal Market are back at its pickup spot")
 	# A truck saved before the lock (no "unlocked" in its dict) comes open.
 	FarmState.flags.erase(old_back.unlock_flag())
 	old_back.load_data({"kind": "pickup_old", "owned": true, "fuel": 11.0, "cargo": {"capacity": old_back.cargo.capacity, "items": {}}})
@@ -1798,7 +1823,7 @@ func _save_load() -> void:
 	await _until_loaded()
 	town = tree.get_first_node_in_group(&"town") as Town
 	_check(Economy.money == Economy.STARTING_MONEY and GameClock.day == 1 and Animals.animals.is_empty()
-			and FarmState.warehouse.total() == 0 and not town.for_sale.owned,
+			and FarmState.warehouse.total() == 0 and LiveCrates.count_at(&"market") == 0 and not town.for_sale.owned,
 			"a new game starts from scratch")
 	# Assumes nothing hands out items on a new game in automated runs (only at launch).
 	_check(PlayerState.inventory.slots.all(func(st: ItemStack) -> bool: return st == null)
@@ -3241,8 +3266,9 @@ func _quests() -> void:
 	_check(Quests.current()["id"] == "feed" and begun[0] == care and Quests.first_day()
 			and Game.hud._quest_note.visible and Game.hud._quest_note.text.contains(Quests.chapter_note(care)),
 			"the egg in the bin ends the harvest: the coop's care opens with Grandpa's note (no bedtime)")
-	_check(is_equal_approx(Quests.pace_for(10.0), Quests.FIRST_DAY_PACE) and is_equal_approx(Quests.pace_for(17.0), Quests.LINGER_PACE),
-			"the first day runs at half speed and the late afternoon lingers")
+	_check(is_equal_approx(Quests.pace_for(13.0), Quests.FIRST_DAY_PACE) and is_equal_approx(Quests.pace_for(17.0), Quests.LINGER_PACE)
+			and Quests.FIRST_DAY_PACE < 1.0 and Quests.LINGER_PACE < Quests.FIRST_DAY_PACE,
+			"the first afternoon runs slow and its late hours linger")
 	bin.remove_item(&"carrot", 2)
 	bin.remove_item(&"egg", 1)
 	# LMB with an egg in hand: it flies where the player looks and breaks where it lands.
@@ -3766,9 +3792,9 @@ func _sapling() -> void:
 	var grove := SaplingGrove.instance
 	_check(grove != null and is_instance_valid(grove), "the farm has its sapling grove")
 	Weather.force(Weather.Kind.SUNNY)
-	# From the morning, as on a new farm: the growth below skips whole days, and from an
-	# evening start it would run past bedtime into the morning report (earlier scenarios
-	# leave the clock anywhere).
+	# From the morning, as after a night's sleep: the growth below skips whole days, and
+	# from an evening start it would run past bedtime into the morning report (earlier
+	# scenarios leave the clock anywhere).
 	GameClock.minute = float(GameClock.DAY_START_MINUTE)
 	# The drop roll: DROP_CHANCE of felled trees, the same for the same seed.
 	SaplingGrove.drop_rng.seed = 2024
@@ -4318,8 +4344,10 @@ func _fish_shot(name: String) -> void:
 ## sold, cooked and cleaned; the rods made at the workbench (short to long casts, low to
 ## high durability), a cast wearing the rod and a broken one refusing; the trophy share
 ## measured over many bites rolled exactly as play rolls them (Angler.roll_catch: the
-## angler's unseeded generator, the clock, the weather, the rod in hand), in the target
-## band, higher at night with a better rod and bait, and the owed giant after a dry run.
+## angler's generator, the clock, the weather, the rod in hand; the same bites from a
+## fixed seed for each rod, so the shares differ by the odds, not by luck), in the target
+## band, lower on the cane pole, higher at night with a better rod and bait, and the owed
+## giant after a dry run.
 ## With -- --fish-shots=<dir> it also saves a few screenshots.
 func _fishing2() -> void:
 	var player: Player = Game.player
@@ -4539,7 +4567,7 @@ func _fishing2() -> void:
 	var day := _trophy_share(angler, 6000)
 	_select(&"cane_rod")
 	await _frames(2)
-	var cane := _trophy_share(angler, 4000)
+	var cane := _trophy_share(angler, 6000)
 	_select(&"carp_rod")
 	await _frames(2)
 	angler.bait = &"minnow"
@@ -4658,12 +4686,19 @@ func _share_of(angler: Angler, ids: Array, n: int) -> float:
 	return float(hit) / n
 
 
-## Share of `n` bites rolled as play rolls them that are trophies (no owed giant).
+## Share of `n` bites rolled as play rolls them that are trophies (no owed giant): from
+## the angler's generator started at the same seed every time (the same bites whatever
+## the rod: shares compared differ by their odds alone), then put back as it was.
 func _trophy_share(angler: Angler, n: int) -> float:
+	var kept_seed := angler._rng.seed
+	var kept_state := angler._rng.state
+	angler._rng.seed = 20260930
 	var hit := 0
 	for i in n:
 		if angler.roll_catch().get("trophy", false):
 			hit += 1
+	angler._rng.seed = kept_seed
+	angler._rng.state = kept_state
 	return float(hit) / n
 ## Eye comfort: each graphics preset's anti-aliasing and upscaler, the sky's dithering
 ## under temporal AA, and the haze's reach (aerial perspective) with and without fog.
@@ -6003,7 +6038,10 @@ func _poultry() -> void:
 			"the rooster: coop housing, $%d at the animal market, in his own crate" % int(info.get("adult_price", 0)))
 	Economy.add_money(500, "test")
 	var bought := LiveCrates.buy(&"rooster", 1, Vector3(0, -500, 0))
-	_check(bought == 1 and inv.count_item(&"rooster_crate") == 1, "a rooster bought goes into the bag in his crate")
+	var waited := LiveCrates.count_at(&"market", &"rooster_crate") == 1 and inv.count_item(&"rooster_crate") == 0
+	var taken_up: int = await _take_market_crates()
+	_check(bought == 1 and waited and taken_up == 1 and inv.count_item(&"rooster_crate") == 1,
+			"a rooster bought waits in his crate at the market, then goes into the hands")
 	_select(&"rooster_crate")
 	notes.clear()
 	var ok := CoopDoor.release_held(h)
@@ -6211,6 +6249,7 @@ func _poultry() -> void:
 	Quests._poll = 0.0
 	await _idle_frames(3)
 	_check(Quests.current()["id"] == "rooster_in", "bought: now let him into the coop")
+	await _take_market_crates()
 	for a in Animals.animals.duplicate():
 		if Animals.housing_of(a) == h and a.species == &"chicken" and a != hen_a and a != hen_b and a != cd:
 			Animals.sell(a)
@@ -6454,8 +6493,8 @@ func _market() -> void:
 	_check(town.poultry_marker != null and String(town.poultry_marker.get_meta(&"waypoint", "")) == "town_chickens"
 			and target is Node3D and (target as Node3D).global_position.distance_to(stall.global_position) < 4.0,
 			"the story's 'stall' waypoint points at the market's hen stall")
-	# E at the hen stall opens the market on hens; one bought goes into the pickup
-	# parked in the street in front of the gate.
+	# E at the hen stall opens the market on hens; one bought waits at the pickup spot by
+	# the gate (not in the pickup parked in the street in front), the screen says so.
 	stall.interact(player)
 	await _frames(3)
 	_check(market.visible and market._tab == "buy" and market._selected == &"chicken", "E at the hen stall opens the market on hens")
@@ -6464,10 +6503,19 @@ func _market() -> void:
 	truck.teleport(Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(lane_x, TerrainData.height(lane_x, 21.5) + 0.5, 21.5)))
 	await _frames(20)
 	truck.cargo.from_dict({"capacity": truck.cargo.capacity, "items": {}})
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	Economy.money = 500
 	market._order = 1
 	market._fill()
 	await _idle_frames(2)
+	var wait_line := false
+	var old_lines := false
+	for l in market.find_children("*", "Label", true, false):
+		if (l as Label).is_visible_in_tree():
+			wait_line = wait_line or (l as Label).text == tr("RANCHER_CRATES_WAIT")
+			old_lines = old_lines or (l as Label).text in [tr("RANCHER_CRATE_TO_BAG"),
+					tr("RANCHER_CRATE_TO_BED") % [truck.display_name(), truck.cargo.space()]]
+	_check(wait_line and not old_lines, "the hen order says the crates wait in front of the seller (no bed or bag line)")
 	var buy_button: UiButton = null
 	for bt in market.find_children("*", "UiButton", true, false):
 		var ub := bt as UiButton
@@ -6477,8 +6525,10 @@ func _market() -> void:
 	if buy_button:
 		buy_button.pressed.emit()
 	await _frames(3)
-	_check(truck.cargo.count(&"chicken_crate") == 1 and Economy.money == 500 - LiveCrates.price(&"chicken"),
-			"a crated hen went into the pickup in the street for %s" % UiTheme.money(LiveCrates.price(&"chicken")))
+	_check(truck.cargo.count(&"chicken_crate") == 0 and LiveCrates.count_at(&"market", &"chicken_crate") == 1
+			and Economy.money == 500 - LiveCrates.price(&"chicken"),
+			"a crated hen bought for %s waits at the pickup spot" % UiTheme.money(LiveCrates.price(&"chicken")))
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	truck.cargo.from_dict(kept_truck[1])
 	truck.teleport(kept_truck[0])
 	# A horse wants the closed barn: without it the market refuses, and says why.
@@ -6557,6 +6607,489 @@ func _market_shot(shot_name: String) -> void:
 	var dir := String(DebugTools.args["market-shots"])
 	DirAccess.make_dir_recursive_absolute(dir)
 	tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+
+# --- Crates waiting at the Animal Market --------------------------------------------------
+
+## Crates bought at the Animal Market wait at its pickup spot, just inside the gate by the
+## office hatch, whether a pickup is parked near or not: nothing goes into a bed or the bag
+## by itself. E there lifts one into the hands, E at the tailgate loads it (the second one
+## too, onto a hen already aboard); a crate still waiting is saved and loaded with the
+## game; the story counts waiting crates as bought, and its dot points at them (the line
+## under the goal says why) until they are in the pickup. With -- --crate-shots=/abs/dir it
+## also saves screenshots (the crates from the gate, a crate in hand, the loaded bed, the
+## rooster taken with a full hotbar).
+func _market_crates() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(3)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var spot := town.market_crates
+	var truck := town.farm_truck
+	var stall := town.poultry_stall
+	var hatch := town.market_office
+	var inv := PlayerState.inventory
+	GameClock.set_time_of_day(10.0)
+	Weather.force(Weather.Kind.SUNNY)
+	var kept := {"money": Economy.money, "level": Progress.level, "step": Quests.step, "count": Quests.step_count,
+		"tally": Quests.tally.duplicate(), "truck": truck.global_transform, "cargo": truck.cargo.to_dict()}
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+	for id: StringName in [&"chicken_crate", &"rooster_crate"]:
+		inv.remove_item(id, inv.count_item(id))
+	truck.cargo.from_dict({"capacity": truck.cargo.capacity, "items": {}})
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+
+	# (1) The spot: inside the market, at the lane's edge past the gate, short of the hatch.
+	var at := spot.global_position if spot else Vector3.ZERO
+	var row_end := spot.to_global(Vector3((MarketCrates.PER_ROW - 1) * MarketCrates.STEP + 0.3, 0, 0)) if spot else Vector3.ZERO
+	_check(spot != null and LiveCrates.market_spot() == spot and Town.ANIMAL_MARKET.has_point(Vector2(at.x, at.z))
+			and at.x > Town.MARKET_LANE.position.x and at.x < Town.MARKET_LANE.position.x + 0.8
+			and at.z > Town.MARKET_LANE.position.y + 0.6 and row_end.z < hatch.global_position.z - 1.1
+			and MarketCrates.PER_ROW * MarketCrates.LAYERS == LiveCrates.MAX_WAITING,
+			"the pickup spot stands just inside the gate at the lane's edge, short of the hatch (%.1f, %.1f to %.1f)" % [at.x, at.z, row_end.z])
+	if spot == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+
+	# (2) Two hens bought with the pickup far away: both wait at the spot, nothing in the
+	# bed or the bag; the story counts them as bought.
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(280.0, TerrainData.height(280.0, 20.0) + 0.5, 20.0)))
+	Economy.money = 1500
+	var all_before := LiveCrates.count_at(&"all", &"chicken_crate")
+	var got := LiveCrates.buy(&"chicken", 2, stall.global_position)
+	await _frames(3)
+	var hen_name := ItemDB.get_item(&"chicken_crate").display_name()
+	_check(got == 2 and LiveCrates.count_at(&"market", &"chicken_crate") == 2 and truck.cargo.total() == 0
+			and inv.count_item(&"chicken_crate") == 0 and Economy.money == 1500 - 2 * LiveCrates.price(&"chicken")
+			and LiveCrates.count_at(&"all", &"chicken_crate") == all_before + 2,
+			"2 hens bought with the pickup far away wait at the spot: none in the bed or the bag")
+	_check(notes.has(tr("MSG_CRATES_WAITING") % [hen_name, 2]), "the toast says where they wait (%s)" % [notes.back() if not notes.is_empty() else ""])
+	_check(Quests._check_progress("hens:owned") >= 2 and Quests._check_progress("owned:chicken") >= 2,
+			"the story counts the waiting crates as bought hens")
+	await _seconds(0.5)
+	_check(spot.shown() == 2 and spot.live_count() == 2, "the spot shows 2 crates with a live hen in each")
+	# The market screen: where the crates wait instead of the bed or the bag; the order
+	# is capped by what the spot still takes.
+	Game.hud.rancher_screen.open_poultry(stall.global_position)
+	await _idle_frames(3)
+	var lines := PackedStringArray()
+	for l in Game.hud.rancher_screen.find_children("*", "Label", true, false):
+		if (l as Label).is_visible_in_tree():
+			lines.append((l as Label).text)
+	_check(lines.has(tr("RANCHER_CRATES_WAIT")) and lines.has(tr("RANCHER_CRATES_WAITING") % [2, LiveCrates.MAX_WAITING])
+			and not lines.has(tr("RANCHER_CRATE_TO_BAG")), "the market screen says the crates wait in front of the seller (2 waiting)")
+	await _crate_shot("market_screen")
+	FarmState.market_crates.add(&"chicken_crate", LiveCrates.MAX_WAITING - 2)
+	var full := LiveCrates.can_buy(&"chicken", 1, stall.global_position)
+	FarmState.market_crates.take(&"chicken_crate", LiveCrates.MAX_WAITING - 2, 0)
+	_check(full == tr("MSG_MARKET_CRATES_FULL") % LiveCrates.MAX_WAITING and LiveCrates.market_room() == LiveCrates.MAX_WAITING - 2,
+			"a full spot takes no more orders ('%s')" % full)
+	Game.hud.rancher_screen.close_screen()
+	await _frames(3)
+
+	# (3) The story's dot: to the waiting crates first, with a line saying why.
+	Quests.step = Quests.index_of("drive_home")
+	Quests.step_count = 0
+	Quests._poll = 100.0
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	var marker := spot.waypoint()
+	_check(Quests.current()["id"] == "drive_home" and Quests.waypoint() == marker and Quests.goal_hint() == tr("HINT_MARKET_CRATES"),
+			"driving home: the dot points at the crates waiting at the market ('%s')" % Quests.goal_hint())
+	for goal: String in ["crates", "home"]:
+		Quests._hint = ""
+		var t: Variant = Quests._target(goal)
+		_check(t == marker and Quests._hint == tr("HINT_MARKET_CRATES"), "the '%s' dot points at the waiting crates first" % goal)
+
+	# (4) The pickup parked in the street in front of the gate; E at the crates lifts one
+	# into the hands.
+	var lane_x := Town.MARKET_LANE.get_center().x
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(lane_x, TerrainData.height(lane_x, 21.5) + 0.5, 21.5)))
+	await _seconds(1.5)
+	inv.set_stack(7, null)
+	PlayerState.select(7)
+	var row_mid := spot.to_global(Vector3(MarketCrates.STEP * 0.5, 0.2, 0))
+	var stand := row_mid + Vector3(1.5, 0, -0.3)
+	stand.y = TerrainData.height(stand.x, stand.z) + 0.1
+	player.global_position = stand
+	player.velocity = Vector3.ZERO
+	_look_at(player, row_mid)
+	await _frames(8)
+	var take := tr("ACTION_TAKE_CRATE") % [hen_name, 2]
+	_check(player.target == spot and _last_prompt.contains(take), "looking at the crates, E offers '%s' ('%s')" % [take, _last_prompt])
+	await _press_key(KEY_E)
+	await _frames(3)
+	var hand := PlayerState.selected_stack()
+	_check(hand != null and hand.item.id == &"chicken_crate" and hand.count == 1 and LiveCrates.count_at(&"market") == 1,
+			"E lifts one crate into the hands, one still waits")
+	await _seconds(0.3)
+	_check(spot.shown() == 1, "the spot shows the one left")
+	# Carried about in town: the dot sends them to the crates left first.
+	Quests._hint = ""
+	_check(Quests._target("home") == marker, "with one in hand and one waiting, the dot stays on the crates")
+	# Turned to the street and the pickup with the crate in hand (screenshot).
+	player.look_at_yaw_pitch(0.0, deg_to_rad(-6.0))
+	await _crate_shot("in_hand")
+
+	# (5) At the tailgate E loads it into the bed.
+	var bed_point := truck.find_child("BedPoint", true, false) as BedPoint
+	var stored: Array[StringName] = []
+	var on_stored := func(_id: StringName, where: StringName) -> void: stored.append(where)
+	Events.crate_stored.connect(on_stored)
+	await _stand_at_tailgate(truck)
+	var load_line := tr("ACTION_LOAD_BED") % [hen_name, 1]
+	_check(player.target == bed_point and _last_prompt.contains(load_line), "at the tailgate E offers '%s' ('%s')" % [load_line, _last_prompt])
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(truck.cargo.count(&"chicken_crate") == 1 and PlayerState.selected_stack() == null and stored.has(&"bed"),
+			"E at the tailgate loads the crate into the bed")
+	# The second: into the hands at the spot, then onto the hen already aboard (E loads it,
+	# it does not lift the first one out).
+	spot.interact(player)
+	await _frames(2)
+	Quests._hint = ""
+	var to_bed: Variant = Quests._target("home")
+	_check(LiveCrates.count_at(&"market") == 0 and LiveCrates.count_at(&"hand", &"chicken_crate") == 1
+			and to_bed == truck.waypoint_bed() and Quests._hint == tr("HINT_LOAD_CRATES"),
+			"the last crate in hand: the dot points at the pickup's bed ('%s')" % Quests._hint)
+	await _stand_at_tailgate(truck)
+	_check(_last_prompt.contains(load_line) and not _last_prompt.contains(tr("ACTION_TAKE_CRATE") % [hen_name, 1]),
+			"with a hen aboard, E at the tailgate still offers to load the crate in hand ('%s')" % _last_prompt)
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(truck.cargo.count(&"chicken_crate") == 2 and LiveCrates.count_at(&"carried", &"chicken_crate") == 0,
+			"E loads the second crate beside the first")
+	Quests._hint = ""
+	var after: Variant = Quests._target("home")
+	_check(after != marker and Quests._hint == "", "all loaded: the dot goes on to the farm")
+	# Unloading still works as before: E with crates lifted out of this bed takes another.
+	await _press_key(KEY_E)
+	await _frames(3)
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(truck.cargo.count(&"chicken_crate") == 0 and LiveCrates.count_at(&"hand", &"chicken_crate") == 2,
+			"E with empty hands lifts one out, E again the second (unloading)")
+	truck.cargo.add(&"chicken_crate", 2)
+	inv.set_stack(PlayerState.selected, null)
+	Events.crate_stored.disconnect(on_stored)
+	await _seconds(1.0)
+	# Over the tailgate's corner on the pavement side, looking down into the bed (screenshot).
+	var out := truck.global_basis.z * signf(bed_point.position.z)
+	var corner := bed_point.global_position + out * (bed_point.size.z * 0.5 + 0.6) - truck.global_basis.x * (bed_point.size.x * 0.5 + 0.2)
+	await _crate_shot("in_bed", Vector3(corner.x, TerrainData.height(corner.x, corner.z) + 2.3, corner.z), bed_point.global_position - Vector3(0, 0.3, 0))
+
+	# (6) A crate still waiting is saved and loaded with the game.
+	Economy.money = 1500
+	LiveCrates.buy(&"chicken", 1, stall.global_position)
+	await _frames(3)
+	var gate_eye := Vector3(lane_x - 0.8, 0, Town.WALK_S.end.y - 1.2)
+	gate_eye.y = TerrainData.height(gate_eye.x, gate_eye.z) + 0.25
+	var clock_ran := GameClock.running
+	GameClock.running = false
+	var slot := "slot_8"
+	_check(SaveGame.save(slot), "saved with a crate waiting at the market")
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+	_check(SaveGame.load_game(slot), "loading the save started")
+	await _until_loaded()
+	GameClock.running = clock_ran
+	Events.notification_requested.disconnect(on_note)
+	player = Game.player
+	town = tree.get_first_node_in_group(&"town") as Town
+	spot = town.market_crates
+	truck = town.farm_truck
+	stall = town.poultry_stall
+	hatch = town.market_office
+	inv = PlayerState.inventory
+	await _seconds(0.5)
+	_check(LiveCrates.count_at(&"market", &"chicken_crate") == 1 and spot.shown() == 1 and spot.live_count() == 1
+			and truck.cargo.count(&"chicken_crate") == 2, "after a load the crate still waits at the spot (and the loaded two ride on)")
+	SaveGame.delete(slot)
+
+	# (7) The rooster: bought, he waits too; his goal's dot points at him until he is in
+	# the pickup. A few more hens make a stack for the picture from the gate.
+	Progress.level = maxi(Progress.level, UnlockTable.animal_level(&"rooster"))
+	Economy.money = 3000
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests._poll = 0.0
+	LiveCrates.buy(&"rooster", 1, stall.global_position)
+	await _idle_frames(3)
+	var r_marker := spot.waypoint()
+	_check(LiveCrates.count_at(&"market", &"rooster_crate") == 1 and Quests.current()["id"] == "rooster_in",
+			"the rooster bought waits at the spot and counts as bought")
+	Quests._wp_left = 0.0
+	Quests._poll = 100.0
+	await _idle_frames(3)
+	_check(Quests.waypoint() == r_marker and Quests.goal_hint() == tr("HINT_MARKET_CRATES"),
+			"letting him in: the dot points at his crate at the market first ('%s')" % Quests.goal_hint())
+	LiveCrates.buy(&"chicken", 3, stall.global_position)
+	await _seconds(0.6)
+	_check(spot.shown() == 5 and spot.live_count() == 5, "five crates wait in a tidy stack (%d shown)" % spot.shown())
+	player.global_position = gate_eye
+	player.velocity = Vector3.ZERO
+	_look_at(player, spot.to_global(Vector3(MarketCrates.STEP * 1.5, 0.3, 0)))
+	await _crate_shot("waiting_from_gate")
+	var near := spot.to_global(Vector3(MarketCrates.STEP * 1.5, 0, 0)) + Vector3(2.6, 0, -1.6)
+	near.y = TerrainData.height(near.x, near.z) + 0.1
+	player.global_position = near
+	_look_at(player, spot.to_global(Vector3(MarketCrates.STEP * 1.5, 0.3, 0)))
+	await _crate_shot("waiting_close")
+	# From the lane past the hatch: the crates, the gate and the pickup in the street.
+	var lane_eye := Vector3(lane_x + 0.6, 0, hatch.global_position.z + 1.5)
+	player.global_position = Vector3(lane_eye.x, TerrainData.height(lane_eye.x, lane_eye.z) + 0.1, lane_eye.z)
+	_look_at(player, Vector3(lane_x - 0.6, spot.global_position.y + 0.9, 24.0))
+	await _crate_shot("waiting_to_street")
+	# His crate into the hands: the dot sends him to the pickup's bed.
+	FarmState.market_crates.take(&"chicken_crate", 4, 0)
+	inv.set_stack(7, null)
+	PlayerState.select(7)
+	spot.interact(player)
+	await _frames(2)
+	Quests._hint = ""
+	_check(LiveCrates.count_at(&"hand", &"rooster_crate") == 1 and Quests._target("hens") == truck.waypoint_bed()
+			and Quests._hint == tr("HINT_LOAD_CRATES"), "the rooster in hand: the dot points at the pickup's bed")
+
+	await _market_crates_full_hotbar(spot, truck, stall)
+	await _market_crates_home(spot)
+
+	# Tidy up.
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+	for id: StringName in [&"chicken_crate", &"rooster_crate"]:
+		inv.remove_item(id, inv.count_item(id))
+	truck.cargo.from_dict(kept["cargo"])
+	await _park(truck, kept["truck"])
+	Economy.money = int(kept["money"])
+	Progress.level = int(kept["level"])
+	Quests.step = int(kept["step"])
+	Quests.step_count = int(kept["count"])
+	Quests.tally = kept["tally"]
+	Quests.tutorial_changed.emit()
+
+
+## market_crates (8): every hotbar slot taken (tools, seeds, a knife: the usual by the
+## rooster's day). E at the crates still puts the rooster in the hands and the seeds that
+## were in hand go into the bag (a toast says so); the dot and E at the tailgate then load
+## him, not the seeds. Crates filling the hands already, or a bag with no room for what
+## is in hand, leave him waiting with a toast saying why; a crate in the bag is not taken
+## for one in hand. The inventory is given back afterwards.
+func _market_crates_full_hotbar(spot: MarketCrates, truck: Vehicle, stall: Node3D) -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var inv_kept := inv.to_array()
+	var sel_kept := PlayerState.selected
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+	truck.cargo.from_dict({"capacity": truck.cargo.capacity, "items": {}})
+	var hotbar: Array = [[&"hoe", 1], [&"watering_can", 1], [&"scythe", 1], [&"pickaxe", 1], [&"axe", 1],
+		[&"wheat_seed", 7], [&"potato_seed", 5], [&"knife", 1]]
+	for i in inv.size():
+		inv.set_stack(i, ItemStack.create(hotbar[i][0], hotbar[i][1]) if i < PlayerState.HOTBAR_SIZE else null)
+	PlayerState.select(5)
+	Economy.money = maxi(Economy.money, 1000)
+	Quests.step = Quests.index_of("rooster_in")
+	Quests.step_count = 0
+	LiveCrates.buy(&"rooster", 1, stall.global_position)
+	await _frames(3)
+	var row_mid := spot.to_global(Vector3(MarketCrates.STEP * 0.5, 0.2, 0))
+	var stand := row_mid + Vector3(1.5, 0, -0.3)
+	stand.y = TerrainData.height(stand.x, stand.z) + 0.1
+	player.global_position = stand
+	player.velocity = Vector3.ZERO
+	_look_at(player, row_mid)
+	await _frames(8)
+	var r_name := ItemDB.get_item(&"rooster_crate").display_name()
+	var take := tr("ACTION_TAKE_CRATE") % [r_name, 1]
+	_check(player.target == spot and _last_prompt.contains(take), "hotbar full: at the crates E offers '%s' ('%s')" % [take, _last_prompt])
+	notes.clear()
+	await _press_key(KEY_E)
+	await _frames(3)
+	var seeds_bagged := false
+	for i in range(PlayerState.HOTBAR_SIZE, inv.size()):
+		var b := inv.get_stack(i)
+		seeds_bagged = seeds_bagged or (b != null and b.item.id == &"wheat_seed" and b.count == 7)
+	var stowed := tr("MSG_STOWED_FOR_CRATE") % ItemDB.get_item(&"wheat_seed").display_name()
+	_check(LiveCrates.count_at(&"hand", &"rooster_crate") == 1 and PlayerState.selected == 5 and LiveCrates.count_at(&"market") == 0
+			and seeds_bagged and notes.has(stowed),
+			"hotbar full: E puts the rooster in the hands, the seeds in hand go into the bag ('%s')" % [notes.back() if not notes.is_empty() else ""])
+	# The rooster in hand, the toast and the full hotbar (screenshot).
+	player.look_at_yaw_pitch(0.0, deg_to_rad(-6.0))
+	await _crate_shot("full_hotbar")
+	Quests._hint = ""
+	_check(Quests._target("hens") == truck.waypoint_bed() and Quests._hint == tr("HINT_LOAD_CRATES"),
+			"the rooster in hand: the dot points at the pickup's bed ('%s')" % Quests._hint)
+	await _stand_at_tailgate(truck)
+	var load_line := tr("ACTION_LOAD_BED") % [r_name, 1]
+	_check(_last_prompt.contains(load_line), "at the tailgate E offers '%s' ('%s')" % [load_line, _last_prompt])
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(truck.cargo.count(&"rooster_crate") == 1 and truck.cargo.count(&"wheat_seed") == 0
+			and LiveCrates.count_at(&"carried", &"rooster_crate") == 0, "E at the tailgate loads the rooster, not the seeds")
+
+	# Crates in hand and no hotbar slot free: the hands are full, he waits.
+	var sel := PlayerState.selected
+	inv.set_stack(sel, ItemStack.create(&"chicken_crate", 4))
+	LiveCrates.buy(&"rooster", 1, stall.global_position)
+	await _frames(2)
+	notes.clear()
+	spot.interact(player)
+	await _frames(2)
+	_check(LiveCrates.count_at(&"market", &"rooster_crate") == 1 and inv.get_stack(sel).item.id == &"chicken_crate"
+			and inv.get_stack(sel).count == 4 and inv.count_item(&"rooster_crate") == 0 and notes.has(tr("MSG_HANDS_FULL_CRATES")),
+			"hands full of crates: he stays waiting and the toast says why ('%s')" % [notes.back() if not notes.is_empty() else ""])
+	# A knife in hand and the bag full: nowhere to put the knife, he waits.
+	inv.set_stack(sel, ItemStack.create(&"knife", 1))
+	for i in range(PlayerState.HOTBAR_SIZE, inv.size()):
+		inv.set_stack(i, ItemStack.create(&"hoe", 1))
+	notes.clear()
+	spot.interact(player)
+	await _frames(2)
+	_check(LiveCrates.count_at(&"market", &"rooster_crate") == 1 and inv.get_stack(sel).item.id == &"knife"
+			and inv.count_item(&"rooster_crate") == 0 and notes.has(tr("MSG_INVENTORY_FULL")),
+			"a full bag: nothing to free the hands with, he waits ('%s')" % [notes.back() if not notes.is_empty() else ""])
+	# A crate in the bag (put there by hand) is not in hand: the dot doesn't send it to
+	# the bed as if it were (E at the tailgate loads only what is in hand).
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+	inv.set_stack(PlayerState.HOTBAR_SIZE, ItemStack.create(&"rooster_crate", 1))
+	Quests._hint = ""
+	var t: Variant = Quests._target("hens")
+	_check(LiveCrates.count_at(&"hand", &"rooster_crate") == 0 and t != truck.waypoint_bed() and Quests._hint != tr("HINT_LOAD_CRATES"),
+			"a crate in the bag: no 'load the crates in your hands' line ('%s')" % Quests._hint)
+
+	Events.notification_requested.disconnect(on_note)
+	truck.cargo.from_dict({"capacity": truck.cargo.capacity, "items": {}})
+	inv.from_array(inv_kept)
+	PlayerState.select(sel_kept)
+
+
+## market_crates (9): back in the farmyard without the hens (drive_home, "bring the hens
+## home"): not done while they wait at the market, the dot sends the farmer back for them
+## (for all of them, even with one carried home by hand); done once none waits.
+func _market_crates_home(spot: MarketCrates) -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var inv_kept := inv.to_array()
+	var in_warehouse := FarmState.warehouse.count(&"chicken_crate", 0)
+	FarmState.warehouse.take(&"chicken_crate", in_warehouse, 0)
+	for id: StringName in [&"chicken_crate", &"rooster_crate"]:
+		inv.remove_item(id, inv.count_item(id))
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {"chicken_crate|0": 2}})
+	Quests.step = Quests.index_of("drive_home")
+	Quests.step_count = 0
+	var door := Quests._warehouse_door()
+	player.global_position = Vector3(door.x, TerrainData.height(door.x, door.z + 4.0) + 0.2, door.z + 4.0)
+	player.velocity = Vector3.ZERO
+	await _frames(3)
+	Quests._poll = 0.0
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	var marker := spot.waypoint()
+	_check(Quests._near("home") and Quests._check_progress("crates:warehouse") == 0 and Quests.current()["id"] == "drive_home"
+			and Quests._check_progress("home") == 0 and Quests.waypoint() == marker and Quests.goal_hint() == tr("HINT_MARKET_CRATES"),
+			"home with both hens still at the market: not done, the dot points back at them ('%s')" % Quests.goal_hint())
+	# One carried home by hand, one still waiting: back for the other.
+	FarmState.market_crates.take(&"chicken_crate", 1, 0)
+	inv.add_item(&"chicken_crate", 1)
+	Quests._poll = 0.0
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	_check(Quests.current()["id"] == "drive_home" and Quests.waypoint() == marker and Quests.goal_hint() == tr("HINT_MARKET_CRATES"),
+			"one carried home, one still waiting: not done, the dot goes back for the other")
+	# None left waiting: home it is.
+	FarmState.market_crates.take(&"chicken_crate", 1, 0)
+	Quests._poll = 0.0
+	await _idle_frames(3)
+	_check(Quests.passed("drive_home"), "no hen left at the market: back in the farmyard moves on to the crates")
+	inv.from_array(inv_kept)
+	FarmState.warehouse.add(&"chicken_crate", in_warehouse, 0)
+
+
+## Moves `v` to `xf` and lets it settle on its wheels. A parked vehicle is held still
+## (frozen, see Vehicle._hold_when_parked) and its wheels only follow a body that moves:
+## let go of it first, with its settling time started over.
+func _park(v: Vehicle, xf: Transform3D) -> void:
+	v.freeze = false
+	v._settle_t = 0.0
+	v.teleport(xf)
+	await _frames(30)
+
+
+## Stands the player `back` metres behind `v`'s tailgate looking down into the bed.
+func _stand_at_tailgate(v: Vehicle, back := 0.9) -> void:
+	var player: Player = Game.player
+	var bed := v.find_child("BedPoint", true, false) as BedPoint
+	var out := v.global_basis.z * signf(bed.position.z)
+	var rear := bed.global_position + out * (bed.size.z * 0.5 + back)
+	player.global_position = Vector3(rear.x, TerrainData.height(rear.x, rear.z) + 0.2, rear.z)
+	player.velocity = Vector3.ZERO
+	_look_at(player, bed.global_position)
+	await _frames(10)
+
+
+## Takes every crate waiting at the Animal Market's pickup spot into the hands (E there,
+## MarketCrates.interact). Returns how many were taken.
+func _take_market_crates() -> int:
+	var spot := LiveCrates.market_spot()
+	if spot == null:
+		return 0
+	var taken := 0
+	for i in LiveCrates.MAX_WAITING:
+		if LiveCrates.count_at(&"market") == 0:
+			break
+		var before := LiveCrates.count_at(&"market")
+		spot.interact(Game.player)
+		await _frames(1)
+		if LiveCrates.count_at(&"market") == before:
+			break
+		taken += 1
+	return taken
+
+
+## Carries every crate waiting at the Animal Market's pickup spot to `v` one at a time:
+## E at the crates, E at the tailgate (MarketCrates.interact, BedPoint.interact). Returns
+## how many went aboard.
+func _load_market_crates(v: Vehicle) -> int:
+	var spot := LiveCrates.market_spot()
+	var bed := v.find_child("BedPoint", true, false) as BedPoint
+	if spot == null or bed == null:
+		return 0
+	var player: Player = Game.player
+	_free_hands()
+	var aboard := v.cargo.total()
+	for i in LiveCrates.MAX_WAITING:
+		if LiveCrates.count_at(&"market") == 0:
+			break
+		spot.interact(player)
+		await _frames(1)
+		bed.interact(player)
+		await _frames(1)
+	return v.cargo.total() - aboard
+
+
+## A screenshot of the waiting crates (only with -- --crate-shots=/abs/dir): the player's
+## view, or from a camera of its own at `from` looking at `to`.
+func _crate_shot(shot_name: String, from := Vector3.INF, to := Vector3.ZERO) -> void:
+	if not DebugTools.args.has("crate-shots"):
+		return
+	var cam: Camera3D = null
+	if from != Vector3.INF:
+		cam = Camera3D.new()
+		cam.fov = 70.0
+		Game.world.add_child(cam)
+		cam.global_position = from
+		cam.look_at(to, Vector3.UP)
+		cam.make_current()
+	await _idle_frames(20)
+	var dir := String(DebugTools.args["crate-shots"])
+	DirAccess.make_dir_recursive_absolute(dir)
+	tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	if cam:
+		cam.queue_free()
+		(Game.player as Player).camera.make_current()
 
 
 # --- The rooster's faint -----------------------------------------------------------------
@@ -7010,6 +7543,20 @@ func _people2() -> void:
 			_pp_measure(p, r, "work %.2f s" % (k * dt))
 			if cam and k % 23 == 0:
 				await _pp_frame(shots, "%s_work_%d" % [p.person, k / 23])
+		if p.act == Townsperson.Act.SWEEP:
+			# Stepping on from any point of a stroke and of his gait (whatever his day left
+			# them at): the right hand lets go of the handle round his hip, never through it.
+			for i in 8:
+				p._speed = 0.0
+				p._broom_hold = 0.0
+				p.rig.time = i * 0.13
+				p.rig.gait_phase = fmod(i * 0.375, 1.0)
+				for k in 30:
+					_pp_step(p, dt, eye)
+				p._speed = 0.55
+				for k in 20:
+					_pp_step(p, dt, eye)
+					_pp_measure(p, r, "stepping on, start %d, %.2f s" % [i, k * dt])
 		p._speed = speed
 		p.set_process(true)
 		p.set_physics_process(true)
@@ -7120,6 +7667,422 @@ func _pp_frame(dir: String, frame_name: String) -> void:
 	await tree.process_frame
 	await RenderingServer.frame_post_draw
 	tree.root.get_viewport().get_texture().get_image().save_png(dir.path_join(frame_name + ".png"))
+
+
+# --- Zeynep's body: petting the dog, the doorway, a gift, a walk ------------------------
+
+## Zeynep (the "zeynep" model) and what the story has her do, posed frame by frame as the
+## game does, in the garden of the last house on the left: down on one knee by a
+## (stand-in) dog stroking its back (the palm along the back from its pet_point stroke
+## after stroke, the knee and the tucked toes on the ground and the other foot flat, none
+## of it in the ground; getting down and up smoothly), standing in a doorway with a hand
+## on the open door's edge, taking a gift there in both hands and holding it against her
+## front (in her palms, not in her), talking, and walking a path that arrives and calls
+## back (getting up off her knee first). Hands and forearms stay out of her body all along.
+## With -- --people3-shots=/abs/dir it also saves frames of each.
+func _people3() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	GameClock.set_time_of_day(10.5)
+	var shots := String(DebugTools.args.get("people3-shots", ""))
+	var base := Vector3(271.0, 0.0, 9.9)
+	base.y = _people_floor(base.x, base.z, 3.0)
+	# The player out of her way, off in the street.
+	player.global_position = Vector3(262.0, _people_floor(262.0, 19.0, 3.0) + 0.05, 19.0)
+	var z := Townsperson.new()
+	z.name = "Person_zeynep_test"
+	z.person = &"zeynep"
+	z.setup(&"zeynep")
+	z.position = base
+	z.rotation.y = 0.5
+	Game.world.add_child(z)
+	await _frames(4)
+	_check(z.rig.model_name == &"zeynep" and z.rig.body.mesh.get_surface_count() >= 7 and z.rig.skeleton.get_bone_count() > 40,
+			"people3: Zeynep has her own dressed, rigged body (%d surfaces)" % z.rig.body.mesh.get_surface_count())
+	_check(absf(z.global_position.y - base.y) < 0.05, "people3: she stands on the garden's ground (%.3f)" % (z.global_position.y - base.y))
+	var cam: Camera3D = null
+	var huds: Array[Node] = []
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+		cam = Camera3D.new()
+		cam.fov = 40.0
+		Game.world.add_child(cam)
+		cam.make_current()
+		for hud in tree.get_nodes_in_group("hud"):
+			if hud.get("visible"):
+				huds.append(hud)
+				hud.visible = false
+		# Her standing, next to two of the townspeople (the old woman and the young man) to
+		# compare, all facing the sun; her face, hair and hands close up.
+		var sun_dir := Vector3(0, 0, 1)
+		for l: Node in Game.world.find_children("*", "DirectionalLight3D", true, false):
+			if (l as DirectionalLight3D).visible:
+				sun_dir = (l as DirectionalLight3D).global_basis.z
+				break
+		z.rotation.y = atan2(sun_dir.x, sun_dir.z)
+		var others: Array[Townsperson] = []
+		for o: Array in [[&"villager", Vector3(-0.55, 0, 0.05)], [&"young", Vector3(0.55, 0, 0.05)]]:
+			var t := Townsperson.new()
+			t.person = o[0]
+			t.setup(o[0])
+			t.position = base + (z.global_basis * (o[1] as Vector3))
+			t.rotation.y = z.rotation.y
+			Game.world.add_child(t)
+			others.append(t)
+		await _frames(4)
+		await _p3_view(z, cam, 0.0, 2.3, 1.1, 0.95)
+		await _pp_frame(shots, "stand_front")
+		await _p3_view(z, cam, 0.0, 1.25, 1.5, 1.42)
+		await _pp_frame(shots, "compare_faces")
+		for t: Townsperson in others:
+			t.queue_free()
+		await _p3_view(z, cam, 0.3, 0.62, 1.5, 1.48)
+		await _pp_frame(shots, "stand_face")
+		await _p3_view(z, cam, -1.3, 0.62, 1.5, 1.46)
+		await _pp_frame(shots, "stand_face_side")
+		await _p3_view(z, cam, 2.6, 0.8, 1.5, 1.35)
+		await _pp_frame(shots, "stand_hair_back")
+		await _p3_view(z, cam, -1.2, 0.55, 0.95, 0.85)
+		await _pp_frame(shots, "stand_hand")
+		z.rotation.y = 0.5
+	z.set_process(false)
+	z.set_physics_process(false)
+	var dt := 1.0 / 30.0
+	var r := {"arm": -1.0, "arm_at": "", "prop": 0.0, "prop_at": "", "floor": 0.0, "floor_at": ""}
+	# PET: the dog's pet_point 0.54 m off to her right front; she turns to have it beside
+	# her (PET_ASIDE) and goes down.
+	var dog := _p3_stand_in_dog()
+	Game.world.add_child(dog)
+	var pp := base + Vector3(sin(-0.35) * 0.54, 0.0, cos(-0.35) * 0.54)
+	var dog_dir := Vector3(base.x - pp.x, 0.0, base.z - pp.z).normalized()
+	dog.global_transform = Transform3D(Basis(Vector3.UP, atan2(dog_dir.x, dog_dir.z)), Vector3(pp.x, _people_floor(pp.x, pp.z, base.y + 1.0), pp.z))
+	dog.global_position -= dog.global_basis * Vector3(0.0, 0.0, -0.01)
+	z.pet_target = dog
+	z.act = Townsperson.Act.PET
+	var eye := base + Vector3(-2.0, 1.5, 1.8)
+	var low := {"below": 0.0, "below_at": ""}
+	for k in 75:
+		_p3_step(z, dt, eye)
+		_pp_measure(z, r, "kneeling down %.2f s" % (k * dt))
+		_p3_feet(z, low, "kneeling down %.2f s" % (k * dt))
+		if cam and k in [8, 16, 24]:
+			await _p3_view(z, cam, -1.35, 1.9, 1.1, 0.7)
+			await _pp_frame(shots, "pet_down_%d" % (k / 8))
+	var aside := wrapf(z.rotation.y - (-0.35 + Townsperson.PET_ASIDE), -PI, PI)
+	_check(z._kneel >= 1.0 and absf(aside) < 0.3, "people3: she turned to have the dog beside her and is down on her knee (%.2f, facing %.2f off)" % [z._kneel, aside])
+	var side := z._pet_side
+	var other := "_l" if side == "_r" else "_r"
+	var strokes := 0
+	var last_u := 1.0
+	var counting := false
+	var near := 9.0
+	var nears: Array[float] = []
+	var off_back := 0.0
+	var knee_y := {"min": 9.0, "max": -9.0}
+	var ball_y := {"min": 9.0, "max": -9.0}
+	var foot_y := {"min": 9.0, "max": -9.0}
+	var shot_k := 0
+	for k in int(Townsperson.STROKE_TIME * 4.2 / dt):
+		_p3_step(z, dt, eye)
+		_pp_measure(z, r, "petting %.2f s" % (k * dt))
+		var sk := z.rig.skeleton
+		sk.force_update_all_bone_transforms()
+		var palm := z.to_global(z.rig.drawn_palm(side))
+		var pet: Vector3 = dog.call(&"pet_point")
+		var u := fposmod(z.rig.time / Townsperson.STROKE_TIME + z.rig.seed_phase, 1.0)
+		if u < last_u:
+			# (whole strokes only: the first one may have begun before she was down)
+			if counting:
+				nears.append(near)
+				strokes += 1
+			counting = true
+			near = 9.0
+		last_u = u
+		near = minf(near, palm.distance_to(pet))
+		if u > 0.05 and u < 0.55:
+			# On the back: along the stroke's line from the pet point, away from her.
+			var d := Vector3(pet.x - z.global_position.x, 0.0, pet.z - z.global_position.z).normalized()
+			var along := d * cos(Townsperson.STROKE_SLOPE) + Vector3.DOWN * sin(Townsperson.STROKE_SLOPE)
+			var rel := palm - pet
+			var s := clampf(rel.dot(along), -0.03, Townsperson.STROKE_LEN)
+			off_back = maxf(off_back, (rel - along * s).length())
+		for pr: Array in [["calf" + side, knee_y], ["ball" + side, ball_y], ["foot" + other, foot_y]]:
+			var wp := z.to_global(z.rig.drawn_bone(StringName(pr[0])))
+			var h := wp.y - _people_floor(wp.x, wp.z, wp.y + 0.5)
+			pr[1]["min"] = minf(pr[1]["min"], h)
+			pr[1]["max"] = maxf(pr[1]["max"], h)
+		if cam and k % 23 == 0 and shot_k < 6:
+			var views := [[-1.45, 1.4, 0.9, 0.55], [-0.6, 1.6, 1.2, 0.5], [1.4, 1.5, 0.9, 0.5]]
+			var v: Array = views[shot_k % 3]
+			await _p3_view(z, cam, v[0], v[1], v[2], v[3])
+			await _pp_frame(shots, "pet_%d" % shot_k)
+			shot_k += 1
+	print("PEOPLE3 pet strokes %d nearest %s off-back %.3f knee %s ball %s foot %s (ankle_y %.3f)" % [strokes, nears, off_back, knee_y, ball_y, foot_y, z.rig.ankle_y])
+	_check(strokes >= 3 and nears.all(func(n: float) -> bool: return n < 0.03), "people3: every stroke starts at the dog's pet_point (%s m)" % [nears.map(func(n: float) -> String: return "%.3f" % n)])
+	_check(off_back < 0.03, "people3: the palm stays on the dog's back along the stroke (%.3f m off at most)" % off_back)
+	_check(knee_y["min"] > 0.03 and knee_y["max"] < 0.11, "people3: the knee is down on the ground, not in it (joint %.3f..%.3f m up)" % [knee_y["min"], knee_y["max"]])
+	_check(ball_y["min"] > -0.005 and ball_y["max"] < 0.06, "people3: the tucked toes are on the ground (%.3f..%.3f m)" % [ball_y["min"], ball_y["max"]])
+	_check(absf(foot_y["min"] - z.rig.ankle_y) < 0.03 and absf(foot_y["max"] - z.rig.ankle_y) < 0.03, "people3: the other foot stands flat (ankle %.3f..%.3f m)" % [foot_y["min"], foot_y["max"]])
+	# Up again.
+	z.act = Townsperson.Act.STAND
+	for k in 30:
+		_p3_step(z, dt, eye)
+		_pp_measure(z, r, "getting up %.2f s" % (k * dt))
+		_p3_feet(z, low, "getting up %.2f s" % (k * dt))
+		if cam and k == 12:
+			await _p3_view(z, cam, -1.35, 1.9, 1.1, 0.7)
+			await _pp_frame(shots, "pet_up")
+	_check(z._kneel <= 0.0, "people3: she gets up again in %.1f s" % Townsperson.KNEEL_TIME)
+	_check(float(low["below"]) < 0.01, "people3: nothing of her legs goes into the ground getting down or up (%.3f m, %s)" % [low["below"], low["below_at"]])
+	_check(r["arm"] < 0.01, "people3: petting, her hands and forearms stay out of her body (deepest %.3f m, %s)" % [r["arm"], r["arm_at"]])
+	var dog_xf := dog.global_transform
+	dog.queue_free()
+	# DOORWAY: in a (stand-in) doorway, her right hand on the open door's edge.
+	r["arm"] = -1.0
+	z.rotation.y = 0.0
+	z._yaw = 0.0
+	var door := _p3_stand_in_door(z)
+	var edge := z.to_global(Vector3(-0.33, 1.0, -0.1))
+	z.door_hand = edge
+	z.act = Townsperson.Act.DOORWAY
+	var grip_off := 0.0
+	for k in 60:
+		_p3_step(z, dt, eye)
+		_pp_measure(z, r, "doorway %.2f s" % (k * dt))
+		if k >= 20:
+			z.rig.skeleton.force_update_all_bone_transforms()
+			# (by her hip the palm rests on it, higher up the fist holds it)
+			grip_off = maxf(grip_off, minf(z.to_global(z.rig.drawn_grip("_r")).distance_to(edge), z.to_global(z.rig.drawn_palm("_r")).distance_to(edge)))
+	_check(grip_off < 0.03, "people3: in the doorway her hand rests on the door's edge (%.3f m off)" % grip_off)
+	if cam:
+		await _p3_view(z, cam, 0.45, 1.9, 1.35, 1.0)
+		await _pp_frame(shots, "doorway_front")
+		await _p3_view(z, cam, -1.2, 1.8, 1.3, 1.0)
+		await _pp_frame(shots, "doorway_side")
+	# receive(): the dog food held out to her (as the player would), taken in both hands.
+	var gift := _p3_gift()
+	Game.world.add_child(gift)
+	gift.global_transform = Transform3D(Basis(Vector3.UP, 0.25) * Basis(Vector3.RIGHT, -0.1), z.to_global(Vector3(-0.05, 1.12, 0.62)))
+	z.receive(gift)
+	var hold := {"off": 0.0, "at": "", "deep": -1.0}
+	var took := false
+	for k in 150:
+		var t := k * dt
+		_p3_step(z, dt, eye)
+		_pp_measure(z, r, "receiving %.2f s" % t)
+		if z._held_in_hand and not took:
+			took = true
+			_check(gift.get_parent() == z.rig, "people3: at %.2f s the gift is in her hands (a child of her body)" % t)
+		if t > Townsperson.TAKE_TIME + Townsperson.BRING_TIME + 0.1:
+			_p3_hold(z, gift, hold, "holding %.2f s" % t)
+		if k == 75:
+			z.talk(2.0)
+		if cam and k in [12, 20, 30, 45, 110]:
+			await _p3_view(z, cam, 0.45, 1.9, 1.35, 1.05)
+			await _pp_frame(shots, "receive_%d" % k)
+	_check(took, "people3: she takes the gift")
+	_check(hold["off"] < 0.025, "people3: the gift stays in her palms (off by %.3f m at most, %s)" % [hold["off"], hold["at"]])
+	_check(hold["deep"] < 0.004, "people3: the gift doesn't go into her (%.3f m)" % hold["deep"])
+	if cam:
+		await _p3_view(z, cam, 1.15, 1.6, 1.35, 1.05)
+		await _pp_frame(shots, "receive_side")
+	z.drop_held()
+	for k in 20:
+		_p3_step(z, dt, eye)
+		_pp_measure(z, r, "letting go %.2f s" % (k * dt))
+	_check(not is_instance_valid(gift) or gift.is_queued_for_deletion(), "people3: drop_held() lets the gift go")
+	_check(r["arm"] < 0.01, "people3: in the doorway and holding the gift her hands and forearms stay out of her body (deepest %.3f m, %s)" % [r["arm"], r["arm_at"]])
+	door.queue_free()
+	# talk(): hands with the words, nods, looking at the player.
+	r["arm"] = -1.0
+	z.door_hand = Vector3.INF
+	z.act = Townsperson.Act.STAND
+	for k in 30:
+		_p3_step(z, dt, eye)
+	z.rig.skeleton.force_update_all_bone_transforms()
+	var rest_hand := z.rig.drawn_palm("_r")
+	z.talk(3.0)
+	var moved := 0.0
+	var turned := 0.0
+	for k in 100:
+		_p3_step(z, dt, eye)
+		_pp_measure(z, r, "talking %.2f s" % (k * dt))
+		z.rig.skeleton.force_update_all_bone_transforms()
+		moved = maxf(moved, z.rig.drawn_palm("_r").distance_to(rest_hand))
+		turned = maxf(turned, absf(z.rig._look.x))
+		if cam and k in [30, 60]:
+			await _p3_view(z, cam, -0.6, 2.2, 1.45, 1.1)
+			await _pp_frame(shots, "talk_%d" % k)
+	_check(moved > 0.08 and not z.is_talking(), "people3: talking, her hand moves with the words (%.2f m) and stops after the line" % moved)
+	_check(turned > 0.3, "people3: talking, she turns her head to the player (%.2f rad)" % turned)
+	_check(r["arm"] < 0.01, "people3: talking, her hands and forearms stay out of her body (deepest %.3f m, %s)" % [r["arm"], r["arm_at"]])
+	# walk_to(): down on her knee first, then off to the door step, calling back there.
+	var dog2 := _p3_stand_in_dog()
+	Game.world.add_child(dog2)
+	dog2.global_transform = dog_xf
+	z.pet_target = dog2
+	z.act = Townsperson.Act.PET
+	for k in 60:
+		_p3_step(z, dt, eye)
+	z.set_process(true)
+	z.set_physics_process(true)
+	var path: Array[Vector3] = [Vector3(272.6, 0.0, 9.6), Vector3(273.5, 0.0, 9.05)]
+	var arrived := [false]
+	var start := z.global_position
+	z.walk_to(path, func() -> void: arrived[0] = true)
+	await _seconds(0.5)
+	_check(z.global_position.distance_to(start) < 0.03 and z._kneel > 0.0, "people3: she gets up before she walks off (%.2f m, knee %.2f)" % [z.global_position.distance_to(start), z._kneel])
+	var t0 := Time.get_ticks_msec()
+	var shot_w := 0
+	var ground_off := 0.0
+	while not arrived[0] and Time.get_ticks_msec() - t0 < 12000:
+		await _frames(1)
+		var gp := z.global_position
+		ground_off = maxf(ground_off, absf(gp.y - _people_floor(gp.x, gp.z, gp.y + 0.5)))
+		if cam and z._speed > 0.5 and shot_w < 3 and (Time.get_ticks_msec() - t0) > 700 + shot_w * 350:
+			var fwd := z.global_basis.z
+			var sd := fwd.cross(Vector3.UP).normalized()
+			cam.global_position = z.global_position + sd * 2.6 + fwd * 0.5 + Vector3(0, 1.2, 0)
+			cam.look_at(z.global_position + Vector3(0, 0.9, 0), Vector3.UP)
+			await _pp_frame(shots, "walk_%d" % shot_w)
+			shot_w += 1
+	var end := z.global_position
+	_check(arrived[0] and Vector2(end.x - 273.5, end.z - 9.05).length() < 0.1 and z.act == Townsperson.Act.STAND,
+			"people3: walk_to() arrives at the door step and calls back (%.2f m off, %.1f s)" % [Vector2(end.x - 273.5, end.z - 9.05).length(), (Time.get_ticks_msec() - t0) / 1000.0])
+	_check(ground_off < 0.12, "people3: walking, her feet keep to the ground (%.3f m)" % ground_off)
+	dog2.queue_free()
+	z.queue_free()
+	if cam:
+		for hud in huds:
+			hud.visible = true
+		cam.queue_free()
+		player.camera.make_current()
+	await _frames(2)
+
+
+## One frame of her as the game poses it (the story's timers too), seen from `eye`.
+func _p3_step(p: Townsperson, dt: float, eye: Vector3) -> void:
+	p._clock += dt
+	p._greet_t += dt
+	p._update_story(dt)
+	p._animate(dt, eye)
+
+
+## How far below the ground her knees, ankles and toes went at worst (in `low`).
+func _p3_feet(p: Townsperson, low: Dictionary, at: String) -> void:
+	p.rig.skeleton.force_update_all_bone_transforms()
+	for b: String in ["calf_l", "calf_r", "foot_l", "foot_r", "ball_l", "ball_r"]:
+		var wp := p.to_global(p.rig.drawn_bone(StringName(b)))
+		var below := (0.03 if b.begins_with("calf") else 0.0) - (wp.y - _people_floor(wp.x, wp.z, wp.y + 0.5))
+		if below > float(low["below"]):
+			low["below"] = below
+			low["below_at"] = "%s, %s" % [b, at]
+
+
+## How far the gift is from her palms (outside its box) and into her torso at worst.
+func _p3_hold(p: Townsperson, gift: Node3D, hold: Dictionary, at: String) -> void:
+	var rig := p.rig
+	rig.skeleton.force_update_all_bone_transforms()
+	var box := Townsperson._box_of(gift)
+	var inv := gift.transform.affine_inverse()
+	for side: String in ["_l", "_r"]:
+		var lp := inv * rig.drawn_palm(side)
+		var off := lp.distance_to(lp.clamp(box.position, box.end))
+		if off > float(hold["off"]):
+			hold["off"] = off
+			hold["at"] = "%s palm, %s" % [side, at]
+	for k in 27:
+		# A 3 x 3 x 3 grid through the box.
+		var q := Vector3(k % 3, (k / 3) % 3, k / 9) * 0.5
+		var d := rig.torso_depth(gift.transform * (box.position + box.size * q), 0.0)
+		if d > float(hold["deep"]):
+			hold["deep"] = d
+
+
+## The shots' camera: round her by `yaw` (0: in front), `dist` off, `height` up, looking
+## at her `look_y` up; a few frames for the temporal anti-aliasing to settle (the soft
+## shadows' noise).
+func _p3_view(p: Townsperson, cam: Camera3D, yaw: float, dist: float, height: float, look_y: float) -> void:
+	var dir := p.global_basis * Vector3(sin(yaw), 0.0, cos(yaw))
+	cam.global_position = p.global_position + dir * dist + Vector3(0, height, 0)
+	cam.look_at(p.global_position + Vector3(0, look_y, 0), Vector3.UP)
+	await _idle_frames(16)
+
+
+## A stand-in for the story's dog (Dog, scripts/npc/dog.gd) as the petted one is: sitting,
+## facing +Z with its head up, a pet_point() on its back behind the neck, breathing a little.
+func _p3_stand_in_dog() -> Node3D:
+	var gd := GDScript.new()
+	gd.source_code = "extends Node3D\nvar t := 0.0\n\nfunc _process(d: float) -> void:\n\tt += d\n\nfunc pet_point() -> Vector3:\n\treturn to_global(Vector3(0.0, 0.565 + sin(t * 1.7) * 0.005, -0.01))\n"
+	gd.reload()
+	var dog := Node3D.new()
+	dog.name = "StandInDog"
+	dog.set_script(gd)
+	var fur := StandardMaterial3D.new()
+	fur.albedo_color = Color(0.72, 0.5, 0.28)
+	fur.roughness = 0.9
+	# [mesh, position, rotation, radius, height]: the haunches, the body sloping up to the
+	# chest, the head and muzzle, the front legs.
+	var parts := [[SphereMesh.new(), Vector3(0, 0.15, -0.22), Vector3.ZERO, 0.15, 0.3],
+		[CapsuleMesh.new(), Vector3(0, 0.33, -0.09), Vector3(0.72, 0, 0), 0.12, 0.56],
+		[SphereMesh.new(), Vector3(0, 0.62, 0.11), Vector3.ZERO, 0.085, 0.17],
+		[CapsuleMesh.new(), Vector3(0, 0.59, 0.2), Vector3(PI * 0.5 + 0.2, 0, 0), 0.045, 0.16]]
+	for lx: float in [-0.07, 0.07]:
+		parts.append([CylinderMesh.new(), Vector3(lx, 0.17, 0.06), Vector3.ZERO, 0.028, 0.34])
+	for pt: Array in parts:
+		var mi := MeshInstance3D.new()
+		var m: PrimitiveMesh = pt[0]
+		if m is CapsuleMesh:
+			(m as CapsuleMesh).radius = pt[3]
+			(m as CapsuleMesh).height = pt[4]
+		elif m is SphereMesh:
+			(m as SphereMesh).radius = pt[3]
+			(m as SphereMesh).height = pt[4]
+		else:
+			(m as CylinderMesh).top_radius = pt[3]
+			(m as CylinderMesh).bottom_radius = pt[3]
+			(m as CylinderMesh).height = pt[4]
+		m.material = fur
+		mi.mesh = m
+		mi.position = pt[1]
+		mi.rotation = pt[2]
+		dog.add_child(mi)
+	return dog
+
+
+## A stand-in for the open door's edge by her right hand (the story's door is its own).
+func _p3_stand_in_door(p: Townsperson) -> Node3D:
+	var mi := MeshInstance3D.new()
+	mi.name = "StandInDoorEdge"
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.045, 2.0, 0.4)
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.36, 0.24, 0.16)
+	bm.material = wood
+	mi.mesh = bm
+	Game.world.add_child(mi)
+	# (the leaf going back from its edge at the hand, opened well in)
+	mi.global_transform = p.global_transform * Transform3D(Basis(Vector3.UP, -0.35), Vector3(-0.355, 1.0, -0.1) + Basis(Vector3.UP, -0.35) * Vector3(0.0, 0.0, -0.2))
+	return mi
+
+
+## A stand-in for the story's gift: a bag of dog food.
+func _p3_gift() -> Node3D:
+	var n := Node3D.new()
+	n.name = "StandInGift"
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.26, 0.36, 0.1)
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.75, 0.2, 0.12)
+	bm.material = m
+	mi.mesh = bm
+	mi.position = Vector3(0.0, 0.02, 0.0)
+	n.add_child(mi)
+	return n
 
 
 # --- The used-car dealership ------------------------------------------------------------
@@ -8732,3 +9695,1435 @@ func _open_pen_spot(h: AnimalHousing) -> Vector3:
 		if h.pen.grow(-3.0).has_point(f) and not (h.level >= 2 and h.building.grow(3.0).has_point(f)):
 			return p
 	return first
+
+
+# --- Zeynep, the new neighbour (SideStory, ZeynepHome, Relations) ---------------------------
+
+## The side story beside the main chain: nothing before day 6; on day 6 at 07:00 the goal,
+## the banner and the dot on Zeynep in her front garden petting Karamel; meeting her with E
+## (the dialogue's lines, she gets up and walks in through her door: one heart); day 7's
+## welcome gift (dog food bought at the market, three knocks, the door opens, she takes
+## the bag in the doorway and shuts the door: two hearts, the bag gone, Karamel's bowl
+## filled and eaten from); later errands (at the door, and to her in the garden) raising
+## the friendship; a chat, then a knock too soon; no answer at night; a save and load in
+## the middle keeping the hearts, the errand and the meeting; the main chain's goal
+## untouched throughout. -- --zeynep-shots=/abs/dir also saves the dot from the street,
+## the garden, the dialogue and the open door with the hallway.
+func _scenario_zeynep() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_money := Economy.money
+	var kept_step := Quests.step
+	var kept_count := Quests.step_count
+	var kept_pos := player.global_position
+	var kept_side := SideStory.save_data()
+	var kept_rel := Relations.save_data()
+	var kept_food := PlayerState.inventory.count_item(SideStory.ITEM)
+	PlayerState.inventory.remove_item(SideStory.ITEM, kept_food)
+	# The main chain stands on a goal of its own the whole time (it must not move).
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests.tutorial_changed.emit()
+	var main_goal := String(Quests.current()["id"])
+	SideStory.testing = true
+	SideStory.load_data({})
+	Relations.load_data({})
+	Economy.money = maxi(Economy.money, 200)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var home := _zy_home()
+	_check(home != null and home.door != null, "Town's first house has Zeynep's home with a working door")
+	var shots := String(DebugTools.args.get("zeynep-shots", ""))
+
+	# --- Before day 6: an empty house for sale ---
+	player.global_position = Vector3(262.0, TerrainData.height(262.0, 19.0) + 0.1, 19.0)
+	GameClock.day = 5
+	GameClock.set_time_of_day(10.0)
+	await _seconds(1.2)
+	var sign := home.get_node_or_null("ForSale") as Node3D
+	_check(SideStory.goal() == "" and home.zeynep == null and home.dog == null and sign != null and sign.visible,
+			"day 5: no side goal, nobody at the house, a 'for sale' sign in the garden")
+	GameClock.day = 6
+	GameClock.set_time_of_day(6.5)
+	await _seconds(1.0)
+	_check(SideStory.goal() == "" and home.zeynep == null, "day 6 before 07:00: still nobody")
+
+	# --- Day 6, 07:00: she has moved in ---
+	GameClock.set_time_of_day(7.02)
+	await _seconds(2.5)
+	_check(SideStory.goal() == "meet" and SideStory.goal_text() == tr("SIDE_GOAL_MEET"), "day 6 at 07:00 the side goal is to meet Zeynep")
+	_check(Game.hud.find_children("*", "NewsBanner", true, false).size() == 1 and SideStory.announced,
+			"a banner says someone new has moved to town")
+	var z := home.zeynep
+	var pet_act: int = Townsperson.Act.get("PET", Townsperson.Act.STAND)
+	_check(z != null and not z.is_indoors() and z.act == pet_act and home.garden.grow(0.1).has_point(Vector2(z.global_position.x, z.global_position.z)),
+			"Zeynep is out in her front garden, crouched by Karamel (act %d)" % (z.act if z else -1))
+	var dog := home.dog
+	_check(dog != null and dog.is_in_group(&"dogs") and dog.global_position.distance_to(z.global_position) < 1.5,
+			"Karamel is beside her")
+	await _seconds(2.5)
+	var clear := await _zy_muzzle_gap(home, 2.0)
+	_check(clear[0] > 0.02 and clear[1] < 0.0, "petting him, Karamel's muzzle keeps clear of her arms, hands, knees (%.3f m) and body (%.3f m)" % [clear[0], -clear[1]])
+	var boxes := 0
+	for b: Node3D in home._boxes:
+		if b.visible:
+			boxes += 1
+	_check(not sign.visible and boxes == 5 and home.get_node("Garden/Doghouse") != null, "the sign is gone; the doghouse and five moving boxes stand in the garden")
+	_check(SideStory.guide_point() == home.zeynep_marker() and SideStory.guide_label() == tr("PERSON_ZEYNEP"),
+			"the side dot points at her, its pill names her")
+	await _idle_frames(3)
+	var sw: WaypointMarker = Game.hud.side_waypoint
+	_check(sw._has_target and sw.world_point.distance_to(z.global_position) < 2.5 and Game.hud.waypoint._has_target,
+			"both dots show: the side dot over Zeynep, the story's own dot still up")
+	_check(Game.hud._side_card.visible and Game.hud._side_text.text == tr("SIDE_GOAL_MEET"), "the side goal's card is on the HUD")
+	_check(String(Quests.current()["id"]) == main_goal, "the main chain's goal is the same (%s)" % main_goal)
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+		player.global_position = Vector3(247.0, TerrainData.height(247.0, 19.5) + 0.1, 19.5)
+		_look_at(player, Vector3(271.0, 1.2, 10.0))
+		await _zy_shot(shots, "dot_from_street")
+		player.global_position = Vector3(272.3, TerrainData.height(272.3, 12.9) + 0.1, 12.9)
+		_look_at(player, Vector3(269.4, 0.5, 9.4))
+		Game.hud.visible = false
+		await _zy_shot(shots, "garden")
+		Game.hud.visible = true
+		# On the pavement in front of her house.
+		player.global_position = Vector3(270.6, TerrainData.height(270.6, 17.6) + 0.1, 17.6)
+		_look_at(player, Vector3(272.5, 1.4, 10.0))
+		await _zy_shot(shots, "a_street_dot")
+		await _zy_pet_shots(shots, home)
+	# Evening: indoors (the hint says so); at night the hint says she sleeps.
+	GameClock.set_time_of_day(20.5)
+	var went_in := await _zy_wait(func() -> bool: return home.where == &"inside" and not home.busy(), 25.0)
+	await _seconds(0.6)
+	_check(went_in and z.is_indoors() and not home.door.is_open() and SideStory.goal_hint() == tr("SIDE_HINT_MEET_EVENING")
+			and SideStory.guide_point() is Vector3, "after 20:00 she goes indoors, the dot goes to her door")
+	GameClock.set_time_of_day(9.0)
+	var came_out := await _zy_wait(func() -> bool: return home.where == &"garden" and not home.busy(), 25.0)
+	_check(came_out and not z.is_indoors() and z.act == pet_act, "in the morning she comes out to Karamel again")
+	await _seconds(2.5)
+	clear = await _zy_muzzle_gap(home, 2.0)
+	_check(clear[0] > 0.02 and clear[1] < 0.0, "down by him again, his muzzle keeps clear of her (%.3f m, body %.3f m)" % [clear[0], -clear[1]])
+
+	# --- Meeting her with E ---
+	var zp := z.global_position
+	player.global_position = Vector3(zp.x + 0.9, TerrainData.height(zp.x + 0.9, zp.z + 1.3) + 0.1, zp.z + 1.3)
+	player.velocity = Vector3.ZERO
+	_look_at(player, zp + Vector3(0, 0.8, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_MEET_ZEYNEP")), "looking at her: '%s'" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _idle_frames(2)
+	var dlg: DialogueScreen = Game.hud.dialogue_screen
+	_check(dlg.is_open() and Game.is_ui_open() and not Game.is_paused() and dlg.current_speaker() == &"player"
+			and dlg.current_text() == tr("ZEYNEP_MEET_PLAYER"), "E opens the conversation with the player's welcome")
+	if shots != "":
+		await _seconds(1.5)
+		await _zy_shot(shots, "dialogue")
+	var heard: Array = []
+	if shots != "":
+		# Up and talking to him, introducing Karamel.
+		heard = await _zy_talk_until(dlg, 6, func() -> bool: return dlg.current_text() == tr("ZEYNEP_MEET_2"))
+		await _seconds(1.6)
+		await _zy_shot(shots, "c_dialogue_zeynep")
+	heard = _zy_join(heard, await _zy_talk_through(dlg, 12))
+	_check(heard.size() == 4 and heard[1][0] == SideStory.WHO and heard[1][1] == tr("ZEYNEP_MEET_1") and heard[2][1] == tr("ZEYNEP_MEET_2"),
+			"she thanks him, introduces herself and Karamel (%d lines)" % heard.size())
+	_check(z.act == Townsperson.Act.STAND or z.act != pet_act, "she stood up to talk")
+	_check(SideStory.met and Relations.level(SideStory.WHO) == 1 and SideStory.goal() == "" and notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_MEET")),
+			"met: the first heart (%d), the goal is done" % Relations.level(SideStory.WHO))
+	var door_opened := false
+	var doorway_shot := shots == ""
+	if not doorway_shot:
+		# Off to the side of the path, to see her go in.
+		var dc0 := home.door_center()
+		player.global_position = Vector3(dc0.x + 1.7, TerrainData.height(dc0.x + 1.7, dc0.z + 3.1) + 0.1, dc0.z + 3.1)
+		_look_at(player, Vector3(dc0.x, dc0.y + 1.1, dc0.z - 0.3))
+	for i in 1200:
+		await tree.process_frame
+		door_opened = door_opened or home.door.is_open()
+		if not doorway_shot and z.visible and z.global_position.z < home.door_center().z + 0.05:
+			doorway_shot = true
+			Game.hud.visible = false
+			await _zy_snap(shots, "d_through_doorway")
+			Game.hud.visible = true
+		if home.where == &"inside" and not home.busy():
+			break
+	await _seconds(0.8)
+	_check(door_opened and not home.door.is_open() and z.is_indoors() and home.where == &"inside",
+			"she walked to her door, it opened, she went in and it shut behind her")
+	_check(String(Quests.current()["id"]) == main_goal, "the main chain's goal is still the same")
+
+	# --- Day 7: the welcome gift (a garden morning, but she stays in until she has it) ---
+	GameClock.day = 7
+	GameClock.set_time_of_day(9.0)
+	await _seconds(1.2)
+	_check(SideStory.garden_day(7) and not SideStory.outside_now() and home.where == &"inside" and z.is_indoors(),
+			"day 7 at 09:00 (a garden day): until the welcome gift she stays indoors (%s)" % home.where)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var at_market: Variant = SideStory.guide_point()
+	_check(SideStory.goal() == "gift_buy" and at_market is Vector3 and (at_market as Vector3).distance_to(town.market_counter.global_position) < 3.0
+			and SideStory.guide_label() == ItemDB.get_item(SideStory.ITEM).display_name() and SideStory.goal_hint() == tr("HINT_MARKET"),
+			"day 7: buy dog food for Karamel's welcome gift, the dot at the market says why")
+	_check(SideStory.ITEM in ShopStock.town_market()["stock"] and Economy.buy_price(SideStory.ITEM) == 12, "the town market sells dog food for $12")
+	Game.hud.open_shop(ShopStock.town_market())
+	await _frames(3)
+	var shop: ShopScreen = Game.hud.shop_screen
+	shop._set_tab("buy")
+	var money := Economy.money
+	shop._sel = {"id": SideStory.ITEM, "quality": 0}
+	shop._qty = 1
+	shop._confirm()
+	shop.close_screen()
+	await _frames(3)
+	_check(PlayerState.inventory.count_item(SideStory.ITEM) == 1 and Economy.money == money - 12, "bought a bag of dog food")
+	await _seconds(0.8)
+	_check(SideStory.goal() == "gift_bring" and SideStory.guide_point() is Vector3
+			and (SideStory.guide_point() as Vector3).distance_to(home.door_center()) < 2.0, "now: knock on her door (the dot is on it)")
+	await _zy_knock(player, home)
+	_check(_last_prompt.contains(tr("ACTION_KNOCK")), "the door says knock ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _seconds(0.8)
+	_check(not home.door.is_open() and not dlg.is_open(), "a moment passes after the knock")
+	var said_garden := [0]
+	if shots != "":
+		# The side card and its dot as she comes to open.
+		await _zy_wait_hint(func() -> bool: return home.door.is_open(), 3.0, home, said_garden)
+		await _zy_shot(shots, "door_opening_hint")
+	var opened := await _zy_wait_hint(func() -> bool: return dlg.is_open(), 10.0, home, said_garden)
+	_check(said_garden[0] == 0 and SideStory.goal() == "gift_bring" and SideStory.goal_hint() == "" and SideStory.guide_point() is Vector3,
+			"while she comes to open the door the side goal stays on her door, never 'she is in the garden' (%d frames said so)" % said_garden[0])
+	var doorway_act: int = Townsperson.Act.get("DOORWAY", Townsperson.Act.STAND)
+	_check(opened and home.door.is_open() and not z.is_indoors() and z.act == doorway_act and home.where == &"door",
+			"the door opens and Zeynep stands in the doorway")
+	await _seconds(0.8)
+	var pose := _zy_doorway_pose(home)
+	_check(pose[0] > 0.18 and pose[0] < 0.42 and pose[1] < 0.08 and pose[2] > 0.7 and pose[2] < 1.05 and pose[3] > 0.14 and pose[4] < 0.12,
+			"in the door frame (%.2f m in) facing him, her hand resting on the open door (%.3f m off it) at her hip (%.2f m up), the arm hanging (elbow %.2f m under the shoulder, %.2f m out)"
+			% [pose[0], pose[1], pose[2], pose[3], pose[4]])
+	_check(home._fill.visible and home._light.visible, "the hall lamp and the doorway's fill are on while the door is open")
+	if shots != "":
+		await _seconds(0.4)
+		await _zy_shot(shots, "door_dialogue")
+		Game.hud.visible = false
+		await _zy_shot(shots, "door_hallway")
+		Game.hud.visible = true
+		await _zy_door_shots(shots, home, "door_day")
+		# On to the bag changing hands (she comes out on to the step for it), and her
+		# holding it.
+		heard = await _zy_talk_until(dlg, 6, func() -> bool: return dlg.current_text() == tr("ZEYNEP_GIFT_PLAYER"))
+		await _zy_wait(func() -> bool: return z.held() != null and z.held().get_parent() == z.rig, 8.0)
+		await _seconds(Townsperson.BRING_TIME)
+		await _zy_shot(shots, "e_doorway_bag_dialogue")
+		Game.hud.visible = false
+		await _zy_shot(shots, "e_doorway_bag")
+		Game.hud.visible = true
+		heard = _zy_join(heard, await _zy_talk_through(dlg, 12))
+	else:
+		heard = await _zy_talk_through(dlg, 12)
+	# She comes out on to the step for the bag and takes it (the heart comes with it).
+	await _zy_wait(func() -> bool: return SideStory.deliveries == 1, 8.0)
+	var gift_line := false
+	for l: Array in heard:
+		gift_line = gift_line or l[1] == tr("ZEYNEP_GIFT_PLAYER")
+	_check(gift_line and PlayerState.inventory.count_item(SideStory.ITEM) == 0, "the player gives the dog food as Karamel's welcome gift (the bag is gone)")
+	_check(Relations.level(SideStory.WHO) == 2 and SideStory.deliveries == 1 and SideStory.errand.is_empty(),
+			"she thanks him: two hearts (%d)" % Relations.level(SideStory.WHO))
+	_check(SideStory.next_errand_day >= 9 and SideStory.next_errand_day <= 11, "the next errand comes 2-4 days on (day %d)" % SideStory.next_errand_day)
+	var shut := await _zy_wait(func() -> bool: return not home.busy(), 8.0)
+	_check(shut and not home.door.is_open() and z.is_indoors(), "she steps back and shuts the door")
+	_check(SideStory.gift_day == 7 and not SideStory.outside_now(), "the rest of the gift's day she stays in (her garden days start after it)")
+	await _seconds(0.3)
+	_check(home.bowl_full() and dog.mode == &"eat", "Karamel's bowl is filled and he eats")
+	if shots != "":
+		await _zy_eat_shot(shots, home)
+
+	# --- A chat at the door, then a knock too soon ---
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	opened = await _zy_wait(func() -> bool: return dlg.is_open(), 10.0)
+	heard = await _zy_talk_through(dlg, 6)
+	_check(opened and heard.size() == 2 and heard[0][0] == SideStory.WHO, "knocking with nothing to bring: a friendly word at the door")
+	# Stepping into the doorway as she goes: the door waits rather than shut on him (she
+	# waits in the hall), then shuts once he is out, and only then is she out of sight.
+	var dc := home.door_center()
+	player.global_position = Vector3(dc.x, home.floor_y + 0.1, dc.z - 0.1)
+	player.velocity = Vector3.ZERO
+	await _seconds(3.0)
+	var waited := home.door.is_open() and not z.is_indoors() and z.global_position.z < dc.z - 1.0
+	var trapped := player.global_position.z < dc.z - 0.95
+	player.global_position = Vector3(dc.x, TerrainData.height(dc.x, dc.z + 2.0) + 0.1, dc.z + 2.0)
+	await _zy_wait(func() -> bool: return not home.door.is_open() and not home.door.is_moving(), 4.0)
+	await _seconds(0.3)
+	_check(waited and not trapped and not home.door.is_open() and z.is_indoors(),
+			"the door waits for the player to step out of the doorway (she waits in the hall), then shuts (he never got past it)")
+	await _zy_wait(func() -> bool: return not home.busy(), 8.0)
+	notes.clear()
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	await _seconds(2.4)
+	_check(notes.has(tr("MSG_ZEYNEP_BUSY")) and not dlg.is_open() and not home.door.is_open(), "knocking again within the hour: she is busy")
+
+	# --- An evening knock: the porch light is on, her windows glow ---
+	GameClock.set_time_of_day(21.25)
+	# (The clock was set, not run, past the hour since the last knock.)
+	SideStory._last_knock = -INF
+	await _seconds(1.0)
+	var glow := home._window_glow
+	_check(home._porch.visible and glow[0].visible and glow[1].visible and not home.door.is_open(),
+			"at 21:15 (night %.2f) her porch light is on and her windows glow" % DayNightCycle.night_factor)
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	opened = await _zy_wait(func() -> bool: return dlg.is_open(), 10.0)
+	await _seconds(0.8)
+	pose = _zy_doorway_pose(home)
+	_check(opened and home.where == &"door" and home._porch.visible and pose[0] > 0.18 and pose[0] < 0.42 and pose[1] < 0.08,
+			"an evening knock: she opens in the doorway under the porch light (%.2f m in, hand %.3f m off the door)" % [pose[0], pose[1]])
+	if shots != "":
+		await _zy_door_shots(shots, home, "g_door_night")
+	heard = await _zy_talk_through(dlg, 6)
+	await _zy_wait(func() -> bool: return not home.busy(), 12.0)
+	if shots != "":
+		var dcn := home.door_center()
+		player.global_position = Vector3(dcn.x - 1.5, TerrainData.height(dcn.x - 1.5, dcn.z + 8.5) + 0.1, dcn.z + 8.5)
+		_look_at(player, Vector3(dcn.x, dcn.y + 1.4, dcn.z))
+		Game.hud.visible = false
+		await _zy_shot(shots, "g_house_night")
+		Game.hud.visible = true
+
+	# --- At night nobody answers ---
+	GameClock.set_time_of_day(23.0)
+	await _seconds(0.8)
+	_check(not home._porch.visible and not glow[0].visible, "at 23:00 she is asleep: the porch light and her windows are dark")
+	notes.clear()
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	await _seconds(2.6)
+	_check(notes.has(tr("MSG_ZEYNEP_ASLEEP")) and not home.door.is_open() and not dlg.is_open(), "at 23:00 nobody answers the door")
+
+	# --- The next errand: Karamel's food ran out (delivered at the door) ---
+	GameClock.day = SideStory.next_errand_day
+	GameClock.set_time_of_day(7.3)
+	await _seconds(1.2)
+	var variants := [tr("SIDE_GOAL_FOOD_1"), tr("SIDE_GOAL_FOOD_2"), tr("SIDE_GOAL_FOOD_3")]
+	_check(SideStory.goal() == "food_buy" and SideStory.goal_text() in variants, "a new errand: '%s'" % SideStory.goal_text())
+	PlayerState.give(SideStory.ITEM, 1, false)
+	await _seconds(0.6)
+	_check(SideStory.goal() == "food_bring", "with a bag in hand: take it to her")
+	# A save and load in the middle of the errand.
+	var level_before := Relations.level(SideStory.WHO)
+	var errand_before: Dictionary = SideStory.errand.duplicate()
+	var slot := "zeynep_test"
+	GameClock.running = false
+	_check(SaveGame.save(slot), "saved in the middle of the errand")
+	SideStory.load_data({})
+	Relations.load_data({})
+	_check(SaveGame.load_game(slot), "loading the save started")
+	await _until_loaded()
+	player = Game.player
+	home = _zy_home()
+	dlg = Game.hud.dialogue_screen
+	await _seconds(1.2)
+	_check(SideStory.met and Relations.level(SideStory.WHO) == level_before and SideStory.errand == errand_before
+			and SideStory.goal() == "food_bring" and SideStory.gift_day == 7 and home != null and home.zeynep != null,
+			"after the load: met, %d hearts, the errand still up" % Relations.level(SideStory.WHO))
+	SaveGame.delete(slot)
+	z = home.zeynep
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	opened = await _zy_wait(func() -> bool: return dlg.is_open(), 10.0)
+	heard = await _zy_talk_through(dlg, 12)
+	await _zy_wait(func() -> bool: return not home.busy(), 12.0)
+	_check(opened and Relations.level(SideStory.WHO) == level_before + 1 and PlayerState.inventory.count_item(SideStory.ITEM) == 0
+			and SideStory.goal() == "", "the bag delivered at her door: %d hearts" % Relations.level(SideStory.WHO))
+	var plain := false
+	for l: Array in heard:
+		plain = plain or (l[0] == &"player" and l[1] == tr("ZEYNEP_FOOD_PLAYER_2"))
+	_check(plain, "every other bag the player's words are a plain 'here's a bag'")
+
+	# --- And one handed to her in the garden ---
+	var garden_day := SideStory.next_errand_day
+	while not SideStory.garden_day(garden_day):
+		garden_day += 1
+	SideStory.next_errand_day = garden_day
+	GameClock.day = garden_day
+	GameClock.set_time_of_day(8.5)
+	player.global_position = Vector3(200.0, TerrainData.height(200.0, 19.0) + 0.1, 19.0)
+	await _seconds(1.5)
+	PlayerState.give(SideStory.ITEM, 1, false)
+	await _seconds(0.6)
+	z = home.zeynep
+	_check(home.where == &"garden" and SideStory.goal() == "food_bring" and SideStory.goal_hint() == tr("SIDE_HINT_GARDEN"),
+			"on a garden morning she is outside: the hint says to hand it to her there")
+	zp = z.global_position
+	player.global_position = Vector3(zp.x + 0.9, TerrainData.height(zp.x + 0.9, zp.z + 1.3) + 0.1, zp.z + 1.3)
+	player.velocity = Vector3.ZERO
+	_look_at(player, zp + Vector3(0, 0.8, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_GIVE_DOG_FOOD")) and _last_prompt.contains("♥"), "looking at her: give the dog food, her hearts on the title")
+	level_before = Relations.level(SideStory.WHO)
+	var variant := clampi(int(SideStory.errand.get("variant", 0)), 0, SideStory.ERRAND_VARIANTS - 1)
+	await _press_key(KEY_E)
+	opened = await _zy_wait(func() -> bool: return dlg.is_open(), 4.0)
+	heard = await _zy_talk_through(dlg, 12)
+	await _zy_wait(func() -> bool: return not home.busy(), 15.0)
+	_check(opened and Relations.level(SideStory.WHO) == level_before + 1 and PlayerState.inventory.count_item(SideStory.ITEM) == 0
+			and home.bowl_full(), "handed over in the garden: %d hearts, she fills Karamel's bowl" % Relations.level(SideStory.WHO))
+	var said := tr(["ZEYNEP_FOOD_PLAYER_1", "ZEYNEP_FOOD_PLAYER_LOW", "ZEYNEP_FOOD_PLAYER_MARKET"][variant])
+	_check(not heard.is_empty() and heard[0][0] == &"player" and heard[0][1] == said,
+			"the player's words go with what the errand said (variant %d: '%s')" % [variant + 1, String(heard[0][1]) if not heard.is_empty() else ""])
+	_check(String(Quests.current()["id"]) == main_goal and Quests.step == Quests.index_of(main_goal),
+			"the main chain never moved (%s)" % main_goal)
+
+	# Put everything back.
+	Events.notification_requested.disconnect(on_note)
+	await _close_screens()
+	SideStory.testing = false
+	SideStory.load_data(kept_side)
+	Relations.load_data(kept_rel)
+	PlayerState.inventory.remove_item(SideStory.ITEM, PlayerState.inventory.count_item(SideStory.ITEM))
+	if kept_food > 0:
+		PlayerState.inventory.add_item(SideStory.ITEM, kept_food)
+	Quests.step = kept_step
+	Quests.step_count = kept_count
+	Quests.tutorial_changed.emit()
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	Economy.money = kept_money
+	Events.money_changed.emit(Economy.money, 0)
+	Game.player.global_position = kept_pos
+	await _seconds(1.0)
+
+
+func _zy_home() -> ZeynepHome:
+	return tree.get_first_node_in_group(ZeynepHome.GROUP) as ZeynepHome
+
+
+## Waits until `cond` holds (true) or `seconds` pass (false).
+func _zy_wait(cond: Callable, seconds: float) -> bool:
+	var until := Time.get_ticks_msec() + int(seconds * 1000.0)
+	while Time.get_ticks_msec() < until:
+		if cond.call():
+			return true
+		await tree.process_frame
+	return bool(cond.call())
+
+
+## _zy_wait, also counting into `said[0]` the frames on which the side goal said she was
+## out in the garden (its hint, or the dot following her).
+func _zy_wait_hint(cond: Callable, seconds: float, home: ZeynepHome, said: Array) -> bool:
+	return await _zy_wait(func() -> bool:
+		if SideStory.goal_hint() == tr("SIDE_HINT_GARDEN") or is_same(SideStory.guide_point(), home.zeynep_marker()):
+			said[0] += 1
+		return cond.call(), seconds)
+
+
+## Reads the open conversation to its end with E presses: [[speaker, line], ...].
+func _zy_talk_through(dlg: DialogueScreen, most: int) -> Array:
+	var heard: Array = []
+	for i in most * 3:
+		if not dlg.is_open():
+			break
+		var entry := [dlg.current_speaker(), dlg.current_text()]
+		if heard.is_empty() or heard.back() != entry:
+			heard.append(entry)
+		await _press_key(KEY_E)
+		await _idle_frames(2)
+	return heard
+
+
+## Stands the player on the path before Zeynep's door, looking at it.
+func _zy_knock(player: Player, home: ZeynepHome) -> void:
+	var c := home.door_center()
+	player.global_position = Vector3(c.x, TerrainData.height(c.x, c.z + 2.2) + 0.1, c.z + 2.2)
+	player.velocity = Vector3.ZERO
+	_look_at(player, home.door.waypoint_point())
+	await _frames(8)
+
+
+func _zy_shot(dir: String, shot_name: String) -> void:
+	await _seconds(0.8)
+	await _idle_frames(4)
+	Game.player.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT %s/%s.png" % [dir, shot_name])
+
+
+## Lines heard in two goes (the line where the first stopped only once).
+func _zy_join(a: Array, b: Array) -> Array:
+	var out := a.duplicate()
+	for entry: Array in b:
+		if out.is_empty() or out.back() != entry:
+			out.append(entry)
+	return out
+
+
+## A picture of this very moment (no settling first).
+func _zy_snap(dir: String, shot_name: String) -> void:
+	await _idle_frames(2)
+	Game.player.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT %s/%s.png" % [dir, shot_name])
+
+
+## Reads the open conversation with E presses until `cond` holds (or it ends): the lines
+## heard so far.
+func _zy_talk_until(dlg: DialogueScreen, most: int, cond: Callable) -> Array:
+	var heard: Array = []
+	for i in most * 3:
+		if not dlg.is_open():
+			break
+		var entry := [dlg.current_speaker(), dlg.current_text()]
+		if heard.is_empty() or heard.back() != entry:
+			heard.append(entry)
+		if cond.call():
+			break
+		await _press_key(KEY_E)
+		await _idle_frames(2)
+	return heard
+
+
+## Zeynep in her doorway: [how far in from the front wall's outer face she stands, how
+## far her palm is from where it rests on the door, its height over the floor, how far
+## her elbow hangs under her shoulder and out to the side of it] (the door side's arm:
+## her right).
+func _zy_doorway_pose(home: ZeynepHome) -> Array:
+	var z := home.zeynep
+	var xf := z.rig.global_transform
+	var palm := xf * z.rig.drawn_palm("_r")
+	var shoulder := z.rig.drawn_bone(&"upperarm_r")
+	var elbow := z.rig.drawn_bone(&"lowerarm_r")
+	var gap := palm.distance_to(z.door_hand) if z.door_hand.is_finite() else 9.0
+	return [home.door_center().z - z.global_position.z, gap, palm.y - home.floor_y, shoulder.y - elbow.y, shoulder.x - elbow.x]
+
+
+## Zeynep in her doorway from where the player stands to knock and from the step closer
+## in (the HUD hidden), then back where he was: `<prefix>_path`, `<prefix>_step`.
+func _zy_door_shots(dir: String, home: ZeynepHome, prefix: String) -> void:
+	var player: Player = Game.player
+	var kept := player.global_position
+	var z := home.zeynep
+	var c := home.door_center()
+	Game.hud.visible = false
+	var face := z.global_position + Vector3(0, 1.45, 0)
+	_look_at(player, face)
+	await _zy_shot(dir, prefix + "_path")
+	player.global_position = Vector3(c.x + 0.25, TerrainData.height(c.x + 0.25, c.z + 1.25) + 0.1, c.z + 1.25)
+	player.velocity = Vector3.ZERO
+	_look_at(player, face)
+	await _zy_shot(dir, prefix + "_step")
+	player.global_position = kept
+	player.velocity = Vector3.ZERO
+	_look_at(player, face)
+	Game.hud.visible = true
+
+
+## Zeynep down on a knee by Karamel stroking him, from a standing player's eyes a couple
+## of metres off: from the garden gate's side and from the doghouse's.
+func _zy_pet_shots(dir: String, home: ZeynepHome) -> void:
+	var player: Player = Game.player
+	var z := home.zeynep
+	Game.hud.visible = false
+	var mid := (z.global_position + home.dog.global_position) * 0.5
+	for view: Array in [["b_pet_gate", Vector2(1.5, 1.3)], ["b_pet_southwest", Vector2(-2.0, 1.8)], ["b_pet_west", Vector2(-2.5, 0.2)]]:
+		var off: Vector2 = view[1]
+		var at := Vector3(mid.x + off.x, 0.0, mid.z + off.y)
+		player.global_position = Vector3(at.x, TerrainData.height(at.x, at.z) + 0.1, at.z)
+		player.velocity = Vector3.ZERO
+		_look_at(player, mid + Vector3(0, 0.5, 0))
+		await _seconds(2.5)
+		await _zy_shot(dir, String(view[0]))
+	Game.hud.visible = true
+
+
+## Over `seconds` of her petting Karamel, how near his muzzle (the head to the nose) comes
+## to her arms, hands and thighs (the gap between them: the bones' lines less the
+## thickness of each) and how deep it goes into her torso (negative: clear): [gap, deep].
+func _zy_muzzle_gap(home: ZeynepHome, seconds: float) -> Array:
+	var z := home.zeynep
+	var dog := home.dog
+	var gap := 9.0
+	var deep := -1.0
+	var until := Time.get_ticks_msec() + int(seconds * 1000.0)
+	while Time.get_ticks_msec() < until:
+		await tree.process_frame
+		var xf := z.rig.global_transform
+		var head := dog.rig.bone_world("head")
+		var nose := dog.rig.nose_world()
+		var tip := nose + (nose - head).normalized() * 0.03
+		for side: String in ["_l", "_r"]:
+			var up := xf * z.rig.drawn_bone(StringName("upperarm" + side))
+			var lo := xf * z.rig.drawn_bone(StringName("lowerarm" + side))
+			var hd := xf * z.rig.drawn_bone(StringName("hand" + side))
+			var th := xf * z.rig.drawn_bone(StringName("thigh" + side))
+			var kn := xf * z.rig.drawn_bone(StringName("calf" + side))
+			# [from, to, thickness]: the upper arm, the forearm, the hand to the fingertips, the thigh.
+			for seg: Array in [[up, lo, 0.06], [lo, hd, 0.05], [hd, hd + (hd - lo).normalized() * 0.16, 0.035], [th, kn, 0.085]]:
+				var cp := Geometry3D.get_closest_points_between_segments(head, tip, seg[0], seg[1])
+				gap = minf(gap, cp[0].distance_to(cp[1]) - 0.045 - float(seg[2]))
+		var inv := xf.affine_inverse()
+		for k in 7:
+			deep = maxf(deep, z.rig.torso_depth(inv * head.lerp(tip, float(k) / 6.0), 0.045))
+	return [gap, deep]
+
+
+## Karamel with his head in the filled bowl by the doghouse.
+func _zy_eat_shot(dir: String, home: ZeynepHome) -> void:
+	var player: Player = Game.player
+	var dog := home.dog
+	await _zy_wait(func() -> bool: return dog.mode != &"eat" or dog._arrived, 20.0)
+	await _seconds(1.0)
+	var b := home.bowl_point()
+	# From the street side of the bowl, clear of the doghouse.
+	var at := Vector3(b.x - 0.6, 0.0, b.z + 2.0)
+	player.global_position = Vector3(at.x, TerrainData.height(at.x, at.z) + 0.1, at.z)
+	player.velocity = Vector3.ZERO
+	_look_at(player, (b + dog.global_position) * 0.5 + Vector3(0, 0.25, 0))
+	Game.hud.visible = false
+	await _seconds(1.0)
+	await _zy_shot(dir, "f_karamel_eats")
+	Game.hud.visible = true
+
+
+
+## Zeynep's side track at its edges: knocking and walking off before she opens counts for
+## nothing (not meeting her, not the gift: the bag stays his); a bag gone from his bag
+## between the knock and the door opening is not delivered (a friendly word instead);
+## standing on her door step as she comes to go in, she waits and asks to get by, goes in
+## once he steps aside and is out of sight only behind the shut door (never hidden out in
+## the garden, no walk left over); standing in the doorway holds the door open as long as
+## he stays there.
+func _scenario_zeynep_edges() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_pos := player.global_position
+	var kept_side := SideStory.save_data()
+	var kept_rel := Relations.save_data()
+	var kept_food := PlayerState.inventory.count_item(SideStory.ITEM)
+	SideStory.testing = true
+	GameClock.running = false
+	var dlg: DialogueScreen = Game.hud.dialogue_screen
+	var home := _zy_home()
+	var c := home.door_center()
+	var street := Vector3(262.0, TerrainData.height(262.0, 19.0) + 0.1, 19.0)
+	var away := Vector3(c.x, TerrainData.height(c.x, c.z + 9.0) + 0.1, c.z + 9.0)
+
+	# --- Day 6 at 20:30, not met yet (she is in): a knock, and he walks off ---
+	_zy_edges_reset({}, 0)
+	GameClock.day = 6
+	GameClock.set_time_of_day(20.5)
+	player.global_position = street
+	await _seconds(1.5)
+	await _zy_wait(func() -> bool: return home.where == &"inside" and not home.busy(), 30.0)
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	await _seconds(0.3)
+	player.global_position = away
+	player.velocity = Vector3.ZERO
+	var opened := await _zy_wait(func() -> bool: return dlg.is_open(), 10.0)
+	await _zy_wait(func() -> bool: return not home.busy(), 25.0)
+	_check(not opened and not SideStory.met and Relations.level(SideStory.WHO) == 0 and SideStory.goal() == "meet"
+			and home.where == &"inside" and not home.door.is_open(),
+			"knocking and walking off before she opens: not met, no heart, the goal still up (level %d)" % Relations.level(SideStory.WHO))
+
+	# --- Day 7, the gift errand with a bag in the bag: a knock, and he walks off ---
+	_zy_edges_reset({"met": true, "met_day": 6, "next": 7, "announced": true}, 10)
+	GameClock.day = 7
+	GameClock.set_time_of_day(9.0)
+	player.global_position = street
+	await _seconds(1.5)
+	await _zy_wait(func() -> bool: return home.where == &"inside" and not home.busy(), 30.0)
+	PlayerState.give(SideStory.ITEM, 1, false)
+	await _seconds(0.8)
+	_check(SideStory.goal() == "gift_bring", "day 7 with a bag of dog food: take it to her")
+	_check(home.where == &"inside" and SideStory.guide_point() is Vector3 and (SideStory.guide_point() as Vector3).distance_to(c) < 2.0,
+			"day 7 on a garden morning: she is indoors until the gift, the dot on her door")
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	await _seconds(0.3)
+	player.global_position = away
+	player.velocity = Vector3.ZERO
+	var said := [0]
+	opened = await _zy_wait_hint(func() -> bool: return dlg.is_open(), 10.0, home, said)
+	await _zy_wait_hint(func() -> bool: return not home.busy(), 25.0, home, said)
+	_check(not opened and SideStory.deliveries == 0 and Relations.level(SideStory.WHO) == 1 and PlayerState.inventory.count_item(SideStory.ITEM) == 1
+			and SideStory.goal() == "gift_bring", "knocking with the gift and walking off: the bag is still his, no heart, the errand still up")
+	_check(said[0] == 0, "as she opens, finds nobody and goes back in, the side goal never says she is in the garden (%d frames)" % said[0])
+
+	# --- The bag gone from his bag between the knock and the door opening ---
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	await _seconds(0.5)
+	PlayerState.inventory.remove_item(SideStory.ITEM, 1)
+	opened = await _zy_wait(func() -> bool: return dlg.is_open(), 10.0)
+	var heard := await _zy_talk_through(dlg, 12)
+	await _zy_wait(func() -> bool: return not home.busy(), 25.0)
+	var gift_line := false
+	for l: Array in heard:
+		gift_line = gift_line or l[1] == tr("ZEYNEP_GIFT_PLAYER")
+	_check(opened and not gift_line and SideStory.deliveries == 0 and Relations.level(SideStory.WHO) == 1 and SideStory.goal() == "gift_buy",
+			"the bag gone before she opens: a friendly word, no gift and no heart; the errand wants a bag again (%d lines)" % heard.size())
+
+	# --- The gift brought at 20:30 (she is in for the evening): the side goal stays on her
+	# door as she comes to open it ---
+	GameClock.set_time_of_day(20.5)
+	PlayerState.give(SideStory.ITEM, 1, false)
+	await _seconds(0.8)
+	_check(SideStory.goal() == "gift_bring" and home.where == &"inside", "20:30 on day 7 with a bag: she is in, the gift errand up")
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	said = [0]
+	opened = await _zy_wait_hint(func() -> bool: return dlg.is_open(), 10.0, home, said)
+	var hint_open := SideStory.goal_hint()
+	heard = await _zy_talk_through(dlg, 12)
+	await _zy_wait(func() -> bool: return not home.busy(), 25.0)
+	_check(opened and said[0] == 0 and hint_open == "" and SideStory.deliveries == 1 and SideStory.gift_day == 7,
+			"a 20:30 knock with the gift: while she opens the side goal stays on her door, never 'in the garden' (%d frames, hint '%s'); the gift is hers"
+			% [said[0], hint_open])
+
+	# --- Met in the garden; he waits on her door step as she comes to go in ---
+	_zy_edges_reset({}, 0)
+	GameClock.day = 6
+	GameClock.set_time_of_day(10.0)
+	player.global_position = street
+	await _seconds(1.5)
+	await _zy_wait(func() -> bool: return home.where == &"garden" and not home.busy(), 30.0)
+	await _seconds(2.0)
+	var z := home.zeynep
+	var zp := z.global_position
+	player.global_position = Vector3(zp.x + 0.9, TerrainData.height(zp.x + 0.9, zp.z + 1.3) + 0.1, zp.z + 1.3)
+	player.velocity = Vector3.ZERO
+	_look_at(player, zp + Vector3(0, 0.8, 0))
+	await _frames(8)
+	await _press_key(KEY_E)
+	await _zy_wait(func() -> bool: return dlg.is_open(), 8.0)
+	await _zy_talk_through(dlg, 12)
+	var step := Vector3(c.x, home.floor_y + 0.05, c.z + 0.35)
+	var asked := false
+	var hidden_out := false
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 10000:
+		player.global_position = step
+		player.velocity = Vector3.ZERO
+		await tree.physics_frame
+		asked = asked or (z.is_speaking() and z._bubble.text == tr("ZEYNEP_SAY_EXCUSE"))
+		hidden_out = hidden_out or (z.is_indoors() and z.global_position.z > c.z - 0.5)
+	_check(SideStory.met and home.busy() and not z.is_indoors() and z.blocked_by_player() and asked and not hidden_out
+			and z.global_position.z > c.z + 0.6, "on her door step as she comes to go in: she waits in front of him and asks to get by (at %.2f m from the door)" % (z.global_position.z - c.z))
+	# He steps aside.
+	player.global_position = Vector3(c.x + 2.2, TerrainData.height(c.x + 2.2, c.z + 2.6) + 0.1, c.z + 2.6)
+	player.velocity = Vector3.ZERO
+	var hidden_at := Vector3.INF
+	var door_when_hidden := true
+	t0 = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 20000:
+		await tree.physics_frame
+		if z.is_indoors() and not hidden_at.is_finite():
+			hidden_at = z.global_position
+			door_when_hidden = home.door.is_open()
+		if not home.busy():
+			break
+	_check(home.where == &"inside" and z.is_indoors() and hidden_at.is_finite() and hidden_at.z < c.z - 1.0 and not door_when_hidden
+			and not home.door.is_open() and not z.is_walking_to(),
+			"once he steps aside she goes in, out of sight only down the hall behind the shut door (hidden at %.2f m from it), no walk left over" % (hidden_at.z - c.z if hidden_at.is_finite() else 99.0))
+
+	# --- A word at her door; he stands in the doorway as she goes back in ---
+	_zy_edges_reset({"met": true, "met_day": 6, "next": 20, "announced": true, "deliveries": 1}, 20)
+	GameClock.day = 8
+	GameClock.set_time_of_day(13.0)
+	await _seconds(1.0)
+	await _zy_wait(func() -> bool: return home.where == &"inside" and not home.busy(), 30.0)
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	opened = await _zy_wait(func() -> bool: return dlg.is_open(), 10.0)
+	await _zy_talk_through(dlg, 6)
+	var held_limit := -1.0
+	t0 = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 6000:
+		player.global_position = Vector3(c.x, home.floor_y + 0.1, c.z - 0.1)
+		player.velocity = Vector3.ZERO
+		await tree.physics_frame
+		if not home._steps.is_empty() and home._steps[0].has("until") and home._steps[0]["until"] == home._door_shut:
+			held_limit = float(home._steps[0]["limit"])
+	_check(opened and home.door.is_open() and not z.is_indoors() and held_limit >= ZeynepHome.SHUT_WAIT - 0.01,
+			"in the doorway he holds the door open: she waits in the hall for as long as he stays (%.1f s of the wait left)" % held_limit)
+	player.global_position = Vector3(c.x, TerrainData.height(c.x, c.z + 2.0) + 0.1, c.z + 2.0)
+	player.velocity = Vector3.ZERO
+	await _zy_wait(func() -> bool: return not home.busy(), 10.0)
+	_check(not home.door.is_open() and z.is_indoors() and home.where == &"inside", "he steps out: the door shuts and she is in")
+
+	# Put everything back.
+	await _close_screens()
+	SideStory.testing = false
+	SideStory.load_data(kept_side)
+	Relations.load_data(kept_rel)
+	PlayerState.inventory.remove_item(SideStory.ITEM, PlayerState.inventory.count_item(SideStory.ITEM))
+	if kept_food > 0:
+		PlayerState.inventory.add_item(SideStory.ITEM, kept_food)
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	player.global_position = kept_pos
+	await _seconds(1.0)
+
+
+## Zeynep's track from `side` (SideStory's save data), `points` of friendship, no dog food
+## in the bag.
+func _zy_edges_reset(side: Dictionary, points: int) -> void:
+	SideStory.load_data(side)
+	Relations.load_data({"points": {"zeynep": points}} if points > 0 else {})
+	PlayerState.inventory.remove_item(SideStory.ITEM, PlayerState.inventory.count_item(SideStory.ITEM))
+
+
+# --- Karamel, Zeynep's dog ---------------------------------------------------------------------
+
+## Karamel (Dog, DogRig), set down for the test in the front garden of the last house on
+## the left (Zeynep's; the story spawns him in the game): the model and its fur load; he
+## keeps inside his garden, his paws stand on the ground and a planted paw never slides;
+## trotting, his legs move in diagonal pairs; he sits and lies down; pet_point() is on his
+## back and goes where he goes; eating puts his nose in the bowl and ends back in roaming;
+## greeting brings him to the player, barking; petted he turns to the petter and sits.
+## With --dog-shots=DIR he is photographed standing, sitting, lying, walking, eating and
+## petted, from his own height and from a standing player's eyes.
+func _scenario_dog() -> void:
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(11.0)
+	GameClock.running = false
+	var garden := Rect2(267, 8, 13, 4)
+	_check(ResourceLoader.exists(DogRig.MODEL_PATH) and DogRig.MODEL_PATH.begins_with("res://art/models/animals/dog/"),
+			"the dog's model loads by its own path (%s)" % DogRig.MODEL_PATH)
+	player.global_position = _dog_floor(Vector3(273.5, 0, 19.0)) + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(20)
+	var dog := Dog.new()
+	dog.home_area = garden
+	dog.name_key = "DOG_KARAMEL"
+	Game.world.add_child(dog)
+	dog.global_position = _dog_floor(Vector3(271.0, 0, 10.0))
+	await _frames(10)
+	var rig := dog.rig
+	_check(dog.is_in_group(&"dogs") and dog.has_method("set_mode") and dog.has_method("pet_point") and dog.has_method("bark"),
+			"a Dog in the dogs group with set_mode, pet_point and bark")
+	_check(rig != null and rig.skeleton != null and rig._b.size() == DogRig.BONES.size() and rig._legs.size() == 4,
+			"the rig finds all %d bones and four legs" % DogRig.BONES.size())
+	var layers: int = DogRig.FUR_LAYERS[Settings.quality]
+	_check(rig.fur != null and rig.fur.visible == (layers > 0)
+			and is_equal_approx(float(rig.fur.get_instance_shader_parameter(&"fur_layers")), layers),
+			"shell fur: %d layers on this preset" % layers)
+	var shaders := {}
+	for mi in rig.meshes:
+		var m := mi.get_surface_override_material(0) as ShaderMaterial
+		shaders[String(mi.name)] = m.shader.resource_path.get_file() if m and m.shader else ""
+	_check(shaders.get("Body", "") == "dog_coat.gdshader" and shaders.get("Fur", "") == "dog_fur.gdshader",
+			"coat and fur shaders (%s)" % str(shaders))
+	var sounds := {}
+	for set_name in ["dog_bark", "dog_pant", "dog_whine", "dog_eat"]:
+		sounds[set_name] = Audio._files(set_name).size()
+	_check(sounds.values().all(func(n: int) -> bool: return n >= 2), "his barks, panting, whines and eating sounds load %s" % str(sounds))
+	var body := dog.get_node_or_null("Body") as AnimatableBody3D
+	_check(body != null and body.collision_layer & 16 and (player.collision_mask & body.collision_layer) != 0,
+			"a collider on the animal layer the player bumps into")
+	var shots := String(DebugTools.args.get("dog-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+		await _dog_shots(dog, shots)
+	# Roaming: walking about the garden, staying inside it, paws on the ground, a
+	# planted paw staying put.
+	var stats := {"out": 0.0, "float": 0.0, "slide": 0.0, "frames": 0, "moved": 0.0}
+	dog.set_mode(&"roam")
+	dog._start_act(Dog.Act.STAND)
+	dog._act_t = -100.0
+	await _seconds(2.5)
+	dog._start_act(Dog.Act.WANDER)
+	var usec := Dog.anim_usec
+	var frames0 := Engine.get_process_frames()
+	await _dog_watch(dog, 16.0, stats)
+	var per_frame := float(Dog.anim_usec - usec) / maxf(Engine.get_process_frames() - frames0, 1)
+	_check(per_frame < 1500.0, "posing him walking about costs %.2f ms a frame" % (per_frame / 1000.0))
+	_check(stats["moved"] > 3.0, "roaming he walks about the garden (%.1f m)" % stats["moved"])
+	_check(stats["out"] < 0.02, "he keeps inside his garden (%.2f m past the inset edge at worst)" % stats["out"])
+	_check(stats["float"] < 0.02, "his planted paws stand on the ground (%.1f mm off at worst)" % (stats["float"] * 1000.0))
+	_check(stats["slide"] < 0.004, "a planted paw doesn't slide (%.1f mm at worst)" % (stats["slide"] * 1000.0))
+	# pet_point: on his back, going where he goes.
+	dog._start_act(Dog.Act.STAND)
+	dog._act_t = -100.0
+	await _seconds(2.5)
+	var pp := dog.pet_point()
+	var local := dog.to_local(pp)
+	var floor_y := dog._ground_at(dog.global_position.x, dog.global_position.z)
+	_check(pp.y - floor_y > 0.45 and pp.y - floor_y < 0.7 and absf(local.x) < 0.08 and local.z < 0.1 and local.z > -0.35,
+			"pet_point is on his back behind the withers (%.2f m up, %s)" % [pp.y - floor_y, str(local)])
+	var from := dog.global_position
+	dog._start_act(Dog.Act.WANDER)
+	dog._goal = _dog_floor(Vector3(from.x + (2.0 if from.x < 273.5 else -2.0), 0, 10.0))
+	await _seconds(3.0)
+	var moved := dog.global_position - from
+	var pp2 := dog.pet_point()
+	_check(moved.length() > 1.0 and (pp2 - pp).distance_to(moved) < 0.25,
+			"pet_point moves with him (%.2f m walked, the point %.2f m)" % [moved.length(), (pp2 - pp).length()])
+	# Trotting: diagonal pairs (left hind with right fore) swing together.
+	dog.global_position = _dog_floor(Vector3(268.5, 0, 10.0))
+	dog._yaw = -PI * 0.5
+	await _frames(5)
+	dog.set_mode(&"greet", _dog_floor(Vector3(279.5, 0, 10.0)))
+	var pair := 0
+	var lateral := 0
+	var n := 0
+	var fast := 0.0
+	for f in 300:
+		_look_at(player, dog.global_position + Vector3(0, 0.3, 0))
+		await _frames(1)
+		fast = maxf(fast, dog._speed)
+		if dog._speed > DogRig.TROT_FROM + 0.1 and rig._trot > 0.99:
+			n += 1
+			if rig.paw_planted("rl") == rig.paw_planted("fr"):
+				pair += 1
+			if rig.paw_planted("rl") == rig.paw_planted("rr"):
+				lateral += 1
+	_check(n > 10 and float(pair) / n > 0.85 and float(lateral) / n < 0.5,
+			"trotting (%.1f m/s) the diagonal pairs move together (%d/%d frames; hind pair together %d)" % [fast, pair, n, lateral])
+	# Greeting: to the player at the fence, barking.
+	dog.set_mode(&"roam")
+	dog._start_act(Dog.Act.STAND)
+	dog.global_position = _dog_floor(Vector3(269.0, 0, 9.5))
+	await _frames(5)
+	var greeter := _dog_floor(Vector3(276.0, 0, 13.4))
+	player.global_position = greeter + Vector3(0, 0.1, 0)
+	var d0 := Vector2(dog.global_position.x - greeter.x, dog.global_position.z - greeter.z).length()
+	var barks := dog.barks
+	dog.set_mode(&"greet", greeter)
+	await _seconds(6.0)
+	var d1 := Vector2(dog.global_position.x - greeter.x, dog.global_position.z - greeter.z).length()
+	_check(d1 < d0 - 2.5 and d1 < 2.4 and garden.grow(-0.35).has_point(Vector2(dog.global_position.x, dog.global_position.z)),
+			"greeting he comes to the player at the fence, inside his garden (%.1f m -> %.1f m)" % [d0, d1])
+	_check(dog.barks > barks and dog._facing(greeter, 0.4), "he barks and faces the player (%d barks)" % (dog.barks - barks))
+	# Petted: turns to the petter and sits.
+	var petter := dog.global_position + dog.global_transform.basis.x * 0.75 + dog.global_transform.basis.z * 0.2
+	dog.set_mode(&"petted", petter)
+	await _seconds(3.5)
+	_check(rig.sit_amount() > 0.95 and dog._facing(petter, 0.5), "petted he faces the petter and sits (%.2f)" % rig.sit_amount())
+	var seat := rig.bone_world("pelvis").y - dog._ground_at(dog.global_position.x, dog.global_position.z)
+	var fore := minf(_dog_paw_off(dog, "fl"), _dog_paw_off(dog, "fr"))
+	_check(seat < 0.28 and absf(fore) < 0.02, "sitting his rump is down (%.2f m) and his forepaws on the ground (%.1f mm)" % [seat, fore * 1000.0])
+	# Lying down (roaming).
+	dog.set_mode(&"roam")
+	dog._start_act(Dog.Act.LIE)
+	dog._act_t = -30.0
+	await _seconds(3.0)
+	var chest := rig.bone_world("spine2").y - dog._ground_at(dog.global_position.x, dog.global_position.z)
+	_check(rig.lie_amount() > 0.95 and chest < 0.33, "he lies down, his chest low (%.2f m)" % chest)
+	dog._start_act(Dog.Act.STAND)
+	await _seconds(2.5)
+	_check(rig.lie_amount() < 0.05 and rig.sit_amount() < 0.05, "and gets up again")
+	# Eating: to the bowl, the nose in it, then roaming again.
+	var bowl := _dog_floor(Vector3(dog.global_position.x + 2.0 if dog.global_position.x < 275.0 else dog.global_position.x - 2.0, 0, 10.6))
+	var ate := [false]
+	dog.ate.connect(func() -> void: ate[0] = true)
+	dog.set_mode(&"eat", bowl)
+	var reached := INF
+	var t := 0.0
+	while t < 22.0 and not ate[0]:
+		await _frames(6)
+		t += 0.1
+		if dog._arrived and rig._nose > 0.95:
+			var nose := rig.nose_world()
+			reached = minf(reached, Vector2(nose.x - bowl.x, nose.z - bowl.z).length() + maxf(nose.y - bowl.y - 0.1, 0.0))
+	_check(reached < 0.12, "eating, his nose is in the bowl (%.2f m off)" % reached)
+	_check(ate[0] and dog.mode == &"roam", "after eating he roams again")
+	dog.queue_free()
+	GameClock.running = true
+
+
+## The ground under a point (the garden's colliders, else the terrain).
+func _dog_floor(p: Vector3) -> Vector3:
+	var space := Game.world.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(Vector3(p.x, 60.0, p.z), Vector3(p.x, -20.0, p.z), 1)
+	var hit := space.intersect_ray(q)
+	return Vector3(p.x, (hit["position"] as Vector3).y if not hit.is_empty() else TerrainData.height(p.x, p.z), p.z)
+
+
+## A paw's knuckle's height off where it should stand on the ground (m).
+func _dog_paw_off(dog: Dog, leg: String) -> float:
+	var p := dog.rig.paw_world(leg)
+	return p.y - dog._ground_at(p.x, p.z) - dog.rig.paw_height(leg)
+
+
+## Watches the dog for `seconds`: how far past his garden's inset edge he goes, how far
+## a planted paw floats off the ground or sinks in, how far one slides.
+func _dog_watch(dog: Dog, seconds: float, stats: Dictionary) -> void:
+	var inner := dog.home_area.grow(-Dog.ROAM_INSET)
+	var last := {}
+	var at := dog.global_position
+	var t := 0.0
+	while t < seconds:
+		# Looked at: off screen the dog is posed only a few times a second. Kept walking
+		# from spot to spot (roaming he would stop now and then to sit or lie down).
+		_look_at(Game.player, dog.global_position + Vector3(0, 0.3, 0))
+		if dog._act != Dog.Act.WANDER or not dog._goal.is_finite() or Vector2(dog._goal.x - dog.global_position.x, dog._goal.z - dog.global_position.z).length() < 0.3:
+			dog._start_act(Dog.Act.WANDER)
+		await tree.process_frame
+		t += tree.root.get_process_delta_time()
+		var p := dog.global_position
+		stats["moved"] = float(stats["moved"]) + Vector2(p.x - at.x, p.z - at.z).length()
+		at = p
+		var out := maxf(maxf(inner.position.x - p.x, p.x - inner.end.x), maxf(inner.position.y - p.z, p.z - inner.end.y))
+		stats["out"] = maxf(float(stats["out"]), out)
+		for leg: String in DogRig.LEGS:
+			if dog.rig.paw_planted(leg):
+				var w := dog.rig.paw_world(leg)
+				var off := absf(_dog_paw_off(dog, leg))
+				# (A whole step can fall between two frames when a frame is slow.)
+				var same: bool = last.has(leg) and last[leg + "_n"] == dog.rig.paw_steps(leg)
+				var slide := Vector2(w.x - last[leg].x, w.z - last[leg].z).length() if same else 0.0
+				stats["float"] = maxf(float(stats["float"]), off)
+				stats["slide"] = maxf(float(stats["slide"]), slide)
+				last[leg] = w
+				last[leg + "_n"] = dog.rig.paw_steps(leg)
+			else:
+				last.erase(leg)
+
+
+## Photographs of the dog: standing, sitting, lying, walking, eating (a bowl of the
+## test's own) and petted, from a camera at his height and from a standing player's eyes.
+func _dog_shots(dog: Dog, dir: String) -> void:
+	var player: Player = Game.player
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = false
+	var cam := Camera3D.new()
+	cam.fov = 45.0
+	Game.world.add_child(cam)
+	var spot := _dog_floor(Vector3(272.0, 0, 9.3))
+	# From his right (the street side, inside the fence): `dist` m off, at `height`.
+	var eye := func(dist: float, height: float, ahead: float) -> void:
+		var c := dog.global_position + Vector3(0, 0.3, 0)
+		var at := c + dog.global_transform.basis.x * dist - dog.global_transform.basis.z * ahead
+		at.y = dog._ground_at(at.x, at.z) + height
+		cam.global_position = at
+		cam.look_at(c + Vector3(0, (0.05 if height < 1.0 else -0.1), 0), Vector3.UP)
+		cam.make_current()
+	var snap := func(file: String) -> void:
+		await _idle_frames(3)
+		tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, file])
+		print("SHOT ", dir, "/", file, ".png")
+	var settle := func(act: int, secs: float) -> void:
+		dog.set_mode(&"roam")
+		dog.global_position = spot
+		dog._yaw = -PI * 0.5
+		dog._start_act(act as Dog.Act)
+		dog._act_t = -100.0
+		await _seconds(secs)
+	player.global_position = _dog_floor(Vector3(273.5, 0, 18.5)) + Vector3(0, 0.1, 0)
+	for pose: Array in [["stand", Dog.Act.STAND], ["sit", Dog.Act.SIT], ["lie", Dog.Act.LIE]]:
+		await settle.call(Dog.Act.STAND, 2.5)
+		await settle.call(pose[1], 3.5)
+		eye.call(1.9, 0.55, 0.3)
+		await snap.call("dog_%s_low" % pose[0])
+		eye.call(2.5, 1.6, 0.6)
+		await snap.call("dog_%s_eye" % pose[0])
+	# Close-up of the head and coat.
+	await settle.call(Dog.Act.STAND, 2.5)
+	var head := dog.rig.bone_world("head")
+	cam.global_position = head + dog.global_transform.basis.x * 0.7 - dog.global_transform.basis.z * 0.5 + Vector3(0, 0.02, 0)
+	cam.look_at(head + Vector3(0, -0.08, 0) - dog.global_transform.basis.z * 0.05, Vector3.UP)
+	await snap.call("dog_head_close")
+	# Walking and trotting along the garden, photographed mid-stride from the side.
+	for gait: Array in [["walk", Dog.WALK], ["trot", Dog.TROT]]:
+		await settle.call(Dog.Act.STAND, 1.5)
+		dog.global_position = _dog_floor(Vector3(268.0, 0, 9.3))
+		dog._start_act(Dog.Act.WANDER)
+		dog._goal = _dog_floor(Vector3(279.0, 0, 9.3))
+		for f in 600:
+			dog._want_speed = gait[1]
+			dog._act_t = 0.0
+			await tree.process_frame
+			if dog.global_position.x > 271.0 and dog._speed > float(gait[1]) * 0.95 and dog.rig.gait_amount() > 0.9 * minf(float(gait[1]) / DogRig.WALK_SPEED, 1.3):
+				break
+		for k in 3:
+			var c := dog.global_position + Vector3(0, 0.3, 0)
+			cam.global_position = Vector3(c.x + 0.4, dog._ground_at(c.x, c.z + 2.2) + 0.5, c.z + 2.2)
+			cam.look_at(c + Vector3(0.1, -0.05, 0), Vector3.UP)
+			cam.make_current()
+			await _idle_frames(1)
+			tree.root.get_viewport().get_texture().get_image().save_png("%s/dog_%s_%d.png" % [dir, gait[0], k])
+			print("SHOT ", dir, "/dog_", gait[0], "_", k, ".png")
+			for f in 5:
+				dog._want_speed = gait[1]
+				await tree.process_frame
+	# Eating from a bowl.
+	await settle.call(Dog.Act.STAND, 2.0)
+	var bowl := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.13
+	cyl.bottom_radius = 0.1
+	cyl.height = 0.07
+	bowl.mesh = cyl
+	var bm := StandardMaterial3D.new()
+	bm.albedo_color = Color(0.55, 0.12, 0.1)
+	bm.roughness = 0.35
+	bowl.material_override = bm
+	Game.world.add_child(bowl)
+	var bowl_at := _dog_floor(Vector3(spot.x + 1.3, 0, spot.z))
+	bowl.global_position = bowl_at + Vector3(0, 0.035, 0)
+	dog.set_mode(&"eat", bowl_at)
+	for i in 100:
+		await _seconds(0.1)
+		if dog._arrived and dog.rig._nose > 0.97:
+			break
+	await _seconds(0.6)
+	eye.call(1.9, 0.55, 0.3)
+	await snap.call("dog_eat_low")
+	eye.call(2.4, 1.6, 0.5)
+	await snap.call("dog_eat_eye")
+	bowl.queue_free()
+	# Petted: the petter crouched at his right shoulder.
+	await settle.call(Dog.Act.STAND, 2.0)
+	var petter := dog.global_position + dog.global_transform.basis.x * 0.7 - dog.global_transform.basis.z * 0.3
+	dog.set_mode(&"petted", petter)
+	await _seconds(3.5)
+	eye.call(1.8, 0.6, 0.9)
+	await snap.call("dog_petted_low")
+	eye.call(2.4, 1.6, 0.9)
+	await snap.call("dog_petted_eye")
+	await _dog_side_shots(dog, dir, cam)
+	dog.set_mode(&"roam")
+	cam.queue_free()
+	player.camera.make_current()
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = true
+
+
+## Side views in the garden with the grass hidden (nothing in the way): standing,
+## sitting, lying, a walk and a trot stride frame by frame, from the dog's height.
+func _dog_side_shots(dog: Dog, dir: String, cam: Camera3D) -> void:
+	var hidden: Array[Node3D] = []
+	for n in Game.world.find_children("*", "MultiMeshInstance3D", true, false):
+		if (n as Node3D).visible:
+			(n as Node3D).visible = false
+			hidden.append(n)
+	for n in Game.world.find_children("*", "", true, false):
+		if n is GrassField and (n as Node3D).visible:
+			(n as Node3D).visible = false
+			hidden.append(n)
+	var spot := _dog_floor(Vector3(272.0, 0, 9.3))
+	var side := func(file: String, dist: float, height: float, ahead: float) -> void:
+		var c := dog.global_position + Vector3(0, 0.32, 0)
+		var at := c + dog.global_transform.basis.x * dist - dog.global_transform.basis.z * ahead
+		at.y = dog._ground_at(at.x, at.z) + height
+		cam.global_position = at
+		cam.look_at(c, Vector3.UP)
+		cam.make_current()
+		await _idle_frames(2)
+		tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, file])
+		print("SHOT ", dir, "/", file, ".png")
+	for pose: Array in [["stand", Dog.Act.STAND], ["sit", Dog.Act.SIT], ["lie", Dog.Act.LIE]]:
+		dog.set_mode(&"roam")
+		dog.global_position = spot
+		dog._yaw = -PI * 0.5
+		dog._start_act(Dog.Act.STAND)
+		await _seconds(2.5)
+		dog._start_act(pose[1] as Dog.Act)
+		dog._act_t = -100.0
+		await _seconds(3.0)
+		await side.call("side_%s" % pose[0], 1.9, 0.35, 0.0)
+		await side.call("side_%s_3q" % pose[0], 1.5, 0.6, 1.1)
+	for gait: Array in [["walk", Dog.WALK], ["trot", Dog.TROT]]:
+		dog.set_mode(&"roam")
+		dog._start_act(Dog.Act.STAND)
+		await _seconds(2.5)
+		dog.global_position = _dog_floor(Vector3(268.2, 0, 9.3))
+		dog._yaw = -PI * 0.5
+		var trot: bool = gait[0] == "trot"
+		if trot:
+			# Trotting to someone at the far end.
+			dog.set_mode(&"greet", _dog_floor(Vector3(286.0, 0, 9.3)))
+		else:
+			dog._start_act(Dog.Act.WANDER)
+			dog._goal = _dog_floor(Vector3(279.0, 0, 9.3))
+		for f in 600:
+			dog._act_t = 0.0
+			await tree.process_frame
+			if dog.global_position.x > 270.0 and dog._speed > float(gait[1]) * 0.97:
+				break
+		for k in 6:
+			var c := dog.global_position + Vector3(0, 0.32, 0)
+			cam.global_position = Vector3(c.x, dog._ground_at(c.x, c.z + 2.0) + 0.3, c.z + 2.0)
+			cam.look_at(c, Vector3.UP)
+			cam.make_current()
+			await _idle_frames(1)
+			tree.root.get_viewport().get_texture().get_image().save_png("%s/side_%s_%d.png" % [dir, gait[0], k])
+			print("SHOT ", dir, "/side_", gait[0], "_", k, ".png")
+			for f in (4 if gait[0] == "walk" else 3):
+				dog._goal = _dog_floor(Vector3(279.0, 0, 9.3))
+				await tree.process_frame
+	for n in hidden:
+		n.visible = true
+	dog.global_position = spot
+
+
+
+# --- The showroom's turntable -------------------------------------------------------------
+
+## The car for sale on the showroom's turntable turns with the deck as one piece: its
+## wheels (tyres, rims and hubs) keep their places under the body and stand on the deck
+## all the way round; getting in lets it go to drive off the deck, and the stock parked
+## elsewhere is held still as before. With -- --turntable-shots=/abs/dir it saves the
+## car from inside the showroom at two moments a few seconds apart.
+func _scenario_turntable() -> void:
+	var player: Player = Game.player
+	var shots := String(DebugTools.args.get("turntable-shots", ""))
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var v := town._turn_vehicle
+	_check(v != null, "a car for sale stands on the showroom's turntable")
+	if v == null:
+		return
+	# On its spot, for sale (earlier scenarios may have bought or moved it).
+	v.owned = false
+	v.teleport(town.dealer_spot(v.kind))
+	var floor_y := town._y(Town.DEALER.get_center().x, Town.DEALER.get_center().y) + 0.2
+	player.global_position = Vector3(Town.TURNTABLE.x + 5.5, floor_y + 0.3, Town.TURNTABLE.y + 5.5)
+	# Settled on its wheels, then taken by the deck.
+	await _seconds(3.5)
+	var first := _turntable_sample(v)
+	var deck_from: float = town._deck.rotation.y
+	# How the tyres stand on the deck as it settled (a loaded tyre sits a few cm into it).
+	var settled := {}
+	for key: String in ["fl", "fr", "rl", "rr"]:
+		settled[key] = _turntable_tyre_gap(v, key)
+	print("TURNTABLE settled: tyres over the deck %s" % settled)
+	var parked: Vehicle = null
+	for other in town.dealer_stock:
+		if other != v and not other.owned:
+			parked = other
+			break
+	var parked_from := _turntable_sample(parked) if parked else {}
+	if shots != "":
+		await _turntable_shot("%s/turntable_1.png" % shots)
+	await _seconds(3.0)
+	if shots != "":
+		await _turntable_shot("%s/turntable_2.png" % shots)
+	var then := _turntable_sample(v)
+	var turned := _turntable_yaw(first["body"], then["body"])
+	var deck_turned := wrapf(town._deck.rotation.y - deck_from, -PI, PI)
+	_check(v.freeze and turned > 0.2 and absf(turned - deck_turned) < 0.03,
+			"the car turns with the deck (%.2f rad, the deck %.2f)" % [turned, deck_turned])
+	var slip := 0.0
+	var twist := 0.0
+	var shift := 0.0
+	var lowest := INF
+	var highest := -INF
+	for key: String in ["fl", "fr", "rl", "rr"]:
+		var a: Transform3D = first["wheels"][key]
+		var b: Transform3D = then["wheels"][key]
+		slip = maxf(slip, a.origin.distance_to(b.origin))
+		twist = maxf(twist, a.basis.get_rotation_quaternion().angle_to(b.basis.get_rotation_quaternion()))
+		var gap := _turntable_tyre_gap(v, key)
+		shift = maxf(shift, absf(gap - float(settled[key])))
+		lowest = minf(lowest, gap)
+		highest = maxf(highest, gap)
+	print("TURNTABLE turned %.3f deck %.3f slip %.4f twist %.4f tyres %.3f..%.3f (moved %.4f) freeze %s mode %d" % [turned, deck_turned, slip, twist, lowest, highest, shift, v.freeze, v.freeze_mode])
+	_check(slip < 0.02 and twist < deg_to_rad(2.0),
+			"its wheels turn with it, each in its place under the body (%.3f m, %.1f deg at most)" % [slip, rad_to_deg(twist)])
+	_check(shift < 0.01 and highest < 0.01 and lowest > -0.06,
+			"its tyres stay on the deck as it turns, as they settled (%.3f..%.3f m, moved %.3f m)" % [lowest, highest, shift])
+	if parked:
+		var still := _turntable_sample(parked)
+		var moved: float = (parked_from["body"] as Transform3D).origin.distance_to((still["body"] as Transform3D).origin)
+		var parked_slip := 0.0
+		for key: String in ["fl", "fr", "rl", "rr"]:
+			parked_slip = maxf(parked_slip, (parked_from["wheels"][key] as Transform3D).origin.distance_to((still["wheels"][key] as Transform3D).origin))
+		_check(parked.freeze and parked.freeze_mode == RigidBody3D.FREEZE_MODE_STATIC and moved < 0.01 and parked_slip < 0.01
+				and absf(_turntable_yaw(parked_from["body"], still["body"])) < 0.001,
+				"the %s parked on its spot is held still, wheels and all (%.3f m, wheels %.3f m)" % [parked.kind, moved, parked_slip])
+	# Getting in lets it go: it drives off the deck as a free body.
+	var start := v.global_position
+	player.enter_vehicle(v)
+	await _frames(5)
+	_check(player.driving == v and not v.freeze, "getting in lets the car go")
+	Input.action_press("move_back")
+	await _seconds(1.5)
+	Input.action_release("move_back")
+	await _seconds(1.0)
+	var off := Vector2(v.global_position.x - Town.TURNTABLE.x, v.global_position.z - Town.TURNTABLE.y).length()
+	var touching := 0
+	for key: String in ["fl", "fr", "rl", "rr"]:
+		if (v._wheels[key] as VehicleWheel3D).is_in_contact():
+			touching += 1
+	_check(not v.freeze and v.global_position.distance_to(start) > 0.6 and off > 0.6 and v.global_basis.y.y > 0.95 and touching == 4,
+			"it backs off the deck on its own wheels (%.2f m, %d touching)" % [v.global_position.distance_to(start), touching])
+	player.exit_vehicle()
+	await _frames(8)
+	# Put it back on its spot: the deck takes it again.
+	v.teleport(town.dealer_spot(v.kind))
+	await _seconds(3.0)
+	_check(v.freeze and v.driver == null, "back on its spot the deck takes it again")
+
+
+## The body's transform and each wheel's in the body's frame.
+func _turntable_sample(v: Vehicle) -> Dictionary:
+	var body := v.global_transform
+	var wheels := {}
+	for key: String in ["fl", "fr", "rl", "rr"]:
+		wheels[key] = body.affine_inverse() * (v._wheels[key] as VehicleWheel3D).global_transform
+	return {"body": body, "wheels": wheels}
+
+
+## How far the bottom of wheel `key`'s tyre is above what it stands on (below: sunk in).
+func _turntable_tyre_gap(v: Vehicle, key: String) -> float:
+	var w: VehicleWheel3D = v._wheels[key]
+	var c := w.global_position
+	var q := PhysicsRayQueryParameters3D.create(c + Vector3(0, 0.05, 0), c - Vector3(0, w.wheel_radius + 0.5, 0), 1)
+	q.exclude = [v.get_rid()]
+	var hit := v.get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return INF
+	return c.y - w.wheel_radius - (hit["position"] as Vector3).y
+
+
+## How far a body turned about the vertical from `a` to `b` (radians, -PI..PI).
+func _turntable_yaw(a: Transform3D, b: Transform3D) -> float:
+	var za := Vector2(a.basis.z.x, a.basis.z.z)
+	var zb := Vector2(b.basis.z.x, b.basis.z.z)
+	return wrapf(za.angle_to(zb) * -1.0, -PI, PI)
+
+
+## The car on the turntable from inside the showroom, low by the deck (no HUD).
+func _turntable_shot(path: String) -> void:
+	var cam := Camera3D.new()
+	tree.current_scene.add_child(cam)
+	var at := Vector3(Town.TURNTABLE.x, 0.0, Town.TURNTABLE.y)
+	var floor_y := (tree.get_first_node_in_group(&"town") as Town)._y(Town.DEALER.get_center().x, Town.DEALER.get_center().y)
+	cam.global_position = at + Vector3(4.0, floor_y + 1.0, 3.5)
+	cam.look_at(at + Vector3(0, floor_y + 0.5, 0), Vector3.UP)
+	cam.make_current()
+	Game.hud.visible = false
+	await _frames(4)
+	await _shot(path)
+	Game.hud.visible = true
+	cam.queue_free()
+	Game.player.camera.make_current()
+
+
+# --- A new game at noon ---------------------------------------------------------------------
+
+## A new game starts on day 1 at 12:00 and every later morning at 06:00 (a saved game keeps
+## its time); the first afternoon is paced so the story has about the daylight it had from
+## 06:00; wheat sown and watered at 19:00 on a new farm's first day is ripe on the second
+## morning and reaped (the story's harvest2), while a bed left dry is not, and a slower
+## crop is only a day along.
+func _scenario_noon_start() -> void:
+	var player: Player = Game.player
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	SaveGame.new_game()
+	await _until_loaded()
+	player = Game.player
+	# (A new game sets the clock running: a few minutes may have gone by while it loaded.)
+	var minute := GameClock.minute - float(GameClock.FIRST_DAY_START_MINUTE)
+	_check(GameClock.day == 1 and GameClock.FIRST_DAY_START_MINUTE == 12 * 60 and minute >= 0.0 and minute < 5.0,
+			"a new game starts on day 1 at noon (%s)" % GameClock.time_string())
+	# Real minutes of the first afternoon at the default 15-minute day, with the story's pace.
+	var per_second := (20.0 * 60.0) / (15.0 * 60.0)
+	var to_sundown := 0.0
+	var to_night := 0.0
+	var m := float(GameClock.FIRST_DAY_START_MINUTE)
+	while m < 20.0 * 60.0:
+		var real := 1.0 / (per_second * Quests.pace_for(m / 60.0)) / 60.0
+		to_night += real
+		if m < 19.25 * 60.0:
+			to_sundown += real
+		m += 1.0
+	_check(to_sundown > 22.0 and to_sundown < 27.0 and to_night > 24.0 and to_night < 30.0,
+			"from noon the story has %.1f real minutes to sundown and %.1f to nightfall" % [to_sundown, to_night])
+	# A saved game keeps its time; a saved day without one starts at 06:00.
+	var clock := GameClock.save_data()
+	GameClock.load_data({"day": 1, "minute": 7.5 * 60.0, "total_minutes": 90.0})
+	var kept := GameClock.time_string()
+	GameClock.load_data({"day": 4})
+	var morning := GameClock.time_string()
+	GameClock.load_data(clock)
+	_check(kept == "07:30" and morning == "06:00" and GameClock.get_hour() == 12,
+			"a loaded game keeps its saved time (%s, a later day without one %s)" % [kept, morning])
+	# A new farm as in play (automated runs skip the first day's farm unless asked), and no
+	# rain in the night to water the dry bed.
+	FarmState.flags[FarmHouse.FIRST_DAY_FLAG] = true
+	Weather.force(Weather.Kind.SUNNY)
+	PlayerState.give_starter_kit()
+	await _seconds(1.5)
+	var field: Field = Game.world.farm.fields[&"field_0"]
+	var free: Array[FarmPlot] = []
+	for pl: FarmPlot in field.plots:
+		if pl.soil == FarmPlot.Soil.UNTILLED and pl.crop == &"" and not pl.grandpa:
+			free.append(pl)
+	_check(free.size() >= 3, "the first field has beds to sow (%d)" % free.size())
+	if free.size() < 3:
+		return
+	# 19:00 on day 1: a bed hoed, sown with wheat and watered by hand.
+	GameClock.set_time_of_day(19.0)
+	var plot := free[0]
+	var inv := PlayerState.inventory
+	player.global_position = plot.global_position + Vector3(0, 0.1, 2.4)
+	_look_at(player, plot.global_position + Vector3(0, 0.15, 0))
+	await _frames(6)
+	_select(&"hoe")
+	await _hold_use(1.6)
+	_select(&"wheat_seed")
+	await _hold_use(1.3)
+	_select(&"watering_can")
+	await _hold_use(1.1)
+	_check(plot.crop == &"wheat" and plot.is_wet() and plot.growth < 1.0,
+			"at %s wheat is sown and watered by hand" % GameClock.time_string())
+	# Beside it: wheat sown but never watered, and carrots (36 hours) sown and watered.
+	var dry := free[1]
+	dry.load_data({"soil": FarmPlot.Soil.TILLED, "crop": "wheat"})
+	var slow := free[2]
+	slow.load_data({"soil": FarmPlot.Soil.TILLED, "crop": "carrot", "wet": CropTable.WET_HOURS})
+	# The night.
+	Game.hud.sleep_screen.start_sleep()
+	await _seconds(1.4)
+	_check(GameClock.day == 2 and GameClock.time_string() == "06:00", "the farmer wakes on day 2 at 06:00 (%s)" % GameClock.time_string())
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	_check(plot.is_ready() and plot.stage() == 3, "the wheat sown at 19:00 is ripe on the second morning (%.1f of %.0f h)" % [plot.growth, plot.target_hours()])
+	_check(not dry.is_ready() and dry.growth == 0.0, "wheat left dry has not grown (%.1f h)" % dry.growth)
+	_check(not slow.is_ready() and slow.growth >= Quests.FIRST_NIGHT_GROWTH - 0.01,
+			"carrots sown the same evening are a whole day along, not ripe (%.1f of %.0f h)" % [slow.growth, slow.target_hours()])
+	# Reaped with the scythe.
+	player.global_position = plot.global_position + Vector3(0, 0.1, 2.4)
+	_look_at(player, plot.global_position + Vector3(0, 0.15, 0))
+	await _frames(6)
+	_select(&"scythe")
+	var wheat := inv.count_item(&"wheat")
+	await _hold_use(1.3)
+	await _seconds(2.5)
+	_check(plot.crop == &"" and inv.count_item(&"wheat") >= wheat + 2,
+			"the second morning's wheat is reaped (%d wheat)" % (inv.count_item(&"wheat") - wheat))
+	# A night after the first grows as any other: only its own hours.
+	slow.load_data({"soil": FarmPlot.Soil.TILLED, "crop": "carrot", "wet": CropTable.WET_HOURS})
+	GameClock.set_time_of_day(19.0)
+	Game.hud.sleep_screen.start_sleep()
+	await _seconds(1.4)
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	_check(GameClock.day == 3 and GameClock.time_string() == "06:00" and slow.growth < Quests.FIRST_NIGHT_GROWTH - 1.0,
+			"the next night grows only its own hours (%.1f h)" % slow.growth)
+	FarmState.flags.erase(FarmHouse.FIRST_DAY_FLAG)
+	Weather.forced = -1
+	Quests.skip_tutorial()
