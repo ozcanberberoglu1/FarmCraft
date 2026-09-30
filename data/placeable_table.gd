@@ -27,6 +27,9 @@ const PLACEABLES := {
 	## scripts/camp/campfire.gd). Only on open ground: never under a roof, on a field or
 	## on a track.
 	&"campfire": {"kind": "campfire", "size": Vector3(1.15, 0.45, 1.15)},
+	## The food table (Yemek Tezgahı): a butcher's table where a fish or game is cleaned
+	## with a knife before it is cooked (scripts/placement/food_table.gd).
+	&"food_table": {"kind": "food_table", "size": Vector3(1.62, 0.96, 0.78)},
 	&"coop_kit": {"kind": "coop", "size": Vector3(11.0, 2.8, 10.0), "building": true, "reach": 12.0,
 		"build_seconds": BUILD_SECONDS, "build_id": &"coop", "name_key": "HOUSING_COOP"},
 }

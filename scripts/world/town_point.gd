@@ -4,6 +4,8 @@ extends StaticBody3D
 ## and runs `action` on E.
 
 var prompt_key := ""
+## Translation keys filled into the prompt's %s (an Animal Market pen: its kind).
+var prompt_args: Array = []
 var action: Callable
 var size := Vector3.ONE
 var is_pump := false
@@ -27,6 +29,8 @@ func interact_prompt(_player: Node) -> String:
 			return tr("ACTION_REFUEL_NO_VEHICLE")
 		var need := float(v.info.get("fuel_capacity", 40.0)) - v.fuel
 		return tr(prompt_key) % [roundi(need), UiTheme.money(int(ceil(need * Town.FUEL_PRICE)))]
+	if not prompt_args.is_empty():
+		return tr(prompt_key) % prompt_args.map(func(k: String) -> String: return tr(k))
 	return tr(prompt_key)
 
 

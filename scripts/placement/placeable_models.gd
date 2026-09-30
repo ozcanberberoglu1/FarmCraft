@@ -86,6 +86,9 @@ static func build(id: StringName) -> Dictionary:
 		&"campfire":
 			# Stones and laid logs (scripts/camp/campfire_model.gd).
 			MeshMerge.add_mesh(body, CampfireModel.whole_mesh())
+		&"food_table":
+			# The butcher's table with its board and pail (food_table_model.gd).
+			FoodTableModel.build(body)
 	var out := {"body": MeshMerge.build(body), "moving": null}
 	var whole := body.duplicate()
 	if not moving.is_empty():

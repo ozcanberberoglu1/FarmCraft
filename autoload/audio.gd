@@ -36,6 +36,9 @@ const SETS := {
 	"lamb": ["sfx/animals/lamb_baa.mp3"],
 	"chicken": ["sfx/animals/hen_cluck_1.mp3", "sfx/animals/hen_cluck_2.mp3"],
 	"rooster": ["sfx/animals/rooster_1.mp3", "sfx/animals/rooster_2.mp3"],
+	# Chicks cheeping, and an egg cracking open as one hatches (tools/fetch_poultry_audio.py).
+	"chick": "sfx/animals/chick_%d.ogg", "egg_crack": "sfx/animals/egg_crack_%d.ogg",
+	"egg_hatch": ["sfx/animals/egg_hatch.ogg"],
 	"horse": ["sfx/animals/horse_neigh.mp3"], "horse_snort": ["sfx/animals/horse_snort.mp3", "sfx/animals/horse_snore.mp3"],
 	"engine_start": ["sfx/vehicle/engine_start.mp3"], "car_door": ["sfx/vehicle/door_slam.mp3"],
 	"click": ["sfx/ui/click.ogg"], "hover": ["sfx/ui/hover.ogg"], "open": ["sfx/ui/open.ogg"], "close": ["sfx/ui/close.ogg"],
@@ -54,12 +57,14 @@ const LOOPS := {
 const DAY_MUSIC: Array[String] = ["music/day_relaxing_country.mp3", "music/day_relaxing_in_nature.mp3",
 	"music/day_wind_leaves.mp3", "music/day_the_long_road.mp3"]
 const NIGHT_MUSIC: Array[String] = ["music/night_relaxation.mp3"]
-## What each finished action sounds like: [set, volume dB, optional pitch]. It plays on
-## the final stroke's impact tick (see Player._fire_cue); swings add a swoosh before it.
+## What each finished action sounds like: [set, volume dB, optional pitch, optional
+## seconds]. It plays on the final stroke's impact tick (see Player._fire_cue); swings add
+## a swoosh before it. With seconds, a long recording is faded out that far in, so it
+## ends with the action (the trough's fill is a ten-second stream of water).
 const ACTIONS := {
 	"chop": [["axe", 0.0]], "break": [["pick", 0.0]], "hoe": [["hoe", -1.0]],
-	"clear": [["scythe", -3.0], ["hoe", -9.0, 1.1]], "cut": [["scythe", -1.0]], "refill": [["splash", -4.0]],
-	"fill_water": [["water_fill", -6.0]], "fill_feed": [["grass", -6.0]], "plant": [["plant", -2.0]],
+	"clear": [["scythe", -3.0], ["hoe", -9.0, 1.1]], "cut": [["scythe", -1.0]], "refill": [["splash", -4.0, 1.0, 1.1]],
+	"fill_water": [["water_fill", -6.0, 1.0, 0.45]], "fill_feed": [["grass", -6.0]], "plant": [["plant", -2.0]],
 	"harvest": [["scythe", -5.0], ["harvest", -1.0]], "milk": [["milk", -4.0]], "shear": [["shears", -2.0]], "brush": [["brush", -6.0]],
 	"feed": [["soft", -8.0]], "medicine": [["pot", -10.0]], "fertilize": [["soft", -8.0], ["grass", -14.0]],
 	"muck": [["grass", -5.0], ["soft", -8.0]],
@@ -84,6 +89,10 @@ const LEAD_IN := {
 }
 ## Seconds between the roof, housing and hoof-surface probes (the fades smooth the steps).
 const PROBE_SECONDS := 0.1
+## A crow held far too long (long_crow): the take it is made of, and where in it the last
+## long note is held (seconds).
+const CROW_TAKE := "sfx/animals/rooster_1.mp3"
+const CROW_NOTE := Vector2(1.05, 1.8)
 
 var _streams := {}
 ## Seconds each stream starts into (LEAD_IN), by stream.
@@ -110,7 +119,6 @@ var _last_track := ""
 ## The track that plays after the current gap; it loads in the background meanwhile.
 var _next_track := ""
 var _chatter := 4.0
-var _crowed_day := -1
 var _last_money := 0.0
 var _vehicle: Vehicle
 var _engine_delay := 0.0
@@ -354,12 +362,28 @@ func impact(id: String, at: Vector3) -> void:
 
 
 ## An action finishing on its target; animals answer being milked, brushed or fed.
-func action_done(id: String, at: Vector3, target: Node = null) -> void:
+## Returns the sounds started (for tests).
+func action_done(id: String, at: Vector3, target: Node = null) -> Array:
+	var out := []
 	for entry: Array in ACTIONS.get(id, []):
-		play(entry[0], at, float(entry[1]), 0.08, &"Effects", 5.0, float(entry[2]) if entry.size() > 2 else 1.0)
+		var p := play(entry[0], at, float(entry[1]), 0.08, &"Effects", 5.0, float(entry[2]) if entry.size() > 2 else 1.0)
+		if p != null:
+			out.append(p)
+			if entry.size() > 3:
+				cut_after(p, float(entry[3]))
 	if target is Animal and id in ["milk", "brush", "feed", "shear"] and randf() < 0.45:
 		var data: AnimalData = (target as Animal).data
 		animal_voice(data.species, data.adult, (target as Node3D).global_position, -8.0)
+	return out
+
+
+## Fades `p` out once it has played `seconds` (a long recording cut to the action), unless
+## the player has gone on to another sound meanwhile.
+func cut_after(p: Node, seconds: float, fade := 0.3) -> void:
+	var stream: Variant = p.get("stream")
+	get_tree().create_timer(seconds, true, false, true).timeout.connect(func() -> void:
+		if is_instance_valid(p) and p.get("stream") == stream and p.get("playing"):
+			fade_out(p, fade))
 
 
 ## Fades a playing sound out over `seconds` and stops it (a pour cut short).
@@ -399,7 +423,68 @@ func animal_voice(species: StringName, adult: bool, at: Vector3, volume_db := -4
 				pitch = 1.0
 		&"horse":
 			set_name = "horse" if randf() < 0.3 else "horse_snort"
+		&"chicken", &"rooster":
+			# Chicks cheep; a rooster clucks lower than his hens (he crows himself: Animal).
+			set_name = "chicken" if adult else "chick"
+			pitch = (0.82 if species == &"rooster" else 1.0) if adult else 1.0
 	play(set_name, at + Vector3(0, 1.0, 0), volume_db, 0.06, &"Effects", 7.0, pitch)
+
+
+## A crow held far too long (a rooster about to faint, see Animal): the short crow, then
+## its last long note taken up again and again, each time a little higher as he strains,
+## until after `seconds` the voice cracks up high and gives out.
+func long_crow(at: Vector3, seconds: float, volume_db := 0.0) -> void:
+	var stream := _stream(CROW_TAKE)
+	if _silent or stream == null:
+		return
+	var voice: Array = [_crow_take(stream, at, volume_db, 0.95, 0.0, 0.0)]
+	var tw := create_tween()
+	var pitch := 0.95
+	var now := 0.0
+	var t := (CROW_NOTE.x + 0.55) / pitch
+	# Overlapping takes of the note, cross-faded, up to the crack.
+	while t < seconds - 0.8:
+		pitch += 0.04
+		tw.tween_interval(t - now)
+		tw.tween_callback(_crow_again.bind(stream, at, volume_db, pitch, CROW_NOTE.x, voice))
+		now = t
+		t += (CROW_NOTE.y - CROW_NOTE.x - 0.3) / pitch
+	# The crack: the note jumps up, wavers and dies away.
+	tw.tween_interval(maxf(seconds - 0.5 - now, 0.0))
+	tw.tween_callback(_crow_again.bind(stream, at, volume_db - 2.0, pitch * 1.45, CROW_NOTE.x + 0.25, voice, 0.03))
+	tw.tween_interval(0.12)
+	tw.tween_callback(func() -> void:
+		var p: Node = voice[0]
+		if is_instance_valid(p) and p.get("stream") == stream and p.get("playing"):
+			var wobble := create_tween()
+			wobble.tween_property(p, "pitch_scale", pitch * 1.25, 0.09)
+			wobble.tween_property(p, "pitch_scale", pitch * 1.55, 0.07)
+			fade_out(p, 0.35))
+
+
+## One take of the long crow, `from` seconds into it, faded in over `fade_in` seconds.
+func _crow_take(stream: AudioStream, at: Vector3, volume_db: float, pitch: float, from: float,
+		fade_in: float) -> AudioStreamPlayer3D:
+	var s3 := _free_3d()
+	s3.stream = stream
+	s3.bus = &"Effects"
+	s3.pitch_scale = pitch
+	s3.unit_size = 10.0
+	s3.max_distance = 140.0
+	s3.global_position = at
+	s3.volume_db = volume_db - 18.0 if fade_in > 0.0 else volume_db
+	s3.play(from)
+	if fade_in > 0.0:
+		create_tween().tween_property(s3, "volume_db", volume_db, fade_in)
+	return s3
+
+
+## The held note taken up again over the take still sounding, which fades out.
+func _crow_again(stream: AudioStream, at: Vector3, volume_db: float, pitch: float, from: float, voice: Array,
+		fade := 0.2) -> void:
+	var old: Node = voice[0]
+	voice[0] = _crow_take(stream, at, volume_db, pitch, from, fade)
+	fade_out(old, fade + 0.05)
 
 
 ## Getting in is silent; the engine turns over a moment later.
@@ -557,7 +642,8 @@ func _update_hooves(delta: float, player: Node3D, probe: bool) -> void:
 	(_loops["hooves_gallop"] as Loop).update(delta, gallop * (0.0 if road else 0.9), at)
 
 
-## Now and then an animal near the player makes itself heard; the rooster crows at dawn.
+## Now and then an animal near the player makes itself heard (roosters crow at dawn on
+## their own: Animal).
 func _update_animals(delta: float, player: Node3D) -> void:
 	if player == null:
 		return
@@ -574,15 +660,9 @@ func _update_animals(delta: float, player: Node3D) -> void:
 			near.append([a, n])
 	if near.is_empty():
 		return
-	if hour > 5.4 and hour < 7.5 and _crowed_day != GameClock.day:
-		for pair: Array in near:
-			if (pair[0] as AnimalData).species == &"chicken":
-				_crowed_day = GameClock.day
-				play("rooster", (pair[1] as Node3D).global_position + Vector3(0, 1, 0), 0.0, 0.03, &"Effects", 10.0)
-				return
 	var pick: Array = near.pick_random()
 	var a: AnimalData = pick[0]
-	var chance: float = {&"chicken": 0.55, &"cow": 0.22, &"sheep": 0.3, &"horse": 0.15}.get(a.species, 0.2)
+	var chance: float = {&"chicken": 0.55, &"rooster": 0.3, &"cow": 0.22, &"sheep": 0.3, &"horse": 0.15}.get(a.species, 0.2)
 	if asleep:
 		chance *= 0.08
 	if randf() < chance:

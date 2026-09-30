@@ -27,6 +27,8 @@ const CRAFTING := {
 	&"milk_pail": {"items": {&"wood": 6, &"nails": 4}, "count": 1, "level": 4, "group": "tools"},
 	# The campfire and bait.
 	&"campfire": {"items": {&"stone": 8, &"wood": 6}, "count": 1, "level": 1, "group": "camp"},
+	# The food table: a catch cleaned on it and cooked fills far more.
+	&"food_table": {"items": {&"wood": 14, &"stone": 4, &"nails": 8}, "count": 1, "level": 1, "group": "camp"},
 	&"dough": {"items": {&"wheat": 2}, "count": 4, "level": 1, "group": "camp"},
 	# The farm's supplies.
 	&"feed": {"items": {&"wheat": 2}, "count": 5, "level": 1, "group": "farm"},
@@ -41,7 +43,7 @@ const CRAFTING := {
 }
 ## The workbench's list, heading by heading (GROUPS).
 const CRAFT_ORDER: Array[StringName] = [&"knife", &"fishing_rod", &"bow", &"axe", &"pickaxe", &"hoe",
-	&"scythe", &"watering_can", &"pitchfork", &"shears", &"milk_pail", &"campfire", &"dough", &"feed",
+	&"scythe", &"watering_can", &"pitchfork", &"shears", &"milk_pail", &"campfire", &"food_table", &"dough", &"feed",
 	&"fertilizer", &"sprinkler", &"quern", &"pickle_barrel", &"spinning_wheel", &"cheese_press", &"jam_kettle"]
 ## Headings of the workbench's list: group -> [translation key, icon].
 const GROUPS := {

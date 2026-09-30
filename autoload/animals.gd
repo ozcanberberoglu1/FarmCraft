@@ -6,6 +6,10 @@ extends Node
 ## bodies into their housing. A farm can have several coops (Grandpa's run and the ones
 ## put up from kits): each animal keeps its home (`_homes`), and crated hens bought in
 ## town move into a coop when they are let out at its door (release).
+## Poultry: a fed hen lays an egg most days and a content one now and then two
+## (eggs_today); with a rooster in her coop the eggs left in the nest hatch a day later
+## (ChickenCoop calls hatch): the chick follows its mother (Animal) and grows up into a
+## hen, now and then a rooster, which then lays (or crows) like any other.
 
 signal changed
 signal notes_changed
@@ -89,13 +93,41 @@ func node_of(a: AnimalData) -> Animal:
 
 
 func accepts_food(a: AnimalData, item_id: StringName) -> bool:
-	if a.species == &"chicken":
+	if AnimalTable.is_poultry(a.species):
 		return item_id == &"feed" or item_id == &"wheat"
 	return item_id == &"hay"
 
 
 func names_in_use() -> Array:
 	return animals.map(func(a: AnimalData): return a.name)
+
+
+## The animal with id `id` (null when there is none: sold, or never was).
+func by_id(id: int) -> AnimalData:
+	if id <= 0:
+		return null
+	for a in animals:
+		if a.id == id:
+			return a
+	return null
+
+
+## Grown roosters living in `housing`.
+func roosters_in(housing: AnimalHousing) -> int:
+	var n := 0
+	for a in animals:
+		if a.species == &"rooster" and a.adult and housing_of(a) == housing:
+			n += 1
+	return n
+
+
+## Chicks following `mother` (not grown yet).
+func chicks_of(mother: AnimalData) -> Array[AnimalData]:
+	var out: Array[AnimalData] = []
+	for a in animals:
+		if a.mother == mother.id and a.is_chick():
+			out.append(a)
+	return out
 
 
 # --- Buying & selling --------------------------------------------------------------------
@@ -152,6 +184,46 @@ func release(species: StringName, housing: AnimalHousing, at := Vector3.INF) -> 
 	Events.animal_released.emit(species, home)
 	changed.emit()
 	return a
+
+
+## A fertile egg hatched in `housing` at `at` (ChickenCoop): a chick of `mother` (her
+## coop's hen that laid it; null picks one of its hens), now and then a cockerel. Its
+## body comes out hidden and still (Animal.hatch_in): the hatching egg shows it when the
+## shell gives way. Null when the housing is full. Emits Events.chick_hatched.
+func hatch(housing: AnimalHousing, at: Vector3, mother: AnimalData = null) -> AnimalData:
+	if housing == null or housing.level <= 0 or housing.free_space() <= 0:
+		return null
+	if mother == null or housing_of(mother) != housing:
+		mother = _a_hen_of(housing)
+	var chance := float(AnimalTable.get_species(&"chicken").get("rooster_chance", 0.2))
+	var species := &"rooster" if randf() < chance else &"chicken"
+	var a := _add(species, false, "", housing)
+	a.mother = mother.id if mother else 0
+	# The mother's coat (a black hen's chicks come out dark): cockerels keep theirs in range.
+	if mother:
+		a.variant = mother.variant % AnimalModels.variant_count(species)
+	a.fullness = 70.0
+	a.hydration = 70.0
+	a.happiness = 80.0
+	a.affection = 60.0
+	var n := node_of(a)
+	if n:
+		n.hatch_in(at)
+	Events.chick_hatched.emit(n)
+	var msg := tr("MSG_CHICK_HATCHED") % ([a.name, mother.name] if mother else [a.name, "?"])
+	Game.notify(msg, Color(0.55, 1.0, 0.45))
+	report_notes.append(msg)
+	changed.emit()
+	return a
+
+
+## A grown hen of `housing` (the healthiest), or null.
+func _a_hen_of(housing: AnimalHousing) -> AnimalData:
+	var best: AnimalData = null
+	for a in animals:
+		if a.species == &"chicken" and a.adult and housing_of(a) == housing and (best == null or a.health > best.health):
+			best = a
+	return best
 
 
 ## A new animal on the farm (bought, born or let out of a crate), living in `home`
@@ -216,6 +288,7 @@ func _warm_up() -> void:
 	Game.world.farm.add_child(holder)
 	for species: StringName in AnimalTable.ORDER:
 		holder.add_child(AnimalModels.create_rig(species))
+	holder.add_child(AnimalModels.create_rig(&"chicken", &"chick"))
 	for i in 5:
 		await get_tree().process_frame
 	if is_instance_valid(holder):
@@ -444,6 +517,7 @@ func _on_day_started(_day: int) -> void:
 	if Game.world and Game.world.farm:
 		for housing in (Game.world.farm as Farm).housings():
 			housing.morning_refill()
+	var grown: Array[AnimalData] = []
 	for a in animals:
 		var info := a.info()
 		var fed := a.fed_hours >= 16.0
@@ -455,12 +529,17 @@ func _on_day_started(_day: int) -> void:
 				var msg := tr("MSG_ANIMAL_GROWN") % [a.name, species_name(a.species)]
 				Game.notify(msg, Color(0.55, 1.0, 0.45))
 				report_notes.append(msg)
+				if AnimalTable.is_poultry(a.species):
+					grown.append(a)
 		if not a.petted_today:
 			a.affection = maxf(a.affection - 15.0, 0.0)
 		if not fed:
 			a.affection = maxf(a.affection - 25.0, 0.0)
 			report_notes.append(tr("MSG_ANIMAL_HUNGRY") % a.name)
-		if a.adult and fed and a.health > 30.0 and not a.sick:
+		if a.species == &"chicken" and a.adult:
+			# A hen fed only part of the day may still lay (eggs_today).
+			_lay(a)
+		elif a.adult and fed and a.health > 30.0 and not a.sick:
 			_produce(a)
 		if a.sick and a.health > 70.0 and randf() < 0.3:
 			a.sick = false
@@ -478,15 +557,30 @@ func _on_day_started(_day: int) -> void:
 			n.refresh_body()
 	_muck_out()
 	_breed()
+	# Grown chicks (their bodies refreshed above) walk off on their own now.
+	for a in grown:
+		Events.chick_grown.emit(node_of(a))
 	changed.emit()
 	notes_changed.emit()
 
 
 ## Units of manure each animal leaves in its bedding overnight.
-const MANURE := {&"cow": 3.0, &"horse": 3.0, &"sheep": 1.5, &"chicken": 0.5}
-## Nightly chance of a birth, and days a mother rests afterwards.
-const BREED_CHANCE := {&"chicken": 0.22, &"sheep": 0.14, &"cow": 0.1, &"horse": 0.07}
-const BREED_REST := {&"chicken": 5, &"sheep": 8, &"cow": 12, &"horse": 14}
+const MANURE := {&"cow": 3.0, &"horse": 3.0, &"sheep": 1.5, &"chicken": 0.5, &"rooster": 0.5}
+## Nightly chance of a birth, and days a mother rests afterwards (poultry hatch from
+## fertile eggs instead: ChickenCoop).
+const BREED_CHANCE := {&"sheep": 0.14, &"cow": 0.1, &"horse": 0.07}
+const BREED_REST := {&"sheep": 8, &"cow": 12, &"horse": 14}
+## Laying: hours of a day a hen must have been fed for her egg (FED_EGG_HOURS), fewer
+## (HALF_FED_HOURS) give one only now and then (HALF_FED_EGG); a second egg the same
+## day comes to a content hen (happiness over CONTENT) with a chance growing with her
+## hearts: SECOND_EGG + SECOND_EGG_HEART per heart + up to SECOND_EGG_HAPPY when happy.
+const FED_EGG_HOURS := 16.0
+const HALF_FED_HOURS := 8.0
+const HALF_FED_EGG := 0.6
+const CONTENT := 50.0
+const SECOND_EGG := 0.1
+const SECOND_EGG_HEART := 0.08
+const SECOND_EGG_HAPPY := 0.12
 
 
 ## The bedding is mucked out onto the heap by the barn.
@@ -501,7 +595,7 @@ func _muck_out() -> void:
 ## Two well-kept adults of a kind (healthy, content, two hearts or more) and room in
 ## their building: now and then a baby is born overnight.
 func _breed() -> void:
-	for species: StringName in AnimalTable.ORDER:
+	for species: StringName in BREED_CHANCE:
 		var parents := animals.filter(func(a: AnimalData) -> bool:
 			return a.species == species and a.adult and not a.sick and a.health >= 70.0 \
 					and a.happiness >= 60.0 and a.hearts() >= 2)
@@ -526,18 +620,49 @@ func _breed() -> void:
 		report_notes.append(msg)
 
 
+## How many eggs hen `a` lays today (0-2), at dawn from the day that went: a hen fed
+## the day through lays one, one fed only part of it sometimes; a content one with
+## hearts now and then lays a second later in the day. None when sick or run down.
+func eggs_today(a: AnimalData) -> int:
+	if a.sick or a.health <= 30.0:
+		return 0
+	var n := 0
+	if a.fed_hours >= FED_EGG_HOURS:
+		n = 1
+	elif a.fed_hours >= HALF_FED_HOURS and randf() < HALF_FED_EGG:
+		n = 1
+	if n == 1 and a.fed_hours >= FED_EGG_HOURS and a.happiness >= CONTENT and randf() < second_egg_chance(a):
+		n = 2
+	return n
+
+
+## The chance of a well-fed hen laying a second egg today.
+func second_egg_chance(a: AnimalData) -> float:
+	var happy := clampf((a.happiness - CONTENT) / (100.0 - CONTENT), 0.0, 1.0)
+	return SECOND_EGG + SECOND_EGG_HEART * a.hearts() + SECOND_EGG_HAPPY * happy
+
+
+## A hen's eggs for the day: a kit-built coop's hens lay in its bedded nest boxes during
+## the morning (the second one later on); Grandpa's old run has them lying about.
+func _lay(a: AnimalData) -> void:
+	var n := eggs_today(a)
+	if n <= 0:
+		return
+	var h := housing_of(a)
+	var coop := ChickenCoop.of(h)
+	if coop:
+		coop.egg_due(a, quality_for(a), n)
+	elif h:
+		var rng := RandomNumberGenerator.new()
+		rng.randomize()
+		for i in n:
+			Pickup.spawn(ItemStack.create(&"egg", 1, quality_for(a)), h.egg_spot(rng) + Vector3(0, 0.08, 0))
+
+
 func _produce(a: AnimalData) -> void:
 	match a.species:
 		&"chicken":
-			var h := housing_of(a)
-			var coop := ChickenCoop.of(h)
-			if coop:
-				# A kit-built coop's hens lay in its bedded nest boxes during the morning.
-				coop.egg_due(a, quality_for(a))
-			elif h:
-				var rng := RandomNumberGenerator.new()
-				rng.randomize()
-				Pickup.spawn(ItemStack.create(&"egg", 1, quality_for(a)), h.egg_spot(rng) + Vector3(0, 0.08, 0))
+			_lay(a)
 		&"cow":
 			a.product_ready = true
 		&"sheep":

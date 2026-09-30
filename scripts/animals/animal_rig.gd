@@ -16,6 +16,11 @@ const PARAMS := {
 		"lie_drop": 0.26, "baby_scale": 0.5, "hip_height": 0.45},
 	&"chicken": {"stride": 0.16, "walk_speed": 0.8, "swing": 0.55, "knee": 0.7, "neck_down": 1.0, "head_down": 0.5,
 		"lie_drop": 0.1, "baby_scale": 0.42, "hip_height": 0.2, "biped": true},
+	&"rooster": {"stride": 0.18, "walk_speed": 0.85, "swing": 0.55, "knee": 0.7, "neck_down": 1.0, "head_down": 0.5,
+		"lie_drop": 0.1, "baby_scale": 0.42, "hip_height": 0.22, "biped": true, "faint_drop": 0.17},
+	# The downy chick (its own model, PhotoRig.MODELS): quick little steps, a big nod.
+	&"chick": {"stride": 0.045, "walk_speed": 0.5, "swing": 0.6, "knee": 0.8, "neck_down": 0.9, "head_down": 0.6,
+		"lie_drop": 0.018, "baby_scale": 1.0, "hip_height": 0.036, "biped": true},
 }
 const SCULPT_PATH := "res://art/models/animals/%s.scn"
 ## Lying down: [upper, lower, foot] joint angles (front, rear, birds) unless cfg overrides them.
@@ -24,6 +29,15 @@ const FOLD_REAR := [1.1, -2.1, -0.4]
 const FOLD_BIPED := [-1.1, 1.9, 0.4]
 ## Gallop: leg phase offset -> phase within the bound.
 const GALLOP := {0.0: 0.0, 0.5: 0.1, 0.25: 0.45, 0.75: 0.55}
+## Out cold (a rooster's faint): [upper, lower, foot] leg angles, stiff and sticking out
+## behind, spread by FAINT_SPREAD; the roll onto his (left) side; the wings fallen open
+## onto the ground (left, right); the neck and head lying limp (euler angles).
+const FAINT_LEGS := [-1.7, 0.3, 0.9]
+const FAINT_SPREAD := 0.3
+const FAINT_ROLL := 0.7
+const FAINT_WINGS := Vector2(1.7, 1.5)
+const FAINT_NECK := Vector3(-0.35, 0.3, 0.9)
+const FAINT_HEAD := Vector3(0.4, 0.2, 0.9)
 
 var species: StringName
 var cfg: Dictionary
@@ -43,6 +57,17 @@ var _ear_flick := 0.0
 var _seed := 0.0
 var _age := 1.0
 var _leg_extra := 0.0
+## 0..1: a rooster's crowing pose (neck stretched up, head thrown back, chest out, the
+## wings beating as he starts), set by Animal while he crows.
+var crow := 0.0
+## A rooster's faint after a crow held far too long, set by Animal: 0..1 keeled over (on
+## his breast and side, wings splayed down to the ground, neck and head limp on it, legs
+## sticking out); how hard he trembles (straining, or shaking himself awake); the
+## unsteady sway of getting back up; a quick fluff of his feathers once he stands.
+var faint := 0.0
+var tremble := 0.0
+var wobble := 0.0
+var fluff := 0.0
 
 static var _scenes: Dictionary = {}
 
@@ -97,7 +122,7 @@ func _collect_legs() -> void:
 			else:
 				offset = (0.25 if left else 0.75) if front else (0.0 if left else 0.5)
 			legs.append({"up": _b[prefix + "_up"], "lo": _b[prefix + "_lo"], "ft": _b.get(prefix + "_ft", -1),
-				"front": front, "offset": offset})
+				"front": front, "offset": offset, "side": side[1]})
 
 
 func _bone(bone_name: String) -> int:
@@ -184,6 +209,10 @@ func animate(delta: float, speed: float, mode: int) -> void:
 	_head_down = lerpf(_head_down, head_target, clampf(delta * 2.5, 0.0, 1.0))
 	var lie := smoothstep(0.0, 1.0, _lie)
 	var knee_scale := float(cfg["knee"]) / float(cfg["swing"])
+	# A faint: trembling in small fast shakes, a slow sway getting up, a quick ruffle after.
+	var shake := (sin(_time * 53.0) + sin(_time * 37.0 + 1.3)) * 0.5 * tremble
+	var stagger := sin(_time * 4.2) * wobble
+	var ruffle := sin(_time * 34.0) * fluff
 
 	for leg in legs:
 		var ph := TAU * (_phase + float(leg["offset"]))
@@ -196,18 +225,23 @@ func animate(delta: float, speed: float, mode: int) -> void:
 		var foot := lift * (0.6 if front else -0.5)
 		var fold: Array = (cfg.get("fold_front", FOLD_FRONT) if front else cfg.get("fold_rear", FOLD_REAR)) \
 				if not biped else FOLD_BIPED
-		_pose_rot(leg["up"], Quaternion(Vector3.RIGHT, lerpf(swing, fold[0], lie)))
-		_pose_rot(leg["lo"], Quaternion(Vector3.RIGHT, lerpf(knee, fold[1], lie)))
+		var spread := float(leg["side"]) * FAINT_SPREAD * faint
+		_pose_rot(leg["up"], Quaternion.from_euler(Vector3(lerpf(lerpf(swing, fold[0], lie), FAINT_LEGS[0], faint), 0, spread)))
+		_pose_rot(leg["lo"], Quaternion(Vector3.RIGHT, lerpf(lerpf(knee, fold[1], lie), FAINT_LEGS[1], faint)))
 		if leg["ft"] >= 0:
-			_pose_rot(leg["ft"], Quaternion(Vector3.RIGHT, lerpf(foot, fold[2], lie)))
+			_pose_rot(leg["ft"], Quaternion(Vector3.RIGHT, lerpf(lerpf(foot, fold[2], lie), FAINT_LEGS[2], faint)))
 
 	var hip: float = cfg["hip_height"]
 	var bob := absf(sin(TAU * _phase * 2.0)) * amp * 0.035 * hip
 	var root := _bone("root")
 	if root >= 0:
-		_pose_offset(root, Vector3(0, hip * _leg_extra + bob - lie * float(cfg["lie_drop"]), 0))
-	var pitch := (sin(TAU * _phase) * 0.06 if running else 0.0) + lie * 0.03
-	var roll := sin(TAU * _phase) * amp * 0.04
+		_pose_offset(root, Vector3(shake * 0.004, hip * _leg_extra + bob - lie * float(cfg["lie_drop"])
+				- faint * float(cfg.get("faint_drop", hip * 0.7)), 0))
+	if biped:
+		# Keeled over onto his breast and side (and swaying as he gets back up).
+		_rot("root", Vector3(-faint * 0.1 + stagger * 0.05, stagger * 0.08, faint * FAINT_ROLL + stagger * 0.16))
+	var pitch := (sin(TAU * _phase) * 0.06 if running else 0.0) + lie * 0.03 + crow * 0.1 + shake * 0.06
+	var roll := sin(TAU * _phase) * amp * 0.04 + shake * 0.05 + ruffle * 0.2
 	_rot("body", Vector3(pitch, 0, roll))
 
 	var idle := (1.0 - _head_down) * (1.0 - clampf(speed, 0.0, 1.0))
@@ -224,11 +258,14 @@ func animate(delta: float, speed: float, mode: int) -> void:
 				_peck_timer = randf_range(0.35, 1.1)
 				_peck = 1.0
 		var bob_head := sin(TAU * _phase * 2.0) * 0.12 * clampf(speed * 2.0, 0.0, 1.0)
-		_rot("neck1", Vector3(-_head_down * nd - _peck * 0.7 + bob_head - lie * 0.3, look_yaw * 1.5, 0))
+		var neck := Vector3(-_head_down * nd - _peck * 0.7 + bob_head - lie * 0.3 + crow * 0.45 + shake * 0.15,
+				look_yaw * 1.5 * (1.0 - crow), ruffle * 0.3)
+		_rot("neck1", neck.lerp(FAINT_NECK, faint))
 	else:
 		_rot("neck1", Vector3(-_head_down * nd * 0.55 + nod - lie * 0.2, look_yaw * 0.6, 0))
 		_rot("neck2", Vector3(-_head_down * nd * 0.45, look_yaw * 0.4, 0))
-	_rot("head", Vector3(-_head_down * float(cfg["head_down"]), look_yaw * 0.3, 0))
+	var head := Vector3(-_head_down * float(cfg["head_down"]) + crow * 0.38, look_yaw * 0.3 * (1.0 - crow), shake * 0.2)
+	_rot("head", head.lerp(FAINT_HEAD, faint))
 
 	# Ears flick now and then.
 	_ear_timer -= delta
@@ -240,11 +277,16 @@ func animate(delta: float, speed: float, mode: int) -> void:
 	_rot("ear_r", Vector3(0, 0, _ear_flick * 0.3 * sin(_time * 3.0)))
 
 	var sway := sin(_time * 1.4 + _seed) * 0.16 + sin(_time * 3.3 + _seed) * 0.05
-	var lift_tail := (0.25 if running else 0.05) - lie * 0.2
-	_rot("tail1", Vector3(-lift_tail, 0, sway))
+	# Limp and flat on the ground in a faint, up a moment as he fluffs himself.
+	var lift_tail := (0.25 if running else 0.05) - lie * 0.2 - faint * 0.6 + fluff * 0.2
+	_rot("tail1", Vector3(-lift_tail, 0, sway + faint * 0.4))
 	_rot("tail2", Vector3(-lift_tail * 0.5, 0, sway * 1.2))
 	_rot("tail3", Vector3(0, 0, sway * 1.4))
 	if biped:
-		var flap := sin(_time * 18.0) * 0.4 * (1.0 if running else 0.0)
-		_rot("wing_l", Vector3(0, 0, flap))
-		_rot("wing_r", Vector3(0, 0, -flap))
+		# Running flutters the wings; a crow starts with a few strong beats.
+		var beat := crow * (1.0 - smoothstep(0.55, 0.9, crow)) if crow > 0.0 else 0.0
+		var flap := sin(_time * 18.0) * 0.4 * (1.0 if running else 0.0) + sin(_time * 14.0) * 0.7 * beat
+		# Fallen open in a faint, quivering, held out a little in a ruffle.
+		var splay := shake * 0.3 + fluff * 0.35
+		_rot("wing_l", Vector3(0, 0, flap + splay + faint * FAINT_WINGS.x))
+		_rot("wing_r", Vector3(0, 0, -flap - splay - faint * FAINT_WINGS.y))

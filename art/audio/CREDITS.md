@@ -97,6 +97,10 @@ License: free for commercial use in games, no attribution required).
 | sfx/camp/bite_0.ogg, bite_1.ogg | Human bites a juicy sausage, Hungry man eating | 117, 2252 |
 | sfx/camp/chew_0.ogg, chew_1.ogg | Chewing something crunchy, Human eating tasty food with mouth open | 2244, 114 |
 | sfx/camp/yawn.ogg | Male tired yawn | 2272 |
+| sfx/camp/chop_0-2.ogg, chop_3-4.ogg | Chopping food on the table, Cutting hard vegetables with knife (`tools/build_food_audio.py`) | 134, 136 |
+| sfx/camp/slice.ogg | Quick knife slice cutting | 2152 |
+| sfx/camp/meat_hit.ogg | Meat hit sound | 2159 |
+| sfx/camp/trophy.ogg | Achievement bell | 600 |
 ## Fishing sounds (`sfx/fishing/*`)
 
 Cut, cleaned and levelled from these recordings by `tools/fetch_fishing.py` (the recipe of every take is in the
@@ -122,3 +126,20 @@ script). All are CC0 or Mixkit's free licence: none needs attribution or share-a
 | flop_0 | Fish flapping (2457) | Mixkit | Mixkit free licence |
 | flop_1-3, flop_5 | *fish slaps on snow writhing after caught +unhook* | kyles, https://freesound.org/people/kyles/sounds/450829/ | CC0 |
 | flop_4 | *Fish flopping over on sand* | adviseme333, https://freesound.org/people/adviseme333/sounds/679389/ | CC0 |
+
+## Chicks and hatching (`sfx/animals/chick_*`, `egg_crack_*`, `egg_hatch`)
+
+Built by `tools/fetch_poultry_audio.py`. None needs attribution or share-alike.
+
+| Used for | Recording | Author / source | Licence |
+|---|---|---|---|
+| chick_0-3 | *মুরগির বাচ্চার ডাক* (a brood of chicks calling), cut, high-passed and levelled | Md. Tahmid Hossain, https://commons.wikimedia.org/wiki/File:মুরগির_বাচ্চার_ডাক.oga | CC0 |
+| egg_crack_0-2, egg_hatch | synthesised in the script (filtered noise clicks over a small hollow knock) | — | — |
+## Wild berry bushes and rabbits (sfx/wild, built by tools/build_wild_audio.py)
+
+| File | Source | Author | License |
+|---|---|---|---|
+| rustle_* | Dry leaves rustling (2430), Dry leaves sound (2428), softened | Mixkit | Mixkit free licence |
+| squeak_* | Mouse squeak (1019), Little squeak (1018), pitched down | Mixkit | Mixkit free licence |
+| scuffle_* | Footsteps on tall grass (532) | Mixkit | Mixkit free licence |
+| thump_* | A rabbit's alarm thump, synthesised in the script | FarmCraft | (original) |

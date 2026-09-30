@@ -34,6 +34,8 @@ var away_pos := Vector3.ZERO
 var away_yaw := 0.0
 ## Day this animal last gave birth (mothers rest a while before the next).
 var last_birth_day := -100
+## A chick's mother hen (her id; 0 for none): it follows her until it is grown.
+var mother := 0
 
 
 func info() -> Dictionary:
@@ -42,6 +44,11 @@ func info() -> Dictionary:
 
 func hearts() -> int:
 	return clampi(int(affection / 200.0), 0, 5)
+
+
+## A young bird (chicken or rooster) not grown yet.
+func is_chick() -> bool:
+	return not adult and AnimalTable.is_poultry(species)
 
 
 ## 0 baby .. 1 adult (drives body size).
@@ -62,7 +69,7 @@ func to_dict() -> Dictionary:
 	var d := {}
 	for p in ["id", "name", "variant", "adult", "growth", "fullness", "hydration", "happiness", "health",
 			"affection", "petted_today", "brushed_today", "hand_fed_today", "fed_hours", "product_ready",
-			"product_progress", "wool", "sick", "wet", "exposure", "away", "away_yaw", "last_birth_day"]:
+			"product_progress", "wool", "sick", "wet", "exposure", "away", "away_yaw", "last_birth_day", "mother"]:
 		d[p] = get(p)
 	d["species"] = String(species)
 	d["away_pos"] = [away_pos.x, away_pos.y, away_pos.z]

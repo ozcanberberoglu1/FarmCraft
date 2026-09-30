@@ -5,8 +5,14 @@ extends AnimatableBody3D
 ## drink at the troughs, shelter in bad weather and at night, sleep, follow food),
 ## player interaction and status badges. A hen of a kit-built coop with an egg due walks
 ## to a bedded nest box, hops in, sits on it a while, lays and goes back out.
+## Chicks come out of a hatching egg (hatch_in, then emerge), keep close to their mother
+## (pecking about by her side, running with fluttering wings to catch up, through the
+## coop door after her) and sleep huddled under her at night, cheeping as they go; the
+## body changes from the downy chick to a pullet half way through growing up. A grown
+## rooster crows a few times at first light, neck stretched and wings beating; now and
+## then he holds a crow far too long, trembles and faints dead away for a while.
 
-enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN, GO_NEST, NEST }
+enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN, GO_NEST, NEST, HATCH, BROOD }
 
 const BADGES := {
 	"sick": preload("res://art/icons/ui/badge_sick.svg"), "wet": preload("res://art/icons/ui/badge_rain.svg"),
@@ -18,6 +24,37 @@ const HEART := preload("res://art/icons/ui/heart.svg")
 ## Seconds of a hen's hop up into a nest box (and down again), and of sitting on it.
 const NEST_HOP := 0.5
 const NEST_SIT := Vector2(16.0, 26.0)
+## Metres from its feeder within which an animal counts as crowding it (the farmer's feed
+## then goes into the feeder, see _feeder_behind).
+const FEEDER_REACH := 1.6
+## Chicks: how far from their mother they potter about by day (metres from her middle,
+## nearest and farthest), and beyond what they run to catch up with her.
+const BROOD_NEAR := Vector2(0.26, 0.62)
+const CATCH_UP := 1.4
+## Seconds of a chick's first wobbly steps out of the shell, and of its hop down from a
+## nest box onto the coop floor.
+const HATCH_WOBBLE := 1.4
+const HATCH_HOP := 0.45
+## A rooster crows CROWS times at first light (game hours), each crow CROW_TIME seconds
+## long, a while apart (seconds).
+const CROW_HOURS := Vector2(5.3, 7.8)
+const CROWS := 3
+const CROW_TIME := 2.4
+const CROW_GAP := Vector2(8.0, 22.0)
+## FAINT_CHANCE of his crows go on far too long: CROW_LONG seconds of it, FAINT_TREMBLE of
+## trembling, FAINT_FALL keeling over, FAINT_OUT lying out cold, FAINT_RISE shaking himself
+## and getting up (unsteadily), FAINT_FLUFF fluffing his feathers.
+const FAINT_CHANCE := 0.6
+const CROW_LONG := 3.6
+const FAINT_TREMBLE := 0.8
+const FAINT_FALL := 0.45
+const FAINT_OUT := 6.0
+const FAINT_RISE := 1.5
+const FAINT_FLUFF := 0.7
+## "The rooster fainted!" shows over him while the farmer, this close (metres), looks
+## right at him (the view direction's dot with the way to him above FAINT_LOOK).
+const FAINT_SEEN := 12.0
+const FAINT_LOOK := 0.9
 
 var data: AnimalData
 var housing: AnimalHousing
@@ -47,6 +84,30 @@ var _radius := 0.5
 var _nest := -1
 var _nest_from := Vector3.ZERO
 var _laid := false
+## The model the rig shows (AnimalModels.look_for: the chick, a pullet, the grown bird).
+var _look := &""
+## Chicks: the pace to catch up with their mother, the next cheep, and a hatchling's
+## way from the shell onto the floor.
+var _hurry := 1.0
+var _cheep := 0.0
+var _hatch_from := Vector3.ZERO
+var _hatch_to := Vector3.ZERO
+var _hatch_shown := false
+## A rooster's crowing: seconds into the crow (-1: not crowing), crows still to come this
+## morning and the wait before the next, and the day he last greeted.
+var _crow_t := -1.0
+var _crows_left := 0
+var _crow_wait := 0.0
+var _crow_day := -1
+## Seconds into a crow held too long and the faint after it (-1: none), the label over
+## him and the wait before the next look whether the farmer sees him.
+var _faint_t := -1.0
+var _faint_label: Label3D
+var _faint_look := 0.0
+
+## Crows end in a faint only in play: automated runs keep to what they check (the
+## rooster scenario switches it on).
+static var faint_in_tests := false
 
 
 func setup(animal_data: AnimalData, home: AnimalHousing) -> void:
@@ -74,8 +135,10 @@ func _ready() -> void:
 	_rng.seed = data.id * 7919 + 13
 	var info := data.info()
 	_move_speed = float(info.get("speed", 0.8))
-	rig = AnimalModels.create_rig(data.species)
+	_look = AnimalModels.look_for(data)
+	rig = AnimalModels.create_rig(data.species, _look)
 	add_child(rig)
+	_cheep = _rng.randf_range(1.0, 5.0)
 	_shape = CollisionShape3D.new()
 	_shape.shape = BoxShape3D.new()
 	add_child(_shape)
@@ -96,6 +159,15 @@ func _ready() -> void:
 
 ## Updates size, coat and fleece from the data (after growth or shearing).
 func refresh_body() -> void:
+	# A chick turns into a pullet (and a cockerel into a rooster) as it grows: a new body.
+	var look := AnimalModels.look_for(data)
+	if look != _look:
+		_look = look
+		var old := rig
+		rig = AnimalModels.create_rig(data.species, _look)
+		add_child(rig)
+		old.queue_free()
+		_wet_shown = -1.0
 	var t := data.age_ratio()
 	rig.set_variant(data.variant, not data.adult)
 	rig.set_age(t)
@@ -129,7 +201,11 @@ func teleport_home(inside: bool) -> void:
 	reset_physics_interpolation()
 	_path.clear()
 	_path_inside.clear()
+	_end_faint()
 	_set_state(State.SLEEP if GameClock.is_night() else State.IDLE, 2.0)
+	# A chick goes where its mother went (she may be moved after it).
+	if data.is_chick():
+		_snap_to_mother.call_deferred()
 
 
 ## A hen let out of her crate at the coop door (`p`, just inside it): she shakes
@@ -142,6 +218,7 @@ func arrive(p: Vector3) -> void:
 	_path_inside.clear()
 	_face(p + housing.front())
 	reset_physics_interpolation()
+	_end_faint()
 	_set_state(State.IDLE, _rng.randf_range(1.5, 3.0))
 	_think = 1.0
 
@@ -170,6 +247,332 @@ func radius() -> float:
 	return _radius
 
 
+# --- Chicks -------------------------------------------------------------------------------
+
+## A chick still in its egg at `at` (the nest's straw, the coop floor): hidden and still
+## until the shell gives way (emerge).
+func hatch_in(at: Vector3) -> void:
+	_hatch_from = at
+	var floor_at := at
+	floor_at.y = housing.ground_height(at)
+	var coop := ChickenCoop.of(housing)
+	# Out of a nest box: a hop down onto the floor in front of it.
+	if at.y - floor_at.y > 0.15 and coop:
+		floor_at = at + coop.nest_out() * 0.42
+		floor_at.y = housing.ground_height(floor_at)
+	_hatch_to = floor_at
+	indoors = housing.is_in_building(floor_at)
+	global_position = at
+	reset_physics_interpolation()
+	visible = false
+	_hatch_shown = false
+	_path.clear()
+	_path_inside.clear()
+	_set_state(State.HATCH, 1e9)
+
+
+## The shell has given way: the hatchling stands up wet and wobbly, shakes itself and
+## (from a nest box) hops down, cheeping.
+func emerge() -> void:
+	if state != State.HATCH:
+		return
+	visible = true
+	_hatch_shown = true
+	rig.scale = Vector3.ONE * rig.scale.x * 0.6
+	var tw := create_tween()
+	tw.tween_property(rig, "scale", rig.scale / 0.6, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_state_time = 0.0
+	_state_len = HATCH_WOBBLE + HATCH_HOP
+	Audio.play("chick", global_position + Vector3(0, 0.1, 0), -6.0, 0.1, &"Effects", 4.0, 1.1)
+
+
+func _hatching(_delta: float) -> void:
+	_speed = 0.0
+	if not _hatch_shown:
+		_state_time = 0.0
+		return
+	var t := _state_time
+	if t < HATCH_WOBBLE:
+		# Finding its feet: a few unsteady turns on the spot.
+		rotation.y += sin(t * 9.0) * 0.02
+		global_position = _hatch_from
+		return
+	var u := (t - HATCH_WOBBLE) / HATCH_HOP
+	if u < 1.0:
+		global_position = _hop(_hatch_from, _hatch_to, u)
+		return
+	global_position = _hatch_to
+	_set_state(State.IDLE, _rng.randf_range(0.5, 1.2))
+	_think = 0.2
+
+
+## The mother it follows (null when she is gone, away or living elsewhere).
+func _mother_node() -> Animal:
+	var m := Animals.by_id(data.mother)
+	if m == null or m.away or not m.adult:
+		return null
+	var n := Animals.node_of(m)
+	if n == null or n.housing != housing or n.ridden or n.state == State.HATCH:
+		return null
+	return n
+
+
+## Where by its mother a chick keeps: all round her, each chick on its own side, drifting
+## slowly by day; tucked in under her breast at night.
+func _brood_spot(mom: Animal, night: bool) -> Vector3:
+	var k := float(data.id) * 2.39996
+	var off: Vector3
+	if night:
+		off = mom.global_basis * Vector3(cos(k) * 0.07, 0.0, -0.03 + sin(k) * 0.06)
+	else:
+		var r := lerpf(BROOD_NEAR.x, BROOD_NEAR.y, fposmod(k * 0.37, 1.0))
+		var a := k + sin(Time.get_ticks_msec() * 0.00017 + k) * 0.9
+		off = Vector3(cos(a) * r, 0.0, sin(a) * r)
+	var p := mom.global_position + off
+	p = housing.constrain(p, radius(), mom.indoors)
+	p.y = housing.ground_height(p)
+	return p
+
+
+func _snap_to_mother() -> void:
+	if not is_inside_tree() or state == State.HATCH or data.away:
+		return
+	var mom := _mother_node()
+	if mom == null:
+		return
+	indoors = mom.indoors
+	global_position = _brood_spot(mom, GameClock.is_night())
+	reset_physics_interpolation()
+	_path.clear()
+	_path_inside.clear()
+
+
+## A chick's next move while it has a mother to follow (false: none, the usual AI runs).
+func _decide_chick() -> bool:
+	var mom := _mother_node()
+	if mom == null:
+		return false
+	# A drink or a peck at the feeder first (then back to her).
+	if state in [State.GO_EAT, State.GO_DRINK] and not _path.is_empty():
+		return true
+	if (state == State.EAT or state == State.DRINK) and _busy():
+		return true
+	var night := GameClock.is_night() or mom.state == State.SLEEP
+	var spot := _brood_spot(mom, night)
+	var to := spot - global_position
+	var d := Vector2(to.x, to.z).length()
+	var apart := indoors != mom.indoors
+	if apart or d > (0.22 if night else 0.5):
+		# Moving already toward where she is: keep going, only aimed at her new place.
+		var far := apart or d > CATCH_UP
+		_hurry = 1.7 if far else 1.05
+		_go(spot, mom.indoors, State.BROOD)
+		if state != State.BROOD:
+			_hurry = 1.0
+		return true
+	_hurry = 1.0
+	if night:
+		if state != State.SLEEP:
+			_path.clear()
+			_path_inside.clear()
+			_face(mom.global_position)
+			_set_state(State.SLEEP, 1e9)
+		return true
+	if state == State.SLEEP:
+		_set_state(State.IDLE, _rng.randf_range(0.8, 2.0))
+		return true
+	if _busy():
+		return true
+	# Thirsty or hungry: to the troughs (in the coop, where she goes too).
+	var water := housing.water
+	var feed := housing.feed
+	if data.hydration < 45.0 and water and not water.is_empty() and housing.is_in_building(water.global_position) == indoors:
+		_go(_trough_spot(water), indoors, State.GO_DRINK)
+		return true
+	if data.fullness < 50.0 and feed and not feed.is_empty() and housing.is_in_building(feed.global_position) == indoors:
+		_go(_trough_spot(feed), indoors, State.GO_EAT)
+		return true
+	# Pottering by her side: pecking at the ground, a look about, a step or two.
+	var roll := _rng.randf()
+	if roll < 0.55:
+		_set_state(State.GRAZE, _rng.randf_range(1.2, 3.5))
+	elif roll < 0.8:
+		var near := spot + Vector3(_rng.randf_range(-0.2, 0.2), 0.0, _rng.randf_range(-0.2, 0.2))
+		_go(housing.constrain(near, radius(), mom.indoors), mom.indoors, State.BROOD)
+	else:
+		_set_state(State.IDLE, _rng.randf_range(0.8, 2.5))
+	return true
+
+
+## Now and then a cheep; often and loud when it has lost its mother or lags behind.
+func _update_cheep(delta: float) -> void:
+	_cheep -= delta
+	if _cheep > 0.0:
+		return
+	var lost := _hurry > 1.5 or _mother_node() == null
+	_cheep = _rng.randf_range(0.6, 1.5) if lost else _rng.randf_range(2.5, 7.0)
+	if state == State.SLEEP or state == State.HATCH:
+		_cheep *= 3.0
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam and cam.global_position.distance_squared_to(global_position) < 22.0 * 22.0:
+		Audio.play("chick", global_position + Vector3(0, 0.1, 0), -5.0 if lost else -11.0, 0.12, &"Effects", 3.0,
+				_rng.randf_range(0.95, 1.12))
+
+
+# --- The rooster's crow -------------------------------------------------------------------
+
+## At first light a grown rooster crows a few times (not while he sits on anything).
+func _update_crow(delta: float) -> void:
+	if _faint_t >= 0.0:
+		_update_faint(delta)
+		return
+	if _crow_t >= 0.0:
+		_crow_t += delta
+		rig.crow = _crow_envelope(_crow_t)
+		if _crow_t >= CROW_TIME:
+			_crow_t = -1.0
+			rig.crow = 0.0
+		return
+	var hour := GameClock.get_hour_float()
+	if _crow_day != GameClock.day and hour >= CROW_HOURS.x and hour < CROW_HOURS.y:
+		_crow_day = GameClock.day
+		_crows_left = CROWS
+		_crow_wait = _rng.randf_range(0.5, 3.0)
+	if _crows_left <= 0:
+		return
+	if hour >= CROW_HOURS.y or hour < CROW_HOURS.x:
+		_crows_left = 0
+		return
+	_crow_wait -= delta
+	if _crow_wait <= 0.0 and state != State.AWAY and not ridden:
+		_crows_left -= 1
+		_crow_wait = _rng.randf_range(CROW_GAP.x, CROW_GAP.y)
+		crow()
+
+
+## Throws his head back and crows (the wings beat first). Now and then (or with `faint`)
+## the crow goes on far too long and ends in a faint (_update_faint).
+func crow(faint := false) -> void:
+	if faint or _rolls_faint():
+		_crow_t = -1.0
+		_faint_t = 0.0
+		Audio.long_crow(global_position + Vector3(0, 0.5, 0), CROW_LONG)
+		return
+	_crow_t = 0.0
+	Audio.play("rooster", global_position + Vector3(0, 0.5, 0), 0.0, 0.03, &"Effects", 10.0)
+
+
+## Whether this crow is held too long: FAINT_CHANCE of them, not in his sleep, on a nest,
+## away or in automated runs (unless faint_in_tests).
+func _rolls_faint() -> bool:
+	if not faint_in_tests and DebugTools.is_automated():
+		return false
+	if ridden or data.away or state in [State.SLEEP, State.NEST, State.HATCH, State.AWAY]:
+		return false
+	return _rng.randf() < FAINT_CHANCE
+
+
+## Keeled over, lying out cold (not while straining, falling or getting up).
+func fainted() -> bool:
+	var down := CROW_LONG + FAINT_TREMBLE + FAINT_FALL
+	return _faint_t >= down and _faint_t < down + FAINT_OUT
+
+
+## The crow held on and on (head back, straining, quivering at the end), trembling,
+## keeling over onto the ground with a thud, lying there, then shaking himself, getting
+## up with a stagger and fluffing his feathers; he does nothing else meanwhile.
+func _update_faint(delta: float) -> void:
+	var was := _faint_t
+	_faint_t += delta
+	var t := _faint_t
+	var fall_at := CROW_LONG + FAINT_TREMBLE
+	var down_at := fall_at + FAINT_FALL
+	var up_at := down_at + FAINT_OUT
+	var stood_at := up_at + FAINT_RISE
+	rig.crow = smoothstep(0.0, 0.35, t) * (1.0 - smoothstep(CROW_LONG - 0.1, down_at, t))
+	if t < CROW_LONG:
+		rig.tremble = 0.3 * smoothstep(CROW_LONG - 1.4, CROW_LONG, t)
+	elif t < fall_at:
+		rig.tremble = lerpf(0.3, 1.0, smoothstep(CROW_LONG, CROW_LONG + 0.15, t))
+	elif t < down_at:
+		rig.tremble = 1.0 - (t - fall_at) / FAINT_FALL
+	else:
+		# Coming round: he shakes himself before he gets up.
+		rig.tremble = 0.9 * smoothstep(up_at, up_at + 0.1, t) * (1.0 - smoothstep(up_at + 0.35, up_at + 0.55, t))
+	var u := clampf((t - fall_at) / FAINT_FALL, 0.0, 1.0)
+	rig.faint = u * u * (1.0 - smoothstep(up_at + 0.45, stood_at, t))
+	rig.wobble = smoothstep(up_at + 0.4, up_at + 0.7, t) * (1.0 - smoothstep(stood_at - 0.3, stood_at + 0.3, t))
+	rig.fluff = sin(PI * clampf((t - stood_at) / FAINT_FLUFF, 0.0, 1.0))
+	if was < down_at and t >= down_at:
+		Audio.play("soft", global_position + Vector3(0, 0.1, 0), -2.0, 0.05, &"Effects", 4.0, 0.6)
+	if was < stood_at and t >= stood_at:
+		Audio.animal_voice(&"rooster", true, global_position, -8.0)
+	_faint_look -= delta
+	if not fainted():
+		_show_faint_label(false)
+	elif _faint_look <= 0.0:
+		_faint_look = 0.15
+		_show_faint_label(_seen_by_player())
+	if t >= stood_at + FAINT_FLUFF:
+		_end_faint()
+		_think = _rng.randf_range(0.3, 0.8)
+
+
+func _end_faint() -> void:
+	if _faint_t < 0.0:
+		return
+	_faint_t = -1.0
+	rig.crow = 0.0
+	rig.faint = 0.0
+	rig.tremble = 0.0
+	rig.wobble = 0.0
+	rig.fluff = 0.0
+	_show_faint_label(false)
+
+
+## Whether the farmer is close and looking right at him, nothing solid in between.
+func _seen_by_player() -> bool:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return false
+	var at := global_position + Vector3(0, 0.15, 0)
+	var to := at - cam.global_position
+	var d := to.length()
+	if d > FAINT_SEEN or d < 0.05 or (-cam.global_basis.z).dot(to / d) < FAINT_LOOK:
+		return false
+	var q := PhysicsRayQueryParameters3D.create(cam.global_position, at, 1)
+	return get_world_3d().direct_space_state.intersect_ray(q).is_empty()
+
+
+func _show_faint_label(on: bool) -> void:
+	if on and _faint_label == null:
+		_faint_label = Label3D.new()
+		_faint_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_faint_label.fixed_size = true
+		_faint_label.font = UiTheme.font(800)
+		_faint_label.font_size = 64
+		_faint_label.pixel_size = 0.0009
+		_faint_label.outline_size = 14
+		_faint_label.outline_modulate = Color(0.08, 0.06, 0.04, 0.85)
+		_faint_label.modulate = Color(1.0, 0.84, 0.42)
+		_faint_label.no_depth_test = true
+		_faint_label.render_priority = 10
+		_faint_label.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		_faint_label.layers = 2
+		_faint_label.position = Vector3(0, 0.55, 0)
+		add_child(_faint_label)
+	if _faint_label:
+		_faint_label.visible = on
+		if on:
+			_faint_label.text = tr("MSG_ROOSTER_FAINTED")
+
+
+## 0..1: how far into the crowing pose (up quickly, held, eased back down).
+static func _crow_envelope(t: float) -> float:
+	return smoothstep(0.0, 0.35, t) * (1.0 - smoothstep(CROW_TIME - 0.6, CROW_TIME, t))
+
+
 # --- Frame update --------------------------------------------------------------------------
 
 ## The pose is visual only: it follows the rendered frame rate (the body itself is
@@ -186,16 +589,26 @@ func _physics_process(delta: float) -> void:
 	_state_time += delta
 	_attention = maxf(_attention - delta, 0.0)
 	_think -= delta
+	var chick := data.is_chick()
 	if _think <= 0.0:
-		_think = _rng.randf_range(0.8, 2.0)
+		# Chicks look up to their mother often: they keep close.
+		_think = _rng.randf_range(0.3, 0.6) if chick else _rng.randf_range(0.8, 2.0)
 		_decide()
+	if chick:
+		_update_cheep(delta)
+	elif data.species == &"rooster" and data.adult:
+		_update_crow(delta)
+	if state == State.HATCH:
+		_hatching(delta)
+		_mode = AnimalRig.Mode.IDLE
+		return
 	if state == State.NEST:
 		_sit_nest()
-	elif _attention > 0.0 and state != State.SLEEP:
+	elif (_attention > 0.0 or _crow_t >= 0.0 or _faint_t >= 0.0) and state != State.SLEEP:
 		_speed = move_toward(_speed, 0.0, delta * 3.0)
 	else:
 		match state:
-			State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST:
+			State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST, State.BROOD:
 				_move(delta)
 			_:
 				_speed = move_toward(_speed, 0.0, delta * 2.0)
@@ -213,7 +626,14 @@ func _physics_process(delta: float) -> void:
 		State.AWAY:
 			_mode = AnimalRig.Mode.GRAZE if fmod(_state_time, 20.0) < 12.0 else AnimalRig.Mode.IDLE
 		_:
-			_mode = AnimalRig.Mode.WALK if _speed > 0.05 else AnimalRig.Mode.IDLE
+			# A downy chick running to catch up flutters its stubs of wings (RUN); a crow is
+			# posed by hand.
+			if _speed > 0.05:
+				_mode = AnimalRig.Mode.RUN if _hurry > 1.5 and _look == &"chick" else AnimalRig.Mode.WALK
+			else:
+				_mode = AnimalRig.Mode.IDLE
+	if _crow_t >= 0.0 or _faint_t >= 0.0:
+		_mode = AnimalRig.Mode.WALK
 	# Wetness only changes on clock ticks: skip the instance uniform write otherwise.
 	if data.wet != _wet_shown:
 		_wet_shown = data.wet
@@ -241,12 +661,15 @@ func _decide() -> void:
 		if state != State.AWAY:
 			_set_state(State.AWAY, 1e9)
 		return
-	# On a nest: nothing else until she has laid and hopped down.
-	if state == State.NEST:
+	# On a nest: nothing else until she has laid and hopped down; out of the egg, in the
+	# middle of a crow or in a faint, nothing either.
+	if state == State.NEST or state == State.HATCH or _crow_t >= 0.0 or _faint_t >= 0.0:
+		return
+	if data.is_chick() and _decide_chick():
 		return
 	var night := GameClock.is_night()
 	var want_inside := housing.has_shelter() and (night or Weather.is_precipitating())
-	var moving := state in [State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST]
+	var moving := state in [State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST, State.BROOD]
 	# Shelter comes first: interrupt anything else (a hen bound for a nest is going in).
 	if want_inside and not indoors:
 		if housing.can_pass():
@@ -383,8 +806,9 @@ func _move(delta: float) -> void:
 	rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z), clampf(delta * 3.5, 0.0, 1.0))
 	var facing := Vector3(-sin(rotation.y), 0.0, -cos(rotation.y))
 	var align := maxf(0.0, facing.dot(dir))
-	var target_speed := _move_speed * (0.3 + 0.7 * align) * (1.25 if state == State.SHELTER else 1.0)
-	_speed = move_toward(_speed, minf(target_speed, dist * 2.0 + 0.2), delta * 1.6)
+	var target_speed := _move_speed * (0.3 + 0.7 * align) * (1.25 if state == State.SHELTER else 1.0) \
+			* (_hurry if state == State.BROOD else 1.0)
+	_speed = move_toward(_speed, minf(target_speed, dist * 2.0 + 0.2), delta * (3.0 if state == State.BROOD else 1.6))
 	var p := pos + facing * _speed * delta + _separation() * delta
 	var transit := _path_inside[0] != indoors
 	if not transit:
@@ -395,12 +819,18 @@ func _move(delta: float) -> void:
 
 func _separation() -> Vector3:
 	var push := Vector3.ZERO
+	var chick := data.is_chick()
 	for other: Animal in housing.animals:
-		if other == self or other.ridden:
+		if other == self or other.ridden or other.state == State.HATCH:
+			continue
+		# Grown birds step over chicks; a chick snuggles right up to its mother.
+		if not chick and other.data.is_chick():
 			continue
 		var d := global_position - other.global_position
 		d.y = 0.0
 		var min_d := radius() + other.radius()
+		if chick and other.data.id == data.mother:
+			min_d *= 0.25 if state == State.SLEEP or GameClock.is_night() else 0.8
 		var l := d.length()
 		if l < min_d and l > 0.001:
 			push += d / l * (min_d - l) * 2.0
@@ -421,6 +851,9 @@ func _arrived() -> void:
 				_face(housing.water.global_position)
 		State.SHELTER:
 			_set_state(State.SLEEP if GameClock.is_night() else State.IDLE, _rng.randf_range(4.0, 10.0))
+		State.BROOD:
+			_hurry = 1.0
+			_set_state(State.IDLE, _rng.randf_range(0.3, 0.9))
 		State.GO_NEST:
 			var coop := ChickenCoop.of(housing)
 			if coop == null or not coop.nest_filled(_nest):
@@ -565,6 +998,8 @@ func can_ride() -> bool:
 
 
 func interact_prompt(_player: Node) -> String:
+	if _faint_t >= 0.0:
+		return ""
 	if can_ride():
 		return tr("ACTION_RIDE")
 	return tr("ACTION_PET") if not data.petted_today else ""
@@ -575,6 +1010,8 @@ func info_prompt() -> String:
 
 
 func interact(player: Node) -> void:
+	if _faint_t >= 0.0:
+		return
 	if can_ride():
 		(player as Player).mount(self)
 		return
@@ -594,6 +1031,10 @@ func use_action(_player: Node, stack: ItemStack) -> Dictionary:
 	_attention = maxf(_attention, 0.6)
 	if stack == null:
 		return {}
+	# Out cold: nothing for him till he comes round (the feeder he lies by still fills).
+	if _faint_t >= 0.0:
+		var by := _feeder_behind(stack)
+		return by.use_action(_player, stack) if by else {}
 	var id := stack.item.id
 	if id == &"milk_pail" and data.species == &"cow" and data.product_ready:
 		return {"id": "milk", "verb": "ACTION_MILK", "label": "PROGRESS_MILKING", "duration": 2.0}
@@ -603,9 +1044,25 @@ func use_action(_player: Node, stack: ItemStack) -> Dictionary:
 		return {"id": "brush", "verb": "ACTION_BRUSH", "label": "PROGRESS_BRUSHING", "duration": 1.6}
 	if id == &"medicine" and data.sick:
 		return {"id": "medicine", "verb": "ACTION_MEDICINE", "label": "PROGRESS_TREATING", "duration": 1.2}
+	# Crowding its feeder: what the feeder takes goes into it, not down this one beak.
+	var feeder := _feeder_behind(stack)
+	if feeder:
+		return feeder.use_action(_player, stack)
 	if Animals.accepts_food(data, id) and data.fullness < 95.0:
 		return {"id": "feed", "verb": "ACTION_FEED", "label": "PROGRESS_FEEDING", "duration": 0.8}
 	return {}
+
+
+## Its home's feeder when this animal stands at it and the farmer holds something the
+## feeder takes while it has room (hungry hens crowd an empty feeder, so the look lands
+## on them rather than on it).
+func _feeder_behind(stack: ItemStack) -> Trough:
+	if housing == null or not is_instance_valid(housing.feed) or stack == null:
+		return null
+	var feeder := housing.feed
+	if not stack.item.id in feeder.accepts or feeder.amount >= feeder.capacity - 0.01:
+		return null
+	return feeder if global_position.distance_to(feeder.global_position) < FEEDER_REACH else null
 
 
 func complete_use(_player: Node, stack: ItemStack, action: Dictionary) -> void:
@@ -625,6 +1082,10 @@ func complete_use(_player: Node, stack: ItemStack, action: Dictionary) -> void:
 			PlayerState.inventory.remove_item(stack.item.id, 1)
 			Animals.hand_feed(data)
 			pop_heart()
+		"fill_feed":
+			var feeder := _feeder_behind(stack)
+			if feeder:
+				feeder.complete_use(_player, stack, action)
 	_attention = 1.5
 
 

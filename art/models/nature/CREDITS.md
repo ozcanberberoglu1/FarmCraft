@@ -15,5 +15,12 @@ after re-fetching); see `NatureModels.SCANS`.
 | Fallen branches | Dry Branches Medium 01 | https://polyhaven.com/a/dry_branches_medium_01 |
 | Stumps in the woods | Tree Stump 01 | https://polyhaven.com/a/tree_stump_01 |
 | Fallen trunks in the woods | Dead Tree Trunk | https://polyhaven.com/a/dead_tree_trunk |
+| Wild berry bushes: raspberry and blackberry canes | Shrub 01 | https://polyhaven.com/a/shrub_01 |
+| Wild berry bushes: dog rose (rosehips) | Shrub 02 | https://polyhaven.com/a/shrub_02 |
+| Wild berry bushes: blueberry twigs | Shrub 04 | https://polyhaven.com/a/shrub_04 |
 
 The campfire's ring of stones (scripts/camp/campfire_model.gd) is cut from Boulder 01 and Rock 09 too.
+
+The wild berry bushes (scripts/resources/berry_models.gd) are mounds of twigs cut from the
+shrub scans, fetched by `tools/fetch_wild.py` and baked with their berries by
+`tools/bake_berries.gd` into `baked/berry_*.res`.

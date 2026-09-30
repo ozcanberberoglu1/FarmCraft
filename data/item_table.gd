@@ -96,6 +96,61 @@ const ITEMS := {
 	## A young tree dropped by a felled one: planted and watered it grows into a tree.
 	&"sapling": {"cat": "sapling", "stack": 20, "sell": 2, "buy": 0},
 
+	# --- POULTRY agent: the rooster (eggs left under a rooster stay the plain "egg"; the
+	# coop keeps which ones are fertile) ---
+	## A live rooster in a wooden crate (bought at the animal market, let out at a coop).
+	&"rooster_crate": {"cat": "animal", "stack": 4, "sell": 0, "buy": 0},
+	# --- NATURE: wild food of the land ---
+	# Berries picked off the wild bushes at the forest's edge (BerryBush, a handful at a
+	# time): eaten from the hand with the right mouse button or sold. A wild rabbit caught
+	# by hand after a chase (WildRabbit): sold, or cleaned into meat at the food table.
+	&"blueberry": {"cat": "forage", "stack": 50, "sell": 2, "buy": 0, "food": 5},
+	&"blackberry": {"cat": "forage", "stack": 50, "sell": 2, "buy": 0, "food": 5},
+	&"raspberry": {"cat": "forage", "stack": 50, "sell": 3, "buy": 0, "food": 4},
+	&"rosehip": {"cat": "forage", "stack": 50, "sell": 2, "buy": 0, "food": 3},
+	&"rabbit": {"cat": "game", "stack": 5, "sell": 15, "buy": 0},
+	# --- end NATURE ---
+	# --- FOOD agent: the food table, the catch cleaned on it, meat and trophy fish ---
+	## The food table (Yemek Tezgahı): a butcher's table put down on the farm. A fish or
+	## game laid on it is cleaned with a knife from the bag (scripts/placement/food_table.gd).
+	&"food_table": {"cat": "placeable", "stack": 1, "sell": 20, "buy": 0},
+	# Cleaned at the food table: the fish headed and gutted, the game cut into meat. They
+	# cook on the campfire into <id>_cooked, which fills far more than a whole grilled
+	# fish (Campfire.cooked_id).
+	&"fish_rudd_cleaned": {"cat": "fish", "stack": 20, "sell": 3, "buy": 0},
+	&"fish_crucian_cleaned": {"cat": "fish", "stack": 20, "sell": 3, "buy": 0},
+	&"fish_perch_cleaned": {"cat": "fish", "stack": 20, "sell": 4, "buy": 0},
+	&"fish_carp_cleaned": {"cat": "fish", "stack": 10, "sell": 9, "buy": 0},
+	&"fish_tench_cleaned": {"cat": "fish", "stack": 10, "sell": 10, "buy": 0},
+	&"fish_trout_cleaned": {"cat": "fish", "stack": 10, "sell": 16, "buy": 0},
+	&"fish_zander_cleaned": {"cat": "fish", "stack": 10, "sell": 22, "buy": 0},
+	&"fish_pike_cleaned": {"cat": "fish", "stack": 5, "sell": 30, "buy": 0},
+	&"fish_catfish_cleaned": {"cat": "fish", "stack": 5, "sell": 55, "buy": 0},
+	&"fish_rudd_cleaned_cooked": {"cat": "food", "stack": 20, "sell": 5, "buy": 0, "food": 33},
+	&"fish_crucian_cleaned_cooked": {"cat": "food", "stack": 20, "sell": 5, "buy": 0, "food": 33},
+	&"fish_perch_cleaned_cooked": {"cat": "food", "stack": 20, "sell": 6, "buy": 0, "food": 40},
+	&"fish_carp_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 13, "buy": 0, "food": 70},
+	&"fish_tench_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 14, "buy": 0, "food": 62},
+	&"fish_trout_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 22, "buy": 0, "food": 66},
+	&"fish_zander_cleaned_cooked": {"cat": "food", "stack": 10, "sell": 30, "buy": 0, "food": 75},
+	&"fish_pike_cleaned_cooked": {"cat": "food", "stack": 5, "sell": 40, "buy": 0, "food": 88},
+	&"fish_catfish_cleaned_cooked": {"cat": "food", "stack": 5, "sell": 72, "buy": 0, "food": 100},
+	&"rabbit_meat": {"cat": "meat", "stack": 20, "sell": 4, "buy": 0},
+	&"rabbit_meat_cooked": {"cat": "food", "stack": 20, "sell": 8, "buy": 0, "food": 32},
+	# Trophy fish: now and then a giant of its species bites (FishTable.TROPHY_CHANCE), ten
+	# times the weight, sold for ten times the price.
+	&"fish_rudd_trophy": {"cat": "fish", "stack": 5, "sell": 30, "buy": 0},
+	&"fish_crucian_trophy": {"cat": "fish", "stack": 5, "sell": 30, "buy": 0},
+	&"fish_perch_trophy": {"cat": "fish", "stack": 5, "sell": 40, "buy": 0},
+	&"fish_crayfish_trophy": {"cat": "fish", "stack": 5, "sell": 60, "buy": 0},
+	&"fish_carp_trophy": {"cat": "fish", "stack": 5, "sell": 90, "buy": 0},
+	&"fish_tench_trophy": {"cat": "fish", "stack": 5, "sell": 100, "buy": 0},
+	&"fish_trout_trophy": {"cat": "fish", "stack": 5, "sell": 160, "buy": 0},
+	&"fish_zander_trophy": {"cat": "fish", "stack": 5, "sell": 220, "buy": 0},
+	&"fish_pike_trophy": {"cat": "fish", "stack": 5, "sell": 300, "buy": 0},
+	&"fish_catfish_trophy": {"cat": "fish", "stack": 5, "sell": 550, "buy": 0},
+	# --- end FOOD agent ---
+
 	# Fish (see data/fish_table.gd): caught in the pond with the fishing rod, sold in the
 	# shipping bin (rarer fish pay more) or cooked on the campfire into <id>_cooked, which
 	# restores "food" hunger points when eaten. The old boot is junk.
@@ -127,7 +182,8 @@ const CATEGORY_KEYS := {
 	"feed": "CAT_FEED", "animal_product": "CAT_ANIMAL_PRODUCT", "artisan": "CAT_ARTISAN",
 	"placeable": "CAT_PLACEABLE", "supply": "CAT_SUPPLY", "key": "CAT_KEY", "animal": "CAT_ANIMAL",
 	"material": "CAT_MATERIAL", "bait": "CAT_BAIT", "sapling": "CAT_SAPLING",
-	"fish": "CAT_FISH", "food": "CAT_FOOD", "junk": "CAT_JUNK",
+	"fish": "CAT_FISH", "food": "CAT_FOOD", "junk": "CAT_JUNK", "meat": "CAT_MEAT",
+	"forage": "CAT_FORAGE", "game": "CAT_GAME",
 }
 
 ## Items the player starts a new game with: [id, count]

@@ -195,6 +195,7 @@ func _sync_hens() -> void:
 			var hen := CrateHen.new()
 			hen.name = "Hen%d" % i
 			hen.variant = i
+			hen.species = AnimalTable.species_of_crate(_layout[i])
 			add_child(hen)
 			_hens[i] = hen
 		var xf := slots[i]

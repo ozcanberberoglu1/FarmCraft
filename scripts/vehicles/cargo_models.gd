@@ -28,7 +28,7 @@ const UNIT_KG := {
 	&"cheese": 1.0, &"yarn": 0.25, &"pickles": 0.8, &"jam": 0.5, &"tomato_paste": 0.6, &"flour": 2.0,
 	&"fertilizer": 5.0, &"manure": 3.0, &"workbench": 60.0, &"cheese_press": 45.0, &"spinning_wheel": 20.0,
 	&"pickle_barrel": 30.0, &"jam_kettle": 40.0, &"quern": 80.0, &"sprinkler": 3.0,
-	&"chicken_crate": 6.0, &"truck_key": 0.05,
+	&"chicken_crate": 6.0, &"rooster_crate": 6.5, &"truck_key": 0.05,
 }
 const SEED_KG := 0.05
 const DEFAULT_KG := 0.5

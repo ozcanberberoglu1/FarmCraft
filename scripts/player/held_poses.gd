@@ -41,6 +41,7 @@ const POSES := {
 	&"fishing_rod": [Vector3(0.24, -0.34, -0.44), Vector3(0, -82, 55), 1.0, Vector3.ZERO],
 	# A crate of hens is carried in front with both hands, its long side across the view.
 	&"chicken_crate": [Vector3(0.02, -0.46, -0.64), Vector3(4, 90, 0), 0.95],
+	&"rooster_crate": [Vector3(0.02, -0.46, -0.64), Vector3(4, 90, 0), 0.95],
 	# The knife point ahead and a little up and in, the flat of the blade to the side.
 	&"knife": [Vector3(0.19, -0.19, -0.4), Vector3(-19.2, 95.3, -64.9), 1.0],
 	# The bow in the left hand, upright and canted, turned to show its curve and string.

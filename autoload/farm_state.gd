@@ -17,6 +17,10 @@ var stumps := {}
 ## meet the valley's generated "tree_<n>".
 var saplings: Array = []
 var sapling_serial := 0
+## Rocks the nights brought up (NightRocks): [{id, x, z, size, seed, yaw}]. Ids
+## "nrock_<n>" never meet the valley's generated "rock_<n>".
+var night_rocks: Array = []
+var night_rock_serial := 0
 ## The farm warehouse: produce and materials stocked by the unit. Its capacity follows
 ## warehouse_level() (a new farm starts with Grandpa's run-down shed).
 var warehouse := Stockpile.new(ProjectTable.WAREHOUSE_CAPACITY[0])
@@ -197,6 +201,8 @@ func new_game() -> void:
 	stumps.clear()
 	saplings.clear()
 	sapling_serial = 0
+	night_rocks.clear()
+	night_rock_serial = 0
 	manure = 0.0
 	placed.clear()
 	flags.clear()
@@ -212,6 +218,7 @@ func save_data() -> Dictionary:
 		inv[id] = (storage[id] as Inventory).to_array()
 	return {"built": built.keys().map(func(k): return String(k)), "storage": inv, "depleted": depleted,
 		"stumps": stumps.duplicate(true), "saplings": saplings.duplicate(true), "sapling_serial": sapling_serial,
+		"night_rocks": night_rocks.duplicate(true), "night_rock_serial": night_rock_serial,
 		"warehouse": warehouse.to_dict(), "manure": manure,
 		"placed": placed.duplicate(true), "flags": flags.duplicate(true)}
 
@@ -225,6 +232,8 @@ func load_data(d: Dictionary) -> void:
 	stumps = (d.get("stumps", {}) as Dictionary).duplicate(true)
 	saplings = (d.get("saplings", []) as Array).duplicate(true)
 	sapling_serial = int(d.get("sapling_serial", saplings.size()))
+	night_rocks = (d.get("night_rocks", []) as Array).duplicate(true)
+	night_rock_serial = int(d.get("night_rock_serial", night_rocks.size()))
 	var inv: Dictionary = d.get("storage", {})
 	for id in inv:
 		var arr: Array = inv[id]

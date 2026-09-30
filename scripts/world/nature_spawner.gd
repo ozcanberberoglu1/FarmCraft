@@ -69,7 +69,16 @@ func build() -> void:
 	_scatter_bushes(rng)
 	_build_hill_forest(rng)
 	_scatter_undergrowth()
+	# Wild berry bushes, the rocks the nights bring and the rabbits: after everything
+	# else, on their own random numbers, so the rest of the valley is as it was.
+	_scatter_berry_bushes()
 	if not Engine.is_editor_hint():
+		var night := NightRocks.new()
+		night.name = "NightRocks"
+		rocks.add_child(night)
+		var wildlife := Wildlife.new()
+		wildlife.name = "Wildlife"
+		add_child(wildlife)
 		if not Settings.changed.is_connected(_apply_quality):
 			Settings.changed.connect(_apply_quality)
 		_apply_quality()
@@ -83,6 +92,12 @@ func _free_spot(p: Vector2, min_dist: float) -> bool:
 
 
 func _valid_ground(x: float, z: float, margin: float) -> bool:
+	return open_ground(x, z, margin)
+
+
+## Open wild ground in the valley: not on paths, dirt, water or steep banks, clear of the
+## farm's cleared spots (by `margin` m) and its working area.
+static func open_ground(x: float, z: float, margin: float) -> bool:
 	if Vector2(x, z).length() > WorldLayout.VALLEY_RADIUS - 2.0:
 		return false
 	if WorldLayout.is_cleared(x, z, margin):
@@ -190,6 +205,83 @@ func _scatter_bushes(rng: RandomNumberGenerator) -> void:
 		transforms[rng.randi() % transforms.size()].append(xf)
 	for i in transforms.size():
 		_multimesh(NatureModels.bush(i + 1), transforms[i], "Bushes%d" % i, true)
+
+
+# --- Wild berry bushes -------------------------------------------------------------------
+
+## How many bushes of each kind grow in the valley, in patches of 1-3 (BerryBush).
+const BERRY_BUSHES := {&"blueberry": 7, &"blackberry": 8, &"raspberry": 6, &"rosehip": 5}
+## Patch spacing (m): bushes of a patch stand this far apart, patches much further.
+const BERRY_GAP := 2.6
+const BERRY_PATCH_GAP := 16.0
+
+
+## Berry bushes where wild bushes grow: along the forest's edge (WorldLayout
+## playable_distance 3-20 m in), round the valley's woods and in the meadows; never on
+## the farm, paths, the road or water, clear of trees, rocks and grass patches. Ids
+## "berry_<n>" in placing order (a fixed seed: the same bushes every game).
+func _scatter_berry_bushes() -> void:
+	var parent := Node3D.new()
+	parent.name = "BerryBushes"
+	add_child(parent)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5150
+	var index := 0
+	var patches: Array[Vector2] = []
+	for kind: StringName in BERRY_BUSHES:
+		var left: int = BERRY_BUSHES[kind]
+		var attempts := 0
+		while left > 0 and attempts < 4000:
+			attempts += 1
+			var center := Vector2(rng.randf_range(-86, 86), rng.randf_range(-86, 86))
+			if not _berry_ground(center) or patches.any(func(q: Vector2) -> bool:
+					return q.distance_squared_to(center) < BERRY_PATCH_GAP * BERRY_PATCH_GAP):
+				continue
+			patches.append(center)
+			var size := mini(rng.randi_range(1, 3), left)
+			for i in size:
+				var p := center
+				var tries := 0
+				while i > 0 and tries < 12:
+					tries += 1
+					var a := rng.randf() * TAU
+					p = center + Vector2(cos(a), sin(a)) * rng.randf_range(BERRY_GAP, BERRY_GAP * 1.6)
+					if _berry_ground(p):
+						break
+				if i > 0 and (tries >= 12 or not _free_spot(p, BERRY_GAP * 0.8)):
+					continue
+				_placed.append(p)
+				var bush := BerryBush.new()
+				bush.name = "BerryBush%d" % index
+				bush.resource_id = "berry_%d" % index
+				bush.kind = kind
+				bush.variant = rng.randi() % BerryModels.VARIANTS
+				bush.bush_scale = rng.randf_range(0.95, 1.25)
+				bush.position = TerrainData.point_on_ground(p.x, p.y, -0.03)
+				bush.rotation.y = rng.randf() * TAU
+				parent.add_child(bush)
+				index += 1
+				left -= 1
+
+
+## Ground a berry bush can grow on: open wild ground near the forest, round the woods
+## or in a meadow, off the road.
+func _berry_ground(p: Vector2) -> bool:
+	if not _valid_ground(p.x, p.y, 2.5) or not _free_spot(p, 2.4):
+		return false
+	# Off the road and the pond's banks (where the farmer fishes).
+	if WorldLayout.distance_to_road(p.x, p.y) < 7.0 or WorldLayout.distance_to_pond(p.x, p.y) < WorldLayout.POND_RADIUS + 7.0:
+		return false
+	var edge := WorldLayout.playable_distance(p.x, p.y)
+	if edge > 3.0 and edge < 20.0:
+		return true
+	for r: Rect2 in WOODS:
+		if r.grow(6.0).has_point(p) and not r.grow(-3.0).has_point(p):
+			return true
+	for r: Rect2 in GRASS_AREAS:
+		if r.has_point(p):
+			return true
+	return false
 
 
 ## Hill forest tiles whose nearest point is farther than this (m, per graphics preset

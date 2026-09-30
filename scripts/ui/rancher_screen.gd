@@ -1,10 +1,15 @@
 class_name RancherScreen
 extends ModalScreen
-## Livestock dealer: buy chickens, sheep, cows and horses (young or grown), sell
-## your animals, and open the supplies shop (feed, hay, medicine, tools). Opened from
-## the poultry stall in town it is the poultry seller instead (open_poultry): grown
-## hens in transport crates, no coop needed yet, loaded into the bed of the pickup
-## parked in front (else carried in the bag).
+## The Animal Market (Hayvan Pazarı) in town: buy animals, sell your own, and open the
+## supplies shop (feed, hay, medicine, tools). "Buy" lists every kind the market keeps
+## (AnimalTable.ORDER) on the left, each with its price and whether this farm may buy it;
+## the chosen kind on the right: what it gives and eats, what the market wants to see
+## on the farm first (the farm level, the building: LiveCrates.market_lock) and where it
+## will live, then the purchase. Crated kinds (hens) come in transport crates, as many as
+## the order says, loaded into the bed of the player's pickup parked near where the market
+## was opened (else carried in the bag): no coop needed yet. The others are young or grown,
+## brought straight into their housing by the dealer. Opened at a pen's gate or the hen
+## stall, the market shows that kind first (open_market).
 
 const PORTRAIT_DIR := "res://art/icons/animals/"
 
@@ -13,18 +18,21 @@ var _content: VBoxContainer
 var _money: Label
 var _tab := "buy"
 var _confirm_sell := -1
-## Opened at the poultry stall: crated hens only.
-var _poultry := false
-## Where the stall stands (a vehicle parked near it takes the crates).
+## The kind shown on the right of "Buy".
+var _selected: StringName = &""
+## Where the market was opened (a vehicle parked near it takes the crates).
 var _stall_at := Vector3.ZERO
-## Hens in the order being put together.
+## Crated animals in the order being put together.
 var _order := 2
+## The big portrait of the chosen kind (it hops when one is bought).
+var _portrait: TextureRect
 
 
 static func portrait(species: StringName, adult := true) -> Texture2D:
-	var path := "%s%s%s.png" % [PORTRAIT_DIR, species, "" if adult else "_baby"]
-	if ResourceLoader.exists(path):
-		return load(path)
+	for s: StringName in [species, MarketHerd.model_of(species)]:
+		var path := "%s%s%s.png" % [PORTRAIT_DIR, s, "" if adult else "_baby"]
+		if ResourceLoader.exists(path):
+			return load(path)
 	return null
 
 
@@ -39,31 +47,42 @@ func _ready() -> void:
 	window.header_right.add_child(_tabs)
 	_money = window.add_money_pill()
 	_content = VBoxContainer.new()
-	_content.custom_minimum_size = Vector2(1200, 580)
+	_content.custom_minimum_size = Vector2(1200, 600)
 	window.body.add_child(_content)
-	Events.money_changed.connect(func(m: int, _d: int) -> void: _money.text = UiTheme.money(m))
+	Events.money_changed.connect(func(m: int, _d: int) -> void:
+		_money.text = UiTheme.money(m)
+		if visible and _tab == "buy":
+			_fill())
 	Animals.changed.connect(func() -> void: if visible: _fill())
 
 
+## The market as the livestock office opens it (the whole list, the last kind shown).
 func open() -> void:
-	_poultry = false
-	_tabs.visible = true
+	var town := get_tree().get_first_node_in_group(&"town") as Town
+	var at := town.market_office.global_position if town and town.market_office else Vector3.ZERO
+	open_market(at, &"")
+
+
+## Opens the market at `at` (crates go into a pickup parked near it) on `focus` (&"":
+## the kind last shown, else the first).
+func open_market(at: Vector3, focus: StringName = &"") -> void:
+	_stall_at = at
+	if focus != &"" and not AnimalTable.get_species(focus).is_empty():
+		_selected = focus
+	elif _selected == &"" or AnimalTable.get_species(_selected).is_empty():
+		_selected = AnimalTable.ORDER[0]
 	window.set_heading(tr("UI_RANCHER"), "paw", tr("UI_RANCHER_HINT"))
 	_money.text = UiTheme.money(Economy.money)
-	_tabs.select("buy")
-	show_screen()
-
-
-## The poultry stall: hens in crates for the pickup parked by `stall_at`.
-func open_poultry(stall_at: Vector3) -> void:
-	_poultry = true
-	_stall_at = stall_at
-	_tabs.visible = false
-	window.set_heading(tr("UI_POULTRY"), "paw", tr("UI_POULTRY_HINT"))
-	_money.text = UiTheme.money(Economy.money)
 	_order = clampi(_order, 1, LiveCrates.MAX_ORDER)
+	_tab = "buy"
+	_tabs.select("buy")
 	_fill()
 	show_screen()
+
+
+## The hen stall: the market on crated hens.
+func open_poultry(stall_at: Vector3) -> void:
+	open_market(stall_at, &"chicken")
 
 
 func close_screen() -> void:
@@ -83,18 +102,144 @@ func _set_tab(tab: String) -> void:
 func _fill() -> void:
 	for c in _content.get_children():
 		c.queue_free()
-	if _poultry:
-		_fill_poultry()
-	elif _tab == "buy":
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 16)
-		_content.add_child(row)
-		for species: StringName in AnimalTable.ORDER:
-			row.add_child(_buy_card(species))
+	_portrait = null
+	if _tab == "buy":
+		_fill_buy()
 	else:
 		_fill_sell()
 
 
+# --- Buying -----------------------------------------------------------------------------
+
+## Buys `adult` (or young) `species` straight into its housing, if the market sells it
+## to this farm. Crated kinds go through LiveCrates.buy instead.
+func buy_animal(species: StringName, adult: bool) -> bool:
+	if why_not(species, adult) != "":
+		Audio.ui("error", -6.0)
+		return false
+	var a := Animals.buy(species, adult)
+	if a == null:
+		return false
+	_fill()
+	_bought(species, adult)
+	return true
+
+
+## "" when `species` can be bought here now (young or grown; crated kinds: `count` of
+## them), else why not: the market's lock first, then the farm (room, money).
+func why_not(species: StringName, adult := true, count := 1) -> String:
+	var lock := LiveCrates.market_lock(species)
+	if lock != "":
+		return lock
+	if AnimalTable.crate_item(species) != &"":
+		return LiveCrates.can_buy(species, count, _stall_at)
+	return Animals.can_buy(species, adult)
+
+
+func _bought(species: StringName, adult: bool) -> void:
+	Audio.ui("confirm")
+	if Game.player:
+		Audio.animal_voice(MarketHerd.model_of(species), adult, (Game.player as Node3D).global_position + Vector3(0, -0.4, 0), -8.0)
+	if is_instance_valid(_portrait):
+		var t := create_tween()
+		_portrait.pivot_offset = _portrait.size * Vector2(0.5, 1.0)
+		t.tween_property(_portrait, "scale", Vector2(1.08, 0.92), 0.08)
+		t.tween_property(_portrait, "scale", Vector2(0.96, 1.06), 0.1)
+		t.tween_property(_portrait, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _fill_buy() -> void:
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 24)
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_content.add_child(body)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(420, 600)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 10)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	for species: StringName in AnimalTable.ORDER:
+		list.add_child(_species_card(species))
+	var card := PanelContainer.new()
+	var sb := UiTheme.box(Color(0, 0, 0, 0.22), 14, 1, UiTheme.LINE)
+	sb.set_content_margin_all(22)
+	card.add_theme_stylebox_override("panel", sb)
+	card.custom_minimum_size = Vector2(756, 600)
+	body.add_child(card)
+	var detail := VBoxContainer.new()
+	detail.add_theme_constant_override("separation", 12)
+	card.add_child(detail)
+	_fill_detail(detail, _selected)
+
+
+## A kind in the list: portrait, name, the grown one's price and a tag (for sale, or
+## what locks it).
+func _species_card(species: StringName) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(404, 92)
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var active := species == _selected
+	var normal := UiTheme.box(UiTheme.CARD_ACTIVE if active else UiTheme.CARD, 12, 1,
+			Color(UiTheme.GOLD, 0.7) if active else Color(1, 1, 1, 0.07))
+	if active:
+		normal.border_width_left = 4
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = normal.bg_color.lightened(0.06) if active else UiTheme.CARD_HOVER
+	for state in ["normal", "hover", "pressed", "hover_pressed"]:
+		b.add_theme_stylebox_override(state, normal if state == "normal" else hover)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 10
+	row.offset_right = -14
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	var lock := LiveCrates.market_lock(species)
+	var pic := TextureRect.new()
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.custom_minimum_size = Vector2(104, 76)
+	pic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pic.texture = portrait(species)
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if lock != "":
+		pic.modulate = Color(0.55, 0.55, 0.55, 0.8)
+	row.add_child(pic)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(col)
+	var name_label := UiTheme.make_label(Animals.species_name(species), UiTheme.text(21, UiTheme.TEXT if lock == "" else UiTheme.TEXT_DIM, 700))
+	name_label.clip_text = true
+	col.add_child(name_label)
+	col.add_child(UiTheme.price(int(AnimalTable.get_species(species).get("adult_price", 0)), 20))
+	var chip: Control
+	var need := UnlockTable.animal_level(species)
+	var project := AnimalTable.market_needs(species)
+	if Progress.level < need:
+		chip = UiTheme.chip(tr("UI_LEVEL_SHORT") % need, UiTheme.TEXT_DIM, "lock", 15)
+	elif lock != "":
+		chip = UiTheme.chip(tr("PROJECT_" + String(project).to_upper()), UiTheme.RED, "lock", 14)
+	else:
+		chip = UiTheme.chip(tr("MARKET_FOR_SALE"), UiTheme.GREEN, "check", 15)
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(chip)
+	b.pressed.connect(func() -> void:
+		if _selected != species:
+			_selected = species
+			Audio.ui("click", -8.0)
+			_fill())
+	return b
+
+
+## An icon and a line of text (wraps).
 func _info(icon_name: String, text: String, color := UiTheme.TEXT_MUTED) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -104,169 +249,173 @@ func _info(icon_name: String, text: String, color := UiTheme.TEXT_MUTED) -> HBox
 	row.add_child(pic)
 	var l := UiTheme.make_label(text, UiTheme.text(17, color, 600))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.custom_minimum_size = Vector2(220, 0)
 	row.add_child(l)
 	return row
 
 
-func _buy_card(species: StringName) -> Control:
-	var info := AnimalTable.get_species(species)
-	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(286, 570)
-	var sb := UiTheme.box(Color(0, 0, 0, 0.24), 16, 1, Color(1, 1, 1, 0.08))
-	sb.set_content_margin_all(16)
-	card.add_theme_stylebox_override("panel", sb)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	card.add_child(box)
-	# Portrait on a soft spotlight.
-	var stage := PanelContainer.new()
-	var ssb := UiTheme.box(Color(1, 1, 1, 0.05), 12)
-	stage.add_theme_stylebox_override("panel", ssb)
-	box.add_child(stage)
-	var pic := TextureRect.new()
-	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	pic.custom_minimum_size = Vector2(254, 180)
-	pic.texture = portrait(species)
-	stage.add_child(pic)
-	box.add_child(UiTheme.make_label(UiTheme.caps(Animals.species_name(species)), UiTheme.heading(34, UiTheme.TEXT, 700, 2)))
-	var housing_kind: String = info["housing"]
-	var housing: AnimalHousing = Game.world.farm.housing_for(housing_kind)
-	var home := tr("HOUSING_" + housing_kind.to_upper())
-	var space := "%d / %d" % [Animals.count_in(housing_kind), housing.capacity()] if housing.level > 0 else tr("BUILD_LOCKED")
-	box.add_child(_info("home", "%s: %s" % [home, space], UiTheme.TEXT))
-	var product: StringName = info.get("product", &"")
-	var product_text := tr("RANCHER_RIDEABLE") if info.get("rideable", false) else (tr("RANCHER_PRODUCT") % [ItemDB.get_item(product).display_name(),
-			tr("RANCHER_DAILY") if int(info["product_days"]) == 1 else tr("RANCHER_EVERY_DAYS") % int(info["product_days"])])
-	box.add_child(_info("sparkles", product_text))
-	box.add_child(_info("food", tr("RANCHER_FOOD") % [int(info["food"]), ItemDB.get_item(&"feed" if species == &"chicken" else &"hay").display_name()]))
-	box.add_child(UiTheme.expand())
-	var reason_any := Animals.can_buy(species, false)
-	if reason_any != "" and AnimalTable.crate_item(species) != &"":
-		# Hens also come in crates at the poultry stall by the market, coop or not.
-		box.add_child(UiTheme.paragraph(tr("RANCHER_POULTRY_STALL_HINT"), 15, UiTheme.GOLD_SOFT, 254))
-	elif reason_any != "":
-		box.add_child(UiTheme.paragraph(reason_any, 15, UiTheme.RED, 254))
-	for adult: bool in [false, true]:
-		var cost: int = info["adult_price"] if adult else info["baby_price"]
-		var b := UiTheme.button("%s  ·  %s" % [Animals.species_name(species, adult), UiTheme.money(cost)],
-				"primary" if adult else "secondary", Vector2(254, 50), "", 19)
-		var reason := Animals.can_buy(species, adult)
-		b.disabled = reason != ""
-		b.tooltip_text = reason
-		b.pressed.connect(func() -> void:
-			Animals.buy(species, adult)
-			_fill())
-		box.add_child(b)
-	return card
-
-
-# --- Poultry stall -----------------------------------------------------------------------
-
-## An _info row whose text takes the whole width (wider cards than the buy cards).
-func _wide(row: HBoxContainer) -> HBoxContainer:
-	(row.get_child(1) as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+## A requirement: a tick or a padlock, what it is and how the farm stands.
+func _requirement(ok: bool, label: String, state: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(UiTheme.icon_rect(UiTheme.glyph("check" if ok else "lock"), 20, UiTheme.GREEN if ok else UiTheme.RED))
+	var l := UiTheme.make_label(label, UiTheme.text(18, UiTheme.TEXT, 600))
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(l)
+	row.add_child(UiTheme.make_label(state, UiTheme.heading(18, UiTheme.GREEN if ok else UiTheme.RED, 700, 0)))
 	return row
 
 
-func _fill_poultry() -> void:
-	var species := &"chicken"
+func _fill_detail(box: VBoxContainer, species: StringName) -> void:
 	var info := AnimalTable.get_species(species)
+	if info.is_empty():
+		return
 	var crate := AnimalTable.crate_item(species)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18)
-	_content.add_child(row)
-	# The hen: portrait, what she gives and eats, where she will live.
-	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(430, 570)
-	var sb := UiTheme.box(Color(0, 0, 0, 0.24), 16, 1, Color(1, 1, 1, 0.08))
-	sb.set_content_margin_all(18)
-	card.add_theme_stylebox_override("panel", sb)
-	row.add_child(card)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
-	card.add_child(box)
+	# Portrait beside the name and what it gives and eats.
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 18)
+	box.add_child(head)
 	var stage := PanelContainer.new()
 	stage.add_theme_stylebox_override("panel", UiTheme.box(Color(1, 1, 1, 0.05), 12))
-	box.add_child(stage)
-	var pic := TextureRect.new()
-	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	pic.custom_minimum_size = Vector2(394, 230)
-	pic.texture = portrait(species)
-	stage.add_child(pic)
-	box.add_child(UiTheme.make_label(UiTheme.caps(ItemDB.get_item(crate).display_name()), UiTheme.heading(32, UiTheme.TEXT, 700, 2)))
-	box.add_child(_wide(_info("sparkles", tr("RANCHER_PRODUCT") % [ItemDB.get_item(info["product"]).display_name(), tr("RANCHER_DAILY")])))
-	box.add_child(_wide(_info("food", tr("RANCHER_FOOD") % [int(info["food"]), ItemDB.get_item(&"feed").display_name()])))
-	var housing: AnimalHousing = Game.world.farm.housing_for(info["housing"]) if Game.world else null
-	if housing and housing.level > 0:
-		box.add_child(_wide(_info("home", "%s: %d / %d" % [tr("HOUSING_COOP"), Animals.count_in(info["housing"]), housing.capacity()], UiTheme.TEXT)))
-	box.add_child(_wide(_info("box", tr("RANCHER_CRATE_HINT"), UiTheme.TEXT)))
-	# The order: how many, what it costs, where the crates go.
-	var order := PanelContainer.new()
-	order.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var osb := UiTheme.box(Color(0, 0, 0, 0.24), 16, 1, Color(1, 1, 1, 0.08))
-	osb.set_content_margin_all(24)
-	order.add_theme_stylebox_override("panel", osb)
-	row.add_child(order)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 16)
-	order.add_child(col)
-	col.add_child(UiTheme.section(tr("UI_POULTRY_ORDER"), "cart"))
+	head.add_child(stage)
+	_portrait = TextureRect.new()
+	_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_portrait.custom_minimum_size = Vector2(250, 170)
+	_portrait.texture = portrait(species)
+	stage.add_child(_portrait)
+	var about := VBoxContainer.new()
+	about.add_theme_constant_override("separation", 8)
+	about.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(about)
+	var title := Animals.species_name(species) if crate == &"" else ItemDB.get_item(crate).display_name()
+	about.add_child(UiTheme.make_label(UiTheme.caps(title), UiTheme.heading(32, UiTheme.TEXT, 700, 2)))
+	var product: StringName = info.get("product", &"")
+	var days := int(info.get("product_days", 1))
+	if info.get("rideable", false):
+		about.add_child(_info("sparkles", tr("RANCHER_RIDEABLE")))
+	elif product != &"" and ItemDB.get_item(product):
+		about.add_child(_info("sparkles", tr("RANCHER_PRODUCT") % [ItemDB.get_item(product).display_name(),
+				tr("RANCHER_DAILY") if days <= 1 else tr("RANCHER_EVERY_DAYS") % days]))
+	elif species == &"rooster":
+		about.add_child(_info("sparkles", tr("RANCHER_ROOSTER")))
+	var ration := ItemDB.get_item(&"feed" if String(info.get("housing", "")) == "coop" else &"hay")
+	about.add_child(_info("food", tr("RANCHER_FOOD") % [int(info.get("food", 1)), ration.display_name()]))
+	# What the market wants to see on the farm first, and where it will live.
+	box.add_child(UiTheme.section(tr("MARKET_REQUIREMENTS"), "barn"))
+	var need := UnlockTable.animal_level(species)
+	box.add_child(_requirement(Progress.level >= need, tr("MARKET_REQ_LEVEL") % need, tr("UI_LEVEL_SHORT") % Progress.level))
+	var project := AnimalTable.market_needs(species)
+	if project != &"":
+		var built := FarmState.is_built(project)
+		box.add_child(_requirement(built, tr("PROJECT_" + String(project).to_upper()),
+				tr("MARKET_BUILT") if built else tr("MARKET_NOT_BUILT")))
+	var kind := String(info.get("housing", "barn"))
+	var housing: AnimalHousing = Animals.home_for(species)
+	var home := tr("HOUSING_" + kind.to_upper())
+	if crate != &"":
+		# Crated birds wait in their crates: the coop only matters to let them out.
+		var has_coop := housing != null and housing.level > 0
+		box.add_child(_info("home", "%s: %d / %d" % [home, Animals.count_in(kind), housing.capacity()] if has_coop else tr("RANCHER_CRATE_HINT"),
+				UiTheme.TEXT if has_coop else UiTheme.GOLD_SOFT))
+	elif housing and housing.level > 0:
+		box.add_child(_requirement(housing.free_space() > 0, home, "%d / %d" % [Animals.count_in(kind), housing.capacity()]))
+	box.add_child(UiTheme.expand())
+	box.add_child(UiTheme.separator())
+	if crate != &"":
+		_fill_crate_order(box, species)
+	else:
+		_fill_young_or_grown(box, species, info)
+
+
+## A crated kind: how many, the total, where the crates go, the buy button.
+func _fill_crate_order(box: VBoxContainer, species: StringName) -> void:
 	var room := LiveCrates.room_at(species, _stall_at)
 	var most := clampi(mini(room, LiveCrates.MAX_ORDER), 1, LiveCrates.MAX_ORDER)
 	_order = clampi(_order, 1, most)
-	var qty := HBoxContainer.new()
-	qty.add_theme_constant_override("separation", 18)
-	qty.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_child(qty)
-	var minus := IconButton.new("minus", 52, UiTheme.TEXT)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	box.add_child(row)
+	var minus := IconButton.new("minus", 46, UiTheme.TEXT)
 	minus.disabled = _order <= 1
 	minus.pressed.connect(func() -> void:
 		_order = maxi(_order - 1, 1)
 		Audio.ui("click")
 		_fill())
-	qty.add_child(minus)
-	var count := UiTheme.make_label(str(_order), UiTheme.heading(64, UiTheme.TEXT, 700, 0))
-	count.custom_minimum_size = Vector2(110, 0)
+	minus.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(minus)
+	var count := UiTheme.make_label(str(_order), UiTheme.heading(52, UiTheme.TEXT, 700, 0))
+	count.custom_minimum_size = Vector2(76, 0)
 	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	qty.add_child(count)
-	var plus := IconButton.new("plus", 52, UiTheme.TEXT)
+	row.add_child(count)
+	var plus := IconButton.new("plus", 46, UiTheme.TEXT)
 	plus.disabled = _order >= most
 	plus.pressed.connect(func() -> void:
 		_order = mini(_order + 1, most)
 		Audio.ui("click")
 		_fill())
-	qty.add_child(plus)
+	plus.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(plus)
 	var each := LiveCrates.price(species)
-	var unit := UiTheme.make_label(tr("UI_POULTRY_EACH") % UiTheme.money(each), UiTheme.text(18, UiTheme.TEXT_MUTED, 600))
-	unit.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(unit)
+	var sums := VBoxContainer.new()
+	sums.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sums.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sums.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(sums)
+	var unit := UiTheme.make_label(tr("UI_POULTRY_EACH") % UiTheme.money(each), UiTheme.text(17, UiTheme.TEXT_MUTED, 600))
+	unit.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	sums.add_child(unit)
 	var total := HBoxContainer.new()
-	total.alignment = BoxContainer.ALIGNMENT_CENTER
+	total.alignment = BoxContainer.ALIGNMENT_END
 	total.add_theme_constant_override("separation", 12)
-	total.add_child(UiTheme.make_label(UiTheme.caps(tr("UI_TOTAL")), UiTheme.heading(20, UiTheme.TEXT_MUTED, 700, 2)))
-	total.add_child(UiTheme.price(each * _order, 36))
-	col.add_child(total)
-	col.add_child(UiTheme.separator())
+	total.add_child(UiTheme.make_label(UiTheme.caps(tr("UI_TOTAL")), UiTheme.heading(18, UiTheme.TEXT_MUTED, 700, 2)))
+	total.add_child(UiTheme.price(each * _order, 32))
+	sums.add_child(total)
 	var v := LiveCrates.vehicle_near(_stall_at)
 	if v:
-		col.add_child(_wide(_info("truck", tr("RANCHER_CRATE_TO_BED") % [v.display_name(), v.cargo.space()], UiTheme.GREEN)))
+		box.add_child(_info("truck", tr("RANCHER_CRATE_TO_BED") % [v.display_name(), v.cargo.space()], UiTheme.GREEN))
 	else:
-		col.add_child(_wide(_info("backpack", tr("RANCHER_CRATE_TO_BAG"), UiTheme.TEXT)))
-	col.add_child(UiTheme.expand())
-	var why := LiveCrates.can_buy(species, _order, _stall_at)
+		box.add_child(_info("backpack", tr("RANCHER_CRATE_TO_BAG"), UiTheme.TEXT))
+	var why := why_not(species, true, _order)
 	if why != "":
-		col.add_child(UiTheme.paragraph(why, 16, UiTheme.RED, 620))
-	var buy := UiTheme.button(tr("RANCHER_BUY_CRATES") % [_order, UiTheme.money(each * _order)], "success", Vector2(620, 60), "check", 22)
+		box.add_child(UiTheme.paragraph(why, 16, UiTheme.RED, 700))
+	var buy := UiTheme.button(tr("RANCHER_BUY_CRATES") % [_order, UiTheme.money(each * _order)], "success", Vector2(712, 58), "check", 22)
 	buy.disabled = why != ""
 	buy.pressed.connect(func() -> void:
-		if LiveCrates.buy(species, _order, _stall_at) > 0:
-			Audio.ui("confirm")
-		_fill())
-	col.add_child(buy)
+		var got := LiveCrates.buy(species, _order, _stall_at)
+		_fill()
+		if got > 0:
+			_bought(species, true))
+	box.add_child(buy)
 
+
+## A kind brought straight to the farm: the young one and the grown one, each with its price.
+func _fill_young_or_grown(box: VBoxContainer, species: StringName, info: Dictionary) -> void:
+	box.add_child(_info("barn", tr("MARKET_DELIVERY"), UiTheme.TEXT))
+	var why := why_not(species, false)
+	var why_grown := why_not(species, true)
+	var shown := why_grown if why_grown != "" else why
+	if shown != "":
+		box.add_child(UiTheme.paragraph(shown, 16, UiTheme.RED, 700))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	box.add_child(row)
+	for adult: bool in [false, true]:
+		var cost := int(info["adult_price"] if adult else info["baby_price"])
+		var b := UiTheme.button("%s  ·  %s" % [Animals.species_name(species, adult), UiTheme.money(cost)],
+				"success" if adult else "secondary", Vector2(349, 58), "check" if adult else "", 20)
+		var reason := why_grown if adult else why
+		b.disabled = reason != ""
+		b.tooltip_text = reason
+		b.pressed.connect(func() -> void:
+			if not buy_animal(species, adult):
+				_fill())
+		row.add_child(b)
+
+
+# --- Selling ------------------------------------------------------------------------------
 
 func _fill_sell() -> void:
 	if Animals.animals.is_empty():
@@ -280,7 +429,7 @@ func _fill_sell() -> void:
 		empty.add_child(l)
 		return
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(1200, 580)
+	scroll.custom_minimum_size = Vector2(1200, 600)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_content.add_child(scroll)
 	var list := VBoxContainer.new()

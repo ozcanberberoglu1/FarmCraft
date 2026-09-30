@@ -10,8 +10,10 @@ extends Node
 ## earned by selling, a workbench kit bought at the construction board and put up near
 ## the house like the coop, a knife made at it) and a first go at fishing (rope from the
 ## market for a rod, bait, a fish from the pond by the house, a campfire to cook it on, a
-## meal), and later only a few milestones of a growing farm (the barn, the dairy, the
-## house), each chapter opened by a line from his notebook. Goals
+## meal), on the third morning a rooster for the hens (from the animal market in town, let
+## out at the coop like them: eggs left in the nests under him hatch into chicks), and
+## later only a few milestones of a growing farm (the barn, the dairy, the house), each
+## chapter opened by a line from his notebook. Goals
 ## give farm experience, never money: the farm earns only by selling. A dot on the
 ## screen (waypoint()) shows where a goal is done. Orders: customers who want a number
 ## of one product by a day and pay well above the market for it. They grow with the
@@ -25,16 +27,19 @@ signal chapter_started(chapter: int)
 signal story_finished
 
 const CHAPTERS: Array[String] = ["arrival", "soil", "town", "coop", "harvest", "coop_care",
-	"repair", "free", "workshop", "fishing", "barn", "dairy", "legacy"]
+	"repair", "free", "workshop", "fishing", "rooster", "barn", "dairy", "legacy"]
 ## The first chapter after the first day's story (the player is free until morning):
 ## saves from before the first day's story go on from here.
 const DAY_TWO_CHAPTER := 7
 ## Format of the chain in saves (2: the hand-held first day; 3: the day ending with the
-## coop's care and the house mended by hand; 4: the second day's workshop and fishing).
+## coop's care and the house mended by hand; 4: the second day's workshop and fishing;
+## 5: the second morning's harvest sold at the market instead of earning in the bin).
 ## Saves without it are older and skip the first day (MOVED_V2); chain 2 saves go on at
 ## the nearest goal still here (MOVED_V3), chain 3 saves on the stonework at the
-## workshop (MOVED_V4).
-const CHAIN := 4
+## workshop (MOVED_V4), chain 4 saves on the earning goal at the second harvest (MOVED_V5);
+## 6: the third morning's rooster after the fishing (chain 5 saves just past the fishing
+## go back for it: MOVED_V6).
+const CHAIN := 6
 ## Story goals in order: chapter, id, what counts toward it, how many, and the farm
 ## experience it gives ("xp", none when left out). Goals pay no money: the farm earns
 ## only by selling (Economy.STARTING_MONEY).
@@ -47,6 +52,7 @@ const CHAIN := 4
 ## (FarmState.flags), "table" (Grandpa's things taken off the worktable), "key" (the
 ## pickup's key found), "driving", "hens:owned" (hens bought, crated or let out),
 ## "home" (back in the farmyard), "crates:warehouse" (hen crates stored, or hens let out),
+## "owned:<species>" (bought: crated anywhere, or living on the farm),
 ## "kit" (a coop kit made), "coop:started" / "coop:built", "bin:<item or category>"
 ## (in the shipping bin, or shipped), "warehouse", "cargo", "near:town", "day:<n>",
 ## "level", "built:<project>", "animals:<species>", "has:<item>" (in the bag or put down
@@ -109,7 +115,11 @@ const TUTORIAL := [
 	# Day two, the workshop: some money of the farm's own first (the kit is bought, like
 	# everything), the workbench kit from the construction board, put up near the house
 	# with a minute's work like the coop, then the first tool made at it: a knife.
-	{"chapter": 8, "id": "earn", "kind": "earned", "arg": "", "count": 20, "xp": 4, "at": "earn", "past": "bench:kit"},
+	# The second morning: yesterday's wheat reaped, loaded into the pickup's bed and sold at
+	# the Yeşilova market, then the workbench from what it fetched.
+	{"chapter": 8, "id": "harvest2", "kind": "check", "arg": "crops", "count": 3, "xp": 4, "at": "plot:ripe", "past": "bench:kit"},
+	{"chapter": 8, "id": "load_crops", "kind": "check", "arg": "cargo:crop", "count": 3, "xp": 3, "at": "truck_load", "past": "bench:kit"},
+	{"chapter": 8, "id": "sell_market", "kind": "sold", "arg": "", "count": 3, "xp": 4, "at": "sell_market", "past": "bench:kit"},
 	{"chapter": 8, "id": "bench_kit", "kind": "check", "arg": "bench:kit", "count": 1, "xp": 4, "at": "bench_board"},
 	{"chapter": 8, "id": "bench_place", "kind": "check", "arg": "bench:started", "count": 1, "xp": 4, "at": "bench_spot"},
 	{"chapter": 8, "id": "bench_built", "kind": "check", "arg": "bench:built", "count": 1, "xp": 6, "at": "bench"},
@@ -124,18 +134,26 @@ const TUTORIAL := [
 	{"chapter": 9, "id": "campfire", "kind": "crafted", "arg": "campfire", "count": 1, "xp": 4, "ever": true, "at": "craft:campfire", "past": "has:campfire"},
 	{"chapter": 9, "id": "cook", "kind": "cooked", "arg": "", "count": 1, "xp": 6, "ever": true, "at": "campfire"},
 	{"chapter": 9, "id": "eat", "kind": "eaten", "arg": "", "count": 1, "xp": 4, "ever": true},
+	# The rest of the second day (and the next, if the fishing went quickly) is the
+	# player's own; the third morning brings the rooster.
+	{"chapter": 9, "id": "rooster_wait", "kind": "check", "arg": "day:3", "count": 1},
+	# Day three, a rooster for the hens: bought at the animal market in town (in his crate,
+	# like the hens) and let out at the coop door; the eggs left in the nests under him
+	# hatch into chicks a day later (the chapter's note and the release say so).
+	{"chapter": 10, "id": "rooster_buy", "kind": "check", "arg": "owned:rooster", "count": 1, "xp": 4, "at": "rooster_market", "past": "animals:rooster"},
+	{"chapter": 10, "id": "rooster_in", "kind": "check", "arg": "animals:rooster", "count": 1, "xp": 8, "at": "hens"},
 	# From here the farm is the player's to run: a few milestones as it grows (sheep, a
 	# cow and a bigger house).
-	{"chapter": 10, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
-	{"chapter": 10, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
-	{"chapter": 10, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
-	{"chapter": 10, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
-	{"chapter": 11, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
-	{"chapter": 11, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
-	{"chapter": 11, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
-	{"chapter": 11, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
-	{"chapter": 12, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
-	{"chapter": 12, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
+	{"chapter": 11, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
+	{"chapter": 11, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
+	{"chapter": 11, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
+	{"chapter": 11, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
+	{"chapter": 12, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
+	{"chapter": 12, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
+	{"chapter": 12, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
+	{"chapter": 12, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
+	{"chapter": 13, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
+	{"chapter": 13, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
 ]
 ## Goals of the chain before the first day's story (saves without "chain") and where
 ## such a save goes on (MOVED_V3 then takes it on to this chain): its first day counts
@@ -197,6 +215,12 @@ const LEGACY_MOVED := {"harvest": "wood", "pickup": "truck", "sell": "order"}
 ## stone, the millstone and the flour to earning the workbench's money (the millstone and
 ## its flour stay in the game, only not in the story).
 const MOVED_V4 := {"stone": "earn", "quern": "earn", "flour": "earn"}
+## Chain 4's goal to earn the workbench's money (in the bin or at the market), and where a
+## save on it goes on: the second morning's harvest, taken to the market in the pickup.
+const MOVED_V5 := {"earn": "harvest2"}
+## Chain 5's first goal after the fishing, and where a save on it goes on: the rooster
+## chapter that came in before the farm's milestones (a save further on keeps its goal).
+const MOVED_V6 := {"level_3": "rooster_wait"}
 ## The first day keeps time for the story: the clock runs at FIRST_DAY_PACE and from
 ## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the first egg still comes, and
 ## there is light to mend the house by); once the day's story is done the clock runs as
@@ -613,6 +637,12 @@ func _check_progress(arg: String, count := 1) -> int:
 			return maxi(crated + _animal_count(&"chicken"), int(tally.get("bought:chicken", 0)))
 		"home":
 			return 1 if _near("home") else 0
+		"owned":
+			# Bought: in its crate anywhere (the bed, the bag, the warehouse) or living here.
+			var sp := StringName(what)
+			var crate := AnimalTable.crate_item(sp)
+			var crated := LiveCrates.count_at(&"all", crate) if crate != &"" else 0
+			return maxi(crated + _animal_count(sp), int(tally.get("bought:%s" % what, 0)))
 		"crates":
 			# Stored in the warehouse; hens let out already count too.
 			return LiveCrates.count_at(&"warehouse", AnimalTable.crate_item(&"chicken")) + _animal_count(&"chicken")
@@ -625,7 +655,12 @@ func _check_progress(arg: String, count := 1) -> int:
 			return maxi(ShippingBin.count_in_bin(StringName(what)), int(tally.get("shipped:%s" % what, 0)))
 		"warehouse":
 			return 1 if FarmState.warehouse.total() > 0 else 0
+		"crops":
+			# Harvested crops at hand: in the bag or already in a pickup's bed.
+			return _crop_units_in_bag() + _crop_units_in_cargo()
 		"cargo":
+			if what == "crop":
+				return _crop_units_in_cargo()
 			# Goods in the bed of one of the player's vehicles.
 			for v: Vehicle in get_tree().get_nodes_in_group(Vehicle.GROUP):
 				if v.owned and v.cargo != null and v.cargo.total() > 0:
@@ -922,12 +957,18 @@ func _target(at: String) -> Variant:
 			elif spot == null and state == "dry":
 				spot = _plot_spot("waterable", from)
 			return spot
+		"rooster_market":
+			# The rooster costs money: short of it, where to earn it first.
+			if not _can_pay(LiveCrates.price(&"rooster")):
+				return _earn_target(from)
+			return _target("stall")
 		"truck":
-			# At the wheel already: on to the poultry stall.
+			# At the wheel already: on to the Animal Market's hen stall.
 			if p and p.driving != null:
 				return _target("stall")
 			return _anchor(&"truck", _truck_roof_point())
 		"stall":
+			# The hen stall in the Animal Market's lane (its marker is "town_chickens").
 			var town := _town()
 			var fallback: Variant = null
 			if town and town.poultry_stall:
@@ -1031,6 +1072,19 @@ func _target(at: String) -> Variant:
 			return _anchor(&"house_repair", door)
 		"earn":
 			return _earn_target(from)
+		"sell_market":
+			# To town at the wheel of the loaded pickup, then the market counter.
+			var pl := _player()
+			if _near("town") or (pl and pl.driving != null):
+				return _target("market")
+			return _target("truck_load")
+		"truck_load":
+			# The harvest into the pickup's bed: nothing to load yet, the ripe beds first.
+			if _crop_units_in_bag() == 0:
+				var ripe_bed: Variant = _plot_spot("ripe", from)
+				if ripe_bed != null:
+					return ripe_bed
+			return _anchor(&"truck", _truck_roof_point())
 		"bench_board":
 			# The kit costs money and wood: short of either, where to get it first.
 			var p_kit := ProjectTable.get_project(&"workbench")
@@ -1095,14 +1149,18 @@ func _target(at: String) -> Variant:
 func _earn_target(from: Vector3) -> Variant:
 	# A goal short of money says how much; the earning goal itself says how.
 	var own := _hint == ""
-	if _has_goods_to_sell():
+	if _has_goods_to_sell() or _crop_units_in_cargo() > 0:
 		if _near("town"):
 			if own:
 				_hint = tr("HINT_SELL_MARKET")
 			return _target("market")
+		# Into the pickup and off to the market (the bin only pays the next morning).
 		if own:
-			_hint = tr("HINT_BIN")
-		return _target("bin")
+			_hint = tr("HINT_SELL_TOWN")
+		var pl := _player()
+		if pl and pl.driving != null:
+			return _target("market")
+		return _anchor(&"truck", _truck_roof_point())
 	if own:
 		_hint = tr("HINT_EARN")
 	var ripe: Variant = _plot_spot("ripe", from)
@@ -1111,8 +1169,8 @@ func _earn_target(from: Vector3) -> Variant:
 	var egg: Variant = _nearest_pickup(&"egg", from, 60.0)
 	if egg != null:
 		return egg
-	# Goods waiting in the bin are paid for in the morning: bed.
-	if _bin_value() > 0:
+	# Goods waiting in the bin are paid for in the morning: bed, once it is evening.
+	if _bin_value() > 0 and GameClock.minute >= 18 * 60:
 		if own:
 			_hint = tr("HINT_BIN_MORNING")
 		var house := _house()
@@ -1137,6 +1195,27 @@ func _has_goods_to_sell() -> bool:
 		if st != null and st.item.sell_price > 0 and st.item.category in ["crop", "animal_product", "artisan", "fish", "food"]:
 			return true
 	return false
+
+
+## Crops (ItemTable category "crop") in the bag.
+func _crop_units_in_bag() -> int:
+	var n := 0
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and st.item.category == "crop":
+			n += st.count
+	return n
+
+
+## Crops in the bed of one of the player's vehicles.
+func _crop_units_in_cargo() -> int:
+	var n := 0
+	for v: Vehicle in get_tree().get_nodes_in_group(Vehicle.GROUP):
+		if v.owned and v.cargo != null:
+			for e: Dictionary in v.cargo.entries():
+				var item := ItemDB.get_item(e["id"])
+				if item and item.category == "crop":
+					n += int(e["count"])
+	return n
 
 
 ## Whether the bag holds a raw fish (ItemTable category "fish") to cook.
@@ -1630,6 +1709,12 @@ func load_data(d: Dictionary) -> void:
 		step_count = 0
 	if chain < 4 and MOVED_V4.has(id):
 		id = String(MOVED_V4[id])
+		step_count = 0
+	if chain < 5 and MOVED_V5.has(id):
+		id = String(MOVED_V5[id])
+		step_count = 0
+	if chain < 6 and MOVED_V6.has(id):
+		id = String(MOVED_V6[id])
 		step_count = 0
 	step = TUTORIAL.size() if id == "" else index_of(id)
 	if step < 0:

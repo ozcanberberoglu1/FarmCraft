@@ -113,6 +113,7 @@ func _refresh() -> void:
 				order.append(id)
 	var groups := {}
 	var hen_slots: Array[Transform3D] = []
+	var hen_kinds: Array[StringName] = []
 	for i in order.size():
 		var xf := _slot(i)
 		var live := i < LIVE_MAX
@@ -122,6 +123,7 @@ func _refresh() -> void:
 		(groups[key] as Array).append(xf)
 		if live:
 			hen_slots.append(xf)
+			hen_kinds.append(AnimalTable.species_of_crate(order[i]))
 	for key: String in _mmis:
 		if not groups.has(key):
 			(_mmis[key] as MultiMeshInstance3D).multimesh.instance_count = 0
@@ -131,7 +133,7 @@ func _refresh() -> void:
 		mm.instance_count = list.size()
 		for j in list.size():
 			mm.set_instance_transform(j, list[j])
-	_sync_hens(hen_slots)
+	_sync_hens(hen_slots, hen_kinds)
 	# The farmer walks round the crates, not through them.
 	var n := order.size()
 	_solid.disabled = n == 0
@@ -153,12 +155,20 @@ func _slot(i: int) -> Transform3D:
 	return Transform3D(Basis(Vector3.UP, yaw), at)
 
 
-func _sync_hens(slots: Array[Transform3D]) -> void:
+func _sync_hens(slots: Array[Transform3D], kinds: Array[StringName] = []) -> void:
+	# A crate that now holds another kind (a rooster where a hen sat): a new bird.
+	for i in mini(_hens.size(), kinds.size()):
+		if _hens[i].species != kinds[i]:
+			while _hens.size() > i:
+				_hens.pop_back().queue_free()
+			break
 	while _hens.size() > slots.size():
 		_hens.pop_back().queue_free()
 	while _hens.size() < slots.size():
 		var hen := CrateHen.new()
 		hen.variant = _hens.size() + 1
+		if _hens.size() < kinds.size():
+			hen.species = kinds[_hens.size()]
 		# A crowd of crates in a shed would be a racket: every other one keeps quiet.
 		hen.voice = _hens.size() % 2 == 0
 		add_child(hen)

@@ -23,6 +23,8 @@ const BLEND_TIME := 0.35
 ##   variants   per coat variant: {material name or "*": {dark, light, recolor}}
 ##   fleece     {center, radii, depth} in the animal frame (sheep)
 ##   adult_only mesh names hidden on young animals
+##   age_scale  [age from, age to, scale then, scale by then]: the model's own growth (young
+##              poultry change bodies: the chick model, then the hen's as a pullet)
 ##   no_shadow  mesh names too small to cast a visible shadow (horseshoes)
 ##   materials  material name -> {roughness, specular} overrides
 const MODELS := {
@@ -120,8 +122,51 @@ const MODELS := {
 			{"*": {"dark": Color(0.03, 0.03, 0.035), "light": Color(0.12, 0.12, 0.13), "recolor": 1.0}},
 			{"*": {"dark": Color(0.45, 0.28, 0.1), "light": Color(0.86, 0.62, 0.3), "recolor": 1.0}},
 		],
-		# Chicks: pale yellow down.
+		# Chicks: pale yellow down (only when the chick model is missing).
 		"baby_variant": {"*": {"dark": Color(0.78, 0.64, 0.3), "light": Color(0.98, 0.9, 0.56), "recolor": 1.0}},
+		# Pullets (the chick model covers the first half of growing up).
+		"age_scale": [0.5, 1.0, 0.5, 1.0],
+	},
+	# The hen repainted and restyled by tools/blender/build_rooster.py: same skeleton and clip.
+	&"rooster": {
+		"height": 0.28,
+		"bones": {
+			"root": "CHICKEN_-Pelvis_00", "body": "CHICKEN_-Spine_01",
+			"neck1": "CHICKEN_-Neck_02", "head": "CHICKEN_-Head_05", "tail1": "CHICKEN_-Tail_015",
+			"wing_l": "CHICKEN_-L-UpperArm_012", "wing_r": "CHICKEN_-R-UpperArm_08",
+			"fl_up": "CHICKEN_-L-Thigh_028", "fl_lo": "CHICKEN_-L-HorseLink_030", "fl_ft": "CHICKEN_-L-Foot_031",
+			"fr_up": "CHICKEN_-R-Thigh_016", "fr_lo": "CHICKEN_-R-HorseLink_018", "fr_ft": "CHICKEN_-R-Foot_019",
+		},
+		"clips": {"IDLE": "Take 001"},
+		"split": [0.04, 0.22, 0.05, 0.42],
+		"variants": [
+			{},
+			{"*": {"dark": Color(0.6, 0.58, 0.55), "light": Color(0.97, 0.96, 0.93), "recolor": 1.0}},
+		],
+		"materials": {"rooster_feather": {"roughness": 0.45, "specular": 0.6}},
+		# His comb and sickles reach well past his bones (tools/animal_portraits.gd).
+		"portrait_margin": 0.3,
+	},
+	# A day-old chick, modelled by tools/blender/build_chick.py (Z up, ~10 cm): grows from
+	# its modelled size to 1.7 times it before it becomes a pullet (AnimalModels.CHICK_UNTIL).
+	&"chick": {
+		"height": 0.039,
+		"bones": {
+			"root": "root", "body": "body", "neck1": "neck", "head": "head", "tail1": "tail",
+			"wing_l": "wing_l", "wing_r": "wing_r",
+			"fl_up": "thigh_l", "fl_lo": "shank_l", "fl_ft": "foot_l",
+			"fr_up": "thigh_r", "fr_lo": "shank_r", "fr_ft": "foot_r",
+		},
+		"split": [0.45, 0.85, 0.55, 0.88],
+		# By the mother's coat (AnimalModels.VARIANTS["chicken"]): buff, yellow, dark, pale.
+		"variants": [
+			{"*": {"dark": Color(0.58, 0.42, 0.22), "light": Color(0.93, 0.76, 0.48), "recolor": 1.0}},
+			{},
+			{"*": {"dark": Color(0.07, 0.065, 0.06), "light": Color(0.34, 0.3, 0.24), "recolor": 1.0}},
+			{"*": {"dark": Color(0.85, 0.72, 0.4), "light": Color(1.0, 0.93, 0.66), "recolor": 1.0}},
+		],
+		"age_scale": [0.0, 0.5, 1.0, 1.7],
+		"portrait_margin": 0.55,
 	},
 }
 
@@ -135,6 +180,8 @@ var _conv := {}  # bone -> [A, C, parent rest basis inverse]
 var _neutral := {}  # bone -> rotation (animal frame) that squares up the rest pose
 var _clip := ""  # clip currently driving the pose ("" = procedural)
 var _snap := {}  # bone -> [rotation, position] captured when the pose source changed
+var _nodes := {}  # plain node a clip moves -> its transform as set up
+var _node_snap := {}  # plain node -> transform captured when the pose source changed
 var _blend := 1.0
 var _age_scales := {}
 var _pins: Array[int] = []
@@ -212,6 +259,21 @@ func _setup(model: Node3D) -> void:
 		else:
 			push_warning("PhotoRig %s: no bone %s" % [species, model_cfg["bones"][key]])
 	_normalize(model, canon)
+	# Clips also move plain nodes (the chicken's armature parent): procedural motion puts
+	# them back where _normalize stood the model, or it would inherit the clip's last frame
+	# (a crowing rooster on his back).
+	if player:
+		var root := player.get_node(player.root_node)
+		for clip: String in player.get_animation_list():
+			var anim := player.get_animation(clip)
+			for t in anim.get_track_count():
+				var path := anim.track_get_path(t)
+				if path.get_subname_count() > 0 or not anim.track_get_type(t) in [Animation.TYPE_POSITION_3D,
+						Animation.TYPE_ROTATION_3D, Animation.TYPE_SCALE_3D]:
+					continue
+				var n := root.get_node_or_null(path)
+				if n is Node3D:
+					_nodes[n] = (n as Node3D).transform
 	_b = canon
 	_collect_legs()
 	for key: String in canon:
@@ -440,7 +502,7 @@ func set_variant(variant: int, baby: bool) -> void:
 	_baby = baby
 	var list: Array = model_cfg.get("variants", [{}])
 	var v: Dictionary = list[clampi(variant, 0, list.size() - 1)] if not list.is_empty() else {}
-	if baby and model_cfg.has("baby_variant"):
+	if baby and model_cfg.has("baby_variant") and not available(&"chick"):
 		v = model_cfg["baby_variant"]
 	for mi in meshes:
 		var t: Dictionary = v.get(_material_name(mi), v.get("*", {}))
@@ -448,6 +510,19 @@ func set_variant(variant: int, baby: bool) -> void:
 		mi.set_instance_shader_parameter(&"light_tint", t.get("light", Color(0.95, 0.95, 0.95)))
 		mi.set_instance_shader_parameter(&"recolor", float(t.get("recolor", 0.0)))
 		mi.visible = not (baby and mi.name in model_cfg.get("adult_only", []))
+
+
+## Growing up: models with their own growth (age_scale) scale as a whole; others as
+## AnimalRig does (bigger head, longer legs).
+func set_age(t: float) -> void:
+	var span: Array = model_cfg.get("age_scale", [])
+	if span.is_empty():
+		super.set_age(t)
+		return
+	_age = clampf(t, 0.0, 1.0)
+	_leg_extra = 0.0
+	var u := clampf(inverse_lerp(float(span[0]), float(span[1]), _age), 0.0, 1.0)
+	scale = Vector3.ONE * lerpf(float(span[2]), float(span[3]), u)
 
 
 func set_wet(amount: float) -> void:
@@ -496,6 +571,9 @@ func animate(delta: float, speed: float, mode: int) -> void:
 			skeleton.set_bone_pose_position(idx, Vector3(r.x, p.y, r.z))
 	else:
 		skeleton.reset_bone_poses()
+		for n: Node3D in _nodes:
+			if n.transform != _nodes[n]:
+				n.transform = _nodes[n]
 	# The procedural state always advances; it only poses bones without a clip.
 	super.animate(delta, speed, mode)
 	if _blend < 1.0:
@@ -505,6 +583,8 @@ func animate(delta: float, speed: float, mode: int) -> void:
 			var s: Array = _snap[idx]
 			skeleton.set_bone_pose_rotation(idx, (s[0] as Quaternion).slerp(skeleton.get_bone_pose_rotation(idx), w))
 			skeleton.set_bone_pose_position(idx, (s[1] as Vector3).lerp(skeleton.get_bone_pose_position(idx), w))
+		for n: Node3D in _node_snap:
+			n.transform = (_node_snap[n] as Transform3D).interpolate_with(n.transform, w)
 	for idx: int in _age_scales:
 		skeleton.set_bone_pose_scale(idx, _age_scales[idx])
 
@@ -513,4 +593,6 @@ func _snapshot() -> void:
 	_snap.clear()
 	for i in skeleton.get_bone_count():
 		_snap[i] = [skeleton.get_bone_pose_rotation(i), skeleton.get_bone_pose_position(i)]
+	for n: Node3D in _nodes:
+		_node_snap[n] = n.transform
 	_blend = 0.0

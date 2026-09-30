@@ -4,7 +4,9 @@ extends Node3D
 ## the bank near the player, where it flops about on its side (hops that twist and turn
 ## it over, the tail slapping the ground, gills working) and slowly tires, until the
 ## player picks it up with E. The old boot comes out the same way and just lies there.
-## Its body bends through shaders/fish.gdshader (FishModels.flop_mesh).
+## Its body bends through shaders/fish.gdshader (FishModels.flop_mesh). A trophy (a giant of
+## its species, FishTable.trophy_of) is the species' model drawn at the giant's size: it
+## lands with a heavy thud and flops slower and lower.
 
 signal landed
 
@@ -13,6 +15,8 @@ const GRAVITY := 9.8
 const STAMINA := 32.0
 
 var item_id: StringName
+## The species whose model it is (a trophy's species; else item_id).
+var species: StringName
 var kg := 1.0
 var quality := 0
 ## The model's size factor (a heavier fish is bigger).
@@ -55,6 +59,7 @@ var _rng := RandomNumberGenerator.new()
 static func launch(catch: Dictionary, from: Vector3, to: Vector3, seconds: float) -> FloppingFish:
 	var f := FloppingFish.new()
 	f.item_id = catch["id"]
+	f.species = catch.get("species", catch["id"])
 	f.kg = float(catch["kg"])
 	f.quality = int(catch["quality"])
 	f.size = float(catch["scale"])
@@ -72,9 +77,11 @@ func _ready() -> void:
 	add_to_group(&"interactable")
 	add_to_group(&"caught_fish")
 	_rng.randomize()
-	_junk = not FishTable.is_fish(item_id)
+	if species == &"":
+		species = FishTable.species_of(item_id)
+	_junk = not FishTable.is_fish(species)
 	_mi = MeshInstance3D.new()
-	_mi.mesh = FishModels.real_mesh(item_id) if _junk else FishModels.flop_mesh(item_id)
+	_mi.mesh = FishModels.real_mesh(species) if _junk else FishModels.flop_mesh(species)
 	_mi.scale = Vector3.ONE * size
 	_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 	_mi.layers = 2
@@ -190,6 +197,15 @@ func _fly(delta: float) -> void:
 		_body.process_mode = Node.PROCESS_MODE_INHERIT
 		_slap(1.3)
 		Fx.drips(global_position)
+		if FishTable.is_trophy(item_id):
+			# The giant comes down hard: a deep thud the farmer feels, water off its flanks.
+			_slap(1.5)
+			Fx.drips(global_position + global_basis.x * _half_len * 0.5)
+			Fx.drips(global_position - global_basis.x * _half_len * 0.5)
+			Fx.dirt_burst(Vector3(global_position.x, _ground_y + 0.02, global_position.z), 0.5 + _half_len * 0.4)
+			var player := Game.player as Player
+			if player and player.global_position.distance_to(global_position) < 8.0:
+				player.add_trauma(0.35)
 		_next_hop = _rng.randf_range(0.15, 0.4)
 		landed.emit()
 

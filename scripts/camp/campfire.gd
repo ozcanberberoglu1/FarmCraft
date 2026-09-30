@@ -11,7 +11,8 @@ extends PlacedObject
 ## and it sinks away and is gone within DOUSE_GONE seconds. F picks an unlit one back
 ## up, or clears the ash away.
 ##
-## Cooking: E with a raw fish (cat "fish") in hand at a burning fire (or its embers)
+## Cooking: E with a raw fish (cat "fish": a whole one, or one cleaned at the food table)
+## or a piece of game meat (cat "meat") in hand at a burning fire (or its embers)
 ## puts it on a stick over the flames, up to SPITS at once; it browns and sizzles for
 ## COOK_SECONDS (the HUD's CookRings count each down) and "<id>_cooked" flies into the
 ## bag (Events.food_cooked); away from the fire it waits on its stick until the farmer
@@ -336,9 +337,14 @@ func _update_douse(delta: float) -> void:
 
 # --- Cooking ----------------------------------------------------------------------------
 
-## The cooked item a raw one becomes over the fire (&"" when it doesn't cook).
+## Categories that cook over the fire: fish (whole or cleaned) and game meat.
+const COOKS: Array[String] = ["fish", "meat"]
+
+
+## The cooked item a raw one becomes over the fire (&"" when it doesn't cook): a cleaned
+## fish or meat cooks into its own dish, which fills far more than a whole grilled fish.
 static func cooked_id(id: StringName) -> StringName:
-	if not ItemDB.has_item(id) or ItemDB.get_item(id).category != "fish":
+	if not ItemDB.has_item(id) or not ItemDB.get_item(id).category in COOKS:
 		return &""
 	var c := StringName(String(id) + "_cooked")
 	return c if ItemDB.has_item(c) else &""

@@ -1,10 +1,11 @@
 class_name Town
 extends Node3D
 ## The town of Yeşilova along the county road: a general market (buy seeds and raw
-## materials, sell produce, also straight from a parked pickup), the poultry stall
-## beside it (hens in crates, loaded into the pickup parked in front), a filling
-## station, the car dealership with a better pickup for sale, the livestock dealer, a
-## couple of houses, pavements, street lamps and signs. Built from BuildingKit pieces.
+## materials, sell produce, also straight from a parked pickup), a filling station, the
+## car dealership with a better pickup for sale, the Animal Market (a small farm yard
+## with animals of every kind on show: buy them there, hens in crates loaded into the
+## pickup parked in the street), a couple of houses, pavements, street lamps and signs.
+## Built from BuildingKit pieces.
 ## Also spawns Grandpa's old pickup at the farm: the town keeps every vehicle.
 ##
 ## Lived-in detail: interlocking pavers, kerbs with a gutter and drains (bevelled at the
@@ -23,10 +24,26 @@ const DEALER_LOT := Rect2(232, 8, 30, 5.3)
 const STATION := Rect2(194, 23.5, 34, 23.5)
 const CANOPY := Rect2(199, 29, 24, 10)
 const KIOSK := Rect2(202, 41, 18, 7)
-const RANCH_OFFICE := Rect2(240, 31, 10, 8)
-const RANCH_PEN := Rect2(252, 30, 12, 17)
-## The poultry stall's yard, between the market's east wall and the dealership.
-const POULTRY_YARD := Rect2(216.6, 7.4, 7.6, 5.9)
+## The Animal Market (see _animal_market): the whole lot behind the south pavement, the
+## dealer's office at its front, the lane from the gate arch down between the pens, the
+## coop run (its henhouse), the hen stall at the run's fence, the hay barn at the back
+## and the paddocks east of the lane, front to back (a gate onto the lane each).
+const ANIMAL_MARKET := Rect2(236.6, 29.3, 31.4, 25.7)
+const RANCH_OFFICE := Rect2(236.6, 30.6, 9.0, 7.0)
+const MARKET_LANE := Rect2(246.4, 29.3, 5.4, 25.7)
+const COOP_RUN := Rect2(236.8, 38.3, 7.8, 8.7)
+const HENHOUSE := Rect2(237.3, 43.5, 2.0, 2.6)
+const HEN_STALL := Rect2(244.7, 40.4, 1.6, 3.2)
+const HAY_BARN := Rect2(236.8, 47.6, 9.0, 7.0)
+const HORSE_PADDOCK := Rect2(252.0, 29.8, 16.0, 8.2)
+const COW_PADDOCK := Rect2(252.0, 38.0, 16.0, 8.4)
+const SHEEP_PEN := Rect2(252.0, 46.4, 16.0, 8.6)
+const PEN_GATE := 2.4
+## Which paddock shows which kind (the coop's kinds live in the run).
+const MARKET_PENS := {&"horse": HORSE_PADDOCK, &"cow": COW_PADDOCK, &"sheep": SHEEP_PEN}
+## The general market's side yard, between its east wall and the dealership (where its
+## poultry stall stood before the Animal Market took the hens).
+const MARKET_SIDE_YARD := Rect2(216.6, 7.4, 7.6, 5.9)
 ## The market's paved forecourt runs from x to x between its front wall and the pavement.
 const FORECOURT_X := Vector2(196.0, 216.0)
 ## Fuel price per litre, in dollars.
@@ -106,10 +123,17 @@ const PRINT := {
 }
 
 var market_counter: Node3D
-## The poultry stall's counter (E buys crated hens); `poultry_marker` floats over it
-## for the story's waypoint.
+## The Animal Market's hen stall counter (E buys crated hens); `poultry_marker` floats
+## over it for the story's waypoint ("town_chickens").
 var poultry_stall: Node3D
 var poultry_marker: Marker3D
+## The Animal Market: its office hatch, the pens' gates (species -> TownPoint), the
+## animals on show, and the spots in each pen the animals keep out of (species, or
+## &"coop" for the run -> [Rect2]).
+var market_office: Node3D
+var market_pens := {}
+var herd: MarketHerd
+var market_avoid := {}
 var pumps: Array[Node3D] = []
 var for_sale: Vehicle
 ## Grandpa's old pickup: the player's from the first day, parked by the farm warehouse.
@@ -151,10 +175,10 @@ func _ready() -> void:
 	var cols := []
 	_pavements(mb, cols)
 	_market(mb, cols)
-	_poultry_stall(mb, cols)
+	_market_side_yard(mb, cols)
 	_dealer(mb, cols)
 	_station(mb, cols)
-	_livestock(mb, cols)
+	_animal_market(cols)
 	_houses(mb, cols)
 	_lamps_and_signs(mb, cols)
 	_power_line(mb, cols)
@@ -173,9 +197,11 @@ func _ready() -> void:
 	BuildingKit.collider(self, cols)
 	_trees()
 	for r: Rect2 in [WALK_N, WALK_S, MARKET.grow(0.5), PARKING, DEALER.grow(0.5), DEALER_LOT, STATION,
-			RANCH_OFFICE.grow(0.5), RANCH_PEN, Rect2(268, -2, 11, 10), Rect2(270, 31, 11, 11), Rect2(196, 10, 20, 3.3),
-			POULTRY_YARD, KIOSK.grow(0.3), Rect2(BUS_STOP.x - 1.9, BUS_STOP.y - 1.0, 3.8, 1.9), Rect2(DEALER.end.x + 0.3, -4.5, 4.4, 6.0),
-			# The garden paths from the gates to the door steps, the bales by the livestock office.
+			ANIMAL_MARKET.grow(0.3), Rect2(RANCH_OFFICE.position.x, RANCH_OFFICE.position.y - 1.9, RANCH_OFFICE.size.x, 1.9),
+			Rect2(MARKET_LANE.position.x, WALK_S.end.y, MARKET_LANE.size.x, MARKET_LANE.position.y - WALK_S.end.y),
+			Rect2(268, -2, 11, 10), Rect2(270, 31, 11, 11), Rect2(196, 10, 20, 3.3),
+			MARKET_SIDE_YARD, KIOSK.grow(0.3), Rect2(BUS_STOP.x - 1.9, BUS_STOP.y - 1.0, 3.8, 1.9), Rect2(DEALER.end.x + 0.3, -4.5, 4.4, 6.0),
+			# The garden paths from the gates to the door steps, the bales by the market office.
 			Rect2(272.6, 8.0, 1.8, 4.0), Rect2(274.6, 27.0, 1.8, 4.0), Rect2(RANCH_OFFICE.position.x - 1.1, RANCH_OFFICE.position.y + 2.0, 0.9, 5.6)]:
 		Game.world.block_grass(r)
 	_spawn_vehicle_for_sale()
@@ -1564,8 +1590,8 @@ func vehicle_at_market() -> Vehicle:
 	return _nearest_owned_vehicle(market_counter.global_position, 30.0)
 
 
-## The player's vehicle parked by the poultry stall whose bed takes the crates bought
-## there (null: they go into the bag).
+## The player's vehicle parked by the Animal Market's hen stall (in the street in front
+## will do) whose bed takes the crates bought there (null: they go into the bag).
 func vehicle_at_poultry() -> Vehicle:
 	if poultry_stall == null:
 		return null
@@ -1603,181 +1629,140 @@ static func farm_truck_home() -> Transform3D:
 	return Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(s.x, TerrainData.height(s.x, s.y) + 0.25, s.y))
 
 
-# --- Poultry stall ---------------------------------------------------------------------
+# --- Animal Market ---------------------------------------------------------------------
 
-## A timber market stall under a rusty tin roof beside the market: a trestle counter
-## with crated hens on it (live ones; the stock stacked behind), a chalkboard with the
-## price, feed sacks and straw, empty crates waiting at the side and a bulb for the
-## evening. E at the counter buys hens in crates; they go into the bed of the pickup
-## parked in front, else into the bag.
-func _poultry_stall(mb: MeshBuilder, cols: Array) -> void:
-	var c := POULTRY_YARD.get_center()
-	var y0 := _y(c.x, c.y) + 0.15
+## The Animal Market (Hayvan Pazarı): a small farm yard behind the south pavement, where
+## the town's livestock dealer keeps a few of every kind he sells. From the street: the
+## dealer's office with its porch and, beside it, a timber gate arch with the name board
+## over a packed-earth lane that runs down between the pens. West of the lane the coop
+## run (a henhouse, hens and whatever else lives in a coop, behind chicken wire) with
+## the hen stall at its fence (crated hens for the pickup parked in the street) and the
+## hay barn at the back; east of it the horse paddock, the cow paddock and the sheep
+## pen, each with a field gate onto the lane, troughs, a hay rack or a shelter. The
+## animals on show (MarketHerd) are never the player's. E at the office (its street
+## window or the hatch onto the lane), the hen stall or a pen's gate opens the market
+## (RancherScreen.open_market), at that pen's kind.
+func _animal_market(cols: Array) -> void:
+	var yard := MeshBuilder.new()
+	_market_lane(yard)
+	_market_office(yard, cols)
+	_market_gate(yard, cols)
+	_market_paddocks(yard, cols)
+	_market_coop_run(yard, cols)
+	_hen_stall(yard, cols)
+	_market_barn(yard, cols)
+	var mi := MeshInstance3D.new()
+	mi.name = "MarketYard"
+	mi.mesh = yard.build(_materials().merged({&"chicken_net": _net_material()}))
+	add_child(mi)
+	_market_animals()
+
+
+## Where E opens the market on `species` (&"": the whole list); a pen's prompt names
+## its kind.
+func _market_point(center: Vector3, size: Vector3, prompt_key: String, species: StringName, named := false) -> TownPoint:
+	var at := center
+	var point := _interactable(center, size, prompt_key,
+			func() -> void: Game.hud.rancher_screen.open_market(at, species)) as TownPoint
+	if named:
+		point.prompt_args = ["ANIMAL_" + String(species).to_upper()]
+	return point
+
+
+## A farm building model (AnimalBuildings) as a node at `at`, turned by `yaw`, its
+## colliders into `cols`: {mesh, straw_mesh (trim drawn without shadows), colliders}.
+func _farm_building(data: Dictionary, node_name: String, at: Vector3, yaw: float, cols: Array) -> Node3D:
+	var node := Node3D.new()
+	node.name = node_name
+	node.position = at
+	node.rotation.y = yaw
+	var mi := MeshInstance3D.new()
+	mi.mesh = data["mesh"]
+	node.add_child(mi)
+	if data.has("straw_mesh"):
+		var trim := MeshInstance3D.new()
+		trim.mesh = data["straw_mesh"]
+		trim.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		trim.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		trim.layers = 2
+		trim.visibility_range_end = 70.0
+		node.add_child(trim)
+	add_child(node)
+	for c: Array in data["colliders"]:
+		var b := node.transform.basis
+		if c.size() > 2:
+			b = b * Basis.from_euler((c[2] as Vector3) * (PI / 180.0))
+		cols.append([node.transform * (c[0] as Vector3), c[1], b])
+	return node
+
+
+## The lane: packed earth from the pavement through the gate down to the back fence,
+## two wheel ruts, straw blown about, mud at the gate and by the pens' gates.
+func _market_lane(mb: MeshBuilder) -> void:
+	var lane := Rect2(MARKET_LANE.position.x - 0.3, WALK_S.end.y, MARKET_LANE.size.x + 0.6, MARKET_LANE.end.y - WALK_S.end.y)
+	var c := lane.get_center()
+	var y := _y(c.x, c.y)
+	mb.box(&"dirt_old", Transform3D(Basis(), Vector3(c.x, y - 0.035, c.y)), Vector3(lane.size.x, 0.1, lane.size.y), Color(0.34, 0.29, 0.23))
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 2217
-	# Old concrete underfoot, patched with packed earth, joined to the pavement.
-	BuildingKit.slab(mb, cols, POULTRY_YARD, y0, 0.45, &"concrete", Color(0.5, 0.49, 0.47))
-	for i in 4:
-		var p := Vector3(rng.randf_range(POULTRY_YARD.position.x + 0.8, POULTRY_YARD.end.x - 0.8), y0 + 0.004,
-				rng.randf_range(POULTRY_YARD.position.y + 0.8, POULTRY_YARD.end.y - 0.8))
-		mb.blob(&"dirt_old", Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(1.4, 0.01, 1.0)), p),
-				rng.randf_range(0.5, 0.9), 1, Color(0.3, 0.26, 0.2), 0.4, 1.8, 60 + i, 0.0, true)
-	# Frame: four posts (the back ones taller), a beam front and back, braces.
-	var o := Vector3(c.x, y0, c.y - 0.9)
-	var post := Color(0.4, 0.33, 0.25)
-	var hw := 1.6
-	var hd := 0.95
-	var front_h := 2.35
-	var back_h := 2.75
-	for sx: float in [-1.0, 1.0]:
-		for sz: float in [-1.0, 1.0]:
-			var ph := front_h if sz > 0.0 else back_h
-			var pp := o + Vector3(sx * hw, ph * 0.5, sz * hd)
-			mb.box_at(&"wood", pp, Vector3(0.1, ph, 0.1), post.lightened(rng.randf_range(-0.05, 0.03)), Vector3.ZERO, true)
-			cols.append([pp, Vector3(0.12, ph, 0.12), 0.0])
-		BuildingKit.beam(mb, &"wood", o + Vector3(sx * hw, front_h - 0.55, hd), o + Vector3(sx * hw, back_h - 0.4, -hd), Vector2(0.08, 0.06), post)
-	for sz: float in [-1.0, 1.0]:
-		var bh := front_h if sz > 0.0 else back_h
-		mb.box_at(&"wood", o + Vector3(0, bh - 0.06, sz * hd), Vector3(hw * 2.0 + 0.2, 0.12, 0.09), post.darkened(0.08))
-	# Rusty corrugated roof sloping to the street, a painted fascia board with the name.
-	var run := hd * 2.0 + 0.7
-	var tilt := atan2(back_h - front_h, hd * 2.0)
-	# Resting on the front and back beams (their tops lie on the slope through z = 0).
-	var roof_c := o + Vector3(0, (front_h + back_h) * 0.5 - 0.12 * tan(tilt) + 0.02, 0.12)
-	mb.box(&"corrugated_old", Transform3D(Basis(Vector3.RIGHT, tilt), roof_c), Vector3(hw * 2.0 + 0.6, 0.03, run), Color(0.58, 0.5, 0.44))
-	var fascia := o + Vector3(0, front_h + 0.12, hd + 0.36)
-	mb.box_at(&"wood", fascia, Vector3(hw * 2.0 + 0.4, 0.34, 0.04), Color(0.52, 0.16, 0.1))
-	BuildingKit.sign(self, "TAVUKÇU", fascia + Vector3(0, 0.0, 0.03), 0.0, 84, Color(0.98, 0.92, 0.78), Color(0, 0, 0, 0), false)
-	# A striped canvas valance under the fascia.
-	for k in 8:
-		var vx := -hw - 0.1 + (k + 0.5) * (hw * 2.0 + 0.2) / 8.0
-		mb.box_at(&"cloth", o + Vector3(vx, front_h - 0.12, hd + 0.33), Vector3((hw * 2.0 + 0.2) / 8.0, 0.24, 0.015),
-				Color(0.86, 0.82, 0.72) if k % 2 == 0 else Color(0.55, 0.2, 0.14), Vector3(8, 0, 0))
-	# The trestle counter at the front: plank top on two A-frame trestles.
-	var counter := o + Vector3(0, 0, hd - 0.3)
-	var top_y := 0.82
-	for k in 4:
-		mb.box_at(&"planks", counter + Vector3(0, top_y, -0.27 + k * 0.18), Vector3(2.9, 0.04, 0.17),
-				Color(0.5, 0.45, 0.4).lightened(rng.randf_range(-0.05, 0.05)), Vector3(0, rng.randf_range(-0.4, 0.4), 0))
-	for sx: float in [-1.0, 1.0]:
-		for lean: float in [-1.0, 1.0]:
-			mb.box_at(&"wood", counter + Vector3(sx * 1.15, top_y * 0.5 - 0.02, lean * 0.14), Vector3(0.06, top_y, 0.06), post,
-					Vector3(lean * 11.0, 0, 0))
-		mb.box_at(&"wood", counter + Vector3(sx * 1.15, 0.3, 0), Vector3(0.05, 0.05, 0.62), post)
-	cols.append([counter + Vector3(0, top_y * 0.5, 0), Vector3(2.9, top_y + 0.04, 0.72), 0.0])
-	# Crated hens on the counter (live) and the stock stacked behind (modelled hens).
-	var on_top := top_y + 0.02
+	rng.seed = 6113
 	for k in 3:
-		var hen_xf := Transform3D(Basis(Vector3.UP, rng.randf_range(-0.06, 0.06) + (PI if k == 1 else 0.0)),
-				counter + Vector3(-0.85 + k * 0.85, on_top, 0.02))
-		_goods_add("chicken_crate:0:1", hen_xf)
-		var hen := CrateHen.new()
-		hen.name = "StallHen%d" % k
-		hen.variant = k + 1
-		# Goes out of sight with the crates on show (_build_goods).
-		hen.view_range = 44.0
-		hen.transform = hen_xf
-		add_child(hen)
-	for k in 4:
-		var row := k / 2
-		var xf := Transform3D(Basis(Vector3.UP, rng.randf_range(-0.08, 0.08)),
-				o + Vector3(-0.9 + (k % 2) * 0.58 + row * 0.05, row * (CargoModels.SIZE.y + 0.012), -hd + 0.45))
-		_goods_add("chicken_crate:still", xf)
-	cols.append([o + Vector3(-0.45, 0.28, -hd + 0.45), Vector3(1.3, 0.56, 0.42), 0.0])
-	# Empty crates waiting at the side, feed sacks and a bale of straw.
-	for k in 3:
-		_goods_add("chicken_crate:1:0", Transform3D(Basis(Vector3.UP, PI * 0.5 + rng.randf_range(-0.1, 0.1)),
-				o + Vector3(hw + 0.45, k * (CargoModels.SIZE.y + 0.012), 0.2)))
-	cols.append([o + Vector3(hw + 0.45, 0.4, 0.2), Vector3(0.42, 0.8, 0.55), 0.0])
-	for k in 2:
-		_goods_add("feed:%d:1" % k, Transform3D(Basis(Vector3.UP, rng.randf_range(-0.3, 0.3)), o + Vector3(0.6 + k * 0.52, 0.0, -hd + 0.4)))
-	_goods_add("hay:0:1", Transform3D(Basis(Vector3.UP, 0.2), o + Vector3(-hw + 0.3, 0.0, -0.1)))
-	for i in 9:
-		var sp := o + Vector3(rng.randf_range(-hw, hw), 0.004, rng.randf_range(-hd, hd + 0.8))
-		mb.box_at(&"straw", sp, Vector3(rng.randf_range(0.15, 0.4), 0.01, rng.randf_range(0.05, 0.12)), Color(0.8, 0.68, 0.4),
-				Vector3(0, rng.randf() * 180.0, 0))
-	# The chalkboard on an easel by the counter, the price chalked on it.
-	var easel := o + Vector3(-hw - 0.55, 0, hd + 0.35)
-	var board_b := Basis(Vector3.UP, 0.35) * Basis(Vector3.RIGHT, deg_to_rad(-12.0))
-	mb.box(&"wood", Transform3D(board_b, easel + Vector3(0, 0.62, 0)), Vector3(0.62, 0.86, 0.04), post)
-	mb.box(&"paint_in", Transform3D(board_b, easel + Vector3(0, 0.64, 0) + board_b.z * 0.022), Vector3(0.54, 0.74, 0.004), Color(0.12, 0.14, 0.13))
-	mb.box(&"wood", Transform3D(Basis(Vector3.UP, 0.35) * Basis(Vector3.RIGHT, deg_to_rad(18.0)), easel + Vector3(0, 0.5, -0.2)),
-			Vector3(0.05, 1.0, 0.04), post)
-	var chalk := BuildingKit.sign(self, "CANLI\nTAVUK\n%s" % UiTheme.money(LiveCrates.price(&"chicken")),
-			easel + Vector3(0, 0.66, 0) + board_b.z * 0.03, 0.35, 44, Color(0.93, 0.93, 0.88), Color(0, 0, 0, 0), false)
-	chalk.rotation.x = deg_to_rad(-12.0)
-	# Chalked small enough to stay on the 0.54 m board (the sign default is shop-front size).
-	chalk.pixel_size = 0.002
-	cols.append([easel + Vector3(0, 0.5, -0.05), Vector3(0.6, 1.0, 0.35), 0.35])
-	# A bare bulb under the roof for the evening.
-	var bulb := o + Vector3(0, front_h - 0.25, 0.1)
-	mb.cylinder_between(&"cloth", bulb + Vector3(0, 0.02, 0), bulb + Vector3(0, 0.35, 0), 0.004, 0.004, 5, Color(0.1, 0.1, 0.1))
-	mb.sphere(&"lamp_glow", Transform3D(Basis(), bulb), Vector3(0.04, 0.05, 0.04), 8, 6, Color(1.0, 0.86, 0.6))
-	var light := OmniLight3D.new()
-	light.position = bulb - Vector3(0, 0.08, 0)
-	light.light_color = Color(1.0, 0.82, 0.55)
-	light.light_energy = 0.0
-	light.omni_range = 6.0
-	light.shadow_enabled = false
-	light.visible = false
-	add_child(light)
-	_lamps.append(light)
-	poultry_stall = _interactable(counter + Vector3(0, 0.62, 0.05), Vector3(3.0, 1.0, 0.95), "ACTION_BUY_CHICKENS",
-			func() -> void: Game.hud.rancher_screen.open_poultry(poultry_stall.global_position))
-	poultry_marker = Marker3D.new()
-	poultry_marker.name = "PoultryMarker"
-	poultry_marker.position = o + Vector3(0, front_h + 0.75, hd + 0.4)
-	WaypointMarker.tag(poultry_marker, &"town_chickens")
-	poultry_marker.add_to_group(&"waypoints")
-	add_child(poultry_marker)
+		var z := lane.position.y + 4.0 + k * 9.0
+		for x: float in [c.x - 0.8, c.x + 0.85]:
+			_decal("tyre", Vector3(x, y, z), Vector2(0.55, 9.5), rng.randf_range(-0.03, 0.03), Color(0.5, 0.45, 0.4, 0.95), 0.4)
+	# Dried mud and dust in patches down the lane, wetter where the pens' gates are.
+	for k in 9:
+		var p := Vector2(c.x + rng.randf_range(-1.6, 1.6), lane.position.y + 2.0 + k * 3.0 + rng.randf_range(-0.8, 0.8))
+		_decal("dirt", Vector3(p.x, y, p.y), Vector2(rng.randf_range(2.4, 3.6), rng.randf_range(2.0, 3.2)), rng.randf() * TAU,
+				Color(0.75, 0.7, 0.65, rng.randf_range(0.6, 0.9)), 0.5)
+	for p: Vector2 in [Vector2(c.x, MARKET_LANE.position.y + 1.2), Vector2(c.x + 1.8, 34.0), Vector2(c.x + 2.0, 42.2),
+			Vector2(c.x + 1.9, 50.7), Vector2(c.x - 1.5, 42.8), Vector2(c.x - 1.2, 51.0)]:
+		_decal("mud", Vector3(p.x, y, p.y), Vector2(rng.randf_range(2.2, 3.4), rng.randf_range(2.0, 3.0)), rng.randf() * TAU,
+				Color(1, 1, 1, rng.randf_range(0.7, 0.95)), 0.5)
+	for i in 60:
+		var sp := Vector3(rng.randf_range(lane.position.x + 0.3, lane.end.x - 0.3), y + 0.016, rng.randf_range(MARKET_LANE.position.y, lane.end.y - 0.4))
+		_fine.box(&"straw", Transform3D(Basis(Vector3.UP, rng.randf() * PI), sp), Vector3(rng.randf_range(0.08, 0.22), 0.004, rng.randf_range(0.008, 0.02)),
+				Color(0.72, 0.62, 0.4).darkened(rng.randf() * 0.25))
 
 
-## One more package on display (see _goods): "item:variant:shadow", or "item:still"
-## for a crate with a modelled hen in it (the stock behind the stall).
-func _goods_add(key: String, xf: Transform3D) -> void:
-	if not _goods.has(key):
-		_goods[key] = []
-	(_goods[key] as Array).append(xf)
-
-
-# --- Livestock dealer ------------------------------------------------------------------
-
-func _livestock(mb: MeshBuilder, cols: Array) -> void:
-	var y0 := _y(RANCH_OFFICE.get_center().x, RANCH_OFFICE.get_center().y) + 0.1
-	BuildingKit.shell(mb, cols, RANCH_OFFICE, y0, 3.4, 0.25, &"planks", Color(0.5, 0.46, 0.42), {
-		"n": [{"at": 3.0, "w": 2.6, "bottom": 1.0, "top": 2.4, "glass": true},
-			{"at": 7.2, "w": 1.6, "bottom": 0.0, "top": 2.4, "glass": false}],
-	}, &"floor", false)
-	mb.box_at(&"sign", Vector3(RANCH_OFFICE.get_center().x, y0 + 3.9, RANCH_OFFICE.position.y - 0.25), Vector3(6.0, 0.8, 0.1), Color(0.36, 0.22, 0.1))
-	BuildingKit.sign(self, "HAYVAN PAZARI", Vector3(RANCH_OFFICE.get_center().x, y0 + 3.9, RANCH_OFFICE.position.y - 0.31), PI, 100, Color(1.0, 0.94, 0.8))
-	var counter := Vector3(RANCH_OFFICE.position.x + 3.0, y0, RANCH_OFFICE.position.y + 1.4)
-	mb.box_at(&"wood_in", counter + Vector3(0, 0.5, 0), Vector3(2.4, 1.0, 0.7), Color(0.42, 0.32, 0.22))
-	_interactable(counter + Vector3(0, 0.5, 0), Vector3(2.4, 1.0, 0.7), "ACTION_SHOP_ANIMALS",
-			func() -> void: Game.hud.open_rancher())
-	# The window counter faces the street too.
-	_interactable(Vector3(RANCH_OFFICE.position.x + 3.0, y0 + 1.7, RANCH_OFFICE.position.y), Vector3(2.6, 1.4, 0.4), "ACTION_SHOP_ANIMALS",
-			func() -> void: Game.hud.open_rancher())
-	# Paddock with hay.
-	var fence := Fence.new()
-	var f := WorldLayout.fence_around(RANCH_PEN, [])
-	fence.points = f["points"]
-	fence.gaps = f["gaps"]
-	fence.closed = true
-	add_child(fence)
-	for i in 3:
-		var p := Vector3(RANCH_PEN.position.x + 2.5 + i * 1.3, _y(RANCH_PEN.position.x + 3, RANCH_PEN.end.y - 3), RANCH_PEN.end.y - 2.5)
-		mb.cylinder(&"straw", Transform3D(Basis(Vector3.FORWARD, PI * 0.5), p + Vector3(0.6, 0.6, 0)), 0.6, 0.6, 1.2, 18, Color(0.74, 0.64, 0.38))
-	_livestock_yard(mb, cols, y0)
-
-
-## The livestock dealer's yard: a tin porch over the street side of the office,
-## trampled mud and straw in the paddock, a water trough and a hay rack, square bales
-## stacked against the office's west wall (the side toward the paddock stays clear),
-## drums and a bench at the door.
-func _livestock_yard(mb: MeshBuilder, cols: Array, y0: float) -> void:
+## The dealer's office: a timber shell with a glazed counter window onto the street, a
+## door, a hatch with a counter onto the lane (a price board beside it), a tin porch on
+## two posts, a bench and drums at the door and square bales against the west wall.
+func _market_office(mb: MeshBuilder, cols: Array) -> void:
 	var o := RANCH_OFFICE
-	var post := Color(0.38, 0.32, 0.26)
+	var y0 := _y(o.get_center().x, o.get_center().y) + 0.1
+	var hatch_z := o.end.y - 0.25 - 3.3
+	BuildingKit.shell(mb, cols, o, y0, 3.4, 0.25, &"planks", Color(0.5, 0.46, 0.42), {
+		"n": [{"at": 2.6, "w": 2.6, "bottom": 1.0, "top": 2.4, "glass": true},
+			{"at": 6.8, "w": 1.6, "bottom": 0.0, "top": 2.4, "glass": false}],
+		"e": [{"at": 3.3, "w": 2.2, "bottom": 1.0, "top": 2.2, "glass": false}],
+	}, &"floor", false)
+	mb.box_at(&"sign", Vector3(o.get_center().x, y0 + 3.9, o.position.y - 0.25), Vector3(6.0, 0.8, 0.1), Color(0.36, 0.22, 0.1))
+	BuildingKit.sign(self, "HAYVAN PAZARI", Vector3(o.get_center().x, y0 + 3.9, o.position.y - 0.31), PI, 100, Color(1.0, 0.94, 0.8))
+	# The counter under the hatch (inside), its shelf outside, a tin hood over it.
+	var wood := Color(0.42, 0.32, 0.22)
+	mb.box_at(&"wood_in", Vector3(o.end.x - 0.6, y0 + 0.5, hatch_z), Vector3(0.7, 1.0, 2.4), wood)
+	mb.box_at(&"wood", Vector3(o.end.x + 0.12, y0 + 1.0, hatch_z), Vector3(0.34, 0.05, 2.3), wood.lightened(0.08))
+	for sz: float in [-0.9, 0.9]:
+		BuildingKit.beam(mb, &"wood", Vector3(o.end.x + 0.02, y0 + 0.7, hatch_z + sz), Vector3(o.end.x + 0.26, y0 + 0.97, hatch_z + sz), Vector2(0.05, 0.05), wood)
+	BuildingKit.awning(mb, Vector3(o.end.x + 0.02, y0 + 2.45, hatch_z), 2.7, 0.9, Vector2(1, 0), Color(0.5, 0.2, 0.14))
+	cols.append([Vector3(o.end.x - 0.6, y0 + 0.5, hatch_z), Vector3(0.7, 1.0, 2.4), 0.0])
+	# The price board beside the hatch: what each kind costs, chalked in Turkish.
+	var board := Vector3(o.end.x + 0.04, y0 + 1.75, hatch_z + 2.25)
+	mb.box_at(&"wood", board, Vector3(0.05, 1.12, 1.0), Color(0.36, 0.28, 0.2))
+	mb.box_at(&"paint_in", board + Vector3(0.028, 0.0, 0.0), Vector3(0.004, 1.0, 0.88), Color(0.12, 0.14, 0.13))
+	var lines := PackedStringArray(["FİYATLAR"])
+	var turkish := TranslationServer.get_translation_object("tr")
+	for s: StringName in AnimalTable.ORDER:
+		var n := String(turkish.get_message("ANIMAL_" + String(s).to_upper())) if turkish else String(s)
+		lines.append("%s  %s" % [n.to_upper(), UiTheme.money(int(AnimalTable.get_species(s).get("adult_price", 0)))])
+	var chalk := BuildingKit.sign(self, "\n".join(lines), board + Vector3(0.035, 0.0, 0.0), PI * 0.5, 40, Color(0.93, 0.93, 0.88), Color(0, 0, 0, 0), false)
+	chalk.pixel_size = 0.0022
+	# Where E opens the market: the hatch (from the lane or behind the counter) and the
+	# street window.
+	market_office = _market_point(Vector3(o.end.x, y0 + 1.3, hatch_z), Vector3(1.6, 1.2, 2.2), "ACTION_SHOP_ANIMALS", &"")
+	_market_point(Vector3(o.end.x - 2.6, y0 + 1.7, o.position.y), Vector3(2.6, 1.4, 0.4), "ACTION_SHOP_ANIMALS", &"")
 	# Porch: a corrugated roof on two posts at the office's front corners.
+	var post := Color(0.38, 0.32, 0.26)
 	var hi := y0 + 3.1
 	var lo := y0 + 2.5
 	var front := o.position.y - 1.7
@@ -1788,48 +1773,179 @@ func _livestock_yard(mb: MeshBuilder, cols: Array, y0: float) -> void:
 	var tilt := atan2(hi - lo, o.position.y - front)
 	mb.box(&"corrugated_old", Transform3D(Basis(Vector3.RIGHT, -tilt), Vector3(o.get_center().x, (hi + lo) * 0.5 + 0.02, (o.position.y + front) * 0.5 - 0.05)),
 			Vector3(o.size.x + 0.4, 0.03, Vector2(o.position.y - front, hi - lo).length() + 0.3), Color(0.56, 0.52, 0.48))
-	# A bench and drums by the door, feed sacks on a pallet.
-	_bench(mb, cols, Vector3(o.position.x + 5.4, y0, o.position.y - 0.5), PI)
-	_prop("barrel_03", Vector3(o.end.x - 0.6, y0 - 0.1, o.position.y - 0.6), 0.3)
-	_prop("barrel_03", Vector3(o.end.x + 0.5, y0 - 0.1, o.position.y + 0.5), 1.9)
+	# A bulb under the porch for the evening.
+	var bulb := Vector3(o.end.x - 2.6, lo - 0.3, front + 0.9)
+	mb.sphere(&"lamp_glow", Transform3D(Basis(), bulb), Vector3(0.05, 0.06, 0.05), 8, 6, Color(1.0, 0.86, 0.6))
+	_market_lamp(bulb - Vector3(0, 0.1, 0), 7.0)
+	# A bench and drums by the door.
+	_bench(mb, cols, Vector3(o.position.x + 4.6, y0, o.position.y - 0.5), PI)
+	_prop("barrel_03", Vector3(o.position.x + 0.7, y0 - 0.1, o.position.y - 0.6), 0.3)
+	_prop("barrel_03", Vector3(o.end.x + 0.45, y0 - 0.1, o.end.y - 0.5), 1.9)
 	# Square bales stacked against the west wall.
-	var bales := Vector3(o.position.x - 0.42, y0 - 0.1, o.position.y + 4.8)
+	var bales := Vector3(o.position.x - 0.42, y0 - 0.1, o.position.y + 4.3)
 	for layer in 3:
 		for k in 5 - layer:
-			mb.box_at(&"straw", bales + Vector3(0, 0.2 + layer * 0.4, -1.8 + k * 0.92 + layer * 0.46), Vector3(0.46, 0.4, 0.9),
-					Color(0.74, 0.64, 0.4).darkened(layer * 0.03 + (k % 2) * 0.03), Vector3(0, (k - 2) * 2.0, 0))
+			_square_bale(mb, bales + Vector3(0, 0.2 + layer * 0.4, -1.8 + k * 0.92 + layer * 0.46), (k - 2) * 0.035,
+					layer * 0.03 + (k % 2) * 0.03)
 	cols.append([bales + Vector3(0, 0.6, 0), Vector3(0.5, 1.2, 4.6), 0.0])
-	# The paddock: mud, a trough, a hay rack.
-	var pen := RANCH_PEN
+
+
+## A shadowless warm light that comes on with the street lamps.
+func _market_lamp(at: Vector3, reach: float) -> void:
+	var light := OmniLight3D.new()
+	light.position = at
+	light.light_color = Color(1.0, 0.82, 0.55)
+	light.light_energy = 0.0
+	light.omni_range = reach
+	light.shadow_enabled = false
+	light.visible = false
+	add_child(light)
+	_lamps.append(light)
+
+
+## The gate arch over the lane: two squared posts with knee braces and a beam, the name
+## board hung under it on chains (lettered both ways), the two leaves of a timber gate
+## swung open against the fences.
+func _market_gate(mb: MeshBuilder, cols: Array) -> void:
+	var z := MARKET_LANE.position.y + 0.2
+	var xa := MARKET_LANE.position.x - 0.15
+	var xb := MARKET_LANE.end.x + 0.15
+	var y := _y((xa + xb) * 0.5, z)
+	var wood := Color(0.44, 0.36, 0.28)
+	var top := 4.3
+	for x: float in [xa, xb]:
+		mb.box_at(&"wood", Vector3(x, y + top * 0.5 - 0.3, z), Vector3(0.24, top + 0.6, 0.24), wood.darkened(0.05), Vector3.ZERO, true)
+		mb.box_at(&"stone_ext", Vector3(x, y + 0.12, z), Vector3(0.5, 0.3, 0.5), Color(0.5, 0.49, 0.47))
+		cols.append([Vector3(x, y + top * 0.5, z), Vector3(0.3, top, 0.3), 0.0])
+		var inward := 1.0 if x == xa else -1.0
+		BuildingKit.beam(mb, &"wood", Vector3(x + inward * 0.1, y + top - 1.1, z), Vector3(x + inward * 0.9, y + top - 0.12, z), Vector2(0.12, 0.12), wood)
+	BuildingKit.beam(mb, &"wood", Vector3(xa - 0.5, y + top + 0.02, z), Vector3(xb + 0.5, y + top + 0.02, z), Vector2(0.26, 0.22), wood.darkened(0.08))
+	# The board on two chains, its name both ways.
+	var bc := Vector3((xa + xb) * 0.5, y + top - 0.85, z)
+	mb.box_at(&"wood", bc, Vector3(4.2, 0.72, 0.07), Color(0.36, 0.22, 0.1))
+	mb.box_at(&"wood", bc + Vector3(0, 0.39, 0), Vector3(4.3, 0.06, 0.1), wood.darkened(0.15))
+	mb.box_at(&"wood", bc - Vector3(0, 0.39, 0), Vector3(4.3, 0.06, 0.1), wood.darkened(0.15))
+	for sx: float in [-1.6, 1.6]:
+		_cable(bc + Vector3(sx, 0.36, 0), Vector3(bc.x + sx, y + top - 0.12, z), 0.0, 0.012, IRON)
+	BuildingKit.sign(self, "HAYVAN PAZARI", bc + Vector3(0, 0.02, -0.045), PI, 110, Color(1.0, 0.93, 0.76), Color(0, 0, 0, 0), false)
+	BuildingKit.sign(self, "HAYVAN PAZARI", bc + Vector3(0, 0.02, 0.045), 0.0, 110, Color(1.0, 0.93, 0.76), Color(0, 0, 0, 0), false)
+	# The gate leaves, open along the sides of the lane.
+	_field_gate(mb, Vector3(xa + 0.2, y, z + 0.1), Vector3(xa + 0.25, y, z + 2.75))
+	_field_gate(mb, Vector3(xb - 0.2, y, z + 0.1), Vector3(xb - 0.25, y, z + 2.75))
+
+
+## A timber five-bar field gate from its hinge `a` to its latch end `b` (on the ground):
+## the hanging and latch stiles, five rails, the diagonal brace and iron hinges.
+func _field_gate(mb: MeshBuilder, a: Vector3, b: Vector3, h := 1.15) -> void:
+	var wood := Color(0.56, 0.53, 0.49)
+	var dir := Vector3(b.x - a.x, 0.0, b.z - a.z).normalized()
+	for k in 5:
+		var ry := 0.24 + k * (h - 0.32) / 4.0
+		BuildingKit.beam(mb, &"fence_wood", a + Vector3(0, ry, 0), b + Vector3(0, ry, 0), Vector2(0.1, 0.035), wood.darkened(k * 0.015))
+	for e: Vector3 in [a + dir * 0.04, b - dir * 0.04]:
+		BuildingKit.beam(mb, &"fence_wood", e + Vector3(0, 0.12, 0), e + Vector3(0, h + 0.04, 0), Vector2(0.1, 0.07), wood.darkened(0.06))
+	BuildingKit.beam(mb, &"fence_wood", a + dir * 0.08 + Vector3(0, 0.26, 0), b - dir * 0.4 + Vector3(0, h - 0.06, 0), Vector2(0.09, 0.035), wood)
+	for ry: float in [0.3, h - 0.1]:
+		_fine.box(&"metal", Transform3D(Basis(Vector3.UP, atan2(dir.x, dir.z)), a + Vector3(0, ry, 0) + dir * 0.2), Vector3(0.05, 0.05, 0.36), IRON)
+
+
+## The three paddocks east of the lane (post-and-rail fences, a closed field gate onto
+## the lane each, where E opens the market at that kind), with mud where the animals
+## stand, a trough in each, a hay rack in the cows' and a lean-to shelter in the sheep's.
+func _market_paddocks(mb: MeshBuilder, cols: Array) -> void:
+	var x0 := HORSE_PADDOCK.position.x
+	var x1 := HORSE_PADDOCK.end.x
+	var z0 := HORSE_PADDOCK.position.y
+	var z1 := SHEEP_PEN.end.y
+	# Round the three, gates on the lane side (built from the south end northward).
+	var pts := PackedVector2Array([Vector2(x0, z0), Vector2(x1, z0), Vector2(x1, z1), Vector2(x0, z1)])
+	var gaps := PackedInt32Array()
+	var pens: Array = [[SHEEP_PEN, &"sheep"], [COW_PADDOCK, &"cow"], [HORSE_PADDOCK, &"horse"]]
+	for pen: Array in pens:
+		var r: Rect2 = pen[0]
+		var gc := r.get_center().y
+		pts.append(Vector2(x0, gc + PEN_GATE * 0.5))
+		gaps.append(pts.size() - 1)
+		pts.append(Vector2(x0, gc - PEN_GATE * 0.5))
+	var fence := Fence.new()
+	fence.name = "MarketFence"
+	fence.points = pts
+	fence.gaps = gaps
+	fence.closed = true
+	fence.seed_value = 41
+	add_child(fence)
+	for z: float in [COW_PADDOCK.position.y, SHEEP_PEN.position.y]:
+		var cross := Fence.new()
+		cross.points = PackedVector2Array([Vector2(x0 + 0.25, z), Vector2(x1 - 0.25, z)])
+		cross.seed_value = int(z)
+		add_child(cross)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 881
-	for p: Vector2 in [Vector2(pen.position.x + 4.0, pen.position.y + 4.0), Vector2(pen.position.x + 8.0, pen.position.y + 9.0),
-			Vector2(pen.position.x + 4.5, pen.end.y - 5.0), Vector2(pen.end.x - 3.0, pen.position.y + 3.0)]:
-		_decal("mud", Vector3(p.x, _y(p.x, p.y), p.y), Vector2(rng.randf_range(5.0, 7.0), rng.randf_range(5.0, 7.0)), rng.randf() * TAU,
-				Color(1, 1, 1, rng.randf_range(0.75, 1.0)), 1.0)
-	# A galvanised trough: sheet walls and bottom on two stands, a rolled rim, the
-	# water a hand below it.
-	var trough := Vector3(pen.position.x + 7.0, _y(pen.position.x + 7.0, pen.position.y + 0.8), pen.position.y + 0.8)
+	for pen: Array in pens:
+		var r: Rect2 = pen[0]
+		var species: StringName = pen[1]
+		var gc := r.get_center().y
+		var gy := _y(x0, gc)
+		# The closed gate, and where E opens the market at this kind.
+		_field_gate(mb, Vector3(x0, gy, gc - PEN_GATE * 0.5 + 0.12), Vector3(x0, gy, gc + PEN_GATE * 0.5 - 0.12))
+		cols.append([Vector3(x0, gy + 0.6, gc), Vector3(0.12, 1.2, PEN_GATE), 0.0])
+		market_pens[species] = _market_point(Vector3(x0 - 0.1, gy + 0.9, gc), Vector3(0.5, 1.4, PEN_GATE), "ACTION_MARKET_PEN", species, true)
+		for i in 3:
+			var p := Vector2(rng.randf_range(r.position.x + 2.0, r.end.x - 2.0), rng.randf_range(r.position.y + 1.5, r.end.y - 1.5))
+			_decal("mud", Vector3(p.x, _y(p.x, p.y), p.y), Vector2(rng.randf_range(3.5, 5.5), rng.randf_range(3.0, 4.5)), rng.randf() * TAU,
+					Color(1, 1, 1, rng.randf_range(0.6, 0.9)), 1.0)
+		# A trough along the back fence, mud around it.
+		var tz := r.end.y - 0.75 if species != &"sheep" else r.position.y + 0.75
+		var t := Vector3(r.end.x - 3.2, _y(r.end.x - 3.2, tz), tz)
+		_galv_trough(mb, cols, t, 0.0, 2.4 if species != &"sheep" else 1.8)
+		_decal("mud", t + Vector3(0, 0, -0.2 if species != &"sheep" else 0.2), Vector2(3.6, 2.2), 0.0, Color(0.85, 0.85, 0.85, 0.9), 0.5)
+		market_avoid[species] = [Rect2(t.x - 1.4, t.z - 0.5, 2.8, 1.0)]
+		for s in 18:
+			var sp := Vector3(rng.randf_range(r.position.x + 0.5, r.end.x - 0.5), 0.0, rng.randf_range(r.position.y + 0.5, r.end.y - 0.5))
+			sp.y = _y(sp.x, sp.z) + 0.006
+			_fine.box(&"straw", Transform3D(Basis(Vector3.UP, rng.randf() * PI), sp), Vector3(rng.randf_range(0.08, 0.22), 0.004, rng.randf_range(0.008, 0.02)),
+					Color(0.7, 0.6, 0.38))
+	# The cows' hay rack against the east fence.
+	var rack := Vector3(COW_PADDOCK.end.x - 1.4, _y(COW_PADDOCK.end.x - 1.4, COW_PADDOCK.get_center().y), COW_PADDOCK.get_center().y)
+	_hay_rack(mb, cols, rack)
+	(market_avoid[&"cow"] as Array).append(Rect2(rack.x - 0.8, rack.z - 1.1, 1.6, 2.2))
+	# A round bale in the horses' paddock, its net half pulled away.
+	var rb := Vector3(HORSE_PADDOCK.end.x - 2.2, _y(HORSE_PADDOCK.end.x - 2.2, HORSE_PADDOCK.position.y + 2.0), HORSE_PADDOCK.position.y + 2.0)
+	_round_bale(mb, cols, rb, 0.4)
+	(market_avoid[&"horse"] as Array).append(Rect2(rb.x - 1.0, rb.z - 1.0, 2.0, 2.0))
+	# The sheep's lean-to in the back corner.
+	var sh := Rect2(SHEEP_PEN.end.x - 5.2, SHEEP_PEN.end.y - 3.0, 4.8, 2.6)
+	_lean_to(mb, cols, sh)
+	(market_avoid[&"sheep"] as Array).append(sh.grow(0.2))
+
+
+## A galvanised trough: sheet walls and bottom on two stands, a rolled rim, the water a
+## hand below it; along X turned by `yaw`.
+func _galv_trough(mb: MeshBuilder, cols: Array, c: Vector3, yaw: float, tw := 2.4) -> void:
+	var b := Basis(Vector3.UP, yaw)
 	var tg := GALV.darkened(0.15)
-	var tw := 2.4
 	var td := 0.62
 	var bot := 0.1
 	var rim := 0.56
-	mb.box_at(&"metal", trough + Vector3(0, bot, 0), Vector3(tw, 0.02, td), tg.darkened(0.1))
+	mb.box(&"metal", Transform3D(b, c + b * Vector3(0, bot, 0)), Vector3(tw, 0.02, td), tg.darkened(0.1))
 	for sz: float in [-1.0, 1.0]:
-		mb.box_at(&"metal", trough + Vector3(0, (bot + rim) * 0.5, sz * (td * 0.5 - 0.01)), Vector3(tw, rim - bot, 0.02), tg)
+		mb.box(&"metal", Transform3D(b, c + b * Vector3(0, (bot + rim) * 0.5, sz * (td * 0.5 - 0.01))), Vector3(tw, rim - bot, 0.02), tg)
 	for sx: float in [-1.0, 1.0]:
-		mb.box_at(&"metal", trough + Vector3(sx * (tw * 0.5 - 0.01), (bot + rim) * 0.5, 0), Vector3(0.02, rim - bot, td - 0.04), tg)
-	var rc: Array[Vector3] = [trough + Vector3(-tw * 0.5, rim, -td * 0.5), trough + Vector3(tw * 0.5, rim, -td * 0.5),
-		trough + Vector3(tw * 0.5, rim, td * 0.5), trough + Vector3(-tw * 0.5, rim, td * 0.5)]
+		mb.box(&"metal", Transform3D(b, c + b * Vector3(sx * (tw * 0.5 - 0.01), (bot + rim) * 0.5, 0)), Vector3(0.02, rim - bot, td - 0.04), tg)
+	var rc: Array[Vector3] = [c + b * Vector3(-tw * 0.5, rim, -td * 0.5), c + b * Vector3(tw * 0.5, rim, -td * 0.5),
+		c + b * Vector3(tw * 0.5, rim, td * 0.5), c + b * Vector3(-tw * 0.5, rim, td * 0.5)]
 	for k in 4:
 		mb.cylinder_between(&"metal", rc[k], rc[(k + 1) % 4], 0.018, 0.018, 8, tg.lightened(0.08))
-	mb.box_at(&"water_still", trough + Vector3(0, rim - 0.09, 0), Vector3(tw - 0.04, 0.01, td - 0.04), Color(0.2, 0.23, 0.2))
+	mb.box(&"water_still", Transform3D(b, c + b * Vector3(0, rim - 0.09, 0)), Vector3(tw - 0.04, 0.01, td - 0.04), Color(0.2, 0.23, 0.2))
 	for sx: float in [-1.0, 1.0]:
-		mb.box_at(&"metal", trough + Vector3(sx * 0.95, bot * 0.5 - 0.01, 0), Vector3(0.08, bot + 0.02, td + 0.08), IRON)
-	_decal("mud", trough + Vector3(0, 0.0, 0.2), Vector2(3.4, 2.0), 0.0, Color(0.8, 0.8, 0.8, 0.9), 0.5)
-	# A V-shaped hay rack on legs: slats down both sides with hay poking through.
-	var rack := Vector3(pen.end.x - 1.5, _y(pen.end.x - 1.5, pen.get_center().y), pen.get_center().y)
+		mb.box(&"metal", Transform3D(b, c + b * Vector3(sx * (tw * 0.5 - 0.25), bot * 0.5 - 0.01, 0)), Vector3(0.08, bot + 0.02, td + 0.08), IRON)
+	cols.append([c + Vector3(0, rim * 0.5, 0), Vector3(tw, rim, td) if is_zero_approx(fmod(yaw, PI)) else Vector3(td, rim, tw), 0.0])
+
+
+## A V-shaped hay rack on legs (along Z): slats down both sides, hay poking through,
+## stalks trodden into the mud around it.
+func _hay_rack(mb: MeshBuilder, cols: Array, rack: Vector3) -> void:
+	var post := Color(0.38, 0.32, 0.26)
 	var rl := 1.7
 	for sz: float in [-1.0, 1.0]:
 		var ez := sz * rl * 0.5
@@ -1848,12 +1964,353 @@ func _livestock_yard(mb: MeshBuilder, cols: Array, y0: float) -> void:
 	mb.box(&"straw", Transform3D(Basis(Vector3.FORWARD, 0.12), rack + Vector3(0.02, 1.02, 0)), Vector3(0.62, 0.36, rl - 0.25), hay)
 	mb.box(&"straw", Transform3D(Basis(Vector3.RIGHT, 0.08) * Basis(Vector3.FORWARD, -0.2), rack + Vector3(-0.05, 1.38, 0.1)), Vector3(0.8, 0.24, rl - 0.5), hay.lightened(0.05))
 	mb.box(&"straw", Transform3D(Basis(Vector3.FORWARD, 0.35), rack + Vector3(0.1, 1.5, -0.3)), Vector3(0.5, 0.16, 0.7), hay.lightened(0.08))
-	var rng2 := RandomNumberGenerator.new()
-	rng2.seed = 3307
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3307
 	for i in 14:
-		var sp := rack + Vector3(rng2.randf_range(-0.9, 0.9), 0.004, rng2.randf_range(-1.1, 1.1))
-		mb.box_at(&"straw", sp, Vector3(rng2.randf_range(0.2, 0.45), 0.012, rng2.randf_range(0.05, 0.12)), hay.lightened(0.1),
-				Vector3(0, rng2.randf() * 180.0, 0))
+		var sp := rack + Vector3(rng.randf_range(-0.9, 0.9), 0.004, rng.randf_range(-1.1, 1.1))
+		_fine.box(&"straw", Transform3D(Basis(Vector3.UP, rng.randf() * PI), sp), Vector3(rng.randf_range(0.2, 0.45), 0.012, rng.randf_range(0.05, 0.12)), hay.lightened(0.1))
+	cols.append([rack + Vector3(0, 0.75, 0), Vector3(1.1, 1.5, rl + 0.1), 0.0])
+
+
+## A square bale of straw (0.46 x 0.4 x 0.9, long side along Z turned by `yaw`) with its
+## two strings; `shade` darkens it a little.
+func _square_bale(mb: MeshBuilder, c: Vector3, yaw: float, shade := 0.0) -> void:
+	var b := Basis(Vector3.UP, yaw)
+	mb.box(&"straw", Transform3D(b, c), Vector3(0.46, 0.4, 0.9), Color(0.74, 0.64, 0.4).darkened(shade))
+	for sz: float in [-0.22, 0.22]:
+		_fine.box(&"cloth", Transform3D(b, c + b * Vector3(0, 0, sz)), Vector3(0.475, 0.415, 0.012), Color(0.62, 0.3, 0.14))
+
+
+## A round bale lying on its side (axis along X turned by `yaw`), wrapped in net.
+func _round_bale(mb: MeshBuilder, cols: Array, c: Vector3, yaw: float) -> void:
+	var r := 0.75
+	var b := Basis(Vector3.UP, yaw) * Basis(Vector3.FORWARD, PI * 0.5)
+	mb.cylinder(&"straw", Transform3D(b, c + Vector3(0, r, 0) + Basis(Vector3.UP, yaw) * Vector3(-0.6, 0, 0)), r, r, 1.2, 22,
+			Color(0.72, 0.62, 0.38), true, true, Color(0.66, 0.56, 0.34))
+	for k in 3:
+		var x := -0.45 + k * 0.45
+		mb.ring(&"cloth", Transform3D(b, c + Vector3(0, r, 0) + Basis(Vector3.UP, yaw) * Vector3(x, 0, 0)), r + 0.012, r - 0.004, 0.03, 22, Color(0.85, 0.85, 0.8))
+	cols.append([c + Vector3(0, r, 0), Vector3(1.2, r * 2.0, r * 2.0), yaw])
+
+
+## A lean-to field shelter over `r` (open to the north): four posts, a tin roof falling
+## to the back, boarded back and sides, bedding straw inside.
+func _lean_to(mb: MeshBuilder, cols: Array, r: Rect2) -> void:
+	var y := _y(r.get_center().x, r.get_center().y)
+	var post := Color(0.4, 0.33, 0.26)
+	var hf := 2.2
+	var hb := 1.75
+	for p: Vector2 in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
+		var h := hf if p.y < r.get_center().y else hb
+		mb.box_at(&"wood", Vector3(p.x, y + h * 0.5, p.y), Vector3(0.12, h, 0.12), post, Vector3.ZERO, true)
+		cols.append([Vector3(p.x, y + h * 0.5, p.y), Vector3(0.14, h, 0.14), 0.0])
+	var tilt := atan2(hf - hb, r.size.y)
+	mb.box(&"corrugated_old", Transform3D(Basis(Vector3.RIGHT, tilt), Vector3(r.get_center().x, y + (hf + hb) * 0.5 + 0.06, r.get_center().y + 0.1)),
+			Vector3(r.size.x + 0.4, 0.03, r.size.y + 0.6), Color(0.55, 0.5, 0.46))
+	var boards := Color(0.46, 0.38, 0.3)
+	var n := int(r.size.x / 0.2)
+	for k in n:
+		var bx := r.position.x + (k + 0.5) * r.size.x / n
+		mb.box_at(&"planks", Vector3(bx, y + hb * 0.5, r.end.y), Vector3(r.size.x / n - 0.01, hb, 0.03), boards.darkened((k % 3) * 0.04))
+	for sx: float in [r.position.x, r.end.x]:
+		mb.box_at(&"planks", Vector3(sx, y + hb * 0.5, r.get_center().y + 0.3), Vector3(0.03, hb, r.size.y - 0.6), boards)
+	cols.append([Vector3(r.get_center().x, y + hb * 0.5, r.end.y), Vector3(r.size.x, hb, 0.1), 0.0])
+	for sx: float in [r.position.x, r.end.x]:
+		cols.append([Vector3(sx, y + hb * 0.5, r.get_center().y + 0.3), Vector3(0.1, hb, r.size.y - 0.6), 0.0])
+	mb.box_at(&"straw", Vector3(r.get_center().x, y + 0.01, r.get_center().y + 0.3), Vector3(r.size.x - 0.3, 0.02, r.size.y - 0.8), Color(0.72, 0.6, 0.36))
+
+
+## The coop run west of the lane: chicken wire on posts all round (a wire door onto the
+## lane), a henhouse in the back corner, a feeder and a drinker, straw and dust.
+func _market_coop_run(mb: MeshBuilder, cols: Array) -> void:
+	var r := COOP_RUN
+	var y := _y(r.get_center().x, r.get_center().y)
+	var post := Color(0.42, 0.36, 0.3)
+	var h := 1.7
+	var corners: Array[Vector2] = [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]
+	for k in 4:
+		var a := corners[k]
+		var b := corners[(k + 1) % 4]
+		var n := maxi(1, roundi(a.distance_to(b) / 1.9))
+		for i in n + 1:
+			var p := a.lerp(b, float(i) / n)
+			mb.box_at(&"wood", Vector3(p.x, y + h * 0.5 - 0.1, p.y), Vector3(0.09, h + 0.2, 0.09), post.darkened(0.04 * (i % 2)), Vector3.ZERO, true)
+		BuildingKit.beam(mb, &"wood", Vector3(a.x, y + h - 0.04, a.y), Vector3(b.x, y + h - 0.04, b.y), Vector2(0.07, 0.05), post)
+		BuildingKit.beam(mb, &"wood", Vector3(a.x, y + 0.06, a.y), Vector3(b.x, y + 0.06, b.y), Vector2(0.12, 0.03), post.darkened(0.1))
+		_net(mb, Vector3(a.x, y + 0.02, a.y), Vector3(b.x, y + 0.02, b.y), h - 0.06)
+		var mid := (a + b) * 0.5
+		cols.append([Vector3(mid.x, y + h * 0.5, mid.y), Vector3(maxf(absf(b.x - a.x), 0.1), h, maxf(absf(b.y - a.y), 0.1)), 0.0])
+	# The henhouse: the kit coop's model, its door toward the lane.
+	var hc := HENHOUSE.get_center()
+	_farm_building(AnimalBuildings.coop(Vector2(HENHOUSE.size.y, HENHOUSE.size.x)), "MarketHenhouse", Vector3(hc.x, _y(hc.x, hc.y), hc.y), PI * 0.5, cols)
+	# A hanging feeder and a drinker on bricks, a dust bath, straw.
+	var fd := Vector3(r.end.x - 2.2, y, r.position.y + 1.6)
+	mb.cylinder(&"metal", Transform3D(Basis(), fd + Vector3(0, 0.12, 0)), 0.2, 0.2, 0.05, 16, GALV.darkened(0.1))
+	mb.cylinder(&"metal", Transform3D(Basis(), fd + Vector3(0, 0.16, 0)), 0.1, 0.12, 0.42, 14, GALV)
+	mb.cylinder(&"metal", Transform3D(Basis(), fd + Vector3(0, 0.58, 0)), 0.13, 0.02, 0.1, 14, GALV.lightened(0.05))
+	var dr := Vector3(r.position.x + 1.3, y, r.position.y + 1.3)
+	mb.box_at(&"brick", dr + Vector3(0, 0.06, 0), Vector3(0.4, 0.12, 0.2), Color(0.55, 0.33, 0.25))
+	mb.cylinder(&"metal", Transform3D(Basis(), dr + Vector3(0, 0.12, 0)), 0.19, 0.19, 0.04, 16, Color(0.8, 0.25, 0.18))
+	mb.cylinder(&"metal", Transform3D(Basis(), dr + Vector3(0, 0.16, 0)), 0.13, 0.13, 0.36, 16, Color(0.85, 0.82, 0.75))
+	market_avoid[&"coop"] = [HENHOUSE.grow(0.15), Rect2(fd.x - 0.3, fd.z - 0.3, 0.6, 0.6), Rect2(dr.x - 0.3, dr.z - 0.3, 0.6, 0.6)]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2217
+	for p: Vector2 in [Vector2(r.get_center().x, r.get_center().y), Vector2(r.position.x + 2.0, r.end.y - 2.0), Vector2(r.end.x - 2.0, r.end.y - 2.5)]:
+		_decal("dirt", Vector3(p.x, y, p.y), Vector2(rng.randf_range(3.0, 4.2), rng.randf_range(2.6, 3.6)), rng.randf() * TAU, Color(0.8, 0.75, 0.7, 0.95), 0.5)
+	for i in 40:
+		var sp := Vector3(rng.randf_range(r.position.x + 0.3, r.end.x - 0.3), y + 0.006, rng.randf_range(r.position.y + 0.3, r.end.y - 0.3))
+		_fine.box(&"straw", Transform3D(Basis(Vector3.UP, rng.randf() * PI), sp), Vector3(rng.randf_range(0.08, 0.22), 0.004, rng.randf_range(0.008, 0.02)),
+				Color(0.74, 0.63, 0.4).darkened(rng.randf() * 0.15))
+	# The wire door onto the lane, south of the stall.
+	var dz := r.end.y - 0.9
+	mb.box_at(&"wood", Vector3(r.end.x + 0.06, y + 0.9, dz - 0.5), Vector3(0.05, 1.5, 0.06), post)
+	mb.box_at(&"wood", Vector3(r.end.x + 0.06, y + 0.9, dz + 0.5), Vector3(0.05, 1.5, 0.06), post)
+	mb.box_at(&"wood", Vector3(r.end.x + 0.06, y + 1.63, dz), Vector3(0.05, 0.06, 1.06), post)
+	mb.box_at(&"wood", Vector3(r.end.x + 0.06, y + 0.17, dz), Vector3(0.05, 0.06, 1.06), post)
+	_fine.box(&"metal", Transform3D(Basis(), Vector3(r.end.x + 0.1, y + 0.95, dz + 0.42)), Vector3(0.05, 0.14, 0.04), IRON)
+
+
+## A panel of chicken wire from `a` to `b` (on the ground), `h` tall, seen from both sides.
+func _net(mb: MeshBuilder, a: Vector3, b: Vector3, h: float) -> void:
+	var l := Vector2(b.x - a.x, b.z - a.z).length()
+	var cell := 0.05
+	var uv := Vector2(l / cell, h / (cell * sqrt(3.0)))
+	var up := Vector3(0, h, 0)
+	mb.quad(&"chicken_net", a, b, b + up, a + up, Color.WHITE, Vector2(0, uv.y), Vector2(uv.x, uv.y), Vector2(uv.x, 0), Vector2(0, 0))
+
+
+static var _net_mat: StandardMaterial3D
+
+
+## Galvanised hexagonal wire (a tile of the honeycomb drawn at start-up), alpha
+## scissored and two-sided.
+static func _net_material() -> StandardMaterial3D:
+	if _net_mat:
+		return _net_mat
+	var w := 48
+	var h := 84
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var row := sqrt(3.0) * 0.5
+	for py in h:
+		for px in w:
+			var p := Vector2((px + 0.5) / w, (py + 0.5) / h * 2.0 * row)
+			var d1 := 9.0
+			var d2 := 9.0
+			for j in range(-1, 4):
+				for i in range(-1, 3):
+					var c := Vector2(i + (0.5 if posmod(j, 2) == 1 else 0.0), j * row)
+					var d := p.distance_to(c)
+					if d < d1:
+						d2 = d1
+						d1 = d
+					elif d < d2:
+						d2 = d
+			var edge := 1.0 - smoothstep(0.035, 0.075, d2 - d1)
+			img.set_pixel(px, py, Color(0.78, 0.79, 0.8, edge))
+	img.generate_mipmaps()
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	m.alpha_scissor_threshold = 0.45
+	m.alpha_antialiasing_mode = BaseMaterial3D.ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.metallic = 0.6
+	m.roughness = 0.5
+	m.vertex_color_use_as_albedo = true
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_net_mat = m
+	return m
+
+
+## The hen stall at the coop run's fence, facing the lane: a timber frame under a rusty
+## tin roof falling to the lane, a painted fascia with the name and a striped valance, a
+## trestle counter with crated hens on it (live ones), the stock stacked behind, empty
+## crates at the side, feed sacks and straw, the price chalked on a board and a bulb for
+## the evening. E at the counter buys hens in crates: they go into the bed of the pickup
+## parked in the street, else into the bag.
+func _hen_stall(mb: MeshBuilder, cols: Array) -> void:
+	var c := HEN_STALL.get_center()
+	var y0 := _y(c.x, c.y) + 0.02
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2217
+	# The frame: along z, the front (the lane side, +x) lower than the back.
+	var o := Vector3(c.x, y0, c.y)
+	var post := Color(0.4, 0.33, 0.25)
+	var hw := 1.6
+	var hd := 0.8
+	var front_h := 2.35
+	var back_h := 2.75
+	for sx: float in [-1.0, 1.0]:
+		for sz: float in [-1.0, 1.0]:
+			var ph := front_h if sx > 0.0 else back_h
+			var pp := o + Vector3(sx * hd, ph * 0.5, sz * hw)
+			mb.box_at(&"wood", pp, Vector3(0.1, ph, 0.1), post.lightened(rng.randf_range(-0.05, 0.03)), Vector3.ZERO, true)
+			cols.append([pp, Vector3(0.12, ph, 0.12), 0.0])
+	for sz: float in [-1.0, 1.0]:
+		BuildingKit.beam(mb, &"wood", o + Vector3(hd, front_h - 0.55, sz * hw), o + Vector3(-hd, back_h - 0.4, sz * hw), Vector2(0.08, 0.06), post)
+	for sx: float in [-1.0, 1.0]:
+		var bh := front_h if sx > 0.0 else back_h
+		mb.box_at(&"wood", o + Vector3(sx * hd, bh - 0.06, 0), Vector3(0.09, 0.12, hw * 2.0 + 0.2), post.darkened(0.08))
+	# Rusty corrugated roof falling to the lane, the painted fascia with the name.
+	var run := hd * 2.0 + 0.7
+	var tilt := atan2(back_h - front_h, hd * 2.0)
+	var roof_c := o + Vector3(0.12, (front_h + back_h) * 0.5 - 0.12 * tan(tilt) + 0.02, 0)
+	mb.box(&"corrugated_old", Transform3D(Basis(Vector3.BACK, -tilt) * Basis(Vector3.UP, PI * 0.5), roof_c), Vector3(hw * 2.0 + 0.6, 0.03, run), Color(0.58, 0.5, 0.44))
+	var fascia := o + Vector3(hd + 0.36, front_h + 0.12, 0)
+	mb.box_at(&"wood", fascia, Vector3(0.04, 0.34, hw * 2.0 + 0.4), Color(0.52, 0.16, 0.1))
+	BuildingKit.sign(self, "TAVUKÇU", fascia + Vector3(0.03, 0.0, 0.0), PI * 0.5, 84, Color(0.98, 0.92, 0.78), Color(0, 0, 0, 0), false)
+	for k in 8:
+		var vz := -hw - 0.1 + (k + 0.5) * (hw * 2.0 + 0.2) / 8.0
+		mb.box_at(&"cloth", o + Vector3(hd + 0.33, front_h - 0.12, vz), Vector3(0.015, 0.24, (hw * 2.0 + 0.2) / 8.0),
+				Color(0.86, 0.82, 0.72) if k % 2 == 0 else Color(0.55, 0.2, 0.14), Vector3(0, 0, -8))
+	# The trestle counter at the front: plank top on two A-frame trestles.
+	var counter := o + Vector3(hd - 0.3, 0, 0)
+	var top_y := 0.82
+	for k in 4:
+		mb.box_at(&"planks", counter + Vector3(-0.27 + k * 0.18, top_y, 0), Vector3(0.17, 0.04, 2.9),
+				Color(0.5, 0.45, 0.4).lightened(rng.randf_range(-0.05, 0.05)), Vector3(0, rng.randf_range(-0.4, 0.4), 0))
+	for sz: float in [-1.0, 1.0]:
+		for lean: float in [-1.0, 1.0]:
+			mb.box_at(&"wood", counter + Vector3(lean * 0.14, top_y * 0.5 - 0.02, sz * 1.15), Vector3(0.06, top_y, 0.06), post,
+					Vector3(0, 0, -lean * 11.0))
+		mb.box_at(&"wood", counter + Vector3(0, 0.3, sz * 1.15), Vector3(0.62, 0.05, 0.05), post)
+	cols.append([counter + Vector3(0, top_y * 0.5, 0), Vector3(0.72, top_y + 0.04, 2.9), 0.0])
+	# Crated hens on the counter (live) and the stock stacked behind (modelled hens).
+	var on_top := top_y + 0.02
+	for k in 3:
+		var hen_xf := Transform3D(Basis(Vector3.UP, PI * 0.5 + rng.randf_range(-0.06, 0.06) + (PI if k == 1 else 0.0)),
+				counter + Vector3(0.02, on_top, -0.85 + k * 0.85))
+		_goods_add("chicken_crate:0:1", hen_xf)
+		var hen := CrateHen.new()
+		hen.name = "StallHen%d" % k
+		hen.variant = k + 1
+		# Goes out of sight with the crates on show (_build_goods).
+		hen.view_range = 44.0
+		hen.transform = hen_xf
+		add_child(hen)
+	for k in 4:
+		var layer := k / 2
+		var xf := Transform3D(Basis(Vector3.UP, PI * 0.5 + rng.randf_range(-0.08, 0.08)),
+				o + Vector3(-hd + 0.4, layer * (CargoModels.SIZE.y + 0.012), -0.9 + (k % 2) * 0.58 + layer * 0.05))
+		_goods_add("chicken_crate:still", xf)
+	cols.append([o + Vector3(-hd + 0.4, 0.28, -0.6), Vector3(0.42, 0.56, 1.3), 0.0])
+	# Empty crates waiting at the side, feed sacks and a bale of straw.
+	for k in 3:
+		_goods_add("chicken_crate:1:0", Transform3D(Basis(Vector3.UP, rng.randf_range(-0.1, 0.1)),
+				o + Vector3(0.1, k * (CargoModels.SIZE.y + 0.012), hw + 0.5)))
+	cols.append([o + Vector3(0.1, 0.4, hw + 0.5), Vector3(0.55, 0.8, 0.42), 0.0])
+	for k in 2:
+		_goods_add("feed:%d:1" % k, Transform3D(Basis(Vector3.UP, rng.randf_range(-0.3, 0.3)), o + Vector3(-hd + 0.4, 0.0, 0.5 + k * 0.52)))
+	_goods_add("hay:0:1", Transform3D(Basis(Vector3.UP, 0.2), o + Vector3(-0.1, 0.0, -hw + 0.3)))
+	for i in 9:
+		var sp := o + Vector3(rng.randf_range(-hd, hd + 0.8), 0.004, rng.randf_range(-hw, hw))
+		_fine.box(&"straw", Transform3D(Basis(Vector3.UP, rng.randf() * PI), sp), Vector3(rng.randf_range(0.15, 0.4), 0.01, rng.randf_range(0.05, 0.12)),
+				Color(0.8, 0.68, 0.4))
+	# The chalkboard on an easel in the lane, turned to the gate, the price chalked on it.
+	var easel := o + Vector3(hd + 0.55, 0, -hw - 0.35)
+	var yaw := PI * 0.75
+	var board_b := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, deg_to_rad(-12.0))
+	mb.box(&"wood", Transform3D(board_b, easel + Vector3(0, 0.62, 0)), Vector3(0.62, 0.86, 0.04), post)
+	mb.box(&"paint_in", Transform3D(board_b, easel + Vector3(0, 0.64, 0) + board_b.z * 0.022), Vector3(0.54, 0.74, 0.004), Color(0.12, 0.14, 0.13))
+	mb.box(&"wood", Transform3D(Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, deg_to_rad(18.0)), easel + Basis(Vector3.UP, yaw) * Vector3(0, 0.5, -0.2)),
+			Vector3(0.05, 1.0, 0.04), post)
+	var chalk := BuildingKit.sign(self, "CANLI\nTAVUK\n%s" % UiTheme.money(LiveCrates.price(&"chicken")),
+			easel + Vector3(0, 0.66, 0) + board_b.z * 0.03, yaw, 44, Color(0.93, 0.93, 0.88), Color(0, 0, 0, 0), false)
+	chalk.rotation.x = deg_to_rad(-12.0)
+	# Chalked small enough to stay on the 0.54 m board (the sign default is shop-front size).
+	chalk.pixel_size = 0.002
+	cols.append([easel + Vector3(0, 0.5, 0), Vector3(0.5, 1.0, 0.5), yaw])
+	# A bare bulb under the roof for the evening.
+	var bulb := o + Vector3(0.1, front_h - 0.25, 0)
+	mb.cylinder_between(&"cloth", bulb + Vector3(0, 0.02, 0), bulb + Vector3(0, 0.35, 0), 0.004, 0.004, 5, Color(0.1, 0.1, 0.1))
+	mb.sphere(&"lamp_glow", Transform3D(Basis(), bulb), Vector3(0.04, 0.05, 0.04), 8, 6, Color(1.0, 0.86, 0.6))
+	_market_lamp(bulb - Vector3(0, 0.08, 0), 6.0)
+	var at := counter + Vector3(0.05, 0.62, 0)
+	poultry_stall = _market_point(at, Vector3(0.95, 1.0, 3.0), "ACTION_BUY_CHICKENS", &"chicken")
+	poultry_marker = Marker3D.new()
+	poultry_marker.name = "PoultryMarker"
+	poultry_marker.position = o + Vector3(hd + 0.4, front_h + 0.75, 0)
+	WaypointMarker.tag(poultry_marker, &"town_chickens")
+	poultry_marker.add_to_group(&"waypoints")
+	add_child(poultry_marker)
+
+
+## The hay barn at the back of the coop run: Grandpa's kind of barn (AnimalBuildings),
+## its big door onto the lane, a lamp over it, bales stacked inside and out, round bales
+## at the end of the lane and the back fence with its field gate.
+func _market_barn(mb: MeshBuilder, cols: Array) -> void:
+	var r := HAY_BARN
+	var c := r.get_center()
+	var barn := _farm_building(AnimalBuildings.barn(Vector2(r.size.y, r.size.x)), "MarketBarn", Vector3(c.x, _y(c.x, c.y), c.y), PI * 0.5, cols)
+	var y := barn.position.y
+	# Bales inside along the back wall, more by the door, round bales at the lane's end.
+	for layer in 3:
+		for k in 6 - layer:
+			_square_bale(mb, Vector3(r.position.x + 0.6 + layer * 0.02, y + 0.22 + layer * 0.4, r.position.y + 1.2 + k * 0.92 + layer * 0.46), 0.0, layer * 0.03)
+	for k in 3:
+		_square_bale(mb, Vector3(r.end.x + 0.35, y + 0.2, r.end.y - 0.7 - k * 0.5), PI * 0.5 + k * 0.1, 0.02 * k)
+	_square_bale(mb, Vector3(r.end.x + 0.35, y + 0.6, r.end.y - 0.95), PI * 0.5 + 0.05, 0.05)
+	cols.append([Vector3(r.end.x + 0.35, y + 0.4, r.end.y - 1.2), Vector3(1.0, 0.8, 1.6), 0.0])
+	var end := MARKET_LANE.end.y
+	_round_bale(mb, cols, Vector3(MARKET_LANE.position.x + 1.2, _y(MARKET_LANE.position.x + 1.2, end - 1.5), end - 1.5), PI * 0.5)
+	_round_bale(mb, cols, Vector3(MARKET_LANE.end.x - 1.1, _y(MARKET_LANE.end.x - 1.1, end - 1.3), end - 1.3), PI * 0.5 + 0.15)
+	# A lamp over the barn door.
+	var door := Vector3(r.end.x + 0.25, y + 3.25, c.y)
+	mb.box_at(&"metal", door, Vector3(0.3, 0.14, 0.3), Color(0.14, 0.15, 0.15))
+	mb.box_at(&"lamp_glow", door - Vector3(0, 0.08, 0), Vector3(0.22, 0.02, 0.22), Color(1.0, 0.9, 0.7))
+	_market_lamp(door - Vector3(-0.3, 0.3, 0), 9.0)
+	# The back fence across the lane's end, a closed field gate in it.
+	var back := Fence.new()
+	back.points = PackedVector2Array([Vector2(r.end.x, end), Vector2(MARKET_LANE.get_center().x - 1.5, end),
+			Vector2(MARKET_LANE.get_center().x + 1.5, end), Vector2(HORSE_PADDOCK.position.x - 0.25, end)])
+	back.gaps = PackedInt32Array([1])
+	back.seed_value = 77
+	add_child(back)
+	var gy := _y(MARKET_LANE.get_center().x, end)
+	_field_gate(mb, Vector3(MARKET_LANE.get_center().x - 1.4, gy, end), Vector3(MARKET_LANE.get_center().x + 1.4, gy, end))
+	cols.append([Vector3(MARKET_LANE.get_center().x, gy + 0.6, end), Vector3(3.0, 1.2, 0.12), 0.0])
+
+
+## The animals on show, a few of each kind the market sells in its pen (the coop's kinds
+## in the run).
+func _market_animals() -> void:
+	herd = MarketHerd.new()
+	add_child(herd)
+	var run_avoid: Array[Rect2] = []
+	run_avoid.assign(market_avoid.get(&"coop", []))
+	for species: StringName in AnimalTable.ORDER:
+		if String(AnimalTable.get_species(species).get("housing", "")) == "coop":
+			herd.add_pen(COOP_RUN.grow(-0.1), species, 5 if species == &"chicken" else 1, 0, run_avoid)
+		elif MARKET_PENS.has(species):
+			var avoid: Array[Rect2] = []
+			avoid.assign(market_avoid.get(species, []))
+			herd.add_pen((MARKET_PENS[species] as Rect2).grow(-0.2), species, 3 if species == &"sheep" else 2, 1, avoid)
+
+
+## The general market's side yard (where its poultry stall used to stand): old concrete
+## patched with packed earth, a pallet of cement and a drum.
+func _market_side_yard(mb: MeshBuilder, cols: Array) -> void:
+	var c := MARKET_SIDE_YARD.get_center()
+	var y0 := _y(c.x, c.y) + 0.15
+	BuildingKit.slab(mb, cols, MARKET_SIDE_YARD, y0, 0.45, &"concrete", Color(0.5, 0.49, 0.47))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2217
+	for i in 4:
+		var p := Vector3(rng.randf_range(MARKET_SIDE_YARD.position.x + 0.8, MARKET_SIDE_YARD.end.x - 0.8), y0 + 0.004,
+				rng.randf_range(MARKET_SIDE_YARD.position.y + 0.8, MARKET_SIDE_YARD.end.y - 0.8))
+		mb.blob(&"dirt_old", Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(1.4, 0.01, 1.0)), p),
+				rng.randf_range(0.5, 0.9), 1, Color(0.3, 0.26, 0.2), 0.4, 1.8, 60 + i, 0.0, true)
+	_cement_pallet(mb, cols, Vector3(c.x - 1.4, y0, c.y - 1.2), 3, 0.1)
+	_cement_pallet(mb, cols, Vector3(c.x + 1.3, y0, c.y - 1.5), 2, -0.06)
+	_prop("barrel_03", Vector3(MARKET_SIDE_YARD.end.x - 0.7, y0, MARKET_SIDE_YARD.position.y + 0.7), 0.8)
+
+
+## One more package on display (see _goods): "item:variant:shadow", or "item:still"
+## for a crate with a modelled hen in it (the stock behind the stall).
+func _goods_add(key: String, xf: Transform3D) -> void:
+	if not _goods.has(key):
+		_goods[key] = []
+	(_goods[key] as Array).append(xf)
 
 
 # --- Houses and street furniture ------------------------------------------------------

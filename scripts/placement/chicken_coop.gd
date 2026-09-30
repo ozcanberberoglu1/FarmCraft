@@ -14,10 +14,16 @@ extends PlacedObject
 ## boxes: in the morning each walks in, hops into a free one, sits a while, leaves her
 ## egg on the straw and goes back out. With no box bedded they lay in the yard (on the
 ## coop floor behind a shut door).
+## A content hen now and then lays a second egg later in the day (Animals.eggs_today).
+## With a grown rooster living in the coop the eggs laid are fertile: one left where it
+## lay (in a nest box or on the floor) for a whole day hatches there (HatchingEgg) into a
+## chick of the hen that laid it, if the coop has room for one more (else it stays an
+## egg, and the farmer is told). Picking an egg up stops it.
 ## Entry fields besides {id, pos, yaw}: stage ("site" / "done"), build_left (real
 ## seconds), door (open), uid (its home id), egg ("", "due", "nest", "laid", "taken"),
 ## egg_at (game minutes), egg_pos, nests ([bool] bedded), lay (eggs due: hen id ->
-## {at, q, first}).
+## {at, q, first, more}), fertile (eggs that may hatch: [{id, pos, at, hen, q}]),
+## fertile_next (their next id).
 
 ## Its id in Events.construction_started and Events.building_completed.
 const BUILD_ID := &"coop"
@@ -59,6 +65,10 @@ const SKIP_FINISHES := 60.0
 const LOG_AT := Vector3(3.6, 0.0, -0.1)
 ## FarmState.depleted day of ground cleared for good (grass and rocks never come back).
 const CLEARED := 1 << 30
+## Game minutes a fertile egg must lie before it hatches (a whole day).
+const HATCH_MINUTES := 24.0 * 60.0
+## Game minutes after her first egg until a hen lays her second of the day.
+const SECOND_EGG_AFTER := Vector2(150.0, 330.0)
 
 var housing: AnimalHousing
 var site: ConstructionSite
@@ -69,6 +79,10 @@ var _nests: Array[Nest] = []
 var _floor_local := 0.0
 var _nest_marker: Marker3D
 var _claims := {}
+## Fertile eggs lying about: record id -> their Pickup; the day the farmer was last told
+## an egg could not hatch in a full coop.
+var _fertile_eggs := {}
+var _full_told := -1
 
 static var _props_mesh: ArrayMesh
 static var _ghost_mesh: ArrayMesh
@@ -100,6 +114,8 @@ func _setup() -> void:
 	Events.animal_released.connect(_on_animal_released)
 	if String(entry.get("egg", "")) == "laid":
 		_spawn_first_egg.call_deferred()
+	if not (entry.get("fertile", []) as Array).is_empty():
+		_restore_fertile.call_deferred()
 
 
 func _exit_tree() -> void:
@@ -379,7 +395,12 @@ func info_interact(player: Node) -> void:
 # --- The first egg -------------------------------------------------------------------------
 
 func _on_animal_released(species: StringName, home: Node) -> void:
-	if home != self or species != &"chicken" or String(entry.get("egg", "")) != "":
+	if home != self:
+		return
+	# The first rooster in: the farmer hears what that means for the eggs.
+	if species == &"rooster" and housing and Animals.roosters_in(housing) == 1:
+		Game.notify(tr("MSG_ROOSTER_IN"), Color(0.55, 1.0, 0.45))
+	if species != &"chicken" or String(entry.get("egg", "")) != "":
 		return
 	entry["egg"] = "due"
 	entry["egg_at"] = GameClock.total_minutes + FIRST_EGG_MINUTES
@@ -391,6 +412,7 @@ func _on_tick(_total: float, _delta: float) -> void:
 	if String(entry.get("egg", "")) == "due" and GameClock.total_minutes >= float(entry.get("egg_at", 0.0)):
 		_first_egg_due()
 	_overdue_lays()
+	_hatch_due()
 
 
 ## With a nest box bedded, one of the hens goes and lays it there (the egg stays "nest"
@@ -414,7 +436,7 @@ func _first_egg_due() -> void:
 func _first_hen() -> Animal:
 	var any: Animal = null
 	for n in housing.animals:
-		if n.data.away or n.ridden:
+		if n.data.away or n.ridden or n.data.species != &"chicken" or not n.data.adult:
 			continue
 		if n.indoors or housing.can_pass():
 			return n
@@ -637,17 +659,21 @@ func _lays() -> Dictionary:
 
 ## A hen's egg for the day (Animals, at dawn): with a box bedded she lays it there later in
 ## the morning; else it lies about the yard at once (the coop floor behind a shut door).
-func egg_due(a: AnimalData, quality: int) -> void:
-	if housing == null:
+## `count` eggs: the second comes later in the day (SECOND_EGG_AFTER).
+func egg_due(a: AnimalData, quality: int, count := 1) -> void:
+	if housing == null or count <= 0:
 		return
 	if filled_nests() == 0:
-		_spawn_egg(_loose_spot(null), quality)
+		for i in count:
+			_spawn_egg(_loose_spot(null), quality, a.id)
 		return
 	var key := str(a.id)
-	if _lays().has(key):
-		# Yesterday's never came: it turns up now.
+	# Yesterday's never came: they turn up now.
+	for i in 3:
+		if not _lays().has(key):
+			break
 		_lay_now(key)
-	_lays()[key] = {"at": GameClock.total_minutes + randf_range(20.0, 240.0), "q": quality}
+	_lays()[key] = {"at": GameClock.total_minutes + randf_range(20.0, 240.0), "q": quality, "more": count - 1}
 
 
 ## Whether hen `id` has an egg to lay now and a bedded box to lay it in.
@@ -689,11 +715,22 @@ func lay_in_nest(hen: Animal, i: int) -> bool:
 		return false
 	var d: Dictionary = lays[key]
 	lays.erase(key)
-	var egg := _spawn_egg(_nest_egg_spot(i), int(d.get("q", ItemStack.Quality.NORMAL)))
+	var first := bool(d.get("first", false))
+	var egg := _spawn_egg(_nest_egg_spot(i), int(d.get("q", ItemStack.Quality.NORMAL)), -1 if first else hen.data.id)
 	Audio.animal_voice(&"chicken", true, egg.global_position, -4.0)
-	if bool(d.get("first", false)):
+	if first:
 		_first_laid(egg)
+	_next_egg(key, d)
 	return true
+
+
+## After an egg, a hen with another due today lays it later on.
+func _next_egg(key: String, d: Dictionary) -> void:
+	var more := int(d.get("more", 0))
+	if more <= 0 or _lays().has(key):
+		return
+	_lays()[key] = {"at": GameClock.total_minutes + randf_range(SECOND_EGG_AFTER.x, SECOND_EGG_AFTER.y),
+		"q": int(d.get("q", ItemStack.Quality.NORMAL)), "more": more - 1}
 
 
 ## Eggs a hen hasn't laid in time (shut out, the night, the farmer asleep) turn up
@@ -733,9 +770,10 @@ func _lay_now(key: String) -> void:
 			boxes.append(i)
 	var reach := hen == null or hen.indoors or housing.can_pass()
 	var at := _nest_egg_spot(boxes[randi() % boxes.size()]) if reach and not boxes.is_empty() else _loose_spot(null)
-	var egg := _spawn_egg(at, q)
+	var egg := _spawn_egg(at, q, -1 if first else int(key))
 	if first:
 		_first_laid(egg)
+	_next_egg(key, d)
 
 
 func _hen(id: int) -> Animal:
@@ -762,8 +800,118 @@ func _loose_spot(rng: RandomNumberGenerator) -> Vector3:
 	return housing.random_indoor_point(rng) + Vector3(0, 0.1, 0)
 
 
-func _spawn_egg(at: Vector3, quality: int) -> Pickup:
-	return Pickup.spawn(ItemStack.create(&"egg", 1, quality), at)
+## An egg laid by hen `hen` (-1: the story's first egg, never fertile): fertile while a
+## grown rooster lives here.
+func _spawn_egg(at: Vector3, quality: int, hen := 0) -> Pickup:
+	var egg := Pickup.spawn(ItemStack.create(&"egg", 1, quality), at)
+	if hen >= 0 and has_rooster():
+		var id := int(entry.get("fertile_next", 1))
+		entry["fertile_next"] = id + 1
+		var rec := {"id": id, "pos": at, "at": GameClock.total_minutes, "hen": hen, "q": quality}
+		_fertile().append(rec)
+		_watch_egg(egg, id)
+	return egg
+
+
+# --- Fertile eggs and hatching -------------------------------------------------------------
+
+## Whether a grown rooster lives in this coop (the hens' eggs are fertile).
+func has_rooster() -> bool:
+	return housing != null and Animals.roosters_in(housing) > 0
+
+
+## The fertile eggs' records (saved in the entry).
+func _fertile() -> Array:
+	if not entry.has("fertile"):
+		entry["fertile"] = []
+	return entry["fertile"]
+
+
+## Fertile eggs lying here now (their pickups).
+func fertile_eggs() -> Array[Pickup]:
+	var out: Array[Pickup] = []
+	for id: int in _fertile_eggs:
+		var p: Variant = _fertile_eggs[id]
+		if is_instance_valid(p) and not (p as Pickup).is_queued_for_deletion():
+			out.append(p)
+	return out
+
+
+func _record(id: int) -> Dictionary:
+	for rec: Dictionary in _fertile():
+		if int(rec["id"]) == id:
+			return rec
+	return {}
+
+
+## Keeps an eye on a fertile egg: picked up (the pickup frees itself), it won't hatch.
+func _watch_egg(egg: Pickup, id: int) -> void:
+	_fertile_eggs[id] = egg
+	egg.tree_exiting.connect(func() -> void:
+		if egg.is_queued_for_deletion() and _fertile_eggs.get(id) == egg:
+			_fertile_eggs.erase(id)
+			var rec := _record(id)
+			if not rec.is_empty():
+				_fertile().erase(rec))
+
+
+## Fertile eggs lie where they were after a load (pickups are not saved).
+func _restore_fertile() -> void:
+	if Game.world == null:
+		return
+	for rec: Dictionary in _fertile():
+		var id := int(rec["id"])
+		if is_instance_valid(_fertile_eggs.get(id)):
+			continue
+		var at: Vector3 = rec.get("pos", global_position)
+		var egg := Pickup.spawn(ItemStack.create(&"egg", 1, int(rec.get("q", 0))), at + Vector3(0, 0.03, 0))
+		_watch_egg(egg, id)
+
+
+## A fertile egg a whole day old hatches where it lies (room permitting).
+func _hatch_due() -> void:
+	var list: Array = entry.get("fertile", [])
+	if list.is_empty():
+		return
+	var now := GameClock.total_minutes
+	for rec: Dictionary in list.duplicate():
+		var egg: Variant = _fertile_eggs.get(int(rec["id"]))
+		if is_instance_valid(egg):
+			rec["pos"] = (egg as Pickup).global_position
+		if now - float(rec.get("at", now)) < HATCH_MINUTES:
+			continue
+		hatch_egg(rec)
+
+
+## Hatches fertile egg `rec` now (tests and the day's check call it): its pickup makes
+## way for the hatching shell and a chick. In a full coop it stays an ordinary egg.
+func hatch_egg(rec: Dictionary) -> Animal:
+	var id := int(rec["id"])
+	_fertile().erase(rec)
+	var egg: Variant = _fertile_eggs.get(id)
+	_fertile_eggs.erase(id)
+	if housing.free_space() <= 0:
+		if _full_told != GameClock.day:
+			_full_told = GameClock.day
+			Game.notify(tr("MSG_EGG_NO_ROOM"), Color(1.0, 0.6, 0.35))
+			Animals.report_notes.append(tr("MSG_EGG_NO_ROOM"))
+		return null
+	var at: Vector3 = rec.get("pos", global_position)
+	var yaw := randf() * TAU
+	if is_instance_valid(egg):
+		var p := egg as Pickup
+		at = p.global_position
+		yaw = p.rotation.y
+		p.queue_free()
+	# Settled on whatever it lay on (the straw, the floor).
+	at.y -= 0.02
+	var a := Animals.hatch(housing, at, Animals.by_id(int(rec.get("hen", 0))))
+	if a == null:
+		return null
+	var n := Animals.node_of(a)
+	HatchingEgg.start(self, at, yaw, n)
+	Events.animal_born.emit(a.species)
+	return n
 
 
 # --- Models ---------------------------------------------------------------------------------

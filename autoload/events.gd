@@ -50,6 +50,12 @@ signal food_eaten(item_id: StringName)
 # A sapling put in the ground, and one that has grown into a tree
 signal sapling_planted(sapling: Node)
 signal sapling_grown(tree: Node)
+# Wild game caught by hand (a rabbit...), and a catch cleaned at the food table
+signal game_caught(item_id: StringName)
+signal food_cleaned(item_id: StringName)
+# A fertilised egg hatched into a chick, and a chick grown up
+signal chick_hatched(chick: Node)
+signal chick_grown(animal: Node)
 
 # Player feedback
 signal notification_requested(text: String, color: Color)

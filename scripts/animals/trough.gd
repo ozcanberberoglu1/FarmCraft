@@ -13,6 +13,9 @@ enum Kind { FEED, WATER }
 var kind := Kind.FEED
 ## Items accepted as one ration each (feed troughs only).
 var accepts: Array[StringName] = [&"hay"]
+## Items of feed (or hay) one fill puts in the trough.
+const FEED_PER_USE := 1
+
 var capacity := 8
 var amount := 0.0
 var outdoors := true
@@ -205,7 +208,8 @@ func complete_use(_player: Node, stack: ItemStack, action: Dictionary) -> void:
 		PlayerState.inventory.changed.emit()
 		set_amount(amount + used)
 	else:
-		var used := mini(room, stack.count)
+		# One sack or armful per go (holding the button keeps filling, one at a time).
+		var used := mini(room, mini(stack.count, FEED_PER_USE))
 		PlayerState.inventory.remove_item(stack.item.id, used)
 		set_amount(amount + used)
 		Game.notify(tr("MSG_TROUGH_FILLED") % used)

@@ -67,3 +67,19 @@ Model License:
 If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
 This work is based on "Sheep" (https://sketchfab.com/3d-models/sheep-08b05ae799d947f1a68c49b2d661eb53) by kenchoo (https://sketchfab.com/kenchoo) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
 ```
+
+## rooster
+
+Adapted from the hen above ("Chicken" by MAXDESIGN-3D, CC-BY-4.0) by
+`tools/blender/build_rooster.py`: the same mesh, skeleton and clip with a taller comb and
+longer wattles, the plumage repainted as a red-and-black cock's, and sickle feathers added
+at the tail (feather texture painted by the script). Credit as for the hen:
+
+```
+This work is based on "Chicken" (https://sketchfab.com/3d-models/chicken-4ab19d3a675343959815ae770f8b178e) by MAXDESIGN-3D (https://sketchfab.com/MAXDESIGN) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+```
+
+## chick
+
+Modelled, textured and rigged for the game by `tools/blender/build_chick.py` (no
+downloaded source).

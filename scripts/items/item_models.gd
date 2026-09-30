@@ -26,10 +26,11 @@ const ICON_ROTATION := {
 	&"milk_pail": Vector3(15, 20, 0), &"shears": Vector3(0, 0, -30), &"brush": Vector3(22, -32, 0),
 	&"wheat": Vector3(0, 0, -25), &"carrot": Vector3(0, 0, -50), &"corn": Vector3(0, 0, -45),
 	&"eggplant": Vector3(0, 0, -40), &"wood": Vector3(15, 30, 0), &"hay": Vector3(0, 0, -30),
-	&"cheese": Vector3(22, -35, 0), &"truck_key": Vector3(64, 0, -30), &"chicken_crate": Vector3(16, -34, 0),
+	&"cheese": Vector3(22, -35, 0), &"truck_key": Vector3(64, 0, -30), &"chicken_crate": Vector3(16, -34, 0), &"rooster_crate": Vector3(16, -34, 0),
 	&"knife": Vector3(0, 0, -45), &"bow": Vector3(40, 90, 0), &"fishing_rod": Vector3(12, 150, -38),
 	&"rope": Vector3(28, 20, 0), &"nails": Vector3(18, 25, 0), &"worm": Vector3(32, 20, 0), &"dough": Vector3(30, 20, 0),
 	&"sapling": Vector3(0, 30, -8), &"campfire": Vector3(20, 20, 0),
+	&"rabbit": Vector3(8, 135, 0),
 }
 
 ## Long tools are framed on their working end: model-space focus point and view radius.
@@ -53,11 +54,19 @@ static func mesh(id: StringName) -> ArrayMesh:
 		m = ToolModels.mesh(id)
 	elif GoodsModels.has(id):
 		m = GoodsModels.mesh(id)
+	elif FoodModels.has(id):
+		# The catch cleaned at the food table, game meat and trophy fish (scripts/camp).
+		m = FoodModels.mesh(id)
 	elif FishModels.has(id):
 		# The fish, the fishing rod and the old boot (art/models/fish).
 		m = FishModels.mesh(id)
 	elif CraftModels.has(id):
 		m = CraftModels.mesh(id)
+	elif BerryModels.LOOK.has(id):
+		# Wild berries (a handful) and the caught rabbit (NATURE).
+		m = BerryModels.handful(id)
+	elif id == &"rabbit":
+		m = RabbitRig.item_mesh()
 	elif PlaceableTable.is_placeable(id):
 		m = PlaceableModels.mesh(id, "whole")
 	else:
@@ -107,7 +116,7 @@ static func procedural(id: StringName) -> ArrayMesh:
 		&"fertilizer": _sack(mb, Color(0.22, 0.44, 0.27), Color(0.95, 0.95, 0.9), &"veg_gloss", false)
 		&"manure": _sack(mb, Color(0.6, 0.5, 0.36), Color(0.0, 0.0, 0.0, 0.0), &"cloth", true)
 		&"truck_key": _truck_key(mb)
-		&"chicken_crate":
+		&"chicken_crate", &"rooster_crate":
 			var rng := RandomNumberGenerator.new()
 			rng.seed = 5
 			poultry_crate(mb, rng)

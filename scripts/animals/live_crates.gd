@@ -1,13 +1,15 @@
 class_name LiveCrates
 extends RefCounted
 ## Live animals in transport crates (a hen in a slatted crate, item "chicken_crate"):
-## bought at the poultry stall in town, they ride in a truck bed, wait in the
-## warehouse crate corner or go by hand, and are let out at their housing (the coop
+## bought at the Animal Market in town (its hen stall), they ride in a truck bed, wait in
+## the warehouse crate corner or go by hand, and are let out at their housing (the coop
 ## package does that). One crate holds one grown animal. The rules and counts shared
-## by the stall, the bed, the warehouse, the storage screen and the story.
+## by the market, the bed, the warehouse, the storage screen and the story; also what
+## the market wants to see on a farm before it sells a kind (market_lock).
 
 ## A bought crate goes into the bed of the player's own vehicle parked this close to
-## the stall (the street in front and the market lot both count), else into the bag.
+## where the market was opened (the street in front of the Animal Market counts), else
+## into the bag.
 const STALL_RANGE := 32.0
 ## Most crates one order can hold.
 const MAX_ORDER := 8
@@ -118,11 +120,29 @@ static func room_at(species: StringName, at: Vector3) -> int:
 	return bag_room(AnimalTable.crate_item(species))
 
 
+## "" when the Animal Market sells `species` to this farm, else why not: the farm level
+## it opens at (UnlockTable), then the building the market wants to see first
+## (AnimalTable.market_needs: the closed barn before a horse...). Room and money are
+## asked separately (can_buy, Animals.can_buy).
+static func market_lock(species: StringName) -> String:
+	var need := UnlockTable.animal_level(species)
+	if Progress.level < need:
+		return tr_key("UI_NEEDS_LEVEL") % [need, Progress.level]
+	var project := AnimalTable.market_needs(species)
+	if project != &"" and not FarmState.is_built(project):
+		return tr_key("MSG_NEED_HOUSING") % tr_key("PROJECT_" + String(project).to_upper())
+	return ""
+
+
 ## "" when `count` crated animals of `species` can be bought at `at`, else the reason.
-## No building is needed: the animals wait in their crates.
+## No coop is needed: the animals wait in their crates (unless the market asks for
+## something first, see market_lock).
 static func can_buy(species: StringName, count: int, at: Vector3) -> String:
 	if AnimalTable.crate_item(species) == &"" or count <= 0:
 		return tr_key("MSG_NO_ROOM")
+	var lock := market_lock(species)
+	if lock != "":
+		return lock
 	var cost := price(species) * count
 	if Economy.money < cost:
 		return tr_key("MSG_NEED_GOLD") % UiTheme.money(cost - Economy.money)

@@ -85,8 +85,14 @@ func interact_prompt(_player: Node) -> String:
 	if housing == null:
 		return ""
 	if held_crate() != &"":
-		return tr("ACTION_RELEASE_HEN")
+		return release_prompt()
 	return tr("ACTION_COOP_DOOR_CLOSE") if housing.door_open else tr("ACTION_COOP_DOOR_OPEN")
+
+
+## "Let the hen in" / "Let the rooster in", by the crate in hand.
+static func release_prompt() -> String:
+	var rooster := AnimalTable.species_of_crate(held_crate()) == &"rooster"
+	return LiveCrates.tr_key("ACTION_RELEASE_ROOSTER" if rooster else "ACTION_RELEASE_HEN")
 
 
 func interact(_player: Node) -> void:

@@ -13,6 +13,10 @@ extends Node
 ## orders on the town board (goals and achievements pay none).
 const STARTING_MONEY := 150
 const QUALITY_MULT := [1.0, 1.25, 1.5]
+## A rarer (heavier) catch of the same fish pays far more than a crop's quality does: a
+## silver perch fetches twice a plain one, a gold one 3.5 times (FishTable rolls them).
+## Trophy fish carry their own tenfold price instead.
+const FISH_QUALITY_MULT := [1.0, 2.0, 3.5]
 const SATURATION_PER_UNIT := 0.004
 const SATURATION_FLOOR := 0.6
 
@@ -86,7 +90,11 @@ func _price_at(item_id: StringName, quality: int, sold: int) -> float:
 		return 0.0
 	var sat := maxf(SATURATION_FLOOR, 1.0 - float(sold) * SATURATION_PER_UNIT)
 	var f := market_factor(item_id) * sat * season_factor(item_id)
-	return maxf(1.0, item.sell_price * QUALITY_MULT[clampi(quality, 0, 2)] * f)
+	var q := clampi(quality, 0, 2)
+	var mult: float = QUALITY_MULT[q]
+	if item.category == "fish":
+		mult = 1.0 if FishTable.is_trophy(item_id) else FISH_QUALITY_MULT[q]
+	return maxf(1.0, item.sell_price * mult * f)
 
 
 ## What selling `count` units would pay right now (each unit lowers the price, as in

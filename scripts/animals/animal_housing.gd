@@ -512,7 +512,7 @@ class CrateGate extends StaticBody3D:
 			collision_layer = layer
 
 	func interact_prompt(_player: Node) -> String:
-		return tr("ACTION_RELEASE_HEN") if CoopDoor.held_crate() != &"" else ""
+		return CoopDoor.release_prompt() if CoopDoor.held_crate() != &"" else ""
 
 	func interact(_player: Node) -> void:
 		# Just inside the gate.

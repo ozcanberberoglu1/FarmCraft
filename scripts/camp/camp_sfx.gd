@@ -1,7 +1,8 @@
 class_name CampSfx
 extends RefCounted
-## The sounds of the campfire, cooking, eating and tiredness (art/audio/sfx/camp, built
-## by tools/build_camp_audio.py from Mixkit recordings; see art/audio/CREDITS.md):
+## The sounds of the campfire, cooking, eating and tiredness, the food table's knife,
+## and a trophy fish (art/audio/sfx/camp, built by tools/build_camp_audio.py and
+## tools/build_food_audio.py from Mixkit recordings; see art/audio/CREDITS.md):
 ## one-shots on short-lived players of their own, and the loops a fire keeps going
 ## (crackling, sizzling) as 3D players under it. Headless runs play nothing.
 
@@ -10,6 +11,9 @@ const SETS := {
 	"fire_pop": ["fire_pop_0", "fire_pop_1", "fire_pop_2", "fire_pop_3", "fire_pop_4"],
 	"match": ["match"], "ignite": ["ignite"], "douse": ["douse"],
 	"bite": ["bite_0", "bite_1"], "chew": ["chew_0", "chew_1"], "yawn": ["yawn"],
+	# The food table's knife and a trophy fish (tools/build_food_audio.py).
+	"chop": ["chop_0", "chop_1", "chop_2", "chop_3", "chop_4"], "slice": ["slice"], "meat_hit": ["meat_hit"],
+	"trophy": ["trophy"],
 }
 
 static var _streams := {}

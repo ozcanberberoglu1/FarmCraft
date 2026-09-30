@@ -12,7 +12,9 @@ extends Node
 ## from the player, flopping on the bank until it is picked up (FloppingFish). Too late,
 ## or too early, and it gets away with the bait; the line is reeled in. Only in the
 ## pond's water (Pond.is_fishable); not while driving or riding. Nothing of a cast is
-## saved: loading rebuilds the player without it.
+## saved: loading rebuilds the player without it. Now and then the fish is a trophy
+## (FishTable.trophy_of): the float is dragged under harder, it comes out in a burst of
+## spray, lands with a thud at the giant's size and is announced with a fanfare.
 ##
 ## The rod's strokes are ToolAnim's rod_* profiles, played through HeldItem.debug_pose on
 ## this node's clock; the float hangs from the rod tip on a pendulum when not cast.
@@ -258,10 +260,11 @@ func _land_in_water(at: Vector3) -> void:
 	var rain := Weather.is_raining()
 	catch_info = FishTable.roll(bait, GameClock.get_hour_float(), rain, _rng)
 	# Its model loads while the float sits (at least 5 s before the bite).
-	if FishTable.is_fish(catch_info["id"]):
-		FishModels.flop_mesh(catch_info["id"])
+	var species: StringName = catch_info.get("species", catch_info["id"])
+	if FishTable.is_fish(species):
+		FishModels.flop_mesh(species)
 	else:
-		FishModels.real_mesh(catch_info["id"])
+		FishModels.real_mesh(species)
 	_bite_at = _rng.randf_range(BITE_TIME.x, BITE_TIME.y)
 	_nibbles.clear()
 	for i in _rng.randi_range(1, 3):
@@ -300,9 +303,9 @@ func _start_bite() -> void:
 	_bite_off = Vector3.ZERO
 	_bite_again = false
 	FishingAudio.play("bite", _p)
-	_bite_burst(1.4)
+	_bite_burst(1.4 * _heft())
 	# No progress ring here: it would sit right over the float. The prompt says strike.
-	player.add_trauma(0.12)
+	player.add_trauma(0.12 * _heft())
 
 
 func _bite_burst(strength: float) -> void:
@@ -317,8 +320,13 @@ func _strike() -> void:
 	_t = 0.0
 	var from := Vector3(_p.x + _bite_off.x, WorldLayout.WATER_LEVEL, _p.z + _bite_off.z)
 	FishingAudio.play("splash", from)
-	_bite_burst(1.6)
-	player.kick_view(Vector4(1.4, 0.0, -0.4, 0.0), 0.1)
+	_bite_burst(1.6 * _heft())
+	if _is_trophy():
+		# A giant heaved out: a second, deeper splash and spray.
+		FishingAudio.play("splash", from, 0.0, 0.8)
+		PondFx.spray(from, 2.2)
+		PondFx.ring(from, 2.6, 2.6, 2.4)
+	player.kick_view(Vector4(1.4, 0.0, -0.4, 0.0) * _heft(), 0.1 * _heft())
 	_reel_sfx = FishingAudio.play("reel", _tip(), -2.0, 1.25)
 	_fish = FloppingFish.launch(catch_info, from, _landing_spot(from), FISH_FLIGHT)
 	_fish.landed.connect(_on_fish_landed.bind(catch_info.duplicate()))
@@ -346,9 +354,14 @@ func _announce(id: StringName, info: Dictionary) -> void:
 	var item := ItemDB.get_item(id)
 	if item == null:
 		return
-	var sp := FishTable.get_species(id)
+	var sp := FishTable.get_species(FishTable.species_of(id))
 	var rarity: int = sp.get("rarity", 0)
-	if sp.get("junk", false):
+	if FishTable.is_trophy(id):
+		# The catch of the season: a gold banner, a fanfare and the weight.
+		Game.notify(tr("MSG_FISH_TROPHY") % [item.display_name(), FloppingFish.weight_text(float(info["kg"]))], UiTheme.GOLD)
+		CampSfx.play("trophy", null, -4.0, 0.0)
+		player.kick_view(Vector4(-1.0, 0.0, 0.6, 0.0), 0.15)
+	elif sp.get("junk", false):
 		Game.notify(tr("MSG_FISH_JUNK") % item.display_name(), FishTable.RARITY_COLORS[rarity])
 	else:
 		var text := tr("MSG_FISH_CAUGHT") % [item.display_name(), FloppingFish.weight_text(float(info["kg"])),
@@ -441,8 +454,8 @@ func _physics_process(delta: float) -> void:
 			# The fish pulls the float about under the surface.
 			_bite_off = _bite_off.lerp(_bite_dir * 0.25 * sin(_t * 5.0) + _bite_dir.cross(Vector3.UP) * 0.12 * sin(_t * 8.3), clampf(delta * 10.0, 0.0, 1.0))
 			if _fx_t <= 0.0:
-				_fx_t = _rng.randf_range(0.22, 0.4)
-				_bite_burst(_rng.randf_range(0.7, 1.1))
+				_fx_t = _rng.randf_range(0.22, 0.4) / _heft()
+				_bite_burst(_rng.randf_range(0.7, 1.1) * _heft())
 			if not _bite_again and _t >= 1.0:
 				# The thrashing goes on for the whole window (the takes are about a second).
 				_bite_again = true
@@ -667,6 +680,16 @@ func _water_ahead() -> bool:
 			return true
 		d += 0.5
 	return false
+
+
+## Whether the fish on the line is a trophy.
+func _is_trophy() -> bool:
+	return bool(catch_info.get("trophy", false))
+
+
+## How much harder a trophy pulls and splashes (1 for any other fish).
+func _heft() -> float:
+	return 1.6 if _is_trophy() else 1.0
 
 
 ## Where the player looks (the view's punch and shake left out).

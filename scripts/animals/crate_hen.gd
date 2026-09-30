@@ -14,7 +14,9 @@ const AWAKE_RANGE := 26.0
 ## Animated at this rate (s) while awake: a sitting hen needs no more.
 const TICK := 1.0 / 30.0
 
-## Coat variant (AnimalModels.VARIANTS["chicken"]), usually the slot or crate index.
+## Who sits in the crate (a hen, or a rooster in his crate: AnimalTable.species_of_crate).
+var species := &"chicken"
+## Coat variant (AnimalModels.VARIANTS[species]), usually the slot or crate index.
 var variant := 0
 var shadows := true
 ## Voice now and then (off where a crowd of crates would make a racket).
@@ -32,11 +34,11 @@ var _shuffle := 0.0
 
 
 func _ready() -> void:
-	rig = AnimalModels.create_rig(&"chicken")
+	rig = AnimalModels.create_rig(species)
 	rig.scale = Vector3.ONE * SCALE
 	rig.position = Vector3(0, 0.03, 0)
 	add_child(rig)
-	rig.set_variant(variant % AnimalModels.variant_count(&"chicken"), false)
+	rig.set_variant(variant % AnimalModels.variant_count(species), false)
 	for g in rig.find_children("*", "GeometryInstance3D", true, false):
 		var gi := g as GeometryInstance3D
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -78,4 +80,4 @@ func _process(delta: float) -> void:
 		_cluck -= dt
 		if _cluck <= 0.0:
 			_cluck = randf_range(8.0, 22.0)
-			Audio.animal_voice(&"chicken", true, global_position, -14.0)
+			Audio.animal_voice(species, true, global_position, -14.0)

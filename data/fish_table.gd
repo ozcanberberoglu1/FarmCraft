@@ -63,10 +63,63 @@ const RARITY_KEYS := ["FISH_RARITY_COMMON", "FISH_RARITY_UNCOMMON", "FISH_RARITY
 	"FISH_RARITY_JUNK"]
 ## Items that can go on the hook.
 const BAITS: Array[StringName] = [&"worm", &"dough"]
+## Trophy fish: now and then the one that bites is a giant of its species ("<id>_trophy":
+## ten times the weight and the price, a model about 2.4 times as long, as a fish ten
+## times heavier is). The chance of each bite, a little higher for the rarer, bigger
+## species, at night and on the bait the species prefers (at most TROPHY_MAX).
+const TROPHY_CHANCE := 0.022
+const TROPHY_RARITY := [1.0, 1.25, 1.5, 1.8, 0.0]
+const TROPHY_NIGHT := 1.3
+const TROPHY_BAIT := 1.2
+const TROPHY_MAX := 0.045
+const TROPHY_KG := 10.0
+const TROPHY_SIZE := 2.4
+const TROPHY_SUFFIX := "_trophy"
 
 
 static func is_fish(id: StringName) -> bool:
 	return SPECIES.has(id) and not SPECIES[id].get("junk", false)
+
+
+## The trophy of species `id` ("fish_carp_trophy").
+static func trophy_id(id: StringName) -> StringName:
+	return StringName(String(id) + TROPHY_SUFFIX)
+
+
+static func is_trophy(id: StringName) -> bool:
+	return String(id).ends_with(TROPHY_SUFFIX) and is_fish(species_of(id))
+
+
+## The species a catch item is of: the fish itself, or the species of a trophy.
+static func species_of(id: StringName) -> StringName:
+	var s := String(id)
+	return StringName(s.trim_suffix(TROPHY_SUFFIX)) if s.ends_with(TROPHY_SUFFIX) else id
+
+
+## The chance that a bite of `id` is a trophy (with `bait` on the hook at `hour`).
+static func trophy_chance(id: StringName, bait: StringName, hour: float) -> float:
+	if not is_fish(id) or not ItemTable.ITEMS.has(trophy_id(id)):
+		return 0.0
+	var s: Dictionary = SPECIES[id]
+	var c: float = TROPHY_CHANCE * float(TROPHY_RARITY[int(s["rarity"])])
+	if time_band(hour) == "night":
+		c *= TROPHY_NIGHT
+	if bait != &"" and s["bait"] == bait:
+		c *= TROPHY_BAIT
+	return minf(c, TROPHY_MAX)
+
+
+## `catch` (catch_of) made a trophy: ten times the weight, the giant's model size.
+static func trophy_of(catch: Dictionary) -> Dictionary:
+	var id: StringName = catch["id"]
+	var out := catch.duplicate()
+	out["id"] = trophy_id(id)
+	out["species"] = id
+	out["kg"] = float(catch["kg"]) * TROPHY_KG
+	out["quality"] = ItemStack.Quality.NORMAL
+	out["scale"] = float(catch["scale"]) * TROPHY_SIZE
+	out["trophy"] = true
+	return out
 
 
 static func get_species(id: StringName) -> Dictionary:
@@ -102,7 +155,8 @@ static func chances(bait: StringName, hour: float, rain: bool) -> Dictionary:
 	return out
 
 
-## Rolls a catch: {id, kg, quality, scale (model size factor)}.
+## Rolls a catch: {id, kg, quality, scale (model size factor)}; a trophy also has
+## "trophy" and "species" (see trophy_of).
 static func roll(bait: StringName, hour: float, rain: bool, rng: RandomNumberGenerator) -> Dictionary:
 	var ch := chances(bait, hour, rain)
 	var total := 0.0
@@ -115,7 +169,10 @@ static func roll(bait: StringName, hour: float, rain: bool, rng: RandomNumberGen
 		if pick <= 0.0:
 			chosen = id
 			break
-	return catch_of(chosen, rng.randf())
+	var catch := catch_of(chosen, rng.randf())
+	if rng.randf() < trophy_chance(chosen, bait, hour):
+		return trophy_of(catch)
+	return catch
 
 
 ## The catch of `id` at weight roll `r` (0..1; most fish are on the light side).
@@ -130,7 +187,8 @@ static func catch_of(id: StringName, r: float) -> Dictionary:
 			quality = ItemStack.Quality.GOLD
 		elif r >= SILVER_ROLL:
 			quality = ItemStack.Quality.SILVER
-	return {"id": id, "kg": kg, "quality": quality, "scale": clampf(pow(kg / maxf(mid, 0.001), 1.0 / 3.0), 0.72, 1.4)}
+	return {"id": id, "species": id, "kg": kg, "quality": quality,
+		"scale": clampf(pow(kg / maxf(mid, 0.001), 1.0 / 3.0), 0.72, 1.4)}
 
 
 ## The cooked item a fish turns into on the campfire.

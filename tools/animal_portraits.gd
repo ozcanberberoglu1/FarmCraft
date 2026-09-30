@@ -1,7 +1,8 @@
 extends SceneTree
 ## Renders adult and young portraits of every animal species with a transparent
 ## background to art/icons/animals (used by the livestock screens).
-## Run (needs a window): godot --path . -s res://tools/animal_portraits.gd
+## Run (needs a window): godot --path . -s res://tools/animal_portraits.gd [-- --only=rooster,chicken]
+## Young poultry are shown as the downy chick (AnimalModels.look_for).
 
 const OUT := "res://art/icons/animals/"
 const SIZE := Vector2i(512, 384)
@@ -44,14 +45,22 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	var only: PackedStringArray = []
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			only = a.trim_prefix("--only=").split(",")
 	for species: StringName in AnimalTable.ORDER:
+		if not only.is_empty() and String(species) not in only:
+			continue
 		for adult: bool in [true, false]:
 			for c in _holder.get_children():
 				c.queue_free()
-			var rig := AnimalModels.create_rig(species)
+			var chick := not adult and AnimalTable.is_poultry(species) and PhotoRig.available(&"chick")
+			var rig := AnimalModels.create_rig(species, &"chick" if chick else &"")
 			_holder.add_child(rig)
-			rig.set_variant(0 if species != &"horse" else 0, not adult)
-			rig.set_age(1.0 if adult else 0.0)
+			# A chick in its yellow down.
+			rig.set_variant(1 if chick else 0, not adult)
+			rig.set_age(1.0 if adult else (0.3 if chick else 0.0))
 			rig.rotation_degrees.y = 125.0
 			for f in 30:
 				rig.animate(1.0 / 60.0, 0.0, AnimalRig.Mode.IDLE)
@@ -62,7 +71,8 @@ func _run() -> void:
 				center += p
 			center /= pts.size()
 			var dir := Vector3(0, 0.25, 1).normalized()
-			_cam.global_position = center + dir * _fit_distance(pts, center, dir)
+			_cam.global_position = center + dir * _fit_distance(pts, center, dir,
+					float((rig as PhotoRig).model_cfg.get("portrait_margin", 0.12)) if rig is PhotoRig else 0.12)
 			_cam.look_at(center, Vector3.UP)
 			for f in 3:
 				await process_frame
@@ -76,7 +86,7 @@ func _run() -> void:
 
 ## Distance along `dir` from `center` at which all points (each with a margin
 ## for the body around it) fit the view.
-func _fit_distance(pts: PackedVector3Array, center: Vector3, dir: Vector3) -> float:
+func _fit_distance(pts: PackedVector3Array, center: Vector3, dir: Vector3, share := 0.12) -> float:
 	var right := Vector3.UP.cross(dir).normalized()
 	var up := dir.cross(right).normalized()
 	var tan_v := tan(deg_to_rad(_cam.fov * 0.5))
@@ -84,7 +94,7 @@ func _fit_distance(pts: PackedVector3Array, center: Vector3, dir: Vector3) -> fl
 	var box := AABB(pts[0], Vector3.ZERO)
 	for p in pts:
 		box = box.expand(p)
-	var margin := box.size.length() * 0.12
+	var margin := box.size.length() * share
 	var d := 0.0
 	for p in pts:
 		var q := p - center
