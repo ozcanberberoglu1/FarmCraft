@@ -49,11 +49,16 @@ const ITEMS := {
 
 	# Livestock supplies and products
 	&"feed": {"cat": "feed", "stack": 99, "sell": 1, "buy": 1},
+	## A big sack of feed and a big bale of hay: one fills a feeder or trough to the brim
+	## (Trough.BIG), priced at the biggest one's fill (40 feed, 16 hay) less a tenth.
+	&"feed_big": {"cat": "feed", "stack": 10, "sell": 18, "buy": 36},
+	&"hay_big": {"cat": "feed", "stack": 10, "sell": 20, "buy": 43},
 	&"medicine": {"cat": "feed", "stack": 20, "sell": 8, "buy": 20},
 	&"egg": {"cat": "animal_product", "stack": 99, "sell": 5, "buy": 0},
 	## A live hen in a wooden crate (bought in town, released at a coop).
 	&"chicken_crate": {"cat": "animal", "stack": 4, "sell": 0, "buy": 0},
-	&"milk": {"cat": "animal_product", "stack": 99, "sell": 13, "buy": 0, "food": 10},
+	## Bottled at the farm (the cows); the town market also sells a bottle (Zeynep's errands).
+	&"milk": {"cat": "animal_product", "stack": 99, "sell": 13, "buy": 20, "food": 10},
 	&"wool": {"cat": "animal_product", "stack": 99, "sell": 30, "buy": 0},
 
 	# Farming supplies: fertilizer and manure make crops grow faster and better
@@ -94,6 +99,10 @@ const ITEMS := {
 	&"fishing_rod": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 150, "tool": &"fishing_rod"},
 	## A bundle of split logs and hearth stones: put down outdoors, it burns five hours.
 	&"campfire": {"cat": "placeable", "stack": 5, "sell": 0, "buy": 0},
+	## Charcoal grills from the town market (Grill): a Turkish steel mangal, six places on
+	## its grate, and a big barbecue grill on a stand with twelve.
+	&"grill": {"cat": "placeable", "stack": 1, "sell": 20, "buy": 60},
+	&"big_grill": {"cat": "placeable", "stack": 1, "sell": 45, "buy": 140},
 	&"nails": {"cat": "material", "stack": 99, "sell": 0, "buy": 1},
 	&"rope": {"cat": "material", "stack": 20, "sell": 1, "buy": 4},
 	&"worm": {"cat": "bait", "stack": 99, "sell": 0, "buy": 1},
@@ -103,6 +112,15 @@ const ITEMS := {
 	## A 3 kg bag of dog food from the town market: Zeynep's dog Karamel eats it
 	## (SideStory's errands).
 	&"dog_food": {"cat": "pet", "stack": 10, "sell": 3, "buy": 12},
+	## A bunch of field flowers wrapped in paper, from the town market (a gift: Zeynep's
+	## errands, SideStory).
+	&"flower_bouquet": {"cat": "gift", "stack": 5, "sell": 4, "buy": 15},
+	## A wooden mailbox on a post, made at the workbench and put down by the house: letters
+	## from the town arrive in it (Mail).
+	&"mailbox": {"cat": "placeable", "stack": 1, "sell": 5, "buy": 0},
+	## A rubber ball from the town market: thrown (LMB) for the farmer's own dog to fetch
+	## (Pet).
+	&"dog_ball": {"cat": "pet", "stack": 5, "sell": 2, "buy": 6},
 
 	# --- POULTRY agent: the rooster (eggs left under a rooster stay the plain "egg"; the
 	# coop keeps which ones are fertile) ---
@@ -256,6 +274,29 @@ const ITEMS := {
 	&"fish_sturgeon_cleaned": {"cat": "fish", "stack": 5, "sell": 95, "buy": 0},
 	&"fish_sturgeon_cleaned_cooked": {"cat": "food", "stack": 5, "sell": 125, "buy": 0, "food": 100},
 	&"fish_sturgeon_trophy": {"cat": "fish", "stack": 5, "sell": 950, "buy": 0},
+	# Giant (trophy) fish grilled on a mangal (too big for the campfire: Grill): a meal
+	# that fills far more than a whole grilled fish, sold for a little over the raw giant.
+	&"fish_rudd_trophy_cooked": {"cat": "food", "stack": 5, "sell": 39, "buy": 0, "food": 60},
+	&"fish_crucian_trophy_cooked": {"cat": "food", "stack": 5, "sell": 39, "buy": 0, "food": 60},
+	&"fish_perch_trophy_cooked": {"cat": "food", "stack": 5, "sell": 52, "buy": 0, "food": 60},
+	&"fish_crayfish_trophy_cooked": {"cat": "food", "stack": 5, "sell": 78, "buy": 0, "food": 60},
+	&"fish_carp_trophy_cooked": {"cat": "food", "stack": 5, "sell": 117, "buy": 0, "food": 96},
+	&"fish_tench_trophy_cooked": {"cat": "food", "stack": 5, "sell": 130, "buy": 0, "food": 84},
+	&"fish_trout_trophy_cooked": {"cat": "food", "stack": 5, "sell": 208, "buy": 0, "food": 90},
+	&"fish_zander_trophy_cooked": {"cat": "food", "stack": 5, "sell": 286, "buy": 0, "food": 100},
+	&"fish_pike_trophy_cooked": {"cat": "food", "stack": 5, "sell": 390, "buy": 0, "food": 100},
+	&"fish_catfish_trophy_cooked": {"cat": "food", "stack": 5, "sell": 715, "buy": 0, "food": 100},
+	&"fish_roach_trophy_cooked": {"cat": "food", "stack": 5, "sell": 39, "buy": 0, "food": 60},
+	&"fish_bleak_trophy_cooked": {"cat": "food", "stack": 5, "sell": 26, "buy": 0, "food": 60},
+	&"fish_gudgeon_trophy_cooked": {"cat": "food", "stack": 5, "sell": 26, "buy": 0, "food": 60},
+	&"fish_bream_trophy_cooked": {"cat": "food", "stack": 5, "sell": 78, "buy": 0, "food": 78},
+	&"fish_chub_trophy_cooked": {"cat": "food", "stack": 5, "sell": 91, "buy": 0, "food": 78},
+	&"fish_barbel_trophy_cooked": {"cat": "food", "stack": 5, "sell": 156, "buy": 0, "food": 100},
+	&"fish_eel_trophy_cooked": {"cat": "food", "stack": 5, "sell": 208, "buy": 0, "food": 100},
+	&"fish_grass_carp_trophy_cooked": {"cat": "food", "stack": 5, "sell": 195, "buy": 0, "food": 100},
+	&"fish_silver_carp_trophy_cooked": {"cat": "food", "stack": 5, "sell": 156, "buy": 0, "food": 100},
+	&"fish_brown_trout_trophy_cooked": {"cat": "food", "stack": 5, "sell": 260, "buy": 0, "food": 90},
+	&"fish_sturgeon_trophy_cooked": {"cat": "food", "stack": 5, "sell": 1235, "buy": 0, "food": 100},
 	# --- end FISHING ---
 }
 
@@ -265,7 +306,7 @@ const CATEGORY_KEYS := {
 	"placeable": "CAT_PLACEABLE", "supply": "CAT_SUPPLY", "key": "CAT_KEY", "animal": "CAT_ANIMAL",
 	"material": "CAT_MATERIAL", "bait": "CAT_BAIT", "sapling": "CAT_SAPLING",
 	"fish": "CAT_FISH", "food": "CAT_FOOD", "junk": "CAT_JUNK", "meat": "CAT_MEAT",
-	"forage": "CAT_FORAGE", "game": "CAT_GAME", "pet": "CAT_PET", "ammo": "CAT_AMMO",
+	"forage": "CAT_FORAGE", "game": "CAT_GAME", "pet": "CAT_PET", "ammo": "CAT_AMMO", "gift": "CAT_GIFT",
 }
 
 ## Items the player starts a new game with: [id, count]

@@ -109,6 +109,10 @@ var gait_crouch := GAIT_CROUCH
 var sit_hips := SIT_HIPS
 var lie_body := LIE_BODY
 var lie_reach := LIE_REACH
+## A puppy's proportions (the farmer's own dog, PetDog): the head (with its ears) and the
+## paws drawn this much bigger than the model's, about their joints (1: as modelled).
+var head_scale := 1.0
+var paw_scale := 1.0
 
 var _b := {}  # rig bone -> bone index
 var _conv := {}  # bone index -> [A, C, parent rest basis inverse]
@@ -478,6 +482,11 @@ func animate(delta: float, speed: float) -> void:
 				skeleton.set_bone_pose_rotation(idx, skeleton.get_bone_rest(idx).basis.get_rotation_quaternion())
 		_pose_legs(xf)
 	_track_head(delta)
+	if head_scale != 1.0 and _b.has("head"):
+		skeleton.set_bone_pose_scale(_b["head"], Vector3.ONE * head_scale)
+	if paw_scale != 1.0:
+		for leg: String in _legs:
+			skeleton.set_bone_pose_scale(_legs[leg]["toe"], Vector3.ONE * paw_scale)
 	var sk := xf * _to_rig
 	for leg: String in _legs:
 		_paws[leg] = sk * skeleton.get_bone_global_pose(_legs[leg]["toe"]).origin

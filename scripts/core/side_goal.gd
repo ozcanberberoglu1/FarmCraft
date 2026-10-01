@@ -19,6 +19,10 @@ var hint := ""
 var label := ""
 ## Where the dot points: a Vector3, a Node3D it follows, or null for no dot.
 var point: Variant = null
+## An errand that can wait (the mailbox): a compact card whose hint shows only for a while
+## and near the place, a smaller, fainter dot (HUD). Urgent goals (the wolves', the
+## vet's) stay prominent.
+var quiet := false
 
 
 func _init(goal_id: StringName, goal_title: String, goal_glyph: String, goal_color: Color) -> void:

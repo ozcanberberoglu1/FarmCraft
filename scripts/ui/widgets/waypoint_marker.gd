@@ -10,7 +10,9 @@ extends Control
 ## place. Works from the driver's seat (the viewport's current camera); hidden in menus,
 ## on the title, while a game loads and when the goal names no place.
 ## A second one follows the side story's goal (HUD.side_waypoint: `source` SideStory),
-## ringed in its own colour, its pill naming who or what it points at.
+## ringed in its own colour, its pill naming who or what it points at. A `quiet` one (an
+## errand that can wait) is smaller and fainter, without the pulse, and shows its pill
+## only close to the place or with the crosshair near it.
 
 ## Inset from the screen edges while clamped: left, top, right, bottom (clears the
 ## money and clock cards at the top and the hotbar at the bottom).
@@ -24,6 +26,12 @@ const FADE_FAR := 5.0
 const CENTER_DIM := 90.0
 ## A jump of the target farther than this is a new place: the dot pops in again.
 const NEW_PLACE := 3.0
+## A quiet dot: its size and its strongest opacity; its pill shows closer than
+## QUIET_PILL_NEAR metres or within QUIET_AIM pixels of the crosshair.
+const QUIET_SCALE := 0.68
+const QUIET_ALPHA := 0.6
+const QUIET_PILL_NEAR := 20.0
+const QUIET_AIM := 130.0
 ## Places the story can point at: Node3D anchors in this group, each with its id in the
 ## meta &"waypoint" (see tag() and anchor()).
 const ANCHOR_GROUP := &"waypoint_anchors"
@@ -39,6 +47,8 @@ var source: Object = null
 var keep_out: Array[Rect2] = []
 ## The ring's colour (and the chevron's, and the pulse's).
 var ring_color := UiTheme.GOLD
+## An errand that can wait: smaller, fainter, the pill only near or aimed at.
+var quiet := false
 ## Where the dot points, whether it is in view, and how far away (metres, on the
 ## ground). Read by tests.
 var world_point := Vector3.ZERO
@@ -100,6 +110,11 @@ func _process(delta: float) -> void:
 		want = smoothstep(FADE_NEAR, FADE_FAR, distance)
 		if on_screen:
 			want *= lerpf(0.35, 1.0, clampf((_pos.distance_to(size * 0.5) - 20.0) / CENTER_DIM, 0.0, 1.0))
+		if quiet:
+			want *= QUIET_ALPHA
+			_pill.visible = distance < QUIET_PILL_NEAR or (on_screen and _pos.distance_to(size * 0.5) < QUIET_AIM)
+		else:
+			_pill.visible = true
 		var m := roundi(distance)
 		var line: String = _guide().guide_label() if typeof(target_override) == TYPE_NIL else ""
 		if m != _shown_m or line != _shown_label:
@@ -162,7 +177,14 @@ func screen_rect() -> Rect2:
 	if not visible:
 		return Rect2()
 	var ring := Vector2(RING + 5.0, RING + 5.0)
+	if not _pill.visible:
+		return Rect2(_pos - ring, ring * 2.0)
 	return Rect2(_pos - ring, ring * 2.0).merge(Rect2(_pill.position, _pill.size))
+
+
+## The place is closer than `metres` (and there is one).
+func near(metres: float) -> bool:
+	return _has_target and distance < metres
 
 
 func _pop_in() -> void:
@@ -204,9 +226,9 @@ func _place(cam: Camera3D) -> void:
 
 
 func _draw() -> void:
-	var s := _pop
+	var s := _pop * (QUIET_SCALE if quiet else 1.0)
 	draw_circle(_pos, (RING + 5.0) * s, Color(0, 0, 0, 0.3))
-	if on_screen:
+	if on_screen and not quiet:
 		draw_arc(_pos, (RING + 2.0 + _pulse * 16.0) * s, 0.0, TAU, 40, Color(ring_color, 0.55 * (1.0 - _pulse)), 2.0, true)
 	draw_arc(_pos, RING * s, 0.0, TAU, 40, ring_color, 2.6, true)
 	draw_circle(_pos, DOT * s, Color(1, 1, 1, 0.97))

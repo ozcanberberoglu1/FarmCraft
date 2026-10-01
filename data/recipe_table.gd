@@ -41,6 +41,8 @@ const CRAFTING := {
 	&"feed": {"items": {&"wheat": 2}, "count": 5, "level": 1, "group": "farm"},
 	&"fertilizer": {"items": {&"manure": 4, &"hay": 1}, "count": 2, "level": 2, "group": "farm"},
 	&"sprinkler": {"items": {&"iron_ore": 5, &"stone": 3}, "count": 1, "level": 3, "group": "farm"},
+	# The mailbox by the house (Mail): a little wood and a few nails.
+	&"mailbox": {"items": {&"wood": 4, &"nails": 4}, "count": 1, "level": 1, "group": "farm"},
 	# Machines.
 	&"quern": {"items": {&"stone": 20, &"wood": 10}, "count": 1, "level": 1, "group": "machines"},
 	&"pickle_barrel": {"items": {&"wood": 35, &"iron_ore": 3}, "count": 1, "level": 3, "group": "machines"},
@@ -51,7 +53,7 @@ const CRAFTING := {
 ## The workbench's list, heading by heading (GROUPS).
 const CRAFT_ORDER: Array[StringName] = [&"knife", &"cane_rod", &"fishing_rod", &"carbon_rod", &"carp_rod", &"bow", &"arrow", &"axe", &"pickaxe", &"hoe",
 	&"scythe", &"watering_can", &"pitchfork", &"shears", &"milk_pail", &"campfire", &"food_table", &"dough", &"feed",
-	&"fertilizer", &"sprinkler", &"quern", &"pickle_barrel", &"spinning_wheel", &"cheese_press", &"jam_kettle"]
+	&"fertilizer", &"sprinkler", &"mailbox", &"quern", &"pickle_barrel", &"spinning_wheel", &"cheese_press", &"jam_kettle"]
 ## Headings of the workbench's list: group -> [translation key, icon].
 const GROUPS := {
 	"tools": ["CRAFT_GROUP_TOOLS", "hammer"], "camp": ["CRAFT_GROUP_CAMP", "campfire"],

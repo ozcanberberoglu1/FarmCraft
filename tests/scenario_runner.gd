@@ -61,6 +61,8 @@ func run(scenario: String) -> void:
 			await _progression()
 		"camp":
 			await _camp()
+		"grill":
+			await _grill()
 		"fishing":
 			await _fishing()
 		"fishing2":
@@ -97,6 +99,8 @@ func run(scenario: String) -> void:
 			await _fixes()
 		"carnival":
 			await _carnival()
+		"contest":
+			await _contest()
 		"coop2":
 			await _coop2()
 		"game9":
@@ -119,6 +123,8 @@ func run(scenario: String) -> void:
 			await _scenario_zeynep()
 		"zeynep_edges":
 			await _scenario_zeynep_edges()
+		"social13":
+			await _scenario_social13()
 		"market_crates":
 			await _market_crates()
 		"combat":
@@ -135,6 +141,10 @@ func run(scenario: String) -> void:
 			await _scenario_wolves_edges()
 		"coop_expand":
 			await _coop_expand()
+		"fixes13":
+			await _scenario_fixes13()
+		"pet":
+			await _scenario_pet()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -2972,7 +2982,7 @@ func _quests() -> void:
 	# then the player is free until the next morning's workshop.
 	var day_one := ["door", "tools", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens",
 			"drive_home", "crates_in", "coop_wood", "coop_kit", "coop_place", "coop_built", "hens_in",
-			"harvest", "ship", "egg", "ship_egg", "feed", "coop_water", "straw", "wood", "patch"]
+			"harvest", "ship", "egg", "ship_egg", "feed", "coop_water", "straw", "wood", "patch", "wh_patch"]
 	var in_order := true
 	for i in day_one.size():
 		in_order = in_order and Quests.index_of(day_one[i]) == i
@@ -2980,7 +2990,7 @@ func _quests() -> void:
 	_check(in_order and free_step == day_one.size() and Quests.TUTORIAL[free_step]["id"] == "free"
 			and int(Quests.TUTORIAL[free_step]["chapter"]) == Quests.DAY_TWO_CHAPTER
 			and Quests.TUTORIAL[free_step + 1]["id"] == "harvest2" and Quests.index_of("sleep") < 0 and Quests.index_of("earn") < 0,
-			"the first day runs door, tools, soil, drawer, key, truck, hens, coop, harvest, bin, egg, the coop's care and the mending (no bedtime); the workshop waits for day two")
+			"the first day runs door, tools, soil, drawer, key, truck, hens, coop, harvest, bin, egg, the coop's care and the mending of the house and the warehouse (no bedtime); the workshop waits for day two")
 	var dropped: Array = []
 	for id: String in ["reap", "replant", "refill", "repair_warehouse", "store", "hay", "load", "order", "sell",
 			"workbench", "craft", "repair_house", "coop", "chickens", "eggs", "stone", "quern", "flour"]:
@@ -3385,24 +3395,31 @@ func _quests() -> void:
 	var mend := int(Quests.TUTORIAL[Quests.index_of("wood")]["chapter"])
 	_check(Quests.current()["id"] == "wood" and begun[0] == mend and Game.hud._quest_note.text.contains(Quests.chapter_note(mend)),
 			"three nests with straw end the coop's care: the mending opens with Grandpa's note")
-	# The mending: one tree's wood, counted from when the goal came up; then the house's boards.
+	# The mending: wood for the house, counted from when the goal came up; then every board of
+	# the house, then the warehouse's.
 	Quests.tally["picked:wood"] = 20
 	Quests._catch_up()
 	_check(Quests.current()["id"] == "wood" and Quests.step_count == 0, "wood picked up before the goal came up doesn't count")
 	Events.item_picked_up.emit(&"wood", 2)
 	Events.item_picked_up.emit(&"stone", 2)
 	_check(Quests.current()["id"] == "wood" and Quests.step_count == 2, "picked-up wood counts toward the wood goal, stone doesn't")
-	Events.item_picked_up.emit(&"wood", 1)
-	_check(Quests.current()["id"] == "patch", "a tree's three logs complete it: on to the house's boards")
+	Events.item_picked_up.emit(&"wood", 6)
+	_check(Quests.current()["id"] == "patch", "eight logs complete it: on to the house's boards")
 	Events.wall_patched.emit(&"warehouse", 1, 6)
 	_check(Quests.current()["id"] == "patch" and Quests.step_count == 0, "boards renewed on the warehouse don't count toward the house")
-	for i in 3:
+	for i in 7:
 		Events.wall_patched.emit(&"house", i + 1, 8)
+	_check(Quests.current()["id"] == "patch" and Quests.step_count == 7, "seven of the house's eight boards aren't enough: every one is asked for")
+	Events.wall_patched.emit(&"house", 8, 8)
+	_check(Quests.current()["id"] == "wh_patch", "the house's last board moves on to the warehouse's")
+	# The warehouse board renewed earlier counts too ("ever"): five more finish it.
+	for i in 5:
+		Events.wall_patched.emit(&"warehouse", i + 2, 6)
 	await _frames(2)
 	_check(Quests.current()["id"] == "free" and begun[0] == Quests.DAY_TWO_CHAPTER and not Quests.first_day()
 			and Game.hud._quest_card.visible and not Game.hud._quest_count.visible
 			and Game.hud._quest_note.text.contains(Quests.chapter_note(Quests.DAY_TWO_CHAPTER)),
-			"three boards renewed end the first day's story: Grandpa's note lets the player go free")
+			"the warehouse's boards renewed end the first day's story: Grandpa's note lets the player go free")
 	Quests._wp_left = 0.0
 	await _idle_frames(2)
 	_check(Quests.waypoint() == null, "the free evening has no dot")
@@ -5339,8 +5356,8 @@ func _food() -> void:
 	var dish := Campfire.cooked_id(&"fish_carp_cleaned")
 	var plain := Campfire.cooked_id(&"fish_carp")
 	var roast := Campfire.cooked_id(&"rabbit_meat")
-	_check(dish == &"fish_carp_cleaned_cooked" and roast == &"rabbit_meat_cooked" and Campfire.cooked_id(&"fish_carp_trophy") == &"",
-			"food: a cleaned carp and rabbit meat cook on the campfire (a trophy doesn't)")
+	_check(dish == &"fish_carp_cleaned_cooked" and roast == &"rabbit_meat_cooked" and Campfire.cooked_id(&"fish_carp_trophy") == &"fish_carp_trophy_cooked",
+			"food: a cleaned carp and rabbit meat cook on the campfire (a trophy only on a grill: the grill scenario)")
 	_check(Eating.food_value(dish) >= Eating.food_value(plain) * 2, "food: the cleaned, grilled carp fills %d (a whole grilled one %d)" % [Eating.food_value(dish), Eating.food_value(plain)])
 	var dish_mesh := ItemModels.mesh(dish)
 	_check(dish_mesh.get_surface_count() > 1 and ItemModels.mesh(&"rabbit_meat").get_surface_count() > 0
@@ -9749,6 +9766,8 @@ func _scenario_zeynep() -> void:
 	Quests.tutorial_changed.emit()
 	var main_goal := String(Quests.current()["id"])
 	SideStory.testing = true
+	# The errands after the welcome gift are dog food here (their turn: the social13 scenario).
+	SideStory.test_kind = "food"
 	SideStory.load_data({})
 	Relations.load_data({})
 	Economy.money = maxi(Economy.money, 200)
@@ -10103,6 +10122,7 @@ func _scenario_zeynep() -> void:
 	Events.notification_requested.disconnect(on_note)
 	await _close_screens()
 	SideStory.testing = false
+	SideStory.test_kind = ""
 	SideStory.load_data(kept_side)
 	Relations.load_data(kept_rel)
 	PlayerState.inventory.remove_item(SideStory.ITEM, PlayerState.inventory.count_item(SideStory.ITEM))
@@ -10491,6 +10511,288 @@ func _scenario_zeynep_edges() -> void:
 	GameClock.minute = kept_minute
 	player.global_position = kept_pos
 	await _seconds(1.0)
+
+
+## Round 13's social systems: Zeynep's errands in turn (milk, then flowers bought at the
+## town market), her call at four hearts for Karamel's pup (Pet.adopt, a test double
+## when the pet system isn't there), the quiet side card (one line, the hint for a while
+## and near the place, a smaller dot), a townsperson's gift on the greeting after a new
+## heart (the friendship saved), and the mailbox: its side goal, made at the workbench and
+## put down, a letter waiting for it arriving (the flag, a note), E opening it with its
+## gift, Zeynep's invitation turning into a visit, all of it through a save and a load.
+func _scenario_social13() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_pos := player.global_position
+	var kept_side := SideStory.save_data()
+	var kept_rel := Relations.save_data()
+	var kept_mail := Mail.save_data()
+	var kept_placed := FarmState.placed.duplicate()
+	var inv := PlayerState.inventory
+	var kept_items := {}
+	for id: StringName in [&"dog_food", &"milk", &"flower_bouquet", &"sapling", &"mailbox", &"wood", &"nails"]:
+		kept_items[id] = inv.count_item(id)
+		inv.remove_item(id, kept_items[id])
+	SideStory.testing = true
+	Mail.testing = true
+	GameClock.running = false
+	Economy.money = maxi(Economy.money, 400)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var dlg: DialogueScreen = Game.hud.dialogue_screen
+	var home := _zy_home()
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var street := Vector3(262.0, TerrainData.height(262.0, 19.0) + 0.1, 19.0)
+	var shots := String(DebugTools.args.get("social-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	# Met on day 6, the welcome gift given on day 7: two hearts, the next favour on day 9.
+	SideStory.load_data({"met": true, "met_day": 6, "deliveries": 1, "gift_day": 7, "announced": true, "next": 9})
+	Relations.load_data({"points": {"zeynep": 20}})
+	Mail.load_data({})
+
+	# --- The next favour is not dog food: a bottle of milk ---
+	GameClock.day = 9
+	GameClock.set_time_of_day(12.0)
+	player.global_position = street
+	await _seconds(1.5)
+	_check(SideStory.goal() == "milk_buy" and SideStory.goal_text() == tr("SIDE_GOAL_MILK_BUY") and SideStory.goal_hint() == tr("SIDE_HINT_MILK"),
+			"day 9: Zeynep asks for a bottle of milk ('%s')" % SideStory.goal_text())
+	var hud: HUD = Game.hud
+	await _idle_frames(3)
+	_check(hud._side_card.visible and hud._side_text.text == tr("SIDE_GOAL_MILK_BUY") and hud._side_hint.visible
+			and hud.side_waypoint.quiet, "the side card shows the goal on one line, its hint for now; the side dot is a quiet one")
+	if shots != "":
+		player.global_position = Vector3(240.0, TerrainData.height(240.0, 19.5) + 0.1, 19.5)
+		_look_at(player, Vector3(205.0, 2.0, 12.0))
+		await _zy_shot(shots, "side_card")
+		player.global_position = street
+	hud.side_hint_left = 0.0
+	await _idle_frames(3)
+	_check(not hud._side_hint.visible and hud._side_card.visible, "after a while the hint hides (the goal stays)")
+	var counter := town.market_counter.global_position
+	player.global_position = Vector3(counter.x, TerrainData.height(counter.x, counter.z + 6.0) + 0.1, counter.z + 6.0)
+	await _seconds(0.5)
+	_check(hud._side_hint.visible, "near the place the dot points at (the market) the hint shows again")
+	_check(&"milk" in ShopStock.town_market()["stock"] and &"flower_bouquet" in ShopStock.town_market()["stock"],
+			"the town market sells milk and flowers")
+	PlayerState.give(&"milk", 1, false)
+	await _seconds(0.6)
+	_check(SideStory.goal() == "milk_bring", "with a bottle in the bag: take it to her")
+	await _soc_deliver_at_door(player, home, dlg, GameClock.day, 12.5)
+	_check(Relations.level(SideStory.WHO) == 3 and inv.count_item(&"milk") == 0 and SideStory.errand.is_empty()
+			and notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_DONE_MILK")), "the milk handed over at her door: three hearts")
+
+	# --- Then flowers, bought at the market ---
+	var day := SideStory.next_errand_day
+	GameClock.day = day
+	GameClock.set_time_of_day(12.0)
+	await _seconds(1.2)
+	_check(SideStory.goal() == "flowers_buy" and SideStory.guide_label() == ItemDB.get_item(&"flower_bouquet").display_name()
+			and (SideStory.guide_point() as Vector3).distance_to(counter) < 3.0, "the next favour: a bunch of flowers, the dot at the market")
+	hud.open_shop(ShopStock.town_market())
+	await _frames(3)
+	var shop: ShopScreen = hud.shop_screen
+	shop._set_tab("buy")
+	var money := Economy.money
+	shop._sel = {"id": &"flower_bouquet", "quality": 0}
+	shop._qty = 1
+	shop._confirm()
+	shop.close_screen()
+	await _frames(3)
+	_check(inv.count_item(&"flower_bouquet") == 1 and Economy.money == money - Economy.buy_price(&"flower_bouquet"),
+			"bought a bunch of flowers ($%d)" % Economy.buy_price(&"flower_bouquet"))
+	await _seconds(0.6)
+	_check(SideStory.goal() == "flowers_bring", "flowers in the bag: take them to her")
+	var heard := await _soc_deliver_at_door(player, home, dlg, day, 12.5)
+	var flower_line := false
+	for l: Array in heard:
+		flower_line = flower_line or l[1] == tr("ZEYNEP_FLOWERS_1")
+	_check(flower_line and Relations.level(SideStory.WHO) == 4 and inv.count_item(&"flower_bouquet") == 0,
+			"she thanks him for the flowers: four hearts")
+	_check(SideStory.next_errand_day == day + 1, "at four hearts her call comes the next morning")
+
+	# --- Four hearts: Karamel's pup ---
+	var pet := tree.root.get_node_or_null("Pet")
+	var double: Node = null
+	if pet == null:
+		var gs := GDScript.new()
+		gs.source_code = "extends Node\nvar adopted := 0\nfunc adopt(_n: String = \"\") -> void:\n\tadopted += 1\nfunc has_dog() -> bool:\n\treturn adopted > 0\n"
+		gs.reload()
+		double = Node.new()
+		double.set_script(gs)
+		double.name = "Pet"
+		tree.root.add_child(double)
+		pet = double
+	GameClock.day = day + 1
+	GameClock.set_time_of_day(12.0)
+	notes.clear()
+	await _seconds(1.2)
+	_check(SideStory.goal() == "puppy" and notes.has(tr("MSG_ZEYNEP_PUPPY_CALL")) and SideStory.guide_label() == tr("PERSON_ZEYNEP"),
+			"Zeynep calls him over: Karamel's pup is weaned and she wants him to have it")
+	heard = await _soc_deliver_at_door(player, home, dlg, day + 1, 12.5)
+	var pup_line := false
+	for l: Array in heard:
+		pup_line = pup_line or l[1] == tr("ZEYNEP_PUPPY_2")
+	await _close_screens()
+	_check(pup_line and bool(pet.call("has_dog")) and SideStory.puppy_day == day + 1 and Relations.level(SideStory.WHO) == 5,
+			"at her door she gives him the pup (Pet.adopt called)")
+	# No more favours for the rest of the test (the visit below needs her free).
+	SideStory.next_errand_day = 999
+
+	# --- A townsperson's gift on a greeting after a new heart ---
+	var elder: Townsperson = null
+	for t: Townsperson in tree.get_nodes_in_group(Townsperson.GROUP):
+		if t.person == &"elder":
+			elder = t
+	_check(elder != null, "Osman Dede is on his bench")
+	var gifts := 0
+	var said := ""
+	for d in 3:
+		GameClock.day = day + 2 + d
+		elder.interact(player)
+		if d < 2:
+			# A second greeting the same day counts for nothing.
+			elder.interact(player)
+	_check(Relations.level(&"elder") == 1 and Relations.points_of(&"elder") == Relations.GREET_POINTS * 3,
+			"three days of greetings (only the first each day counts): a heart with Osman Dede")
+	elder.interact(player)
+	said = elder._bubble.text
+	gifts = inv.count_item(&"sapling")
+	_check(gifts == 1 and said == tr("GIFT_SAY_ELDER") and notes.has(tr("MSG_TOWN_GIFT") % [tr("PERSON_ELDER"), Relations.gift_text({&"sapling": 1})]),
+			"the greeting after the heart: Osman Dede gives a sapling ('%s')" % said)
+	elder.interact(player)
+	_check(inv.count_item(&"sapling") == 1, "only once per heart")
+	_check(elder.interact_title().contains("♥"), "looking at him shows the friendship's hearts")
+
+	# --- The mailbox ---
+	GameClock.day = maxi(GameClock.day, Mail.MAILBOX_DAY)
+	await _seconds(1.5)
+	var goal := Mail._goal
+	_check(SideStory.goals.has(goal) and goal.quiet and goal.text == tr("SIDE_GOAL_MAILBOX"), "a quiet side goal: put up a mailbox in front of the house")
+	await _idle_frames(3)
+	var e: Dictionary = hud._goal_cards.get(goal, {})
+	_check(not e.is_empty() and not (e["title"] as Label).visible and (e["dot"] as WaypointMarker).quiet, "its card is compact, its dot quiet")
+	# Zeynep's letter after the pup (two days on: by now), before there is a mailbox: it waits.
+	_check(GameClock.day >= SideStory.puppy_day + SideStory.PUPPY_LETTER_DAYS, "two days after the pup")
+	_check(Mail.letters.size() == 1 and Mail.unread_count() == 0 and not notes.has(tr("MSG_MAIL_NEW")),
+			"her letter asking after the pup waits for a mailbox")
+	_check(RecipeTable.crafting(Mail.ITEM).get("items", {}).has(&"nails") and Mail.ITEM in RecipeTable.CRAFT_ORDER, "the workbench makes a mailbox (wood and nails)")
+	inv.add_item(&"wood", 4)
+	inv.add_item(&"nails", 4)
+	_check(hud.crafting_screen.craft(Mail.ITEM) and inv.count_item(Mail.ITEM) == 1 and inv.count_item(&"nails") == 0, "made a mailbox at the workbench")
+	await _seconds(1.2)
+	_check(goal.hint == tr("SIDE_HINT_MAILBOX_PLACE"), "with the mailbox in the bag: put it down by the front door")
+	var house := tree.get_first_node_in_group(&"farm_house") as FarmHouse
+	var dp := house.door_point() if house else Vector3(WorldLayout.HOUSE_DOOR_X, 0.0, WorldLayout.HOUSE_FRONT_Z)
+	var at := Vector3(dp.x + 2.5, 0.0, dp.z + 3.0)
+	at.y = TerrainData.height(at.x, at.z)
+	var entry := FarmState.add_placed(Mail.ITEM, at, 0.0)
+	var box := Game.world.farm.spawn_placed(entry) as Mailbox
+	inv.remove_item(Mail.ITEM, 1)
+	Events.placed.emit(Mail.ITEM)
+	await _seconds(1.5)
+	_check(box != null and not SideStory.goals.has(goal) and Mail.goal_done, "put down: the mailbox goal is done")
+	_check(Mail.unread_count() == 1 and notes.has(tr("MSG_MAIL_NEW")) and box.flag_up(), "the waiting letter is in it: the flag is up, a note says so")
+	if shots != "":
+		GameClock.set_time_of_day(16.0)
+		player.global_position = Vector3(at.x + 1.2, at.y + 0.1, at.z + 2.0)
+		player.velocity = Vector3.ZERO
+		_look_at(player, at + Vector3(0, 0.9, 0))
+		await _zy_shot(shots, "mailbox_flag")
+	player.global_position = Vector3(at.x, at.y + 0.1, at.z + 1.6)
+	player.velocity = Vector3.ZERO
+	_look_at(player, at + Vector3(0, 1.1, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_READ_MAIL") % 1), "looking at it: '%s'" % _last_prompt.replace("\n", " | "))
+	var food := inv.count_item(&"dog_food")
+	await _press_key(KEY_E)
+	await _idle_frames(3)
+	var ls: LetterScreen = hud.letter_screen
+	_check(ls.is_open() and ls.mail_index == 0 and bool(Mail.letters[0]["read"]) and inv.count_item(&"dog_food") == food + 1,
+			"E opens her letter (read now), the bag of dog food in it taken out")
+	if shots != "":
+		await _zy_shot(shots, "letter")
+	await _close_screens()
+	await _seconds(0.8)
+	_check(not ls.is_open() and not box.flag_up() and Mail.unread_count() == 0, "read: the flag is down")
+	# A townsperson's thanks at his second heart, and Zeynep's invitation at six.
+	Relations.raise(&"elder", Relations.POINTS_PER_LEVEL)
+	Relations.raise(SideStory.WHO, Relations.POINTS_PER_LEVEL)
+	await _seconds(1.2)
+	var titles: Array = Mail.letters.map(func(l: Dictionary) -> String: return String(l["title"]))
+	_check(titles.has("MAIL_THANKS_1_TITLE") and titles.has("MAIL_ZEYNEP_INVITE_TITLE") and Mail.unread_count() == 2,
+			"Osman Dede's thank-you note and Zeynep's invitation arrive (%s)" % [titles])
+	Mail.open_letter(titles.find("MAIL_ZEYNEP_INVITE_TITLE"))
+	_check(SideStory.visit_day == GameClock.day + 1, "her invitation read: a visit the next day")
+
+	# --- Save and load ---
+	var slot := "social13_test"
+	var turn_before := SideStory.turn
+	_check(SaveGame.save(slot), "saved")
+	Mail.load_data({})
+	Relations.load_data({})
+	SideStory.load_data({})
+	_check(SaveGame.load_game(slot), "loading the save started")
+	await _until_loaded()
+	player = Game.player
+	hud = Game.hud
+	await _seconds(1.2)
+	var box2 := tree.get_first_node_in_group(Mailbox.GROUP) as Mailbox
+	_check(Mail.letters.size() == 3 and Mail.unread_count() == 1 and bool(Mail.letters[0]["read"]) and Mail.goal_done
+			and box2 != null and box2.flag_up(), "after the load: the letters (one unread), the mailbox with its flag up")
+	_check(Relations.points_of(&"elder") == Relations.GREET_POINTS * 3 + Relations.POINTS_PER_LEVEL and int(Relations.gifted.get(&"elder", 0)) == 1
+			and int(Relations.greeted.get(&"elder", -1)) == day + 4, "after the load: Osman Dede's friendship, its gift and greeting days")
+	_check(SideStory.puppy_day == day + 1 and SideStory.puppy_letter and SideStory.invite_sent and SideStory.visit_day > 0
+			and SideStory.turn == turn_before and turn_before == 2, "after the load: the pup, her letters, the visit ahead, the favours' turn")
+	GameClock.day = SideStory.visit_day
+	GameClock.set_time_of_day(12.0)
+	await _seconds(1.2)
+	_check(SideStory.goal() == "visit" and SideStory.goal_text() == tr("SIDE_GOAL_VISIT"), "the next day: drop by Zeynep's")
+	SaveGame.delete(slot)
+
+	# Put everything back.
+	Events.notification_requested.disconnect(on_note)
+	await _close_screens()
+	if double:
+		double.queue_free()
+	SideStory.testing = false
+	Mail.testing = false
+	for b: Node in tree.get_nodes_in_group(Mailbox.GROUP):
+		b.queue_free()
+	FarmState.placed.assign(kept_placed)
+	SideStory.load_data(kept_side)
+	Relations.load_data(kept_rel)
+	Mail.load_data(kept_mail)
+	for id: StringName in kept_items:
+		inv.remove_item(id, inv.count_item(id))
+		if int(kept_items[id]) > 0:
+			inv.add_item(id, int(kept_items[id]))
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	Game.player.global_position = kept_pos
+	await _seconds(1.0)
+
+
+## Knocks on Zeynep's door on `day` at `hour` (she is in), talks it through and waits for
+## the scene to end; the lines heard.
+func _soc_deliver_at_door(player: Player, home: ZeynepHome, dlg: DialogueScreen, day: int, hour: float) -> Array:
+	GameClock.day = day
+	GameClock.set_time_of_day(hour)
+	await _zy_wait(func() -> bool: return home.where == &"inside" and not home.busy(), 30.0)
+	await _zy_knock(player, home)
+	await _press_key(KEY_E)
+	var opened := await _zy_wait(func() -> bool: return dlg.is_open(), 10.0)
+	var heard := await _zy_talk_through(dlg, 12)
+	await _zy_wait(func() -> bool: return not home.busy(), 15.0)
+	_check(opened, "she opens the door (day %d)" % day)
+	return heard
 
 
 ## Zeynep's track from `side` (SideStory's save data), `points` of friendship, no dog food
@@ -15014,3 +15316,977 @@ func _coop_expand_wolf(coop: ChickenCoop) -> void:
 			% [t, by_door, in_by_door])
 	wolf.queue_free()
 	await _frames(3)
+
+
+# --- The fishing contest ---------------------------------------------------------------------
+
+## The fishing contest (FishingContest, ContestVenue, ContestCrowd): its days (moved off a
+## carnival), Nuri Hoca's letter the day before, the anglers and the crowd at the town pond
+## during it and back home after, the player's fish weighed there (not at the farm pond),
+## the board kept over a save and load, the ceremony, the prize when he wins and none when
+## a rival does. With -- --contest-shots=/abs/dir it saves the venue, the board and the
+## applause.
+func _contest() -> void:
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var venue := town.get_node_or_null("ContestVenue") as ContestVenue
+	var crowd := venue.get_node_or_null("ContestCrowd") as ContestCrowd if venue else null
+	await _contest_ready_player(player)
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_money := Economy.money
+	var far := Vector3(-14.0, 0.2, -9.0)
+	FishingContest.testing = true
+	FishingContest.ceremony_speed = 4.0
+	_check(venue != null and crowd != null, "the town has its contest venue (pond, pier, board) and crowd")
+	if venue == null or crowd == null:
+		return
+	var days: Array[int] = []
+	for d in range(1, 50):
+		if FishingContest.is_contest_day(d):
+			days.append(d)
+	_check(days == [9, 17, 25, 34, 41, 49] and Carnival.is_carnival_day(33),
+			"a contest on day 9, then every 8 days; day 33's is moved off the carnival to 34 (%s)" % str(days))
+	var c := WorldLayout.TOWN_POND_CENTER
+	_check(Pond.is_fishable(Vector3(c.x, 0.0, c.y)) and Pond.is_fishable(Vector3(c.x - 5.0, 0.0, c.y))
+			and not Pond.is_fishable(Vector3(c.x, 0.0, c.y - 12.0)), "the town pond is deep enough to fish in, its bank is dry")
+	_check(venue.angler_spots.size() == 5 and venue.bench_seats.size() == 2 and venue.crowd_spots.size() >= 2,
+			"the venue has places for five anglers, two benches and the crowd")
+
+	# --- Nuri Hoca's letter: the morning before a contest only ---
+	FishingContest.letter_day = 0
+	var letters: Array[int] = []
+	var shown := false
+	for d: int in [7, 8, 9, 15, 16]:
+		GameClock.day = d
+		GameClock.minute = float(GameClock.DAY_START_MINUTE)
+		Events.day_started.emit(d)
+		if FishingContest.letter_pending:
+			letters.append(d)
+			FishingContest.open_letter()
+			await _idle_frames(2)
+			var screen: LetterScreen = Game.hud.letter_screen
+			var text := PackedStringArray()
+			for l in screen.find_children("*", "Label", true, false):
+				text.append((l as Label).text)
+			var all := " ".join(text)
+			shown = screen.visible and all.contains("09:00") and all.contains("17:00") and all.contains("$100")
+			screen.hide_screen()
+			await _idle_frames(1)
+	_check(letters == [8, 16], "the letter comes the morning before a contest (%s)" % str(letters))
+	_check(shown, "it tells the hours (09:00 to 17:00) and the $100 prize")
+
+	# --- Day 9: the town goes to the pond ---
+	var ids: Array[StringName] = [&"young", &"farmer", &"villager", &"sweeper", &"elder", &"teacher"]
+	var home := {}
+	var acts := {}
+	for id in ids:
+		var p := crowd.person(id)
+		home[id] = p.global_position
+		acts[id] = p.act
+	player.global_position = far
+	GameClock.day = 9
+	GameClock.minute = 8.0 * 60.0 + 50.0
+	Events.day_started.emit(9)
+	await _seconds(0.8)
+	_check(not FishingContest.is_on() and not crowd.is_gathered(), "before 09:00 nobody is at the pond")
+	GameClock.minute = 9.0 * 60.0 + 1.0
+	await _seconds(1.2)
+	var anglers_ok := true
+	for id: StringName in ContestCrowd.ANGLERS:
+		var p := crowd.person(id)
+		var d := Vector2(p.global_position.x, p.global_position.z).distance_to(c) if p else INF
+		if p == null or p.act != Townsperson.Act.FISH or d > WorldLayout.TOWN_POND_RADIUS + 3.0:
+			anglers_ok = false
+	_check(FishingContest.is_on() and crowd.is_gathered() and anglers_ok, "at 09:00 five anglers fish at the pond (on the pier and the shore)")
+	var seated_ok := true
+	for id: StringName in [&"elder", &"teacher"]:
+		var p := crowd.person(id)
+		if p.act != Townsperson.Act.BENCH or Vector2(p.global_position.x, p.global_position.z).distance_to(c) > WorldLayout.TOWN_POND_RADIUS + 6.0:
+			seated_ok = false
+	_check(seated_ok and crowd.people().size() == 9, "Osman Dede and Nuri Hoca watch from the benches, the visitors stand by (%d there)" % crowd.people().size())
+	_check(crowd.person(&"shopkeeper").act == Townsperson.Act.TILL, "Hasan stays at his till")
+	# The rivals land fish as the hours pass.
+	for i in 18:
+		GameClock.minute += 10.0
+		await _idle_frames(2)
+	_check(FishingContest.entries.size() >= 3, "the rivals' fish are weighed (%d on the board)" % FishingContest.entries.size())
+
+	# --- The player's fish: weighed at the town pond only ---
+	_check(not FishingContest.player_caught(&"fish_carp", 9.0, Vector3(-44.0, 0.0, 4.0)), "a fish from the farm pond doesn't count")
+	var bank: Vector3 = venue.crowd_spots[0]["pos"]
+	player.global_position = bank + Vector3(0.0, 0.4, 0.0)
+	await _seconds(0.8)
+	var card := Game.hud.find_child("ContestCard", true, false) as Control
+	_check(card != null and card.visible, "at the pond a small card shows the contest's board")
+	var counted := FishingContest.player_caught(&"fish_bream", 1.5, player.global_position)
+	FishingContest.player_caught(&"fish_roach", 0.4, player.global_position)
+	var best := float((FishingContest.entries.get("player", {}) as Dictionary).get("kg", 0.0))
+	_check(counted and is_equal_approx(best, 1.5), "his fish landed there is weighed, the biggest counts (%.2f kg)" % best)
+	_check(FishingContest.board_text().contains(tr("CONTEST_YOU")), "the board lists him")
+	if String(DebugTools.args.get("contest-shots", "")) != "":
+		await _contest_shots(String(DebugTools.args["contest-shots"]), venue, crowd)
+	# Saved and loaded in the middle of it: the board is kept.
+	var n := FishingContest.entries.size()
+	var saved := FishingContest.save_data()
+	FishingContest.entries.clear()
+	FishingContest.load_data(saved)
+	_check(FishingContest.entries.size() == n and is_equal_approx(float(FishingContest.entries["player"]["kg"]), 1.5),
+			"a save and load in the middle of it keeps the board")
+
+	# --- 17:00, a rival wins: the ceremony, no prize, everyone home again ---
+	for id: StringName in FishingContest.RIVALS:
+		FishingContest._next_catch[String(id)] = 99999.0
+	for k: String in FishingContest.entries.keys():
+		if k != "player":
+			FishingContest.entries[k]["kg"] = minf(float(FishingContest.entries[k]["kg"]), 1.0)
+	FishingContest.entries["young"] = {"kg": 3.2, "fish": "fish_carp"}
+	var money := Economy.money
+	var fish := PlayerState.inventory.count_item(FishingContest.PRIZE_FISH_ID)
+	var had_ach := Achievements.is_unlocked(FishingContest.ACHIEVEMENT)
+	player.global_position = bank + Vector3(0.0, 0.4, 0.0)
+	await _idle_frames(2)
+	GameClock.minute = 17.0 * 60.0 + 0.5
+	await _seconds(0.5)
+	var clapping := 0
+	for p: Townsperson in crowd.people():
+		if p.is_clapping():
+			clapping += 1
+	_check(clapping >= 7, "the horn: the crowd and the anglers applaud (%d clapping)" % clapping)
+	# Out of sight when they leave (they are put back at once, not walked).
+	player.global_position = far
+	await _contest_wait_finished()
+	_check(String(FishingContest.last_winner.get("id", "")) == "young" and Economy.money == money
+			and PlayerState.inventory.count_item(FishingContest.PRIZE_FISH_ID) == fish
+			and Achievements.is_unlocked(FishingContest.ACHIEVEMENT) == had_ach,
+			"Emre's 3.2 kg carp wins: no prize for the player")
+	await _seconds(1.0)
+	var back := true
+	for id in ids:
+		var p := crowd.person(id)
+		# (a walker is back on his round and already on his way again)
+		var slack := 3.0 if acts[id] == Townsperson.Act.WALK else 0.6
+		if p.global_position.distance_to(home[id]) > slack or p.act != acts[id]:
+			back = false
+	_check(back and not crowd.is_gathered() and town.get_node_or_null("TownPeople/Person_fisher") == null,
+			"then everyone goes back to what they were doing, the visitors leave")
+
+	# --- Day 17: the player wins ---
+	GameClock.day = 17
+	GameClock.minute = 8.0 * 60.0 + 59.0
+	Events.day_started.emit(17)
+	await _seconds(0.6)
+	GameClock.minute = 9.0 * 60.0 + 1.0
+	await _seconds(1.2)
+	_check(crowd.is_gathered() and not FishingContest.entries.has("player"), "the next contest starts with a fresh board")
+	for id: StringName in FishingContest.RIVALS:
+		FishingContest._next_catch[String(id)] = 99999.0
+		FishingContest.entries[String(id)] = {"kg": 0.8, "fish": "fish_perch"}
+	player.global_position = bank + Vector3(0.0, 0.4, 0.0)
+	await _idle_frames(2)
+	FishingContest.player_caught(&"fish_pike", 6.4, player.global_position)
+	money = Economy.money
+	fish = PlayerState.inventory.count_item(FishingContest.PRIZE_FISH_ID) + FarmState.warehouse.count(FishingContest.PRIZE_FISH_ID)
+	Achievements.unlocked.erase(FishingContest.ACHIEVEMENT)
+	Economy.ledger.clear()
+	GameClock.minute = 17.0 * 60.0 + 0.5
+	await _contest_wait_finished()
+	var got := PlayerState.inventory.count_item(FishingContest.PRIZE_FISH_ID) + FarmState.warehouse.count(FishingContest.PRIZE_FISH_ID) - fish
+	var prize_line := Economy.close_day()["lines"].get("REPORT_PRIZE", 0) as int
+	_check(String(FishingContest.last_winner.get("id", "")) == "player" and Economy.money == money + FishingContest.PRIZE_MONEY
+			and prize_line == FishingContest.PRIZE_MONEY, "his 6.4 kg pike wins: $100 prize money, in the report as a prize")
+	_check(got == FishingContest.PRIZE_FISH and Achievements.is_unlocked(FishingContest.ACHIEVEMENT),
+			"and 20 fish and the Best Angler achievement (%d fish)" % got)
+	await _seconds(0.6)
+	_check(Economy.money == money + FishingContest.PRIZE_MONEY, "the prize comes once")
+	_check(FishingContest.board_text().contains(tr("CONTEST_YOU")) and not FishingContest.is_on(), "the board names him the last winner")
+
+	player.global_position = far
+	await _seconds(1.0)
+	FishingContest.testing = false
+	FishingContest.ceremony_speed = 1.0
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	Economy.money = kept_money
+	await _seconds(0.6)
+
+
+func _contest_ready_player(player: Player) -> void:
+	for i in 8:
+		if not Game.hud.sleep_screen.is_busy():
+			break
+		Game.hud.sleep_screen.confirm()
+		await _frames(3)
+	for n in Game.hud.find_children("*", "ModalScreen", true, false):
+		if (n as ModalScreen).visible:
+			(n as ModalScreen).hide_screen()
+	if player.driving:
+		player.exit_vehicle()
+
+
+func _contest_wait_finished() -> void:
+	for i in 60:
+		if FishingContest.result_day == GameClock.day and not FishingContest.crowd_out():
+			return
+		await _seconds(0.25)
+
+
+## The venue with the anglers and the crowd (Emre holding up a fish), the board, and the
+## applause at the horn.
+func _contest_shots(dir: String, venue: ContestVenue, crowd: ContestCrowd) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	var player: Player = Game.player
+	var c := WorldLayout.TOWN_POND_CENTER
+	var eye := Vector3(c.x + 9.5, 0.0, c.y - 15.5)
+	eye.y = TerrainData.height(eye.x, eye.z) + 0.2
+	player.global_position = eye
+	var to := Vector3(c.x - 1.0, 0.0, c.y - 3.0) - eye
+	player.look_at_yaw_pitch(atan2(-to.x, -to.z), deg_to_rad(-9.0))
+	await _seconds(1.0)
+	FishingContest.rival_caught.emit(&"young", FishTable.catch_of(&"fish_carp", 0.7))
+	await _seconds(1.0)
+	await _shot(dir + "/contest_venue.png")
+	var board := venue.get_node("BoardText") as Label3D
+	var front := board.global_transform.basis.z
+	var at := board.global_position + front * 2.3
+	at.y = TerrainData.height(at.x, at.z) + 0.2
+	player.global_position = at
+	player.look_at_yaw_pitch(atan2(front.x, front.z), deg_to_rad(-6.0))
+	await _shot(dir + "/contest_board.png")
+	player.global_position = eye
+	player.look_at_yaw_pitch(atan2(-to.x, -to.z), deg_to_rad(-9.0))
+	await _seconds(0.5)
+	var speed := FishingContest.ceremony_speed
+	var minute := GameClock.minute
+	var saved := FishingContest.save_data()
+	FishingContest.ceremony_speed = 1.0
+	FishingContest._start_ceremony()
+	await _seconds(0.3)
+	await _shot(dir + "/contest_applause.png")
+	# Back as it was: the contest still on, the crowd back at its places.
+	FishingContest._ceremony_t = -1.0
+	FishingContest.load_data(saved)
+	FishingContest.ceremony_speed = speed
+	GameClock.minute = minute
+	player.global_position = Vector3(-14.0, 0.2, -9.0)
+	for p: Townsperson in crowd.people():
+		p.clap(0.0)
+		if p.act == Townsperson.Act.CLAP:
+			p.act = Townsperson.Act.STAND
+	await _seconds(0.6)
+
+
+
+# --- Grills ------------------------------------------------------------------------------
+
+## The charcoal grills (Grill): both sold at the town market, put down outdoors, lit with
+## E, six and twelve places on the grate (the next fish refused when full), a giant fish
+## taking two places side by side (and refused by the campfire, with a message), saved
+## and loaded, the 10-second cook into the bag, the grilled giant eaten (it fills more
+## than a whole grilled fish), doused (the grill stays) and picked up again cold.
+## With -- --grill-shots=/abs/dir it also saves screenshots there.
+func _grill() -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	GameClock.set_time_of_day(19.6)
+
+	# 1. The town market sells both grills; buying them.
+	var stock: Array = ShopStock.town_market()["stock"]
+	_check(&"grill" in stock and &"big_grill" in stock and Economy.buy_price(&"grill") == 60
+			and Economy.buy_price(&"big_grill") == 140, "grill: the town market sells a mangal ($60) and a big grill ($140)")
+	Economy.money = 400
+	Game.hud.open_shop(ShopStock.town_market())
+	await _frames(3)
+	var shop: ShopScreen = Game.hud.shop_screen
+	shop._set_tab("buy")
+	for id: StringName in [&"grill", &"big_grill"]:
+		shop._sel = {"id": id, "quality": 0}
+		shop._qty = 1
+		shop._confirm()
+	shop.close_screen()
+	await _frames(3)
+	_check(inv.count_item(&"grill") == 1 and inv.count_item(&"big_grill") == 1 and Economy.money == 200,
+			"grill: both bought into the bag ($%d left of $400)" % Economy.money)
+
+	# 2. Put down outdoors with the placer.
+	var grill := await _grill_place(player, &"grill", [Vector2(20, -8), Vector2(24, -12), Vector2(18, -14), Vector2(26, -6)])
+	var big := await _grill_place(player, &"big_grill", [Vector2(23, -8), Vector2(17, -8), Vector2(20, -11), Vector2(27, -12)])
+	_check(grill != null and big != null and grill.state == "laid" and big.state == "laid",
+			"grill: both put down outdoors, laid with charcoal (%s)" % player.placer.reason)
+	if grill == null or big == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	_check(grill._slot_count() == 6 and big._slot_count() == 12 and grill.is_in_group(&"campfires"),
+			"grill: six places on the mangal, twelve on the big grill")
+
+	# 3. E lights it.
+	_free_hands()
+	var front := grill.global_position + grill.global_basis.z * 1.5 + Vector3(0, 0.2, 0)
+	player.global_position = front
+	await _frames(4)
+	_look_at(player, grill.global_position + Vector3(0, 0.72, 0))
+	await _frames(6)
+	_check(player.target == grill and _last_prompt.contains(tr("ACTION_LIGHT")), "grill: E lights it ('%s')" % _last_prompt)
+	await _press_key(KEY_E)
+	await _frames(3)
+	big.light()
+	_check(grill.state == "lit" and big.state == "lit" and is_equal_approx(grill.burn_left, Campfire.BURN_MINUTES),
+			"grill: lit, the charcoal burns 5 hours like a campfire")
+
+	# 4. Six fish on the mangal by E; the seventh finds no room.
+	inv.set_stack(6, ItemStack.create(&"fish_perch", 20))
+	PlayerState.select(6)
+	await _frames(4)
+	_check(_last_prompt.contains(tr("ACTION_COOK")), "grill: with a raw fish in hand it offers to cook ('%s')" % _last_prompt)
+	for i in 7:
+		await _press_key(KEY_E)
+		await _frames(2)
+	_check(grill.cook_status().size() == 6 and inv.count_item(&"fish_perch") == 14 and tr("MSG_CAMPFIRE_FULL") in notes,
+			"grill: six fish on the grate, the seventh refused (%d cooking)" % grill.cook_status().size())
+
+	# 5. A giant fish: refused by a campfire, two places side by side on the grill.
+	inv.set_stack(5, ItemStack.create(&"fish_carp_trophy", 2))
+	PlayerState.select(5)
+	var fe := FarmState.add_placed(&"campfire", big.global_position + Vector3(0, 0, 4.0), 0.0)
+	fe["state"] = "lit"
+	fe["burn_left"] = 240.0
+	var fire := Game.world.farm.spawn_placed(fe) as Campfire
+	await _frames(3)
+	notes.clear()
+	fire.interact(player)
+	_check(fire.cook_status().is_empty() and inv.count_item(&"fish_carp_trophy") == 2 and tr("MSG_CAMPFIRE_TOO_BIG") in notes
+			and fire.hint_prompt().contains(tr("MSG_CAMPFIRE_TOO_BIG")),
+			"grill: the campfire refuses a giant fish ('%s')" % ", ".join(notes))
+	FarmState.remove_placed(fe)
+	fire.queue_free()
+	big.interact(player)
+	_check(big.cook_status().size() == 1 and int(big._spits[0].get("span", 1)) == 2 and big._spits[1].has("link")
+			and inv.count_item(&"fish_carp_trophy") == 1, "grill: the giant takes two places side by side on the big grill")
+	_check(not big._span_fits(5, 2) and big._span_fits(6, 2) and not grill._span_fits(2, 2),
+			"grill: a giant never straddles the end of a row")
+	# Saved with it, and back on the grate on loading.
+	var spits: Array = big.entry["spits"]
+	var copy := PlacedObject.create(big.entry.duplicate(true)) as Grill
+	Game.world.farm.get_node("Placed").add_child(copy)
+	await _frames(2)
+	_check(spits.size() == 1 and String(spits[0][1]) == "fish_carp_trophy" and copy._spits[1].has("link")
+			and copy.cook_status().size() == 1, "grill: the giant is saved on the grate and loads back over two places")
+	copy.queue_free()
+	# Nine more fish leave one place: a giant doesn't fit, a fish would.
+	PlayerState.select(6)
+	for i in 9:
+		big.interact(player)
+	notes.clear()
+	PlayerState.select(5)
+	big.interact(player)
+	_check(big.cook_status().size() == 10 and inv.count_item(&"fish_carp_trophy") == 1 and big._free_spit(1) >= 0
+			and tr("MSG_CAMPFIRE_FULL") in notes, "grill: with one place left a second giant finds no room")
+
+	# 6. The cook timer, the look, and everything into the bag.
+	await _seconds(2.0)
+	var left := float(grill._spits[0]["left"])
+	_check(left > 6.5 and left < 8.5, "grill: still cooking two seconds in (%.1f s left)" % left)
+	await _grill_shots(player, grill, big)
+	await _seconds(float(big._spits[0]["left"]) + 1.5)
+	_check(grill.cook_status().is_empty() and big.cook_status().is_empty() and inv.count_item(&"fish_perch_cooked") == 15
+			and inv.count_item(&"fish_carp_trophy_cooked") == 1, "grill: after 10 s every fish is grilled and in the bag")
+
+	# 7. The grilled giant fills far more than a whole grilled fish.
+	var giant := Eating.food_value(&"fish_carp_trophy_cooked")
+	_check(giant > Eating.food_value(&"fish_carp_cooked") * 2 and giant > Eating.food_value(&"fish_perch_cooked"),
+			"grill: a grilled giant carp fills %d (a whole grilled carp %d)" % [giant, Eating.food_value(&"fish_carp_cooked")])
+	PlayerState.needs.hunger = 5.0
+	_select(&"fish_carp_trophy_cooked")
+	await _frames(2)
+	var ate := Eating.try_eat(player)
+	await _seconds(Eating.TIME + 0.5)
+	_check(ate and inv.count_item(&"fish_carp_trophy_cooked") == 0 and PlayerState.needs.hunger > 5.0 + giant - 3.0,
+			"grill: eaten, it fills the farmer up (hunger %.0f)" % PlayerState.needs.hunger)
+
+	# 8. Doused, the grill stays (cold); F picks it up again.
+	grill.douse()
+	await _seconds(1.0)
+	_check(is_instance_valid(grill) and grill.state == "ash" and FarmState.placed.has(grill.entry) and not grill.is_burning(),
+			"grill: doused, the coals go out and the grill stays")
+	_check(grill.can_pick_up() and not big.can_pick_up(), "grill: cold and empty it can be picked up; a burning one can't")
+	var ge := grill.entry
+	grill.info_interact(player)
+	await _frames(2)
+	_check(inv.count_item(&"grill") == 1 and not FarmState.placed.has(ge) and not is_instance_valid(grill),
+			"grill: F puts the cold grill back in the bag")
+	Events.notification_requested.disconnect(on_note)
+
+
+## Selects `id` and walks the candidate spots until the placer shows a valid preview, then
+## puts it down: the new grill (null when no spot took it).
+func _grill_place(player: Player, id: StringName, spots: Array) -> Grill:
+	_select(id)
+	for c: Vector2 in spots:
+		player.global_position = Vector3(c.x, TerrainData.height(c.x, c.y + 2.6) + 0.3, c.y + 2.6)
+		player.look_at_yaw_pitch(0.0, deg_to_rad(-40.0))
+		await _frames(8)
+		if player.placer.active and player.placer.valid:
+			if not player.placer.place():
+				return null
+			await _frames(3)
+			var found: Grill = null
+			for n in tree.get_nodes_in_group(&"campfires"):
+				if n is Grill and (n as Grill).item_id == id:
+					found = n
+			return found
+	return null
+
+
+## Both grills lit at dusk with food on them, the giant on the big one (only with
+## -- --grill-shots=/abs/dir).
+func _grill_shots(player: Player, grill: Grill, big: Grill) -> void:
+	if not DebugTools.args.has("grill-shots"):
+		return
+	var dir := String(DebugTools.args["grill-shots"])
+	DirAccess.make_dir_recursive_absolute(dir)
+	var hud_was := Game.hud.visible
+	Game.hud.visible = false
+	var held := PlayerState.selected
+	for i in PlayerState.HOTBAR_SIZE:
+		if PlayerState.inventory.get_stack(i) == null:
+			PlayerState.select(i)
+			break
+	var mid := (grill.global_position + big.global_position) * 0.5
+	var away := (grill.global_basis.z + big.global_basis.z).normalized()
+	var views := [
+		["grills_dusk", mid + away * 2.6, mid + Vector3(0, 0.75, 0)],
+		["big_grill_giant", big.global_position + big.global_basis.z * 1.1, big.global_position + Vector3(0, 0.85, 0)],
+		["mangal_close", grill.global_position + grill.global_basis.z * 0.9 + grill.global_basis.x * 0.3, grill.global_position + Vector3(0, 0.74, 0)],
+	]
+	for v: Array in views:
+		var at: Vector3 = v[1]
+		player.global_position = Vector3(at.x, TerrainData.height(at.x, at.z) + 0.05, at.z)
+		await _frames(3)
+		_look_at(player, v[2])
+		await _seconds(0.5)
+		await _idle_frames(4)
+		player.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, v[0]])
+	Game.hud.visible = hud_was
+	PlayerState.select(held)
+
+
+
+# --- The farmer's own dog (Pet, PetDog) -----------------------------------------------------------
+
+## Karamel's pup given to the farmer (Pet.adopt): named in the prompt, beside him at a
+## pup's size and proportions; following him; the whistle (now and then unheeded by the
+## pup, seeded; hardly ever grown); "sit" learnt after a few practices (command + pat),
+## not by pats alone nor late ones; the market's ball thrown, played with by the young
+## pup, brought back to his feet once old enough and taught; growing by the day; its bed
+## at night (and on watch grown); a grown dog on guard halving a raid's losses in a seeded
+## sleep simulation; saved and loaded. -- --pet-shots=<dir> also saves screenshots.
+func _scenario_pet() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("pet-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(10.0)
+	Pet.load_data({})
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var spot := _on_ground(Vector2(-9.0, -3.0))
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	player.look_at_yaw_pitch(PI, -0.25)
+	await _frames(5)
+
+	# --- Given, and named ---
+	_check(not Pet.has_dog() and ResourceLoader.exists("res://art/audio/sfx/player/whistle_1.wav"), "no dog yet; the whistle's sound is there")
+	Pet.adopt()
+	await _idle_frames(3)
+	var screen := Pet._naming
+	_check(screen != null and screen.visible and Game.top_ui() == &"pet_name" and screen.edit.text == tr("PET_DEFAULT_NAME"),
+			"adopt(): a prompt to name the pup, '%s' in it" % tr("PET_DEFAULT_NAME"))
+	screen.edit.text = "  Pamuk "
+	screen.confirm()
+	await _idle_frames(3)
+	var dog := Pet.dog
+	_check(Pet.has_dog() and Pet.dog_name == "Pamuk" and not Game.is_ui_open() and dog != null and is_instance_valid(dog),
+			"named Pamuk; the prompt is closed and the pup is out")
+	_check(notes.has(tr("MSG_PET_ADOPTED") % "Pamuk"), "a note says it is his now")
+	if dog == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	await _seconds(0.5)
+	_check(_pet_flat(dog.global_position, player.global_position) < 3.0, "it stands beside him (%.1f m)" % _pet_flat(dog.global_position, player.global_position))
+	_check(absf(dog.size - Pet.PUPPY_SIZE) < 0.01 and absf(dog.rig.scale.x - Pet.PUPPY_SIZE) < 0.01 and dog.rig.head_scale > 1.25
+			and dog.rig.paw_scale > 1.25 and absf(dog.gait_scale - dog.size) < 0.001,
+			"a pup: %.2f of Karamel's size, head x%.2f and paws x%.2f bigger" % [dog.size, dog.rig.head_scale, dog.rig.paw_scale])
+	_check(not dog.is_in_group(Dog.GROUP) and dog.is_in_group(PetDog.PET_GROUP), "not counted among the town's dogs (Karamel)")
+	var bed := Game.world.get_node_or_null("PetBed") as Node3D
+	var clear := false
+	if bed:
+		var box := BoxShape3D.new()
+		box.size = Vector3(1.2, 0.5, 1.2)
+		var q := PhysicsShapeQueryParameters3D.new()
+		q.shape = box
+		q.collision_mask = 1 | 4
+		q.transform = Transform3D(Basis(), bed.global_position + Vector3(0, 0.45, 0))
+		clear = player.get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
+	_check(bed != null and _pet_flat(bed.global_position, Pet.bed_point()) < 0.01 and not WolfRaids.in_house(bed.global_position)
+			and clear and _pet_flat(bed.global_position, Vector3(WorldLayout.HOUSE_DOOR_X, 0, WorldLayout.HOUSE_FRONT_Z)) < 9.0,
+			"its bed stands by the farmhouse, outside, clear of everything (%s)" % str(bed.global_position if bed else Vector3.INF))
+	if shots != "":
+		await _pet_settle(dog, player)
+		dog._warp(_on_ground(Vector2(player.global_position.x + 0.5, player.global_position.z + 1.3)))
+		dog.look_toward(player.global_position)
+		_look_at(player, dog.global_position + Vector3(0, 0.6, 0))
+		await _shot(shots + "/pet_puppy.png")
+
+	# --- Following ---
+	var away := _on_ground(Vector2(-9.0, 9.0))
+	player.global_position = away + Vector3(0, 0.1, 0)
+	await _frames(3)
+	Engine.time_scale = 3.0
+	var t0 := Time.get_ticks_msec()
+	for i in 200:
+		await _seconds(0.1)
+		if _pet_flat(dog.global_position, player.global_position) < PetDog.FOLLOW_FAR:
+			break
+	var follow_d := _pet_flat(dog.global_position, player.global_position)
+	_check(follow_d < PetDog.FOLLOW_FAR and dog.task == &"follow", "he walked 12 m off: it came after him (%.1f m off, %.1f s)" % [follow_d, (Time.get_ticks_msec() - t0) * 0.003])
+	await _seconds(1.5)
+	var settled_d := _pet_flat(dog.global_position, player.global_position)
+	_check(settled_d > 1.0, "but not underfoot (%.1f m)" % settled_d)
+	Engine.time_scale = 1.0
+
+	# --- The whistle: the pup sometimes doesn't listen; grown, nearly always ---
+	Pet._rng.seed = 4242
+	var heeded := 0
+	for i in 60:
+		if Pet.whistle():
+			heeded += 1
+	_check(heeded >= 25 and heeded <= 50, "a young pup heeds %d of 60 whistles (%.0f%% unheeded expected)" % [heeded, Pet.distract_chance() * 100.0])
+	dog._warp(_on_ground(Vector2(-9.0, 1.0)))
+	dog._set_task(&"follow")
+	player.look_at_yaw_pitch(PI, -0.25)
+	await _frames(3)
+	var came0 := dog.came
+	var called := false
+	for i in 10:
+		if Pet.whistle():
+			called = true
+			break
+	_check(called and dog.task == &"come", "whistled: it comes")
+	Engine.time_scale = 3.0
+	for i in 150:
+		await _seconds(0.1)
+		if dog.came > came0:
+			break
+	Engine.time_scale = 1.0
+	var come_d := _pet_flat(dog.global_position, player.global_position)
+	_check(dog.came > came0 and come_d < PetDog.COME_GAP + 0.6, "it ran up to him (%.1f m off)" % come_d)
+
+	# --- Sit: learnt by practice (the command and a pat right after) ---
+	await _pet_settle(dog, player)
+	var aff0 := Pet.affection
+	Pet.pat()
+	_check(Pet.affection > aff0 and int(Pet.practice[&"sit"]) == 0, "a pat alone: fonder of him, no practice")
+	await _seconds(2.1)
+	Pet.command_sit()
+	await _idle_frames(2)
+	_check(dog.task != &"sit" and dog._look_up > 0.0, "'sit' not yet learnt: it only looks up at him")
+	Pet._window[&"sit"] = 0.01
+	await _idle_frames(3)
+	Pet.pat()
+	_check(int(Pet.practice[&"sit"]) == 0, "a pat too long after the command is no practice")
+	var practices := 0
+	for i in 8:
+		await _seconds(2.1)
+		Pet.command_sit()
+		await _idle_frames(2)
+		notes.clear()
+		Pet.pat()
+		practices += 1
+		if Pet.knows(&"sit"):
+			break
+		var n := int(Pet.practice[&"sit"])
+		_check(notes.has(tr("MSG_PET_LEARN_SIT") % ["Pamuk", n, Pet.need(&"sit")]), "practice %d: '%s'" % [n, tr("MSG_PET_LEARN_SIT") % ["Pamuk", n, Pet.need(&"sit")]])
+	_check(Pet.knows(&"sit") and practices >= 3 and practices <= 5 and notes.has(tr("MSG_PET_LEARNED_SIT") % "Pamuk"),
+			"learnt to sit after %d practices" % practices)
+	await _seconds(PetDog.PET_HOLD + 0.5)
+	# The real keys: looking at it, F tells it to sit, E pets it.
+	await _pet_settle(dog, player)
+	_look_at(player, dog.pet_point())
+	await _frames(4)
+	await _idle_frames(4)
+	_check(player.target == dog and _last_prompt.contains(tr("ACTION_DOG_SIT")) and _last_prompt.contains(tr("ACTION_PET")),
+			"looking at it: E (%s) and F (%s)" % [tr("ACTION_PET"), tr("ACTION_DOG_SIT")])
+	await _press_key(KEY_F)
+	await _seconds(1.6)
+	_check(dog.task == &"sit" and dog.rig.sit_amount() > 0.8, "F: it sits (%.2f)" % dog.rig.sit_amount())
+	var aff1 := Pet.affection
+	await _press_key(KEY_E)
+	await _idle_frames(2)
+	_check(dog.task == &"petted" and Pet.affection > aff1, "E: it is petted")
+
+	# --- The ball: bought at the market, thrown; the young pup plays with it ---
+	var market: Dictionary = ShopStock.town_market()
+	_check((market["stock"] as Array).has(Pet.BALL) and ItemDB.get_item(Pet.BALL).buy_price > 0,
+			"the town market sells a ball ($%d)" % ItemDB.get_item(Pet.BALL).buy_price)
+	await _seconds(PetDog.PET_HOLD + 0.5)
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	await _pet_settle(dog, player)
+	PlayerState.inventory.add_item(Pet.BALL, 1)
+	_select(Pet.BALL)
+	player.look_at_yaw_pitch(PI, 0.05)
+	await _frames(3)
+	await _press_mouse_use()
+	await _seconds(0.6)
+	var thrown := _pet_balls()
+	_check(not PlayerState.inventory.has_item(Pet.BALL) and thrown.size() == 1 and dog.task == &"fetch", "LMB: the ball is thrown and it runs after it")
+	Engine.time_scale = 3.0
+	var pickups := 0
+	var was_holding := false
+	for i in 400:
+		await _seconds(0.1)
+		if dog.holding_ball and not was_holding:
+			pickups += 1
+		was_holding = dog.holding_ball
+		if pickups > 0 and dog.task == &"follow":
+			break
+	Engine.time_scale = 1.0
+	var lying := _pet_balls()
+	_check(pickups >= 2 and dog.played == 1 and dog.fetched == 0 and not Pet.knows(&"fetch") and lying.size() == 1 and dog.task == &"follow"
+			and not PlayerState.inventory.has_item(Pet.BALL),
+			"the young pup ran to it, played with it (picked up %d times) and left it lying" % pickups)
+	# A pat soon after it had the ball: a practice (taught enough now, but too young yet).
+	Pet.practice[&"fetch"] = Pet.need(&"fetch") - 1
+	notes.clear()
+	Pet.pat()
+	_check(int(Pet.practice[&"fetch"]) >= Pet.need(&"fetch") and not Pet.knows(&"fetch") and notes.has(tr("MSG_PET_FETCH_YOUNG") % "Pamuk"),
+			"taught enough but too young: '%s'" % (tr("MSG_PET_FETCH_YOUNG") % "Pamuk"))
+	for b in lying:
+		b.queue_free()
+	await _frames(2)
+
+	# --- A few days older: it brings it back ---
+	Pet.adopted_at -= 3.0 * GameClock.MINUTES_PER_DAY
+	dog.grow()
+	await _pet_settle(dog, player)
+	PlayerState.inventory.add_item(Pet.BALL, 1)
+	_select(Pet.BALL)
+	player.look_at_yaw_pitch(PI, 0.05)
+	await _frames(3)
+	notes.clear()
+	await _press_mouse_use()
+	await _seconds(0.6)
+	_check(dog.task == &"fetch", "three days older: after the ball again")
+	Engine.time_scale = 2.0
+	var shot_taken := false
+	for i in 400:
+		await _seconds(0.1)
+		if shots != "" and not shot_taken and dog.task == &"carry" and _pet_flat(dog.global_position, player.global_position) < 4.5:
+			shot_taken = true
+			Engine.time_scale = 1.0
+			_look_at(player, dog.global_position + Vector3(0, 0.2, 0))
+			await _shot(shots + "/pet_fetch.png")
+			Engine.time_scale = 2.0
+		if dog.fetched > 0 and PlayerState.inventory.has_item(Pet.BALL):
+			break
+	Engine.time_scale = 1.0
+	_check(Pet.knows(&"fetch") and notes.has(tr("MSG_PET_LEARNED_FETCH") % "Pamuk"), "it has learnt to bring the ball back")
+	_check(dog.fetched == 1 and PlayerState.inventory.has_item(Pet.BALL),
+			"it brought it back and dropped it at his feet: the ball is in his bag again")
+
+	# --- Growing by the day ---
+	var sizes: Array[float] = []
+	for days: float in [0.0, 2.0, 4.0, 8.0, 12.0]:
+		Pet.adopted_at = GameClock.total_minutes - days * GameClock.MINUTES_PER_DAY
+		sizes.append(Pet.size())
+	_check(sizes[0] < sizes[1] and sizes[1] < sizes[2] and sizes[2] < sizes[3] and is_equal_approx(sizes[3], 1.0) and is_equal_approx(sizes[4], 1.0),
+			"it grows day by day to Karamel's size at %d days (%s)" % [int(Pet.GROW_DAYS), ", ".join(sizes.map(func(v: float) -> String: return "%.2f" % v))])
+	Pet.adopted_at = GameClock.total_minutes - 1.5 * GameClock.MINUTES_PER_DAY
+	var mid := Pet.size()
+	Pet.adopted_at = GameClock.total_minutes - 1.6 * GameClock.MINUTES_PER_DAY
+	_check(Pet.size() - mid > 0.0 and Pet.size() - mid < 0.02, "smoothly, not in jumps")
+	Pet.adopted_at = GameClock.total_minutes - 9.0 * GameClock.MINUTES_PER_DAY
+	dog._grow_t = 0.0
+	await _seconds(0.4)
+	_check(absf(dog.size - 1.0) < 0.001 and is_equal_approx(dog.rig.head_scale, 1.0) and Pet.guards(), "grown: Karamel's size and build; it keeps watch now")
+	Pet._rng.seed = 99
+	var heeded_grown := 0
+	for i in 60:
+		if Pet.whistle():
+			heeded_grown += 1
+	_check(heeded_grown >= 55, "grown, it heeds %d of 60 whistles" % heeded_grown)
+	dog._set_task(&"follow")
+	await _pet_settle(dog, player)
+	if shots != "":
+		_look_at(player, dog.global_position + Vector3(0, 0.35, 0))
+		await _shot(shots + "/pet_grown.png")
+
+	# --- Night: on its bed (a pup), on watch (grown); morning: back with him ---
+	Pet.adopted_at = GameClock.total_minutes - 1.0 * GameClock.MINUTES_PER_DAY
+	dog.grow()
+	GameClock.set_time_of_day(22.5)
+	await _seconds(0.4)
+	_check(dog.task == &"bed", "a pup at night: off to its bed")
+	Engine.time_scale = 4.0
+	for i in 300:
+		await _seconds(0.1)
+		if dog._settled:
+			break
+	Engine.time_scale = 1.0
+	await _seconds(3.0)
+	_check(dog._settled and _pet_flat(dog.global_position, Pet.bed_point()) < 0.6 and dog.rig.lie_amount() > 0.8,
+			"lying on its bed (%.2f m from it, lying %.2f)" % [_pet_flat(dog.global_position, Pet.bed_point()), dog.rig.lie_amount()])
+	if shots != "":
+		_look_at(player, dog.global_position)
+		player.global_position = Pet.bed_point() + Vector3(1.6, 0.1, 2.2)
+		_look_at(player, dog.global_position + Vector3(0, 0.1, 0))
+		await _shot(shots + "/pet_bed_night.png")
+	Pet.adopted_at = GameClock.total_minutes - 7.0 * GameClock.MINUTES_PER_DAY
+	dog.grow()
+	await _seconds(0.4)
+	_check(dog.task == &"guard" and dog._post.is_finite(), "grown, at night it goes to keep watch by the animals")
+	GameClock.set_time_of_day(9.0)
+	await _seconds(0.4)
+	_check(dog.task == &"follow", "morning: with him again")
+	# Away (driving, off the farm): at home; back: it greets him.
+	player.global_position = _on_ground(Vector2(150.0, 20.0)) + Vector3(0, 0.3, 0)
+	await _seconds(0.4)
+	_check(dog.task == &"home", "he is off the farm: it stays home")
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	dog._warp(_on_ground(Vector2(-8.0, -12.0)))
+	await _seconds(0.4)
+	_check(dog.task == &"come", "he is back: it runs to greet him")
+
+	# --- On guard: a raid's losses in the seeded sleep simulation ---
+	await _pet_guard_sim()
+
+	# --- Saved and loaded ---
+	Pet.affection = 63.0
+	var kept := Pet.save_data()
+	var slot := "slot_3"
+	_check(SaveGame.save(slot), "saved with the dog")
+	Pet.load_data({})
+	_check(not Pet.has_dog(), "(forgotten)")
+	_check(SaveGame.load_game(slot), "loading started")
+	await _until_loaded()
+	await _seconds(1.0)
+	_check(Pet.has_dog() and Pet.dog_name == "Pamuk" and is_equal_approx(Pet.affection, 63.0) and Pet.knows(&"sit") and Pet.knows(&"fetch")
+			and is_equal_approx(Pet.adopted_at, float(kept["at"])) and int(Pet.practice[&"sit"]) == int(kept["practice"]["sit"]),
+			"loaded: its name, age, affection, what it has learnt")
+	_check(Pet.dog != null and is_instance_valid(Pet.dog) and absf(Pet.dog.size - Pet.size()) < 0.001, "and it is back on the farm at its size")
+	SaveGame.delete(slot)
+	Events.notification_requested.disconnect(on_note)
+	Weather.forced = -1
+
+
+## The dog's balls lying about (Pickups of Pet.BALL).
+func _pet_balls() -> Array[Pickup]:
+	var out: Array[Pickup] = []
+	for p in tree.get_nodes_in_group(&"pickups"):
+		var pk := p as Pickup
+		if pk and pk.stack and pk.stack.item.id == Pet.BALL and not pk.is_queued_for_deletion():
+			out.append(pk)
+	return out
+
+
+## The dog beside the farmer, standing at ease (following).
+func _pet_settle(dog: PetDog, player: Player) -> void:
+	var p := player.global_position
+	dog._warp(_on_ground(Vector2(p.x + 1.4, p.z - 0.6)))
+	dog._set_task(&"follow")
+	dog.look_toward(p)
+	await _seconds(0.5)
+
+
+static func _pet_flat(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+## A raid night slept through, the same seeds with a pup (no watch) and with the grown dog
+## on guard: hens out in an open coop each night.
+func _pet_guard_sim() -> void:
+	var kept_raids := Settings.wolf_raids
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	WolfRaids.testing = true
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null, "a coop of hens for the raid")
+	if coop == null:
+		return
+	var h := coop.housing
+	var losses := {false: 0, true: 0}
+	var report_line := tr("REPORT_PET_GUARDED") % Pet.dog_name
+	var reported := false
+	for grown: bool in [false, true]:
+		Pet.adopted_at = GameClock.total_minutes - (7.0 if grown else 1.0) * GameClock.MINUTES_PER_DAY
+		for trial in 16:
+			while h.animals.size() < 4:
+				Animals.release(&"chicken", h)
+			for a in Animals.animals:
+				a.injured_at = -1.0
+			h.door.set_open(true)
+			WolfRaids.load_data({"lesson": true, "last": -100, "seed": 500 + trial})
+			WolfRaids._set_tonight(false)
+			WolfRaids.tonight["noted"] = true
+			WolfRaids.tonight["phase"] = "asleep"
+			WolfRaids.resolve_night()
+			losses[grown] = int(losses[grown]) + int(WolfRaids.tonight["killed"]) + int(WolfRaids.tonight["hurt"])
+			if grown and Array(WolfRaids.take_report()).has(report_line):
+				reported = true
+			await _frames(2)
+	_check(int(losses[false]) == 32, "with the pup asleep on its bed: %d losses in 16 nights" % int(losses[false]))
+	_check(int(losses[true]) <= 20 and int(losses[true]) < int(losses[false]), "with the grown dog on guard: %d losses (same seeds)" % int(losses[true]))
+	_check(reported, "the morning report: '%s'" % report_line)
+	WolfRaids.load_data({})
+	WolfRaids.testing = false
+	Settings.wolf_raids = kept_raids
+	for a in Animals.animals:
+		a.injured_at = -1.0
+
+
+
+# --- Round 13 fixes ------------------------------------------------------------------
+
+## A milked cow shows no "no milk till morning" line (pulling the pail on her again says
+## it, as a toast); a big feed sack or hay bale fills its feeder to the brim in one go and
+## is used up doing it; their prices and where they are sold.
+func _scenario_fixes13() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var farm: Farm = Game.world.farm
+	var inv := PlayerState.inventory
+	GameClock.set_time_of_day(9.0)
+	Weather.force(Weather.Kind.SUNNY)
+	if farm.barn.level == 0:
+		FarmState.built[&"barn_1"] = true
+		FarmState.project_built.emit(&"barn_1")
+	farm.barn.set_level(1)
+	await _frames(5)
+	await _fixes13_milk(player, inv, farm)
+	await _fixes13_big_feed(player, inv, farm)
+	_fixes13_shop()
+
+
+func _fixes13_milk(player: Player, inv: Inventory, farm: Farm) -> void:
+	var cow := Animals._add(&"cow", true, "", farm.barn)
+	await _frames(10)
+	var cow_node := Animals.node_of(cow)
+	cow.product_ready = true
+	cow.fullness = 90.0
+	cow.hydration = 90.0
+	inv.add_item(&"milk_pail", 1)
+	_select(&"milk_pail")
+	cow_node._attention = 60.0
+	await _frames(3)
+	player.global_position = cow_node.global_position + Vector3(1.9, 0.1, 0)
+	_look_at(player, cow_node.global_position + Vector3(0, 0.9, 0))
+	await _seconds(0.3)
+	_check(player.target == cow_node, "aiming at the cow with the pail")
+	_check(_last_prompt.contains(tr("ACTION_MILK")) and not _last_prompt.contains(tr("HINT_MILK_TOMORROW")),
+			"a cow with milk: the prompt offers milking ('%s')" % _last_prompt.replace("\n", " | "))
+	var milk := inv.count_item(&"milk")
+	await _hold_use(2.6)
+	_check(inv.count_item(&"milk") == milk + 1 and not cow.product_ready, "milking gives milk")
+	cow_node._attention = 60.0
+	await _seconds(0.3)
+	_check(player.target == cow_node and not _last_prompt.contains(tr("HINT_MILK_TOMORROW")) and not _last_prompt.contains(tr("ACTION_MILK")),
+			"just milked: no 'no milk yet' line and no milking verb ('%s')" % _last_prompt.replace("\n", " | "))
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	await _hold_use(0.5)
+	Events.notification_requested.disconnect(on_note)
+	_check(notes.has(tr("HINT_MILK_TOMORROW")) and inv.count_item(&"milk") == milk + 1 and player.action_clock() < 0.0,
+			"pulling the pail on her again says there's no milk till morning (%s)" % [notes])
+	# A calf still says it's too young (the line, as before).
+	cow.adult = false
+	await _seconds(0.3)
+	_check(_last_prompt.contains(tr("HINT_ANIMAL_TOO_YOUNG")), "a calf with the pail in view: too young")
+	cow.adult = true
+
+
+func _fixes13_big_feed(player: Player, inv: Inventory, farm: Farm) -> void:
+	var coop_feed: Trough = farm.coop.feed if farm.coop and farm.coop.level > 0 else null
+	var spare: Trough = null
+	if coop_feed == null:
+		# No coop up in this game: a coop feeder of its own, out of the way.
+		spare = Trough.new()
+		spare.long = false
+		spare.accepts = [&"feed", &"wheat"]
+		Game.world.add_child(spare)
+		spare.global_position = Vector3(0, -50, 0)
+		coop_feed = spare
+	var trough: Trough = farm.barn.feed
+	_check(trough != null and trough.takes(&"hay_big") and trough.takes(&"hay") and not trough.takes(&"feed_big"),
+			"the barn trough takes hay and the big bale, not the big feed sack")
+	if coop_feed:
+		_check(coop_feed.takes(&"feed_big") and not coop_feed.takes(&"hay_big"), "the coop feeder takes the big feed sack, not the bale")
+	# The barn trough by hand: one big bale tips it full.
+	trough.set_amount(1.0)
+	inv.add_item(&"hay_big", 2)
+	_select(&"hay_big")
+	var at := trough.global_position + Vector3(0, 0, 1.4)
+	player.global_position = Vector3(at.x, TerrainData.height(at.x, at.z) + 0.3, at.z)
+	_look_at(player, trough.global_position + Vector3(0, 0.35, 0))
+	await _seconds(0.3)
+	_check(player.target == trough and _last_prompt.contains(tr("ACTION_FILL_TROUGH")),
+			"aiming at the barn trough with a big bale: fill ('%s')" % _last_prompt.replace("\n", " | "))
+	await _hold_use(2.0)
+	_check(is_equal_approx(trough.amount, float(trough.capacity)) and inv.count_item(&"hay_big") == 1,
+			"one big bale fills the trough to the brim and is used up (%.1f / %d, %d left)" % [trough.amount, trough.capacity, inv.count_item(&"hay_big")])
+	await _hold_use(1.5)
+	_check(inv.count_item(&"hay_big") == 1, "a full trough takes no more")
+	# Straight on a feeder: emptied, then one big sack fills it whatever its size.
+	if coop_feed:
+		for cap: int in [16, 40]:
+			coop_feed.capacity = cap
+			coop_feed.set_amount(3.0)
+			inv.add_item(&"feed_big", 1)
+			var stack := inv.get_stack(_slot_of(&"feed_big"))
+			var act := coop_feed.use_action(player, stack)
+			_check(act.get("id", "") == "fill_feed" and coop_feed.can_start(act, stack) == "", "a big sack on a %d-ration feeder: fill" % cap)
+			coop_feed.complete_use(player, stack, act)
+			_check(is_equal_approx(coop_feed.amount, float(cap)) and inv.count_item(&"feed_big") == 0,
+					"one big sack fills the %d-ration feeder (%.1f) and is gone" % [cap, coop_feed.amount])
+		if spare:
+			spare.queue_free()
+		else:
+			coop_feed.capacity = maxi(farm.coop.capacity() * 2, 4)
+			coop_feed.set_amount(minf(coop_feed.amount, coop_feed.capacity))
+	inv.remove_item(&"hay_big", inv.count_item(&"hay_big"))
+
+
+func _slot_of(id: StringName) -> int:
+	for i in PlayerState.inventory.size():
+		var st := PlayerState.inventory.get_stack(i)
+		if st and st.item.id == id:
+			return i
+	return -1
+
+
+func _fixes13_shop() -> void:
+	var big_feed := ItemDB.get_item(&"feed_big")
+	var big_hay := ItemDB.get_item(&"hay_big")
+	var feed_full := ProjectTable.KIT_COOP_CAPACITY[ProjectTable.KIT_COOP_CAPACITY.size() - 1] * 2
+	var hay_full := (ProjectTable.BARN_CAPACITY[ProjectTable.BARN_CAPACITY.size() - 1] as int) * 2
+	_check(big_feed.buy_price == roundi(feed_full * ItemDB.get_item(&"feed").buy_price * 0.9)
+			and big_hay.buy_price == roundi(hay_full * ItemDB.get_item(&"hay").buy_price * 0.9),
+			"big sack $%d (%d feed less a tenth), big bale $%d (%d hay less a tenth)" % [big_feed.buy_price, feed_full, big_hay.buy_price, hay_full])
+	_check(big_feed.sell_price < big_feed.buy_price and big_hay.sell_price < big_hay.buy_price, "the big ones sell back for less")
+	for shop: Dictionary in [ShopStock.town_market(), ShopStock.rancher_supplies()]:
+		var stock: Array = shop["stock"]
+		_check(&"feed_big" in stock and &"hay_big" in stock and &"feed" in stock and &"hay" in stock,
+				"%s sells the big sack and bale beside the feed and hay" % shop["title"])
+	_check(big_feed.display_name() == tr("ITEM_FEED_BIG") and tr("ITEM_FEED_BIG") != "ITEM_FEED_BIG" and tr("DESC_HAY_BIG") != "DESC_HAY_BIG",
+			"the big ones have names (%s, %s)" % [big_feed.display_name(), big_hay.display_name()])

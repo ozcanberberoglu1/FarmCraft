@@ -18,7 +18,7 @@ static func general_store() -> Dictionary:
 
 static func rancher_supplies() -> Dictionary:
 	var stock: Array[StringName] = []
-	for id: StringName in [&"feed", &"hay", &"medicine", &"brush", &"milk_pail", &"shears"]:
+	for id: StringName in [&"feed", &"feed_big", &"hay", &"hay_big", &"medicine", &"brush", &"milk_pail", &"shears"]:
 		if ItemDB.has_item(id):
 			stock.append(id)
 	return {"title": "UI_RANCHER", "stock": stock, "buys": false}
@@ -27,9 +27,13 @@ static func rancher_supplies() -> Dictionary:
 ## What the town market sells besides the stalls' seeds and materials: feed, the
 ## workbench kit, the workbench's hardware (nails, rope), bait for the rod (worms and
 ## dough $1, maggots and sweetcorn $2, cheese $3, live minnows $4, a spinner $15: each
-## draws its own fish, FishTable) and dog food (Zeynep's errands, SideStory).
-const MARKET_EXTRAS: Array[StringName] = [&"feed", &"hay", &"fertilizer", &"nails", &"rope", &"worm", &"dough",
-	&"maggot", &"sweetcorn", &"cheese_bait", &"minnow", &"spinner", &"workbench", &"dog_food"]
+## draws its own fish, FishTable), dog food, a bottle of milk and a bunch of flowers
+## (Zeynep's errands, SideStory), a ball for the farmer's own dog (Pet) and two charcoal
+## grills (a mangal $60, a big one $140: Grill). Feed and hay come in big sacks and bales
+## too (one fills a feeder, Trough.BIG).
+const MARKET_EXTRAS: Array[StringName] = [&"feed", &"feed_big", &"hay", &"hay_big", &"fertilizer", &"nails", &"rope", &"worm", &"dough",
+	&"maggot", &"sweetcorn", &"cheese_bait", &"minnow", &"spinner", &"workbench", &"dog_food", &"milk",
+	&"flower_bouquet", &"dog_ball", &"grill", &"big_grill"]
 
 
 ## Yeşilova Market: seeds, building materials, hardware, bait and feed; buys all produce.

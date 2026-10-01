@@ -23,7 +23,7 @@ const UNIT_KG := {
 	&"wheat": 1.0, &"carrot": 0.15, &"potato": 0.25, &"tomato": 0.15, &"corn": 0.35,
 	&"eggplant": 0.3, &"strawberry": 0.05, &"pumpkin": 6.0,
 	&"wood": 4.0, &"stone": 5.0, &"iron_ore": 6.0,
-	&"hay": 3.0, &"feed": 2.0, &"medicine": 0.2,
+	&"hay": 3.0, &"feed": 2.0, &"hay_big": 40.0, &"feed_big": 50.0, &"medicine": 0.2,
 	&"egg": 0.06, &"milk": 1.05, &"wool": 1.5,
 	&"cheese": 1.0, &"yarn": 0.25, &"pickles": 0.8, &"jam": 0.5, &"tomato_paste": 0.6, &"flour": 2.0,
 	&"fertilizer": 5.0, &"manure": 3.0, &"workbench": 60.0, &"cheese_press": 45.0, &"spinning_wheel": 20.0,
@@ -68,9 +68,9 @@ static func look_of(id: StringName) -> String:
 			return "pumpkins"
 		&"wood":
 			return "firewood"
-		&"hay":
+		&"hay", &"hay_big":
 			return "bale"
-		&"wheat", &"feed", &"flour", &"fertilizer", &"manure":
+		&"wheat", &"feed", &"feed_big", &"flour", &"fertilizer", &"manure":
 			return "sack"
 		&"cheese":
 			return "cheese_crate"

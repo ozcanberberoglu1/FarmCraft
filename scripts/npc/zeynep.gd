@@ -111,6 +111,8 @@ var _held: Node3D
 ## in this scene (only then is it delivered).
 var _passing := false
 var _bag_given := false
+## The door scene's errand fills Karamel's bowl (dog food).
+var _door_feeds := false
 ## What a door scene came to once she opened: "meet", "deliver", "chat", or "" (whoever
 ## knocked had gone).
 var _door_outcome := ""
@@ -882,17 +884,20 @@ func _cue(tag: String) -> void:
 			_hand_over()
 
 
-## One bag of dog food from the player's bag into her hands: she lets go of the door and
-## comes out to him (on to the door step at most, or across her garden) until they are
-## HAND_GAP apart, and it goes from his hands to hers.
+## What the errand asked for (a bag of dog food, the milk, the flowers...) from the
+## player's bag into her hands: she lets go of the door and comes out to him (on to the
+## door step at most, or across her garden) until they are HAND_GAP apart, and it goes
+## from his hands to hers.
 func _hand_over() -> void:
-	if PlayerState.inventory.count_item(SideStory.ITEM) <= 0:
+	var item := SideStory.errand_item()
+	var n := SideStory.errand_count()
+	if item == &"" or PlayerState.inventory.count_item(item) < n:
 		return
-	PlayerState.inventory.remove_item(SideStory.ITEM, 1)
+	PlayerState.inventory.remove_item(item, n)
 	_bag_given = true
 	var bag := MeshInstance3D.new()
-	bag.name = "DogFood"
-	bag.mesh = ItemModels.mesh(SideStory.ITEM)
+	bag.name = "Given"
+	bag.mesh = ItemModels.mesh(item)
 	bag.visible = false
 	add_child(bag)
 	_held = bag
@@ -1001,12 +1006,30 @@ func _scene_deliver_garden() -> void:
 
 ## After the talk in the garden: with the bag in her hands (and only then) the heart, and
 ## she fills Karamel's bowl and comes back to him; without it she goes back down to him.
+## Other things (the milk, the flowers) she takes in later; a visit or the pup needs
+## nothing handed over.
 func _after_garden_bag() -> void:
-	if not _bag_given:
+	if not _bag_given and SideStory.errand_needs_item():
 		SideStory.on_chat()
 		_pet_resume = 1.0
 		return
+	var feeds := SideStory.errand_kind() in SideStory.FEEDS_KARAMEL
 	SideStory.on_delivered()
+	if not feeds:
+		_play([
+			_wait(0.6),
+			_do(func() -> void:
+				_drop_held()
+				where = &"walking"
+				var zs := _pet_spot()
+				_walk([_at(zs.x, zs.y)])),
+			_until_arrived(12.0),
+			_do(func() -> void:
+				where = &"garden"
+				zeynep.act = Townsperson.Act.STAND
+				_pet_resume = 1.0),
+		])
+		return
 	_play([
 		_do(func() -> void:
 			where = &"walking"
@@ -1115,7 +1138,7 @@ func _scene_door() -> void:
 			zeynep.set_indoors(true)
 			zeynep.global_position = _inside_spot()
 			where = &"inside"
-			if _door_outcome == "deliver" and _bag_given:
+			if _door_outcome == "deliver" and _bag_given and _door_feeds:
 				# After the bag she fills Karamel's bowl from indoors (while the player
 				# isn't looking at it).
 				_play([_wait(1.2), _do(func() -> void: _fill_pending = true)])),
@@ -1129,7 +1152,8 @@ func _door_done() -> void:
 		"meet":
 			SideStory.on_met()
 		"deliver":
-			if _bag_given:
+			_door_feeds = SideStory.errand_kind() in SideStory.FEEDS_KARAMEL
+			if _bag_given or not SideStory.errand_needs_item():
 				SideStory.on_delivered()
 			else:
 				SideStory.on_chat()

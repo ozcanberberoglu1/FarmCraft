@@ -1138,12 +1138,24 @@ func interact(player: Node) -> void:
 
 func use_prompt(player: Node, stack: ItemStack) -> String:
 	var a := use_action(player, stack)
-	return tr(a["verb"]) if not a.is_empty() else ""
+	# A cow already milked shows no verb (pulling the pail on her anyway says why).
+	if a.is_empty() or a.get("dry", false):
+		return ""
+	return tr(a["verb"])
+
+
+## Pulling the pail on a cow with no milk yet: says when it comes (a toast, not a line
+## that would sit under the prompt right after she has been milked).
+func can_start(action: Dictionary, _stack: ItemStack) -> String:
+	if action.get("dry", false):
+		return tr("HINT_MILK_TOMORROW")
+	return ""
 
 
 ## A plain line under the prompts while the farmer holds this animal's tool (shears for
 ## a sheep, the pail for a cow) and there is nothing to take yet: when the fleece is
-## grown or the milk comes, or that the young one is too small yet.
+## grown, or that the young one is too small yet (a milked cow says nothing until the
+## pail is pulled on her again, can_start).
 func hint_prompt() -> String:
 	if data.injured():
 		# Hurt: how long it has left to be treated (the vet in town).
@@ -1160,8 +1172,6 @@ func hint_prompt() -> String:
 		&"sheep":
 			var days := wool_days_left()
 			return tr("HINT_WOOL_TOMORROW") if days <= 1 else tr("HINT_WOOL_DAYS") % days
-		&"cow":
-			return tr("HINT_MILK_TOMORROW")
 	return ""
 
 
@@ -1183,6 +1193,9 @@ func use_action(_player: Node, stack: ItemStack) -> Dictionary:
 	# Hurt, it gives nothing until it has been treated.
 	if id == &"milk_pail" and data.species == &"cow" and data.product_ready and not data.injured():
 		return {"id": "milk", "verb": "ACTION_MILK", "label": "PROGRESS_MILKING", "duration": 2.0}
+	if id == &"milk_pail" and data.species == &"cow" and data.adult and not data.injured():
+		# Milked already (or not fed for the morning's milk): refused in can_start.
+		return {"id": "milk", "verb": "ACTION_MILK", "label": "PROGRESS_MILKING", "duration": 2.0, "dry": true}
 	if id == &"shears" and data.species == &"sheep" and data.product_ready and not data.injured():
 		return {"id": "shear", "verb": "ACTION_SHEAR", "label": "PROGRESS_SHEARING", "duration": 2.5, "wear": true}
 	if id == &"brush" and not data.brushed_today:
@@ -1205,7 +1218,7 @@ func _feeder_behind(stack: ItemStack) -> Trough:
 	if housing == null or not is_instance_valid(housing.feed) or stack == null:
 		return null
 	var feeder := housing.feed
-	if not stack.item.id in feeder.accepts or feeder.amount >= feeder.capacity - 0.01:
+	if not feeder.takes(stack.item.id) or feeder.amount >= feeder.capacity - 0.01:
 		return null
 	return feeder if global_position.distance_to(feeder.global_position) < FEEDER_REACH else null
 

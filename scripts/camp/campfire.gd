@@ -19,6 +19,9 @@ extends PlacedObject
 ## comes back. State is kept in its FarmState.placed entry: "state" (laid, lit, embers,
 ## ash), "burn_left" and "embers_left" (game minutes), "char" (0..1, how burnt the logs
 ## are) and "spits" ([[slot, fish id, seconds left]]).
+##
+## A giant (trophy) fish doesn't fit over the fire: it needs a grill (Grill extends this,
+## with more places laid out on a grate, where a giant takes two side by side).
 
 const BURN_MINUTES := 300.0
 const EMBER_MINUTES := 60.0
@@ -65,6 +68,8 @@ var _ignite_len := IGNITE_SECONDS
 ## Seconds since it was doused (-1: it wasn't).
 var _doused := -1.0
 var _save_in := 0.0
+## What the farmer is told when it burns down (a grill says its own).
+var burnt_key := "MSG_CAMPFIRE_BURNT_DOWN"
 
 
 func _ready() -> void:
@@ -81,7 +86,7 @@ func _ready() -> void:
 	cs.shape = box
 	cs.position.y = size.y * 0.5
 	add_child(cs)
-	for i in SPITS:
+	for i in _slot_count():
 		_spits.append({})
 	_build()
 	_load_entry()
@@ -187,8 +192,9 @@ func _refresh(snap := false) -> void:
 	_logs.scale = Vector3(1.0 + 0.14 * sink, 1.0 - 0.6 * sink, 1.0 + 0.14 * sink)
 	_logs.visible = not (state == "ash" and _char >= 1.0)
 	_bed.visible = state != "laid" or _char > 0.01
-	_scorch.visible = _bed.visible
-	_scorch.modulate.a = clampf(0.25 + _char * 2.0, 0.0, 0.85) if _bed.visible else 0.0
+	if _scorch:
+		_scorch.visible = _bed.visible
+		_scorch.modulate.a = clampf(0.25 + _char * 2.0, 0.0, 0.85) if _bed.visible else 0.0
 
 
 # --- Burning ---------------------------------------------------------------------------
@@ -240,7 +246,7 @@ func _burnt_down() -> void:
 	Events.campfire_out.emit(self)
 	var player := Game.player as Node3D
 	if player and player.global_position.distance_to(global_position) < 40.0 and not Game.is_ui_open():
-		Game.notify(tr("MSG_CAMPFIRE_BURNT_DOWN"), UiTheme.TEXT_MUTED)
+		Game.notify(tr(burnt_key), UiTheme.TEXT_MUTED)
 
 
 ## E on a laid fire: a match, then the kindling catches and the flames grow.
@@ -354,11 +360,43 @@ static func _cookable(stack: ItemStack) -> bool:
 	return stack != null and cooked_id(stack.item.id) != &""
 
 
-func _free_spit() -> int:
-	for i in SPITS:
-		if _spits[i].is_empty():
+## How many places over the fire there are (a grill has more).
+func _slot_count() -> int:
+	return SPITS
+
+
+## Places `id` takes side by side (a grill gives a giant fish two).
+func _span_of(_id: StringName) -> int:
+	return 1
+
+
+## Whether `id` fits over this fire at all: a giant (trophy) fish needs a grill.
+func _takes(id: StringName) -> bool:
+	return not FishTable.is_trophy(id)
+
+
+## The first free place with `span` free places from it on (-1: none).
+func _free_spit(span := 1) -> int:
+	for i in _slot_count():
+		if _span_fits(i, span):
 			return i
 	return -1
+
+
+## Whether `span` places from `slot` on are all free.
+func _span_fits(slot: int, span: int) -> bool:
+	for k in span:
+		if slot + k >= _slot_count() or not _spits[slot + k].is_empty():
+			return false
+	return true
+
+
+## Empties a place (and the one a giant fish shared with it).
+func _clear_slot(slot: int) -> void:
+	var span := int(_spits[slot].get("span", 1))
+	for k in span:
+		if slot + k < _spits.size():
+			_spits[slot + k] = {}
 
 
 ## Seconds left, done and where each fish on the fire is (the HUD's rings):
@@ -366,7 +404,7 @@ func _free_spit() -> int:
 func cook_status() -> Array:
 	var out := []
 	for s: Dictionary in _spits:
-		if s.is_empty() or not is_instance_valid(s["fish"]):
+		if s.is_empty() or s.has("link") or not is_instance_valid(s["fish"]):
 			continue
 		var fish := s["fish"] as Node3D
 		out.append([fish.global_position, maxf(float(s["left"]), 0.0), float(s["left"]) <= 0.0])
@@ -375,7 +413,13 @@ func cook_status() -> Array:
 
 ## E with a raw fish in hand: it goes onto a stick over the fire.
 func _start_cooking(player: Player) -> void:
-	var slot := _free_spit()
+	var stack := PlayerState.selected_stack()
+	if stack == null:
+		return
+	if not _takes(stack.item.id):
+		Game.notify(tr("MSG_CAMPFIRE_TOO_BIG"), UiTheme.TEXT_MUTED)
+		return
+	var slot := _free_spit(_span_of(stack.item.id))
 	if slot < 0:
 		Game.notify(tr("MSG_CAMPFIRE_FULL"), UiTheme.TEXT_MUTED)
 		return
@@ -404,18 +448,55 @@ func _put_on_spit(slot: int, id: StringName, left: float, player: Player = null)
 	stick.mesh = CampfireModel.stick_mesh(STICK_LENGTH)
 	stick.layers = 2
 	node.add_child(stick)
+	var fish := food_mesh(id)
+	fish.transform = _fish_transform(fish.mesh)
+	var overlay := fish.material_overlay as StandardMaterial3D
+	node.add_child(fish)
+	# Steam off the fish as it cooks.
+	var steam := food_steam()
+	steam.position = fish.transform.origin
+	node.add_child(steam)
+	steam.emitting = true
+	_spits[slot] = {"id": id, "left": left, "done_t": 0.0, "node": node, "fish": fish, "overlay": overlay, "steam": steam}
+	if player != null and is_instance_valid(player):
+		# Flies from the hand onto the stick, the stick pushed in as it lands.
+		_fly_in(fish, node, player)
+		stick.position = Vector3(0, 0.25, 0)
+		stick.create_tween().tween_property(stick, "position", Vector3.ZERO, 0.25).set_delay(0.1) \
+				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		Audio.play("soft", w + Vector3(0, 0.2, 0), -12.0, 0.1, &"Effects", 2.0)
+		get_tree().create_timer(0.35, false).timeout.connect(func() -> void:
+			if is_instance_valid(self):
+				CampSfx.play("fire_pop", global_position + Vector3(0, 0.3, 0), -12.0, 0.2, 2.0, 1.3))
+
+
+## The food's model, a browning overlay over its colours.
+static func food_mesh(id: StringName) -> MeshInstance3D:
 	var fish := MeshInstance3D.new()
 	fish.mesh = ItemModels.mesh(id)
 	fish.layers = 2
-	fish.transform = _fish_transform(fish.mesh)
 	var overlay := StandardMaterial3D.new()
 	overlay.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	overlay.blend_mode = BaseMaterial3D.BLEND_MODE_MUL
 	overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	overlay.albedo_color = Color.WHITE
 	fish.material_overlay = overlay
-	node.add_child(fish)
-	# Steam off the fish as it cooks.
+	return fish
+
+
+## Flies `fish` from the farmer's hand to where it sits under `node`.
+static func _fly_in(fish: MeshInstance3D, node: Node3D, player: Player) -> void:
+	var to := fish.transform
+	var cam := player.camera
+	var from := node.global_transform.affine_inverse() * Transform3D(cam.global_basis, cam.global_position
+			- cam.global_basis.z * 0.5 + cam.global_basis.x * 0.2 - cam.global_basis.y * 0.2)
+	fish.transform = Transform3D(from.basis.orthonormalized().scaled(to.basis.get_scale()), from.origin)
+	var tw := fish.create_tween()
+	tw.tween_property(fish, "transform", to, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+## Wisps of steam off food as it cooks (not yet emitting).
+static func food_steam() -> CPUParticles3D:
 	var steam := CPUParticles3D.new()
 	steam.amount = 4
 	steam.lifetime = 1.4
@@ -436,26 +517,7 @@ func _put_on_spit(slot: int, id: StringName, left: float, player: Player = null)
 	steam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	steam.layers = 2
 	steam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	steam.position = fish.transform.origin
-	node.add_child(steam)
-	steam.emitting = true
-	_spits[slot] = {"id": id, "left": left, "done_t": 0.0, "node": node, "fish": fish, "overlay": overlay, "steam": steam}
-	if player != null and is_instance_valid(player):
-		# Flies from the hand onto the stick, the stick pushed in as it lands.
-		var to := fish.transform
-		var cam := player.camera
-		var from := node.global_transform.affine_inverse() * Transform3D(cam.global_basis, cam.global_position
-				- cam.global_basis.z * 0.5 + cam.global_basis.x * 0.2 - cam.global_basis.y * 0.2)
-		fish.transform = Transform3D(from.basis.orthonormalized().scaled(to.basis.get_scale()), from.origin)
-		var tw := fish.create_tween()
-		tw.tween_property(fish, "transform", to, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		stick.position = Vector3(0, 0.25, 0)
-		stick.create_tween().tween_property(stick, "position", Vector3.ZERO, 0.25).set_delay(0.1) \
-				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		Audio.play("soft", w + Vector3(0, 0.2, 0), -12.0, 0.1, &"Effects", 2.0)
-		get_tree().create_timer(0.35, false).timeout.connect(func() -> void:
-			if is_instance_valid(self):
-				CampSfx.play("fire_pop", global_position + Vector3(0, 0.3, 0), -12.0, 0.2, 2.0, 1.3))
+	return steam
 
 
 ## The fish's model laid along the stick, near its top, scaled to FISH_LENGTH.
@@ -484,12 +546,12 @@ static func _fish_transform(mesh: Mesh) -> Transform3D:
 func _update_cooking(delta: float) -> void:
 	var cooking := 0
 	var paused := Game.is_paused()
-	for i in SPITS:
+	for i in _slot_count():
 		var s := _spits[i]
-		if s.is_empty():
+		if s.is_empty() or s.has("link"):
 			continue
 		if not is_instance_valid(s["fish"]):
-			_spits[i] = {}
+			_clear_slot(i)
 			continue
 		var left := float(s["left"])
 		if left > 0.0:
@@ -529,10 +591,15 @@ func _cooked(slot: int) -> void:
 		var m := ItemModels.mesh(cooked)
 		if m != null and m != fish.mesh:
 			fish.mesh = m
-			fish.transform = _fish_transform(m)
+			fish.transform = _lay(m, slot)
 			(s["overlay"] as StandardMaterial3D).albedo_color = Color.WHITE.lerp(BROWN, 0.35)
 	(s["steam"] as CPUParticles3D).emitting = false
 	_store()
+
+
+## Where the food's model sits in its place's node (a fish on its stick here).
+func _lay(mesh: Mesh, _slot: int) -> Transform3D:
+	return _fish_transform(mesh)
 
 
 ## A cooked fish into the bag (flying into the hand or the hotbar) when the farmer is
@@ -553,16 +620,16 @@ func _deliver(slot: int) -> void:
 		Events.food_cooked.emit(cooked)
 	Audio.play("soft", from.origin, -12.0, 0.1, &"Effects", 2.0)
 	(s["node"] as Node3D).queue_free()
-	_spits[slot] = {}
+	_clear_slot(slot)
 	_store()
 
 
 ## Fish still on their sticks back into the bag (the fire put out or cleared away):
 ## raw ones raw, cooked ones cooked.
 func _give_back_spits() -> void:
-	for i in SPITS:
+	for i in _slot_count():
 		var s := _spits[i]
-		if s.is_empty():
+		if s.is_empty() or s.has("link"):
 			continue
 		var id := StringName(s["id"])
 		if float(s["left"]) <= 0.0 and cooked_id(id) != &"":
@@ -571,7 +638,7 @@ func _give_back_spits() -> void:
 			Pickup.spawn(ItemStack.create(id, 1), global_position + Vector3(0, 0.7, 0), Vector3(0, 1.5, 0))
 		if is_instance_valid(s["node"]):
 			(s["node"] as Node3D).queue_free()
-		_spits[i] = {}
+		_clear_slot(i)
 
 
 # --- Interaction ------------------------------------------------------------------------
@@ -632,7 +699,9 @@ func hint_prompt() -> String:
 			return tr("CAMPFIRE_READY")
 		"lit":
 			var line := tr("CAMPFIRE_BURNING") % _duration(burn_left)
-			if not _cookable(stack) and _free_spit() >= 0 and cook_status().is_empty():
+			if _cookable(stack) and not _takes(stack.item.id):
+				line += "\n" + tr("MSG_CAMPFIRE_TOO_BIG")
+			elif not _cookable(stack) and _free_spit() >= 0 and cook_status().is_empty():
 				line += "\n" + tr("HINT_CAMPFIRE_COOK")
 			return line
 		"embers":
@@ -756,7 +825,7 @@ func _load_entry() -> void:
 			continue
 		var slot := int(a[0])
 		var id := StringName(String(a[1]))
-		if slot < 0 or slot >= SPITS or not _spits[slot].is_empty() or not ItemDB.has_item(id):
+		if slot < 0 or not ItemDB.has_item(id) or not _span_fits(slot, _span_of(id)):
 			continue
 		_put_on_spit(slot, id, float(a[2]))
 		if float(a[2]) <= 0.0:
@@ -771,8 +840,8 @@ func _store() -> void:
 	entry["embers_left"] = embers_left
 	entry["char"] = _char
 	var spits := []
-	for i in SPITS:
+	for i in _slot_count():
 		var s := _spits[i]
-		if not s.is_empty():
+		if not s.is_empty() and not s.has("link"):
 			spits.append([i, String(s["id"]), float(s["left"])])
 	entry["spits"] = spits

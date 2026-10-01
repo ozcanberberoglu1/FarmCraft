@@ -91,6 +91,9 @@ PEOPLE = {
         "hair": "short02", "eyebrows": "eyebrow001", "eyes": "brown",
         "clothes": ["male_elegantsuit01", "shoes04", "fedora01", "rehmanpolanski_moustache_viking"],
         "extras": [],
+        # The fedora's crown is narrower than the hair: what it would poke through is cut
+        # away (trim_hair_under_hat; the farmer's cap sits over his as it is).
+        "hat_trim": True,
     },
     "villager": {
         "phenotype": pheno(FEMALE_BASE, age=0.72, muscle=0.4, weight=0.68, height=0.35),
@@ -469,6 +472,40 @@ def hide_covered(body, covers, pushers):
     bmesh.ops.delete(bm, geom=dead, context="FACES")
     bm.to_mesh(body.data)
     bm.free()
+
+
+HATS = ("fedora", "hat", "cap")
+
+
+def trim_hair_under_hat(arm, hair, hats):
+    """Deletes the hair a hat sits over: every hair face with a vertex the hat's crown or
+    brim lies between it and the middle of the skull (sticking out through the hat), or
+    just beyond it (inside the crown, where it would show through as the head turns). The
+    hair below the brim stays."""
+    from mathutils.bvhtree import BVHTree
+    deps = bpy.context.evaluated_depsgraph_get()
+    trees = [BVHTree.FromObject(o, deps) for o in hats]
+    lo = mathutils.Vector([min(v.co[i] for v in hair.data.vertices) for i in range(3)])
+    hi = mathutils.Vector([max(v.co[i] for v in hair.data.vertices) for i in range(3)])
+    centre = mathutils.Vector(((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, bone_head(arm, "head").z + 0.1))
+    bm = bmesh.new()
+    bm.from_mesh(hair.data)
+    under = set()
+    for v in bm.verts:
+        d = v.co - centre
+        if d.length < 1e-4:
+            continue
+        for t in trees:
+            if t.ray_cast(centre, d.normalized(), d.length + 0.03)[0] is not None:
+                under.add(v)
+                break
+    dead = [f for f in bm.faces if any(v in under for v in f.verts)]
+    bmesh.ops.delete(bm, geom=dead, context="FACES")
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context="VERTS")
+    bm.to_mesh(hair.data)
+    bm.free()
+    print("HAT TRIM", hair.name, "faces", len(dead), "under", [o.name for o in hats])
 
 
 # --- Extras modelled on the body -----------------------------------------------------------
@@ -1094,6 +1131,11 @@ def finish(name, spec):
     for inner, outer in spec.get("tuck", []):
         parts = {o.name.split(".", 1)[-1]: o for o in bpy.data.objects if o.type == "MESH"}
         tuck(parts[inner], parts[outer])
+    # A hat narrower than the hair: the hair under it (and through it) goes.
+    parts = {o.name.split(".", 1)[-1]: o for o in bpy.data.objects if o.type == "MESH"}
+    hats = [o for k, o in parts.items() if k in spec["clothes"] and any(h in k for h in HATS)]
+    if spec.get("hat_trim") and hats and spec["hair"] in parts:
+        trim_hair_under_hat(arm, parts[spec["hair"]], hats)
     extras = []
     if "headscarf" in spec["extras"]:
         extras.append(headscarf(body, arm))

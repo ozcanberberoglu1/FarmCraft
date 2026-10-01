@@ -32,10 +32,11 @@ workbench ready bundled for $55 (no wood). Grandpa's pickup comes with the farm 
 | Crops (sell) | wheat 2, potato 3, tomato 3, carrot 4, corn 4, eggplant 5, strawberry 5, pumpkin 45 |
 | Animal goods | egg 5, milk 13, wool 30 |
 | Artisan goods | flour 17, tomato paste 32, jam 35, pickles 36, yarn 45, cheese 50 |
-| Supplies | feed 1, hay 3, fertilizer 5, medicine 20, wood 2, stone 2, iron ore 6 |
+| Supplies | feed 1, hay 3, big feed sack 36 and big hay bale 43 (each fills a feeder: 40 feed, 16 hay, less a tenth), fertilizer 5, medicine 20, wood 2, stone 2, iron ore 6 |
 | Workbench goods (market) | nails 1, rope 4 |
 | Bait (market; each draws its own fish, data/fish_table.gd) | worms 1, dough 1, maggots 2, sweetcorn 2, cheese 3, live minnows 4, spinner 15 (a lure: kept on a cast, lost on a snag or to a fish that gets away) |
 | Rods (workbench; durability = casts) | cane pole 2 wood + 1 rope (50), rod 3 wood + 2 rope (150), carbon rod 4 wood, 3 rope, 6 nails, 3 ore (320, level 2), carp rod 6 wood, 4 rope, 10 nails, 6 ore (500, level 3) |
+| Grills (market; Grill) | mangal 60 (6 places on the grate), big grill 140 (12 places); both burn 5 hours on the charcoal they come with, wood adds an hour like the campfire's. Against the campfire (8 stone + 6 wood, about $28 of materials, 3 places) the mangal is a comfort buy after the first sales; the big grill for a farm that fishes a lot |
 | Fish (sell; trophy 10x) | bleak, gudgeon 2; rudd, crucian, roach 3; perch 4; bream 6; crayfish 6; chub 7; carp 9; tench 10; barbel, silver carp 12; grass carp 15; rainbow trout 16; eel 16; brown trout 20; zander 22; pike 30; wels catfish 55; sturgeon 95 |
 | Tools | hoe, scythe, pickaxe, axe, brush 40; watering can, pitchfork 50; milk pail 75; shears 90; repair 0.25 a point of wear; upgrades 60 / 180 (and ore) |
 | Animals (grown / young) | hen 50 / 20, sheep 225 / 90, cow 375 / 150, horse 600 / 225 |
@@ -132,3 +133,10 @@ $18 of ore against $40), so a worn-out tool is replaced cheaply once there is a 
 | Pitchfork (level 2) | 4 wood, 3 iron ore, 2 nails | 1 |
 | Shears (level 3) | 4 iron ore, 1 wood | 1 |
 | Milk pail (level 4) | 6 wood, 4 nails | 1 |
+
+## Giant fish on the grill
+
+A giant (trophy) fish doesn't fit over the campfire; on a grill it takes two places side
+by side and cooks in the usual 10 seconds into "<id>_trophy_cooked": it fills three times
+what the whole grilled fish does (at least 60, at most 100 of 100 hunger) and sells for
+1.3x the raw giant (a carp: raw $90, grilled $117, 96 hunger).

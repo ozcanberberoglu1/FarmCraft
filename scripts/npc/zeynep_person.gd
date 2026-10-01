@@ -1,7 +1,7 @@
 class_name ZeynepPerson
 extends Townsperson
 ## Zeynep, the new neighbour, as a townsperson of her own (ZeynepHome places and drives
-## her; SideStory knows what she says): E meets her, hands her the dog food she asked
+## her; SideStory knows what she says): E meets her, hands her what she asked
 ## for, or has a word with her, instead of a greeting's bubble. Looking at her shows her
 ## name with the friendship's hearts (Relations) once they have met. Hidden and without a
 ## collider while she is indoors.
@@ -21,7 +21,11 @@ func interact_prompt(_player: Node) -> String:
 	if not SideStory.met:
 		return tr("ACTION_MEET_ZEYNEP")
 	if SideStory.can_deliver():
-		return tr("ACTION_GIVE_DOG_FOOD")
+		var kind := SideStory.errand_kind()
+		if kind in ["gift", "food"]:
+			return tr("ACTION_GIVE_DOG_FOOD")
+		if SideStory.errand_needs_item():
+			return tr("ACTION_GIVE_%s" % kind.to_upper())
 	return tr("ACTION_TALK")
 
 

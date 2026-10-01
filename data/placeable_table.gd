@@ -9,7 +9,7 @@ extends RefCounted
 ## finished, "build_id" their id in Events.construction_started/building_completed and
 ## "name_key" what the building is called. The workbench goes up the same way on a
 ## small plot (the bench and room to work at it; Workbench.BENCH is the bench itself).
-## The campfire is put down anywhere outdoors (not in a building or a yard).
+## The campfire and the grills are put down anywhere outdoors (not in a building or a yard).
 
 ## A minute of work for each building put up from a kit.
 const BUILD_SECONDS := 60.0
@@ -27,9 +27,16 @@ const PLACEABLES := {
 	## scripts/camp/campfire.gd). Only on open ground: never under a roof, on a field or
 	## on a track.
 	&"campfire": {"kind": "campfire", "size": Vector3(1.15, 0.45, 1.15)},
+	## Charcoal grills from the town market (Mangal, Büyük Mangal): put down outdoors like
+	## the campfire and cooked on the same way, with six and twelve places on the grate
+	## (scripts/placement/grill.gd, GrillModel).
+	&"grill": {"kind": "grill", "size": Vector3(0.98, 0.8, 0.5)},
+	&"big_grill": {"kind": "grill", "size": Vector3(1.78, 0.95, 0.6)},
 	## The food table (Yemek Tezgahı): a butcher's table where a fish or game is cleaned
 	## with a knife before it is cooked (scripts/placement/food_table.gd).
 	&"food_table": {"kind": "food_table", "size": Vector3(1.62, 0.96, 0.78)},
+	## The mailbox on its post (scripts/placement/mailbox.gd): letters from the town (Mail).
+	&"mailbox": {"kind": "mailbox", "size": Vector3(0.36, 1.25, 0.5)},
 	&"coop_kit": {"kind": "coop", "size": Vector3(11.0, 2.8, 10.0), "building": true, "reach": 12.0,
 		"build_seconds": BUILD_SECONDS, "build_id": &"coop", "name_key": "HOUSING_COOP"},
 }

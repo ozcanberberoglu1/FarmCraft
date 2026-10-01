@@ -17,6 +17,15 @@ const REFLECTION_STEPS: Array[int] = [0, 10, 14, 16]
 
 static var _reed_meshes: Array[ArrayMesh] = []
 
+## Where it lies and how big it is: the farm pond unless set before it enters the tree
+## (the town pond: ContestVenue).
+var center := WorldLayout.POND_CENTER
+var radius := WorldLayout.POND_RADIUS
+var reed_stands: Array = REED_STANDS
+## The shore ring leaves an opening at these angles (radians, from..to round the pond as
+## the reed stands count them) for a pier; empty: closed all round.
+var wall_gap := PackedFloat32Array()
+
 var _water_mat: ShaderMaterial
 
 
@@ -29,8 +38,8 @@ func _ready() -> void:
 	add_to_group(&"pond")
 	for c in get_children():
 		c.queue_free()
-	position = Vector3(WorldLayout.POND_CENTER.x, WorldLayout.WATER_LEVEL, WorldLayout.POND_CENTER.y)
-	var r := WorldLayout.POND_RADIUS
+	position = Vector3(center.x, WorldLayout.WATER_LEVEL, center.y)
+	var r := radius
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(r * 2.8, r * 2.8)
 	plane.subdivide_width = 4
@@ -57,6 +66,8 @@ func _ready() -> void:
 	var wall_r := r - 0.9
 	for i in segments:
 		var ang := TAU * (i + 0.5) / segments
+		if wall_gap.size() == 2 and ang > wall_gap[0] and ang < wall_gap[1]:
+			continue
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
 		box.size = Vector3(TAU * wall_r / segments + 0.4, 4.0, 0.4)
@@ -104,8 +115,8 @@ func _add_reeds() -> void:
 	var lists: Array = []
 	for v in REED_CLUMP_VARIANTS:
 		lists.append([])
-	var centre := WorldLayout.POND_CENTER
-	for stand: Array in REED_STANDS:
+	var centre := center
+	for stand: Array in reed_stands:
 		for i in int(stand[2]):
 			var ang := float(stand[0]) + rng.randf_range(-1.0, 1.0) * float(stand[1])
 			var dir := Vector2(cos(ang), sin(ang))
@@ -141,14 +152,20 @@ func _add_reeds() -> void:
 
 
 ## Distance from the pond centre, along `dir`, to where the ground rises out of the water.
-static func _shore_radius(dir: Vector2) -> float:
-	var r := WorldLayout.POND_RADIUS * 0.5
-	while r < WorldLayout.POND_RADIUS + 5.0:
-		var p := WorldLayout.POND_CENTER + dir * r
+func _shore_radius(dir: Vector2) -> float:
+	return shore_radius(center, radius, dir)
+
+
+## Distance from a pond's `c`entre (radius `r`), along `dir`, to where the ground rises
+## out of the water.
+static func shore_radius(c: Vector2, r: float, dir: Vector2) -> float:
+	var d := r * 0.5
+	while d < r + 5.0:
+		var p := c + dir * d
 		if TerrainData.height(p.x, p.y) > WorldLayout.WATER_LEVEL:
-			return r
-		r += 0.1
-	return WorldLayout.POND_RADIUS
+			return d
+		d += 0.1
+	return r
 
 
 ## A clump of reed leaves, a few with a cattail: long narrow blades (UV.x = blade
@@ -235,12 +252,23 @@ func complete_use(_player: Node, stack: ItemStack, _action: Dictionary) -> void:
 	WaterSource.refill(stack)
 
 
-## Water deep enough to fish in at `p` (its x and z).
+## Water deep enough to fish in at `p` (its x and z): the farm pond's or the town pond's.
 static func is_fishable(p: Vector3) -> bool:
-	var c := WorldLayout.POND_CENTER
-	if Vector2(p.x, p.z).distance_to(c) > WorldLayout.POND_RADIUS + 1.5:
+	if not near_water(p, 1.5):
 		return false
 	return TerrainData.height(p.x, p.z) < WorldLayout.WATER_LEVEL - FISHING_DEPTH
+
+
+## Within `margin` metres outside either pond's radius (flat distance).
+static func near_water(p: Vector3, margin: float) -> bool:
+	var xz := Vector2(p.x, p.z)
+	return xz.distance_to(WorldLayout.POND_CENTER) < WorldLayout.POND_RADIUS + margin \
+			or xz.distance_to(WorldLayout.TOWN_POND_CENTER) < WorldLayout.TOWN_POND_RADIUS + margin
+
+
+## Well inside either pond (`inset` metres in from its radius).
+static func inside_water(p: Vector3, inset: float) -> bool:
+	return near_water(p, -inset)
 
 
 ## The invisible ring that keeps the player on the shore (casts fly over it).

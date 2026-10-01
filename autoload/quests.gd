@@ -5,7 +5,8 @@ extends Node
 ## beds of wheat, the pickup's key in the desk drawer, two hens from the poultry stall in
 ## town, a coop put up from a kit, the ripe beds he left behind, the shipping bin, the
 ## first egg, then the coop looked after (feed from the warehouse, water from the well,
-## straw in the nests) and the house's broken boards renewed by hand with a tree's wood.
+## straw in the nests) and the broken boards of the house, then of the warehouse, renewed
+## by hand with wood from the trees.
 ## After that the player is free; the next morning brings the workshop (a little money
 ## earned by selling, a workbench kit bought at the construction board and put up near
 ## the house like the coop, a knife made at it) and a first go at fishing (rope from the
@@ -105,11 +106,14 @@ const TUTORIAL := [
 	{"chapter": 5, "id": "feed", "kind": "fed", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "feeder"},
 	{"chapter": 5, "id": "coop_water", "kind": "watered", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "coop_water"},
 	{"chapter": 5, "id": "straw", "kind": "nests", "arg": "", "count": 3, "xp": 4, "ever": true, "at": "nests"},
-	# Mending: one tree's wood (counted from when the goal comes up), then the house's
-	# broken boards renewed by hand, a piece of wood each. (A house repaired already
-	# passes both.)
-	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 3, "xp": 2, "at": "trees", "past": "built:house_1"},
-	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 3, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
+	# Mending: wood for the house (counted from when the goal comes up), then every broken
+	# board of the house renewed by hand, a piece of wood each (its eight holes: the last
+	# one repairs it), then the warehouse's six the same way (no wood goal of its own: with
+	# none in hand the dot goes to the trees first). (A building repaired already passes
+	# its goals.)
+	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 8, "xp": 2, "at": "trees", "past": "built:house_1"},
+	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 8, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
+	{"chapter": 6, "id": "wh_patch", "kind": "patched", "arg": "warehouse", "count": 6, "xp": 8, "ever": true, "at": "warehouse_repair", "past": "built:warehouse_1"},
 	# The first day's story is done: the farm is the player's own until the next morning
 	# (no dot, no task; Grandpa's note says so).
 	{"chapter": 7, "id": "free", "kind": "check", "arg": "day:2", "count": 1},
@@ -1216,6 +1220,11 @@ func _target(at: String) -> Variant:
 			var house := _house()
 			var door: Variant = house.door_point() if house else null
 			return _anchor(&"house_repair", door)
+		"warehouse_repair":
+			# The same with the warehouse's boards.
+			if PlayerState.inventory.count_item(&"wood") == 0:
+				return _target("trees")
+			return _anchor(&"warehouse_repair", _warehouse_door())
 		"earn":
 			return _earn_target(from)
 		"sell_market":

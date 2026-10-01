@@ -383,6 +383,8 @@ func _on_bit(target: Node3D, wolf: Node3D) -> void:
 	var animal := target as Animal
 	if animal == null or animal.data == null:
 		return
+	if _guard_foils(true):
+		return
 	var at := animal.global_position
 	if bite(animal.data.id, true) != &"" and is_instance_valid(wolf):
 		# Done with that one: round the spot a while.
@@ -414,6 +416,23 @@ func bite(id: int, awake := false) -> StringName:
 	if awake:
 		Game.notify(line, Color(1.0, 0.45, 0.35))
 	return outcome
+
+
+## The farmer's grown dog on guard by the animals (Pet.guards): a bite about to land is
+## stopped by its barking GUARD_SAVE of the time (this raid's dice: seeded with it), and
+## the pack, the farm woken, goes off into the night (awake: at once; asleep: no more
+## bites). Whether it stopped this one.
+func _guard_foils(awake: bool) -> bool:
+	if not Pet.guards() or _rng.randf() >= Pet.GUARD_SAVE:
+		return false
+	tonight["foiled"] = int(tonight.get("foiled", 0)) + 1
+	var line := tr("REPORT_PET_GUARDED") % Pet.dog_name
+	if not report.has(line):
+		report.append(line)
+	if awake:
+		Game.notify(tr("MSG_PET_DROVE_WOLVES") % Pet.dog_name, AMBER)
+		_end_raid()
+	return true
 
 
 ## What a bite on a `species` does now: &"kill", &"hurt" or &"" (the night's caps are met).
@@ -549,6 +568,8 @@ func resolve_night() -> void:
 		ids.erase(id)
 		var a := Animals.by_id(id)
 		if a and _can_take(a.species):
+			if _guard_foils(false):
+				break
 			bite(id)
 	tonight["phase"] = "done"
 	_close_night()
@@ -667,6 +688,11 @@ func _exposed_player(live: Array[Node3D]) -> Node3D:
 func in_house(p: Vector3) -> bool:
 	var house := Game.world.get_node_or_null("FarmHouse") as FarmHouse if Game.world else null
 	return house != null and house.footprint().grow(-0.1).has_point(Vector2(p.x, p.z))
+
+
+## Where the animals are (the farmer's grown dog keeps watch there at night, Pet).
+func animals_area() -> Vector3:
+	return _target_area()
 
 
 ## Where the animals are: the middle of the ones the wolves can get to (else of them all,

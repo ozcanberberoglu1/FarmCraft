@@ -184,6 +184,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		angler.cycle_bait()
 	elif event.is_action_pressed("drop"):
 		_drop_selected(Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META))
+	elif event.is_action_pressed("whistle") and riding == null:
+		# A whistle for the farmer's own dog (Pet).
+		Pet.whistle()
 	elif event.is_action_pressed("secondary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and Eating.try_eat(self):
 		# RMB with food in hand eats it (scripts/camp/eating.gd).
 		get_viewport().set_input_as_handled()
@@ -512,6 +515,8 @@ func _update_action(delta: float) -> void:
 	if info.is_empty():
 		if pressed_now and stack and not held.busy() and stack.item.id == &"egg":
 			_throw_egg()
+		elif pressed_now and stack and not held.busy() and stack.item.id == Pet.BALL:
+			_throw_ball()
 		elif pressed_now and combat.holding_knife():
 			combat.stab()
 		elif pressed_now and stack and not held.busy() and stack.item.category != "animal":
@@ -581,6 +586,24 @@ func _throw_egg() -> void:
 		var from := camera.global_position + fwd * 0.45 + camera.global_basis.x * 0.12 - camera.global_basis.y * 0.06
 		ThrownEgg.launch(from, fwd * 13.0 + Vector3.UP * 1.2, self)
 		Audio.play("swoosh", from, -14.0, 0.1, &"Effects", 5.0, 1.4))
+
+
+## LMB with the dog's ball in hand: thrown where the player looks, bouncing and rolling
+## where it lands, for the dog to fetch (Pet.ball_thrown).
+func _throw_ball() -> void:
+	held.play(&"throw", THROW_TIME, 1, false)
+	var release := THROW_TIME * float(ToolAnim.PROFILES[&"throw"]["release"])
+	get_tree().create_timer(release, false, true).timeout.connect(func() -> void:
+		var s := PlayerState.selected_stack()
+		if s == null or s.item.id != Pet.BALL or riding != null:
+			return
+		var one := PlayerState.inventory.take_from(PlayerState.selected, 1)
+		if one == null:
+			return
+		var fwd := -camera.global_basis.z
+		var from := camera.global_position + fwd * 0.45 + camera.global_basis.x * 0.12 - camera.global_basis.y * 0.06
+		Pet.ball_thrown(from, fwd * 11.0 + Vector3.UP * 2.0, one)
+		Audio.play("swoosh", from, -14.0, 0.1, &"Effects", 5.0, 1.3))
 
 
 func _fire_cue(cue: Array) -> void:
@@ -662,7 +685,7 @@ static func _scatter_color(stack: ItemStack) -> Color:
 			return Color(0.82, 0.81, 0.76)
 		&"manure":
 			return Color(0.26, 0.19, 0.11)
-		&"hay", &"feed":
+		&"hay", &"feed", &"hay_big", &"feed_big":
 			return Color(0.78, 0.66, 0.36)
 	var crop: Color = ItemModels.CROP_COLORS.get(stack.item.crop_id, Color(0.55, 0.42, 0.25))
 	return Color(0.52, 0.4, 0.24).lerp(crop, 0.25)

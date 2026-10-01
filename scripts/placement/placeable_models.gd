@@ -86,9 +86,14 @@ static func build(id: StringName) -> Dictionary:
 		&"campfire":
 			# Stones and laid logs (scripts/camp/campfire_model.gd).
 			MeshMerge.add_mesh(body, CampfireModel.whole_mesh())
+		&"grill", &"big_grill":
+			# The charcoal grills with their charcoal (scripts/camp/grill_model.gd).
+			GrillModel.add_whole(body, id)
 		&"food_table":
 			# The butcher's table with its board and pail (food_table_model.gd).
 			FoodTableModel.build(body)
+		&"mailbox":
+			_mailbox(body, moving)
 	var out := {"body": MeshMerge.build(body), "moving": null}
 	var whole := body.duplicate()
 	if not moving.is_empty():
@@ -296,6 +301,37 @@ static func _quern(body: Array, moving: Array) -> void:
 static func _sprinkler(body: Array, moving: Array) -> void:
 	_scan(body, "sprinkler", Transform3D.IDENTITY, 0.36, "", "spinner")
 	_scan(moving, "sprinkler", Transform3D.IDENTITY, 0.36, "spinner")
+
+
+# --- Mailbox ---------------------------------------------------------------------------------
+
+## The mailbox's flag turns about this point (model frame): the arm's pin on the box's
+## right side (Mailbox raises it for a letter waiting).
+const MAILBOX_FLAG_PIVOT := Vector3(0.135, 1.1, -0.16)
+
+
+## A country mailbox: a painted steel box with a rounded top on a timber post, its door to
+## the front (+Z); the red flag on its right side ("moving": lying along the box, down).
+static func _mailbox(body: Array, moving: Array) -> void:
+	var mb := MeshBuilder.new()
+	var paint := Color(0.24, 0.36, 0.3)
+	mb.box_at(&"wood", Vector3(0, 0.5, -0.02), Vector3(0.085, 1.0, 0.085), WOOD_DARK)
+	mb.box_at(&"wood", Vector3(0, 0.985, 0.0), Vector3(0.16, 0.03, 0.42), WOOD)
+	mb.box_at(&"paint", Vector3(0, 1.075, 0.0), Vector3(0.22, 0.15, 0.46), paint)
+	# The rounded top: a half-round lying along the box (the cylinder's axis turned to +Z).
+	mb.cylinder(&"paint", Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0, 1.15, -0.23)), 0.11, 0.11, 0.46, 20, paint)
+	# The door: a slightly proud face with a small handle.
+	mb.box_at(&"paint", Vector3(0, 1.075, 0.232), Vector3(0.225, 0.152, 0.008), paint.darkened(0.1))
+	mb.cylinder(&"paint", Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0, 1.15, 0.228)), 0.112, 0.112, 0.008, 20, paint.darkened(0.1))
+	mb.box_at(&"steel", Vector3(0, 1.19, 0.243), Vector3(0.05, 0.014, 0.014), IRON.lightened(0.2))
+	_add(body, mb)
+	var flag := MeshBuilder.new()
+	var red := Color(0.75, 0.1, 0.08)
+	var p := MAILBOX_FLAG_PIVOT
+	flag.cylinder(&"steel", Transform3D(Basis(Vector3.FORWARD, PI * 0.5), p + Vector3(-0.012, 0, 0)), 0.008, 0.008, 0.024, 8, IRON)
+	flag.box_at(&"paint", p + Vector3(0.012, 0, 0.13), Vector3(0.008, 0.022, 0.26), red)
+	flag.box_at(&"paint", p + Vector3(0.012, 0.03, 0.22), Vector3(0.008, 0.07, 0.09), red)
+	_add(moving, flag)
 
 
 # --- Coop kit --------------------------------------------------------------------------------

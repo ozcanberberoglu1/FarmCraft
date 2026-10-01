@@ -45,6 +45,10 @@ const HOUSE_SIZES := [Vector2(9, 7), Vector2(12, 8), Vector2(15, 9.5)]
 
 const POND_CENTER := Vector2(-44, -4)
 const POND_RADIUS := 11.0
+## Yeşilova's pond on the meadow behind the filling station (the fishing contest's water,
+## FishingContest; its pier and board: ContestVenue).
+const TOWN_POND_CENTER := Vector2(214, 63)
+const TOWN_POND_RADIUS := 9.0
 
 const PLAYER_SPAWN := Vector3(-14, 0.2, -9)
 ## Farm warehouse (produce storage), its big door faces south onto the yard.
@@ -171,8 +175,11 @@ static func map_rect() -> Rect2:
 	return Rect2(MAP_MIN_X, MAP_MIN_Z, MAP_W, MAP_D)
 
 
+## Distance to the farm pond's centre, or to the town pond's as if it were as large as
+## the farm pond (so `< POND_RADIUS + margin` keeps clear of either's water).
 static func distance_to_pond(x: float, z: float) -> float:
-	return Vector2(x, z).distance_to(POND_CENTER)
+	return minf(Vector2(x, z).distance_to(POND_CENTER),
+			Vector2(x, z).distance_to(TOWN_POND_CENTER) + POND_RADIUS - TOWN_POND_RADIUS)
 
 
 static func house_rect(level: int) -> Rect2:

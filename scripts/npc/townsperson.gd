@@ -11,7 +11,9 @@ extends AnimatableBody3D
 ## over the zebra crossing when the street is clear, round the player, vehicles and
 ## each other; turning back when the way stays blocked), PET (down on one knee by a dog,
 ## stroking its back, the other hand on her knee) and DOORWAY (standing in an open
-## doorway, a hand on the door's edge).
+## doorway, a hand on the door's edge), FISH (at the water with a rod, the float out at
+## fish_spot; show_catch() lands a fish and holds it up) and CLAP (applauding; clap()
+## claps for a while in any act).
 ##
 ## Scripted by the story (Zeynep): walk_to() walks a path and calls back, receive()
 ## takes a thing in both hands and holds it (drop_held() lets it go), talk() gestures
@@ -23,7 +25,7 @@ extends AnimatableBody3D
 ## own. Workers also welcome the player when he walks up. Animated only within
 ## ANIMATE_RANGE of the camera (less often off screen), drawn up to SHOW_RANGE.
 
-enum Act { STAND, TALK, TILL, WIPE, WRITE, SWEEP, BENCH, TEA, WALK, PET, DOORWAY }
+enum Act { STAND, TALK, TILL, WIPE, WRITE, SWEEP, BENCH, TEA, WALK, PET, DOORWAY, FISH, CLAP }
 
 const GROUP := &"townspeople"
 const ANIMATE_RANGE := 60.0
@@ -165,6 +167,23 @@ var _door_last := Vector3(0.3, 1.0, 0.0)
 ## talk(): seconds since the line began.
 var _talk_el := 0.0
 
+## FISH: where the float sits on the water (world), the rod (a FishModels rod id).
+var fish_spot := Vector3.INF
+var rod_model := &"cane_rod"
+## A catch shown (show_catch): this long from the strike to the fish put away (seconds).
+const CATCH_SHOW := 5.2
+var _rod: Node3D
+var _bob: MeshInstance3D
+var _fline: FishingLine
+var _rod_tip := Vector3.ZERO
+var _rod_lift := 0.0
+var _catch_t := -1.0
+var _catch_mi: MeshInstance3D
+var _catch_len := 0.3
+var _nibble_t := 0.0
+## clap(): seconds of applause left.
+var _clap_t := 0.0
+
 
 func setup(model: StringName, tints: Dictionary = {}) -> void:
 	rig = HumanRig.create(model, tints)
@@ -256,7 +275,11 @@ func _ground(x: float, z: float, near_y: float) -> float:
 # --- Interaction -----------------------------------------------------------------------------
 
 func interact_title() -> String:
-	return tr("PERSON_" + String(person).to_upper())
+	var title := tr("PERSON_" + String(person).to_upper())
+	# Befriended by greetings (Relations): his hearts once there are some points.
+	if Relations.TOWN_GIFTS.has(person) and Relations.points_of(person) > 0:
+		return "%s  %s" % [title, Relations.hearts_text(person)]
+	return title
 
 
 func interact_prompt(player: Node) -> String:
@@ -268,9 +291,23 @@ func interact_prompt(player: Node) -> String:
 
 func interact(player: Node) -> void:
 	greet()
+	befriend()
 	var s := service_now()
 	if s != null:
 		s.interact(player)
+
+
+## The player's greeting counts toward the friendship with him (Relations.greet: once a
+## day); on a greeting after a new heart he gives a small gift: his line in the bubble, a
+## note, the things into the bag (a full bag: at the player's feet).
+func befriend() -> void:
+	var gift := Relations.greet(person)
+	if gift.is_empty():
+		return
+	say(tr("GIFT_SAY_%s" % String(person).to_upper()))
+	Relations.hand_gift(gift)
+	Game.notify(tr("MSG_TOWN_GIFT") % [tr("PERSON_" + String(person).to_upper()), Relations.gift_text(gift)], Relations.NOTE_COLOR)
+	Audio.ui("confirm", -6.0)
 
 
 ## The service E on this person opens now: his counter or desk, or the pump the
@@ -445,6 +482,9 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	_stop_t = maxf(_stop_t - delta, 0.0)
+	_clap_t = maxf(_clap_t - delta, 0.0)
+	if act == Act.FISH:
+		_fish_tick(delta)
 	if not _path.is_empty():
 		_walk_path(delta)
 	elif act == Act.WALK:
@@ -795,6 +835,12 @@ func _arms(delta: float, greeting: bool) -> void:
 				rig.relaxed_arms()
 		Act.PET, Act.DOORWAY:
 			rig.relaxed_arms()
+		Act.FISH:
+			_arms_fish(delta)
+		Act.CLAP:
+			_arms_clap()
+	if _clap_t > 0.0 and act != Act.FISH:
+		_arms_clap()
 	# Zeynep's: the hands to the dog, the door, the words, what she is given.
 	if _kneel > 0.0:
 		_arms_pet()
@@ -857,6 +903,8 @@ func _busy() -> bool:
 			return _wiping()
 		Act.SWEEP:
 			return _speed < 0.05
+		Act.FISH:
+			return _catch_t < 0.0 or _catch_t > 1.0
 	return false
 
 
@@ -868,6 +916,10 @@ func _work_point() -> Vector3:
 			return Vector3(-0.05, work_height, 0.42)
 		Act.WIPE:
 			return Vector3(-0.05, 1.2, 0.45)
+		Act.FISH:
+			if _catch_t > 1.4 and _catch_mi and _catch_mi.visible:
+				return to_local(_catch_mi.global_position)
+			return to_local(fish_spot) if fish_spot.is_finite() else rig.eye_point() + Vector3(0, -0.8, 4.0)
 	return rig.eye_point() + Vector3(0, -0.5, 2.0)
 
 
@@ -1375,3 +1427,195 @@ static func _tea_glass() -> Node3D:
 	var n := Node3D.new()
 	n.add_child(mi)
 	return n
+
+
+# --- The fishing contest: a rod at the water, applause ---------------------------------------
+
+## Stands here (world; the height follows the ground) facing `yaw`, at once.
+func place_at(at: Vector3, yaw: float) -> void:
+	stop_walk()
+	global_position = at
+	rotation.y = yaw
+	_yaw = yaw
+	if is_inside_tree():
+		_floor_y = _ground(at.x, at.z, at.y)
+		global_position.y = _floor_y
+	reset_physics_interpolation()
+
+
+## Fishes with rod `rod` (a FishModels rod id), the float out at `spot` (world, on the
+## water); his own things (a broom, a glass) are put away meanwhile.
+func start_fishing(spot: Vector3, rod := &"cane_rod") -> void:
+	fish_spot = Vector3(spot.x, WorldLayout.WATER_LEVEL, spot.z)
+	rod_model = rod
+	act = Act.FISH
+	_catch_t = -1.0
+	_rod_lift = 0.0
+	show_own_props(false)
+	if _rod == null:
+		_rod = Node3D.new()
+		_rod.name = "Rod"
+		var mi := MeshInstance3D.new()
+		mi.mesh = FishModels.real_mesh(rod)
+		mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		mi.visibility_range_end = 60.0
+		_rod.add_child(mi)
+		rig.add_child(_rod)
+		_bob = MeshInstance3D.new()
+		_bob.mesh = FishModels.real_mesh(&"fishing_float")
+		_bob.top_level = true
+		_bob.visibility_range_end = 45.0
+		_bob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_bob)
+		_fline = FishingLine.new()
+		add_child(_fline)
+		_catch_mi = MeshInstance3D.new()
+		_catch_mi.top_level = true
+		_catch_mi.visible = false
+		_catch_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		add_child(_catch_mi)
+	_bob.global_position = fish_spot
+	_bob.visible = true
+
+
+## Puts the rod away (and anything he was showing); he stands.
+func stop_fishing() -> void:
+	for n: Node in [_rod, _bob, _fline, _catch_mi]:
+		if n != null and is_instance_valid(n):
+			n.queue_free()
+	_rod = null
+	_bob = null
+	_fline = null
+	_catch_mi = null
+	_catch_t = -1.0
+	fish_spot = Vector3.INF
+	if act == Act.FISH:
+		act = Act.STAND
+	show_own_props(true)
+
+
+## His broom or tea glass shown (false: put away while he is at the contest).
+func show_own_props(on: bool) -> void:
+	if _prop:
+		_prop.visible = on
+
+
+## FISH: a fish (FishTable.catch_of) bites and comes out: the rod swept up, the fish
+## swinging in on the line, held up in his left hand for a moment, then into his keepnet.
+func show_catch(catch: Dictionary) -> void:
+	if act != Act.FISH or _catch_mi == null:
+		return
+	var species := StringName(catch.get("species", catch.get("id", &"fish_crucian")))
+	var mesh := FishModels.real_mesh(species)
+	_catch_mi.mesh = mesh
+	var sc := float(catch.get("scale", 1.0))
+	if FishTable.is_trophy(StringName(catch.get("id", &""))):
+		sc *= FishTable.TROPHY_SIZE
+	_catch_mi.scale = Vector3.ONE * sc
+	_catch_len = mesh.get_aabb().size.x * sc
+	_catch_t = 0.0
+	var near := _camera_pos().distance_to(global_position) < 30.0
+	if near:
+		FishingAudio.play("splash", fish_spot, -6.0)
+		PondFx.ring(fish_spot, 1.2, 2.0, 1.4)
+		PondFx.drops(fish_spot, 18, 1.8, 0.1, 0.006)
+	say(FloppingFish.weight_text(float(catch.get("kg", 0.5))) + "!")
+
+
+func is_showing_catch() -> bool:
+	return _catch_t >= 0.0
+
+
+## Claps for `seconds` (whatever he is doing; a fisherman keeps his rod).
+func clap(seconds: float) -> void:
+	_clap_t = maxf(_clap_t, seconds)
+
+
+func is_clapping() -> bool:
+	return _clap_t > 0.0 or act == Act.CLAP
+
+
+## FISH, every physics frame: the float bobbing (a nibble now and then), the catch's
+## timeline, the line from the tip.
+func _fish_tick(delta: float) -> void:
+	if _bob == null:
+		return
+	_nibble_t -= delta
+	if _nibble_t < -randf_range(6.0, 20.0):
+		_nibble_t = 0.5
+	var dip := maxf(_nibble_t, 0.0) * 0.06 * sin(_nibble_t * 30.0)
+	var bob := fish_spot + Vector3(0.0, sin(_clock * 1.7 + rig.seed_phase) * 0.004 - absf(dip), 0.0)
+	if _catch_t >= 0.0:
+		_catch_t += delta
+		if _catch_t >= CATCH_SHOW:
+			_catch_t = -1.0
+			_catch_mi.visible = false
+	var lift := 0.0
+	if _catch_t >= 0.0:
+		lift = smoothstep(0.0, 0.5, _catch_t) * (1.0 - smoothstep(CATCH_SHOW - 0.9, CATCH_SHOW, _catch_t))
+	_rod_lift = lift
+	var tip := rig.to_global(_rod_tip) if _rod and _rod_tip != Vector3.ZERO else global_position + Vector3(0, 2, 0)
+	var on_line := Vector3.INF
+	if _catch_t >= 0.0 and _catch_t < 1.5:
+		# Out of the water and swinging in on the line under the raised tip.
+		var u := smoothstep(0.15, 1.5, _catch_t)
+		var hang := tip + Vector3(0.0, -0.55 - _catch_len * 0.5, 0.0)
+		on_line = fish_spot.lerp(hang, u) + Vector3(0.0, sin(u * PI) * 0.8, 0.0)
+		_catch_mi.visible = true
+		_catch_mi.global_transform = Transform3D(Basis(Vector3.FORWARD, PI * 0.5 + sin(_clock * 18.0) * 0.4)
+				.rotated(Vector3.UP, rotation.y + PI * 0.5).scaled(_catch_mi.scale), on_line)
+		bob = on_line + Vector3(0.0, _catch_len * 0.5, 0.0)
+	elif _catch_t >= 1.5:
+		# Held up in his left hand, side on to whoever watches, wriggling now and then.
+		var hand := rig.to_global(rig.grip_point("_l"))
+		var wig := sin(_clock * 11.0) * 0.12 * maxf(0.0, sin(_clock * 0.9))
+		var b := Basis(Vector3.UP, rotation.y + PI * 0.5 + wig).scaled(_catch_mi.scale)
+		_catch_mi.global_transform = Transform3D(b, hand + Vector3(0.0, -0.02, 0.0))
+		_catch_mi.visible = _catch_t < CATCH_SHOW - 0.6
+		bob = tip + Vector3(0.0, -0.5, 0.0)
+	_bob.global_position = bob
+	_bob.visible = true
+	if _fline and _camera_pos().distance_to(global_position) < 35.0:
+		_fline.visible = true
+		var slack := 0.25 if _catch_t < 0.0 else 0.02
+		_fline.draw_line(tip, bob + Vector3(0.0, 0.06, 0.0), slack * tip.distance_to(bob) * 0.2,
+				WorldLayout.WATER_LEVEL if _catch_t < 0.0 else NAN)
+	elif _fline:
+		_fline.visible = false
+
+
+## FISH: the rod in both hands out over the water (raised for a catch, the left hand then
+## off it holding the fish up).
+func _arms_fish(_delta: float) -> void:
+	if _rod == null:
+		rig.relaxed_arms()
+		return
+	var y0 := rig.pelvis_y
+	var axis := Vector3(0.05, 0.42, 1.0).normalized().slerp(Vector3(0.0, 1.6, 0.45).normalized(), _rod_lift)
+	# The rod sways a little with the breeze and his patience.
+	axis = axis.rotated(Vector3.UP, rig.wobble(0.25, 2.0) * 0.06).normalized()
+	var grip_r := Vector3(-0.12, y0 + 0.16 + _rod_lift * 0.12, 0.3)
+	rig.hold("_r", grip_r, axis, Vector3(0.2, -1.0, 0.2), _pole("_r"), 0.85)
+	if _catch_t > 1.2:
+		# The fish held up before him in the left hand, the right keeping the rod up.
+		var show := Vector3(0.2, y0 + 0.5, 0.42)
+		rig.hold("_l", show, Vector3(0.0, 1.0, 0.0), Vector3(-0.3, 0.0, 1.0), _pole("_l"), 0.7)
+	else:
+		rig.hold("_l", grip_r + axis * 0.42, axis, Vector3(-0.2, -1.0, 0.2), _pole("_l"), 0.8)
+	var grip := rig.grip_point("_r")
+	var x := axis.cross(Vector3.UP).normalized()
+	_rod.transform = Transform3D(Basis(x, axis, x.cross(axis)), grip - axis * 0.05)
+	_rod_tip = grip - axis * 0.05 + axis * FishModels.rod_tip(rod_model).y
+
+
+## Applause: the hands meeting before the chest, three claps or so a second.
+func _arms_clap() -> void:
+	var y := rig.pos_rest("spine_03").y + 0.08
+	var c := Vector3(0.0, y, 0.3)
+	var gap := 0.015 + 0.075 * absf(sin((rig.time + rig.seed_phase) * PI * 3.1))
+	rig.reach("_l", c + Vector3(gap, 0.0, 0.0), _pole("_l"))
+	rig.orient_hand("_l", Vector3(-0.2, 0.7, 1.0), Vector3(-1.0, 0.0, 0.1))
+	rig.curl("_l", 0.15, 0.2)
+	rig.reach("_r", c + Vector3(-gap, 0.01, 0.0), _pole("_r"))
+	rig.orient_hand("_r", Vector3(0.2, 0.7, 1.0), Vector3(1.0, 0.0, 0.1))
+	rig.curl("_r", 0.15, 0.2)

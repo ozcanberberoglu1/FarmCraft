@@ -25,6 +25,10 @@ var coals := 0.0
 var smoke := 0.0
 ## White steam instead of smoke (a doused fire).
 var steaming := false
+## How tall the flames grow (a grill's charcoal only licks: spread()) and how high the
+## light hangs over the bed (m).
+var flame_size := 1.0
+var light_height := 0.8
 
 var _heat := 0.0
 var _coals := 0.0
@@ -207,8 +211,8 @@ func _update(delta: float) -> void:
 	_flames.emitting = flames
 	_core.emitting = flames
 	if flames:
-		_flames.scale_amount_min = 0.3 * lerpf(0.45, 1.0, _heat)
-		_flames.scale_amount_max = 0.52 * lerpf(0.45, 1.0, _heat)
+		_flames.scale_amount_min = 0.3 * lerpf(0.45, 1.0, _heat) * flame_size
+		_flames.scale_amount_max = 0.52 * lerpf(0.45, 1.0, _heat) * flame_size
 		_flames.initial_velocity_max = lerpf(0.3, 0.6, _heat)
 	_flames.set_instance_shader_parameter("heat", clampf(_heat * 1.3, 0.0, 1.0))
 	_core.set_instance_shader_parameter("heat", clampf(maxf(_heat, _coals * 0.25), 0.0, 1.0))
@@ -230,7 +234,7 @@ func _update(delta: float) -> void:
 	_light.visible = energy > 0.01
 	_light.omni_range = LIGHT_RANGE * lerpf(0.55, 1.0, clampf(_heat + _coals * 0.2, 0.0, 1.0))
 	# Up in the flames' tips, so the bed right under them isn't burnt white.
-	_light.position = Vector3(sin(_t * 5.1) * 0.03, 0.8 + sin(_t * 7.7) * 0.03 * _heat, cos(_t * 4.3) * 0.03)
+	_light.position = Vector3(sin(_t * 5.1) * 0.03, light_height + sin(_t * 7.7) * 0.03 * _heat, cos(_t * 4.3) * 0.03)
 	# Crackling, louder the hotter; embers only tick.
 	var level := clampf(_heat + _coals * 0.2, 0.0, 1.0)
 	_crackle.volume_db = linear_to_db(maxf(level, 0.0001)) - 3.0
@@ -262,6 +266,28 @@ func _claim_shadow(dist: float) -> void:
 	var want := Settings.quality >= Settings.Quality.HIGH and _owns_shadow()
 	if _light.shadow_enabled != want:
 		_light.shadow_enabled = want
+
+
+## A wide, low fire (a grill's bed of charcoal, `half` its half extents in metres):
+## the flames, the glow, sparks and smoke come up all over it, the flames `size` times
+## as tall as a campfire's. Called once, after it is in the tree.
+func spread(half: Vector2, size: float) -> void:
+	flame_size = size
+	# Charcoal shows few flames: about as many as a campfire's, spread thin.
+	_flames.emission_box_extents = Vector3(half.x, 0.015, half.y)
+	_flames.position.y = 0.02
+	_core.emission_box_extents = Vector3(half.x * 0.9, 0.01, half.y * 0.9)
+	_core.scale_amount_min *= size * 1.2
+	_core.scale_amount_max *= size * 1.2
+	_sparks.amount = maxi(roundi(_sparks.amount * 0.5), 2)
+	_sparks.emission_box_extents = Vector3(half.x, 0.04, half.y)
+	_sparks.position.y = 0.12
+	_pops.emission_box_extents = Vector3(half.x * 0.8, 0.03, half.y * 0.8)
+	_pops.position.y = 0.08
+	_smoke_p.emission_box_extents = Vector3(half.x * 0.8, 0.02, half.y * 0.8)
+	_smoke_p.position.y = 0.3
+	_steam.emission_box_extents = Vector3(half.x, 0.05, half.y)
+	light_height = 0.45
 
 
 ## A log popping: a burst of embers and a crack.

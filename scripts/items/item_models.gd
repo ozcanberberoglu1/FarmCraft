@@ -26,6 +26,7 @@ const ICON_ROTATION := {
 	&"milk_pail": Vector3(15, 20, 0), &"shears": Vector3(0, 0, -30), &"brush": Vector3(22, -32, 0),
 	&"wheat": Vector3(0, 0, -25), &"carrot": Vector3(0, 0, -50), &"corn": Vector3(0, 0, -45),
 	&"eggplant": Vector3(0, 0, -40), &"wood": Vector3(15, 30, 0), &"hay": Vector3(0, 0, -30),
+	&"hay_big": Vector3(18, 40, 0),
 	&"cheese": Vector3(22, -35, 0), &"truck_key": Vector3(64, 0, -30), &"chicken_crate": Vector3(16, -34, 0), &"rooster_crate": Vector3(16, -34, 0),
 	&"knife": Vector3(0, 0, -45), &"bow": Vector3(40, 90, 0), &"fishing_rod": Vector3(12, 150, -38),
 	&"rope": Vector3(28, 20, 0), &"nails": Vector3(18, 25, 0), &"worm": Vector3(32, 20, 0), &"dough": Vector3(30, 20, 0),
@@ -128,9 +129,11 @@ static func procedural(id: StringName) -> ArrayMesh:
 		&"fertilizer": _sack(mb, Color(0.22, 0.44, 0.27), Color(0.95, 0.95, 0.9), &"veg_gloss", false)
 		&"manure": _sack(mb, Color(0.6, 0.5, 0.36), Color(0.0, 0.0, 0.0, 0.0), &"cloth", true)
 		&"truck_key": _truck_key(mb)
+		&"flower_bouquet": _bouquet(mb)
 		&"dog_food":
 			_dog_food(mb)
 			overrides[&"print"] = _print_material("dog_food_print")
+		&"dog_ball": _dog_ball(mb)
 		&"chicken_crate", &"rooster_crate":
 			var rng := RandomNumberGenerator.new()
 			rng.seed = 5
@@ -886,6 +889,14 @@ static func _sack(mb: MeshBuilder, color: Color, band: Color, mat: StringName, o
 ## on its broad foot, narrowing to a crimped heat seal at the top, printed front and back
 ## (art/textures/items/dog_food_print.png, tools/make_item_prints.py: the front on the
 ## left half, the back on the right), plain red on the gussets.
+## A dog's rubber ball, 7 cm: glossy red with a cream band round it, a little scuffed.
+static func _dog_ball(mb: MeshBuilder) -> void:
+	var r := 0.034
+	mb.sphere(&"veg_gloss", Transform3D.IDENTITY, Vector3(r, r, r), 22, 14, Color(0.72, 0.1, 0.07))
+	mb.ring(&"veg_gloss", Transform3D(Basis(Vector3.FORWARD, 0.35), Vector3(0, -0.0045, 0).rotated(Vector3.FORWARD, 0.35)),
+			r + 0.0006, r - 0.004, 0.009, 22, Color(0.9, 0.86, 0.76))
+
+
 static func _dog_food(mb: MeshBuilder) -> void:
 	var w := 0.22
 	var h := 0.3
@@ -913,6 +924,35 @@ static func _dog_food(mb: MeshBuilder) -> void:
 
 
 ## The printed face of a packaged item (art/textures/items/<file>.png).
+## A bunch of field flowers (daisies, poppies, cornflowers, buttercups) in a cone of kraft
+## paper tied with a red ribbon, standing on its narrow end.
+static func _bouquet(mb: MeshBuilder) -> void:
+	var paper := Color(0.72, 0.58, 0.4)
+	mb.cylinder(&"paper", Transform3D.IDENTITY, 0.022, 0.085, 0.24, 18, paper, true, false)
+	mb.cylinder(&"paper", Transform3D(Basis(), Vector3(0, 0.002, 0)), 0.02, 0.08, 0.232, 18, paper.darkened(0.12), true, false)
+	mb.ring(&"cloth", Transform3D(Basis(), Vector3(0, 0.07, 0)), 0.042, 0.038, 0.018, 18, Color(0.72, 0.1, 0.1))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 41
+	var looks: Array[Color] = [Color(0.95, 0.94, 0.9), Color(0.82, 0.12, 0.08), Color(0.3, 0.4, 0.85),
+		Color(0.96, 0.8, 0.2), Color(0.95, 0.94, 0.9), Color(0.8, 0.45, 0.75)]
+	for i in 16:
+		var a := rng.randf() * TAU
+		var r := sqrt(rng.randf()) * 0.07
+		var top := Vector3(cos(a) * r, rng.randf_range(0.27, 0.34), sin(a) * r)
+		mb.cylinder_between(&"veg", Vector3(top.x * 0.2, 0.04, top.z * 0.2), top, 0.0025, 0.002, 5, LEAF_GREEN, true, false)
+		var col: Color = looks[i % looks.size()]
+		var tilt := Basis.from_euler(Vector3(rng.randf_range(-0.5, 0.5), rng.randf() * TAU, rng.randf_range(-0.5, 0.5)))
+		# A flat open blossom with a darker heart.
+		mb.sphere(&"veg", Transform3D(tilt, top), Vector3(0.019, 0.007, 0.019), 10, 5, col)
+		mb.sphere(&"veg", Transform3D(tilt, top + tilt.y * 0.005), Vector3(0.006, 0.004, 0.006), 8, 4,
+				Color(0.95, 0.75, 0.15) if col.b < 0.5 or col.r > 0.9 else Color(0.15, 0.12, 0.1))
+	for i in 7:
+		var a := TAU * i / 7.0 + rng.randf() * 0.4
+		var base := Vector3(cos(a) * 0.03, 0.2, sin(a) * 0.03)
+		mb.leaf(&"veg", base, Vector3(cos(a) * 0.5, 1.0, sin(a) * 0.5), Vector3(cos(a), 0, sin(a)), 0.11, 0.022,
+				LEAF_GREEN, LEAF_GREEN.lightened(0.15), 0.3, true)
+
+
 static func _print_material(file: String) -> Material:
 	var m := StandardMaterial3D.new()
 	var path := "res://art/textures/items/%s.png" % file

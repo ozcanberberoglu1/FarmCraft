@@ -16,6 +16,8 @@ const LIST := {
 	&"first_egg": {"item": &"egg", "xp": 5},
 	&"first_sale": {"icon": "tag", "xp": 5},
 	&"first_night": {"icon": "moon", "xp": 5},
+	# The fishing contest won (FishingContest).
+	&"best_angler": {"item": &"fish_carp", "xp": 20},
 }
 ## The order they come in on the first day (for a list of them).
 const ORDER: Array[StringName] = [&"first_harvest", &"first_building", &"first_chickens",

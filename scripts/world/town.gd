@@ -257,6 +257,8 @@ func _ready() -> void:
 	_spawn_farm_truck()
 	# The townspeople (scripts/npc): at the counters, the pumps, the dealer's, on the pavements.
 	add_child(TownPeople.new())
+	# The fishing contest's pond, pier and board (FishingContest), and its crowd.
+	add_child(ContestVenue.new())
 	# Carnival nights (Carnival): the town's dressing, built only on those evenings.
 	add_child(TownCarnival.new())
 	Settings.changed.connect(_apply_quality)

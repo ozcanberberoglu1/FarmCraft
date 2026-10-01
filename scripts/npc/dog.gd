@@ -58,6 +58,9 @@ var petted_toward := Vector3.INF
 var rig: DogRig
 ## How many times it has barked.
 var barks := 0
+## The body's size against the model's (a puppy is smaller, PetDog): the gait is worked
+## out at the model's own size (speed / gait_scale), so the paws never slide.
+var gait_scale := 1.0
 
 var _body: AnimatableBody3D
 var _shape: CollisionShape3D
@@ -199,7 +202,7 @@ func _process(delta: float) -> void:
 		return
 	_mood()
 	var t0 := Time.get_ticks_usec()
-	rig.animate(_anim_acc, _speed)
+	rig.animate(_anim_acc, _speed / gait_scale)
 	anim_usec += Time.get_ticks_usec() - t0
 	_anim_acc = 0.0
 
@@ -353,7 +356,7 @@ func _roam(delta: float) -> void:
 				else:
 					_next_act()
 				return
-			_head_to(_goal, SNIFF if sniff else WALK, delta)
+			_head_to(_goal, (SNIFF if sniff else WALK) * gait_scale, delta)
 			if _blocked():
 				_goal = _pick_spot(2.5)
 		_:
@@ -414,7 +417,7 @@ func _eat(delta: float) -> void:
 		var spot := _eat_spot()
 		var d := _flat(spot - global_position).length()
 		if d > 0.06 and _mode_t < 25.0:
-			_head_to(spot, WALK if d > 0.4 else 0.35, delta)
+			_head_to(spot, (WALK if d > 0.4 else 0.35) * gait_scale, delta)
 			return
 		_want_speed = 0.0
 		_turn_to(target, delta)
@@ -461,7 +464,7 @@ func _greet(delta: float) -> void:
 		spot.z = clampf(spot.z, area.position.y, area.end.y)
 	var d := _flat(spot - global_position).length()
 	if d > 0.25 and not _arrived:
-		_head_to(Vector3(spot.x, global_position.y, spot.z), TROT if d > 2.0 else WALK, delta)
+		_head_to(Vector3(spot.x, global_position.y, spot.z), (TROT if d > 2.0 else WALK) * gait_scale, delta)
 		if _speed < 0.05 and _mode_t > 1.5 and _blocked():
 			_arrived = true
 		return

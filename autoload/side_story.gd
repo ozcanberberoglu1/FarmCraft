@@ -14,11 +14,21 @@ extends Node
 ## meeting (day 7 at the earliest) a welcome gift for Karamel, a bag of dog food from
 ## the town market brought to her door (knocked on: she stays indoors until she has it,
 ## and the rest of that day; her garden days start after it); then, every 2 to 4 days
-## after the last delivery, another bag because Karamel's food has run out (to her door
-## or to her in the garden). Each delivery is one more heart, and her lines grow warmer
-## with them, up to the tenth heart (no errands after that). A friendly chat once a day
-## adds a little. Knocking with nothing to bring: she opens and has a word (not again
-## within the hour); at night (22:00 to 07:00) nobody answers.
+## after the last delivery, another favour in turn (ERRAND_TURN): a bottle of milk (the
+## farm's own, or the market's), a bunch of flowers from the market, a bag of dog food
+## because Karamel's has run out, eggs from his hens (only once he has some), a grilled
+## fish (to her door or to her in the garden). Each delivery is one more heart, and her
+## lines grow warmer with them, up to the tenth heart (no errands after that). A friendly
+## chat once a day adds a little. Knocking with nothing to bring: she opens and has a
+## word (not again within the hour); at night (22:00 to 07:00) nobody answers.
+##
+## At PUPPY_LEVEL hearts she calls him over (a note, the next morning's errand): Karamel
+## has a pup, just weaned, and she wants him to have it; at her place a short talk and
+## the pup is his (Pet.adopt, when the pet system is there). Her letters (Mail, once
+## there is a mailbox): two days later "how's the little one?", and at INVITE_LEVEL an
+## invitation for the next day; once read, a visit to her is an errand of its own.
+##
+## Her goals can wait, so they are quiet on the HUD (a compact card, a smaller dot).
 ##
 ## ZeynepHome (scripts/npc/zeynep.gd) plays all of it in the world; this keeps what is
 ## saved, which goal is up, where its dot points and what everyone says. Automated runs
@@ -48,6 +58,23 @@ const ERRAND_MINUTE := 7 * 60
 const ERRAND_GAP := Vector2i(2, 4)
 ## Ways of asking for the next bag (SIDE_GOAL_FOOD_1..n).
 const ERRAND_VARIANTS := 3
+## The favours after the welcome gift, in turn (one not possible now is passed over: eggs
+## need hens of his own, or eggs in the bag).
+const ERRAND_TURN: Array[String] = ["milk", "flowers", "food", "eggs", "fish", "food"]
+## What each errand asks for: kind -> [item id (&"" for any grilled fish), how many].
+## Errands not here (a visit, Karamel's pup) ask for nothing to be brought.
+const ERRAND_ITEMS := {
+	"gift": [&"dog_food", 1], "food": [&"dog_food", 1], "milk": [&"milk", 1],
+	"flowers": [&"flower_bouquet", 1], "eggs": [&"egg", 3], "fish": [&"", 1],
+}
+## Errands she fills Karamel's bowl after.
+const FEEDS_KARAMEL: Array[String] = ["gift", "food"]
+## At this many hearts she calls him over for Karamel's pup; at INVITE_LEVEL (after the
+## pup) she writes to invite him over.
+const PUPPY_LEVEL := 4
+const INVITE_LEVEL := 6
+## Days after the pup her letter asking after it comes.
+const PUPPY_LETTER_DAYS := 2
 ## Before they have met she is out in her garden from GARDEN_FROM to GARDEN_TO.
 const GARDEN_FROM := 7 * 60
 const GARDEN_TO := 20 * 60
@@ -81,8 +108,18 @@ var deliveries := 0
 var gift_day := 0
 var announced := false
 var chat_day := 0
+## Saved: the next favour in ERRAND_TURN; the day Karamel's pup became his (0: not yet);
+## her letters sent (the pup's, the invitation); the day of the visit she invited him for
+## (0: none).
+var turn := 0
+var puppy_day := 0
+var puppy_letter := false
+var invite_sent := false
+var visit_day := 0
 ## Set by the zeynep scenario: she comes in this automated run.
 var testing := false
+## Set by tests: the next errand is of this kind.
+var test_kind := ""
 ## The other side goals up now, besides Zeynep's (in the order their cards show).
 var goals: Array[SideGoal] = []
 
@@ -101,6 +138,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	Events.day_started.connect(func(_d: int) -> void: _poll = 0.0)
 	PlayerState.inventory.changed.connect(func() -> void: _poll = 0.0)
+	Mail.opened.connect(_on_letter_opened)
 
 
 ## She is in this run (always in play; automated runs only when asked).
@@ -145,11 +183,57 @@ func outside_now() -> bool:
 	return (m >= MORNING.x and m < MORNING.y) or (m >= EVENING.x and m < EVENING.y)
 
 
+## The errand up now ("" for none): "gift", "food", "milk", "flowers", "eggs", "fish",
+## "visit" or "puppy".
+func errand_kind() -> String:
+	return String(errand.get("kind", "")) if not errand.is_empty() else ""
+
+
+## The errand up now asks for something to be brought.
+func errand_needs_item() -> bool:
+	return ERRAND_ITEMS.has(errand_kind())
+
+
+## How many of errand_item() she asked for.
+func errand_count() -> int:
+	return int((ERRAND_ITEMS.get(errand_kind(), [&"", 1]) as Array)[1])
+
+
+## The item to hand her for the errand up now (the grilled fish the player has, for "fish";
+## &"" when there is none or nothing is asked for).
+func errand_item() -> StringName:
+	var kind := errand_kind()
+	if not ERRAND_ITEMS.has(kind):
+		return &""
+	var id: StringName = ERRAND_ITEMS[kind][0]
+	if id != &"":
+		return id
+	for f: StringName in cooked_fish():
+		if PlayerState.inventory.count_item(f) > 0:
+			return f
+	return &""
+
+
+## Every grilled fish there is (whole or cleaned).
+static func cooked_fish() -> Array[StringName]:
+	var out: Array[StringName] = []
+	for id: StringName in ItemTable.ITEMS:
+		var s := String(id)
+		if s.begins_with("fish_") and s.ends_with("_cooked"):
+			out.append(id)
+	return out
+
+
+## What the errand up now asks for is in the bag (always, for one that asks for nothing).
 func has_food() -> bool:
-	return PlayerState.inventory.count_item(ITEM) > 0
+	if not errand_needs_item():
+		return true
+	var id := errand_item()
+	return id != &"" and PlayerState.inventory.count_item(id) >= errand_count()
 
 
-## What she asks for can be handed over now: an errand is up and a bag is in the bag.
+## What she asks for can be handed over now: an errand is up and what it asks for is in
+## the bag (a visit, the pup: she is there).
 func can_deliver() -> bool:
 	return met and not errand.is_empty() and has_food()
 
@@ -166,8 +250,8 @@ func note_knock() -> void:
 
 # --- The goal ----------------------------------------------------------------------------------
 
-## The side goal up now: "" (none), "meet", "gift_buy", "gift_bring", "food_buy",
-## "food_bring".
+## The side goal up now: "" (none), "meet", "<kind>_buy" / "<kind>_bring" for an errand
+## asking for something ("gift_buy", "food_bring", "milk_buy"...), "visit", "puppy".
 func goal() -> String:
 	if not moved_in():
 		return ""
@@ -175,7 +259,9 @@ func goal() -> String:
 		return "meet"
 	if errand.is_empty():
 		return ""
-	return "%s_%s" % [String(errand.get("kind", "food")), "bring" if has_food() else "buy"]
+	if not errand_needs_item():
+		return errand_kind()
+	return "%s_%s" % [errand_kind(), "bring" if has_food() else "buy"]
 
 
 func goal_text() -> String:
@@ -214,6 +300,7 @@ func _process(delta: float) -> void:
 	if _poll <= 0.0:
 		_poll = 0.5
 		_post_errand()
+		_post_letters()
 		var g := goal()
 		if g != _goal:
 			_goal = g
@@ -231,19 +318,83 @@ func _process(delta: float) -> void:
 			changed.emit()
 
 
-## The day's errand comes up at ERRAND_MINUTE once its day has come.
+## The day's errand comes up at ERRAND_MINUTE once its day has come: the welcome gift
+## first, Karamel's pup at PUPPY_LEVEL hearts, a visit she invited him for, else the next
+## favour in turn.
 func _post_errand() -> void:
-	if not met or not errand.is_empty() or Relations.is_max(WHO) or not moved_in():
+	if not met or not errand.is_empty() or not moved_in():
 		return
-	if GameClock.day < next_errand_day or (GameClock.day == next_errand_day and day_minute() < ERRAND_MINUTE):
+	var kind := ""
+	if visit_day > 0 and _day_come(visit_day):
+		kind = "visit"
+	elif not _day_come(next_errand_day):
 		return
-	var kind := "gift" if deliveries == 0 else "food"
+	elif deliveries == 0:
+		kind = "gift"
+	elif test_kind != "":
+		kind = test_kind
+	elif puppy_day == 0 and Relations.level(WHO) >= PUPPY_LEVEL:
+		kind = "puppy"
+	elif Relations.is_max(WHO):
+		return
+	else:
+		kind = _next_kind()
 	errand = {"kind": kind, "day": GameClock.day, "variant": randi() % ERRAND_VARIANTS}
 	if not DebugTools.is_automated() or testing:
-		Game.notify(tr("MSG_SIDE_NEW") % goal_text(), ROSE)
+		if kind == "puppy":
+			Game.notify(tr("MSG_ZEYNEP_PUPPY_CALL"), ROSE)
+		else:
+			Game.notify(tr("MSG_SIDE_NEW") % goal_text(), ROSE)
 		Audio.ui("notify", -6.0)
 	_goal = goal()
 	changed.emit()
+
+
+## `day` has come, from ERRAND_MINUTE.
+func _day_come(day: int) -> bool:
+	return GameClock.day > day or (GameClock.day == day and day_minute() >= ERRAND_MINUTE)
+
+
+## The next favour in ERRAND_TURN that can be done now (eggs: his own hens, or eggs in
+## the bag).
+func _next_kind() -> String:
+	for i in ERRAND_TURN.size():
+		var kind := ERRAND_TURN[(turn + i) % ERRAND_TURN.size()]
+		if kind == "eggs" and not _has_hens() and PlayerState.inventory.count_item(&"egg") < errand_count_of(kind):
+			continue
+		turn = (turn + i + 1) % ERRAND_TURN.size()
+		return kind
+	return "food"
+
+
+static func errand_count_of(kind: String) -> int:
+	return int((ERRAND_ITEMS.get(kind, [&"", 1]) as Array)[1])
+
+
+func _has_hens() -> bool:
+	for a: AnimalData in Animals.animals:
+		if a.species == &"chicken":
+			return true
+	return false
+
+
+## Her letters (Mail): asking after the pup PUPPY_LETTER_DAYS after it, the invitation at
+## INVITE_LEVEL hearts (after the pup).
+func _post_letters() -> void:
+	if puppy_day <= 0:
+		return
+	if not puppy_letter and GameClock.day >= puppy_day + PUPPY_LETTER_DAYS:
+		puppy_letter = true
+		Mail.send("PERSON_ZEYNEP", "MAIL_ZEYNEP_PUPPY_TITLE", "MAIL_ZEYNEP_PUPPY_BODY", {&"dog_food": 1})
+	if not invite_sent and Relations.level(WHO) >= INVITE_LEVEL:
+		invite_sent = true
+		Mail.send("PERSON_ZEYNEP", "MAIL_ZEYNEP_INVITE_TITLE", "MAIL_ZEYNEP_INVITE_BODY")
+
+
+## Her invitation read: the visit is the next day's errand.
+func _on_letter_opened(letter: Dictionary) -> void:
+	if String(letter.get("title", "")) == "MAIL_ZEYNEP_INVITE_TITLE" and visit_day == 0:
+		visit_day = GameClock.day + 1
 
 
 ## The day-6 banner once she has moved in, when the player is free (no window open, not
@@ -279,7 +430,7 @@ func _target(g: String) -> Variant:
 	if home == null:
 		return null
 	var out := home.zeynep_outside()
-	if g == "meet" or g.ends_with("_bring"):
+	if g == "meet" or g.ends_with("_bring") or not g.ends_with("_buy"):
 		_label = tr("PERSON_ZEYNEP")
 		if g == "meet":
 			if out:
@@ -289,15 +440,27 @@ func _target(g: String) -> Variant:
 			else:
 				_hint = tr("SIDE_HINT_MEET_EVENING")
 		elif out:
-			_hint = tr("SIDE_HINT_GARDEN")
+			# (A visit, the pup: nothing to hand over.)
+			_hint = tr("SIDE_HINT_GARDEN") if g.ends_with("_bring") else ""
 		elif asleep():
 			_hint = tr("SIDE_HINT_ASLEEP")
 		return home.zeynep_marker() if out else home.door_point()
-	# Short of dog food: the town market sells it.
-	_label = ItemDB.get_item(ITEM).display_name()
-	var price := Economy.buy_price(ITEM)
+	# Eggs come from his hens' nests, a grilled fish from the pond and the fire.
+	match errand_kind():
+		"eggs":
+			_hint = tr("SIDE_HINT_EGGS")
+			return null
+		"fish":
+			_hint = tr("SIDE_HINT_FISH")
+			return null
+	# Short of what she asked for: the town market sells it (milk: or his own cows').
+	var item := errand_item()
+	_label = ItemDB.get_item(item).display_name()
+	var price := Economy.buy_price(item) * errand_count()
 	if Economy.money < price:
 		_hint = tr("HINT_NEED_MONEY") % UiTheme.money(price - Economy.money)
+	elif errand_kind() == "milk":
+		_hint = tr("SIDE_HINT_MILK")
 	else:
 		_hint = tr("HINT_MARKET")
 	var town := get_tree().get_first_node_in_group(&"town") as Town
@@ -340,20 +503,30 @@ func on_met() -> void:
 	changed.emit()
 
 
-## She took a bag of dog food for the errand up now: one more heart, the next errand a
-## few days on.
+## The errand up now is done (what she asked for in her hands; the visit paid; the pup
+## his): one more heart, the next errand a few days on (her call for the pup the next
+## morning, once its hearts are there).
 func on_delivered() -> void:
 	if errand.is_empty():
 		return
-	var kind := String(errand.get("kind", "food"))
+	var kind := errand_kind()
 	var text := tr("SIDE_DONE_%s" % kind.to_upper())
 	if kind == "gift":
 		gift_day = GameClock.day
+	elif kind == "visit":
+		visit_day = 0
+	elif kind == "puppy":
+		puppy_day = GameClock.day
+		var pet := get_node_or_null("/root/Pet")
+		if pet:
+			pet.call("adopt")
 	errand = {}
 	deliveries += 1
 	next_errand_day = GameClock.day + randi_range(ERRAND_GAP.x, ERRAND_GAP.y)
 	Game.notify(tr("MSG_SIDE_DONE") % text, UiTheme.GOLD)
 	Relations.raise(WHO, Relations.POINTS_PER_LEVEL)
+	if puppy_day == 0 and Relations.level(WHO) >= PUPPY_LEVEL:
+		next_errand_day = GameClock.day + 1
 	_goal = goal()
 	_wp_left = 0.0
 	changed.emit()
@@ -381,16 +554,40 @@ func lines_meet(at_door: bool) -> Array:
 	return out
 
 
-## Handing over the errand's bag (the welcome gift, or food because Karamel's ran out);
-## her thanks grow warmer with the friendship.
+## Handing over what the errand asked for (the welcome gift, food because Karamel's ran
+## out, the milk, the flowers...), the visit, Karamel's pup; her thanks grow warmer with
+## the friendship.
 func lines_deliver(at_door: bool) -> Array:
 	var out := []
+	var kind := errand_kind()
+	if kind == "puppy":
+		# She does the calling: the pup is the news.
+		out.append(_line(WHO, "ZEYNEP_PUPPY_1"))
+		out.append(_line(WHO, "ZEYNEP_PUPPY_2"))
+		out.append(_line(&"player", "ZEYNEP_PUPPY_PLAYER"))
+		out.append(_line(WHO, "ZEYNEP_PUPPY_3", "bye"))
+		return out
 	if at_door:
 		out.append(_line(WHO, "ZEYNEP_DOOR_HELLO_%d" % _band()))
-	if String(errand.get("kind", "food")) == "gift":
+	if kind == "gift":
 		out.append(_line(&"player", "ZEYNEP_GIFT_PLAYER", "take"))
 		out.append(_line(WHO, "ZEYNEP_GIFT_1"))
 		out.append(_line(WHO, "ZEYNEP_GIFT_2", "bye"))
+		return out
+	if kind == "visit":
+		out.append(_line(&"player", "ZEYNEP_VISIT_PLAYER"))
+		out.append(_line(WHO, "ZEYNEP_VISIT_1"))
+		out.append(_line(WHO, "ZEYNEP_VISIT_2", "bye"))
+		return out
+	if kind != "food":
+		var k := kind.to_upper()
+		out.append(_line(&"player", "ZEYNEP_%s_PLAYER" % k, "take"))
+		if Relations.level(WHO) + 1 >= Relations.max_level(WHO):
+			out.append(_line(WHO, "ZEYNEP_FOOD_BEST_1"))
+			out.append(_line(WHO, "ZEYNEP_FOOD_BEST_2", "bye"))
+			return out
+		out.append(_line(WHO, "ZEYNEP_%s_1" % k))
+		out.append(_line(WHO, "ZEYNEP_%s_2" % k, "bye"))
 		return out
 	out.append(_line(&"player", _food_player_line(), "take"))
 	# The last heart gets a line of its own.
@@ -446,7 +643,9 @@ func new_game() -> void:
 
 func save_data() -> Dictionary:
 	return {"met": met, "met_day": met_day, "errand": errand.duplicate(), "next": next_errand_day,
-		"deliveries": deliveries, "gift_day": gift_day, "announced": announced, "chat_day": chat_day}
+		"deliveries": deliveries, "gift_day": gift_day, "announced": announced, "chat_day": chat_day,
+		"turn": turn, "puppy_day": puppy_day, "puppy_letter": puppy_letter, "invite_sent": invite_sent,
+		"visit_day": visit_day}
 
 
 ## After GameClock.load_data.
@@ -459,6 +658,11 @@ func load_data(data: Dictionary) -> void:
 	gift_day = int(data.get("gift_day", 0))
 	announced = bool(data.get("announced", false))
 	chat_day = int(data.get("chat_day", 0))
+	turn = int(data.get("turn", 0))
+	puppy_day = int(data.get("puppy_day", 0))
+	puppy_letter = bool(data.get("puppy_letter", false))
+	invite_sent = bool(data.get("invite_sent", false))
+	visit_day = int(data.get("visit_day", 0))
 	_last_knock = -INF
 	_goal = goal()
 	_waypoint = null

@@ -46,6 +46,8 @@ const SETS := {
 	# eating from his bowl.
 	"dog_bark": "sfx/animals/dog_bark_%d.ogg", "dog_pant": "sfx/animals/dog_pant_%d.ogg",
 	"dog_whine": "sfx/animals/dog_whine_%d.ogg", "dog_eat": "sfx/animals/dog_eat_%d.ogg",
+	# The farmer whistling for his own dog (Pet; tools/build_whistle_audio.py, synthesised).
+	"whistle": "sfx/player/whistle_%d.wav",
 	# The wolves of a night raid (Wolf; tools/build_wolf_audio.py): a howl close by, a far
 	# chorus in the forest (the raid's warning), growling, a snarl as one goes in, a bite,
 	# a yelp when hit, its last cry.
@@ -59,6 +61,10 @@ const SETS := {
 	"drop": ["sfx/ui/drop.ogg"], "notify": ["sfx/ui/notify.ogg"],
 	# A carnival night's fireworks: the burst, and the glitter crackling after it.
 	"firework": "sfx/carnival/firework_%d.ogg", "firework_crackle": "sfx/carnival/crackle_%d.ogg",
+	# The fishing contest (FishingContest; tools/build_contest_audio.py): the horn at its
+	# end, the crowd's applause, the winner's fanfare.
+	"contest_horn": ["sfx/contest/horn.ogg"], "applause": ["sfx/contest/applause.ogg"],
+	"fanfare": ["sfx/contest/fanfare.ogg"],
 }
 ## Looping beds and engines, cross-faded so recordings that don't loop cleanly never click.
 const LOOPS := {

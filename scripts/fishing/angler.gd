@@ -409,6 +409,8 @@ func _on_fish_landed(info: Dictionary) -> void:
 	elif FishTable.is_fish(id):
 		PlayerState.fish_since_trophy += 1
 	_announce(id, info)
+	# Landed at the town pond during the fishing contest: weighed for it.
+	FishingContest.player_caught(id, float(info.get("kg", 0.0)), player.global_position)
 	if state != State.STRIKE:
 		return
 	# The hook comes out: the float swings back up to the rod on the line.
@@ -752,7 +754,7 @@ func _bait_kinds() -> int:
 func _water_ahead() -> bool:
 	var pos := player.global_position
 	var far := reach().y
-	if Vector2(pos.x, pos.z).distance_to(WorldLayout.POND_CENTER) > WorldLayout.POND_RADIUS + far + 2.0:
+	if not Pond.near_water(pos, far + 2.0):
 		return false
 	var fwd := _look()
 	var flat := Vector3(fwd.x, 0.0, fwd.z).normalized()
@@ -781,9 +783,9 @@ func _look() -> Vector3:
 
 func _ray_exclude() -> Array[RID]:
 	var out: Array[RID] = [player.get_rid()]
-	var pond := player.get_tree().get_first_node_in_group(&"pond") as Pond
-	if pond and pond.shore_wall():
-		out.append(pond.shore_wall().get_rid())
+	for pond: Node in player.get_tree().get_nodes_in_group(&"pond"):
+		if pond is Pond and (pond as Pond).shore_wall():
+			out.append((pond as Pond).shore_wall().get_rid())
 	return out
 
 
@@ -804,7 +806,7 @@ func _landing_spot(from: Vector3) -> Vector3:
 		var h := TerrainData.height(p.x, p.z)
 		if h < WorldLayout.WATER_LEVEL + 0.08 or Pond.is_fishable(p):
 			continue
-		if Vector2(p.x, p.z).distance_to(WorldLayout.POND_CENTER) < WorldLayout.POND_RADIUS - 0.6:
+		if Pond.inside_water(p, 0.6):
 			continue
 		# Open ground: nothing stands there, and the way from the player is clear.
 		var q := PhysicsRayQueryParameters3D.create(Vector3(p.x, h + 3.0, p.z), Vector3(p.x, h - 0.3, p.z), 1)
@@ -818,4 +820,9 @@ func _landing_spot(from: Vector3) -> Vector3:
 			continue
 		return Vector3(p.x, h, p.z)
 	var back := pos - to_water * 1.6
-	return Vector3(back.x, TerrainData.height(back.x, back.z), back.z)
+	var y := TerrainData.height(back.x, back.z)
+	# Out on a pier (water all round): on its boards, at the player's feet.
+	if y < WorldLayout.WATER_LEVEL + 0.08 and pos.y > WorldLayout.WATER_LEVEL:
+		back = pos - to_water * 0.9
+		y = pos.y
+	return Vector3(back.x, y, back.z)

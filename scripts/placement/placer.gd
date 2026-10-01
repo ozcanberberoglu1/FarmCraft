@@ -190,9 +190,9 @@ func _check(player: Player, p: Vector3) -> String:
 	elif in_building_plot(p):
 		# A coop's yard is its hens' (they would walk through a machine).
 		return "MSG_PLACE_BLOCKED"
-	if String(_info.get("kind", "")) == "campfire":
+	if String(_info.get("kind", "")) in ["campfire", "grill"]:
 		# A fire burns out of doors, on open ground: never inside or under a roof, on a
-		# field or a track, or by the water (Campfire).
+		# field or a track, or by the water (Campfire; a grill too).
 		if indoors(p):
 			return "MSG_PLACE_INDOORS"
 		var why := Campfire.placement_reason(player, p)

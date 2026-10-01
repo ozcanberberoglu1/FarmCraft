@@ -222,10 +222,15 @@ static func _generate() -> void:
 				var w := WorldLayout.flat_weight(x, z, zone)
 				if w > 0.0:
 					h = lerpf(h, float(zone["height"]), w)
-			var pd := WorldLayout.distance_to_pond(x, z)
+			var pd := Vector2(x, z).distance_to(WorldLayout.POND_CENTER)
 			if pd < WorldLayout.POND_RADIUS + 5.0:
 				var bowl := 1.0 - smoothstep(WorldLayout.POND_RADIUS * 0.35, WorldLayout.POND_RADIUS + 3.0, pd)
 				h = lerpf(h, -2.4, bowl)
+			# The town pond: the same bowl, a little smaller.
+			var tp := Vector2(x, z).distance_to(WorldLayout.TOWN_POND_CENTER)
+			if tp < WorldLayout.TOWN_POND_RADIUS + 5.0:
+				var bowl := 1.0 - smoothstep(WorldLayout.TOWN_POND_RADIUS * 0.35, WorldLayout.TOWN_POND_RADIUS + 3.0, tp)
+				h = lerpf(h, -2.2, bowl)
 			heights[iz * NX + ix] = h
 	_build_road()
 	_generate_mask()
@@ -333,6 +338,7 @@ static func _generate_mask() -> void:
 	for spot in WorldLayout.DIRT_SPOTS:
 		_stamp_blob(spot["center"], float(spot["radius"]), 1, edge)
 	_stamp_blob(WorldLayout.POND_CENTER, WorldLayout.POND_RADIUS + 0.6, 2, edge)
+	_stamp_blob(WorldLayout.TOWN_POND_CENTER, WorldLayout.TOWN_POND_RADIUS + 0.6, 2, edge)
 
 
 static func _write(px: int, pz: int, channel: int, value: float) -> void:

@@ -19,6 +19,12 @@ const TITLE_MARK := "#"
 ## for the sale badge).
 const LEVEL_Y := 92.0
 const QUEST_Y := 150.0
+## Quiet side goals (Zeynep's errands, the mailbox): their hint shows this many seconds
+## after the goal comes up or changes, and again closer than SIDE_HINT_NEAR metres to the
+## place; their cards are this opaque (under the story's own).
+const SIDE_HINT_SECONDS := 20.0
+const SIDE_HINT_NEAR := 15.0
+const SIDE_QUIET_ALPHA := 0.86
 ## The toasts' column: its top from the screen's middle and its height, at rest; how far
 ## under the goal cards it keeps when they reach down past it, and how fast it slides
 ## there (px/s).
@@ -112,6 +118,11 @@ var _side_card: GlassPanel
 var _side_text: Label
 var _side_hint: Label
 var _side_hearts: Label
+## Seconds the quiet side goals' hints still show since their goal came up or changed
+## (Zeynep's here, the others' in their _goal_cards entry: "hint_left"); near the place
+## they show again (SIDE_HINT_NEAR).
+var side_hint_left := 0.0
+var _side_shown := ""
 ## The other side goals' cards (SideStory.goals), between the story's and Zeynep's:
 ## SideGoal -> {"card", "text", "hint", "dot"}.
 var _goal_cards := {}
@@ -167,6 +178,8 @@ func _ready() -> void:
 	side_waypoint = WaypointMarker.new()
 	side_waypoint.source = SideStory
 	side_waypoint.ring_color = SideStory.ROSE
+	# Zeynep's errands can wait: a smaller, fainter dot.
+	side_waypoint.quiet = true
 	_root.add_child(side_waypoint)
 	SideStory.goals_changed.connect(_sync_goal_cards)
 	waypoint = WaypointMarker.new()
@@ -279,6 +292,7 @@ func _process(_delta: float) -> void:
 		_refresh_weather()
 	if GameClock.day != _shown_day:
 		_refresh_day()
+	_update_side_hints(_delta)
 	_place_side_cards()
 	# The dots riding the screen's left edge keep clear of the goal cards.
 	var cards: Array[Rect2] = []
@@ -414,34 +428,35 @@ func _refresh_quest() -> void:
 		_sync_hud_visibility()
 
 
-## The side story's goal (SideStory) on a card of its own under the story's: a heart,
-## "ZEYNEP · SIDE GOAL" and the friendship's hearts over the goal and its hint.
+## The side story's goal (SideStory) on a compact card of its own under the story's: one
+## line (a heart, the goal, the friendship's hearts), quieter than the story's card, as
+## her errands can wait; the hint under it shows for SIDE_HINT_SECONDS when the goal
+## comes up or changes, and again near the place.
 func _build_side() -> void:
-	_side_card = GlassPanel.new(Vector4(16, 10, 18, 12), 16.0)
+	_side_card = GlassPanel.new(Vector4(12, 6, 14, 7), 12.0)
 	_side_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_side_card.position = Vector2(28, QUEST_Y)
 	_side_card.visible = false
+	_side_card.modulate.a = SIDE_QUIET_ALPHA
 	_root.add_child(_side_card)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 4)
+	col.add_theme_constant_override("separation", 2)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_side_card.add_child(col)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(head)
-	head.add_child(UiTheme.icon_rect(UiTheme.glyph("heart"), 16, SideStory.ROSE))
-	head.add_child(UiTheme.make_label(UiTheme.caps(tr("HUD_SIDE_GOAL") % tr("PERSON_ZEYNEP")), UiTheme.heading(14, SideStory.ROSE, 700, 3)))
-	head.add_child(UiTheme.expand())
-	_side_hearts = UiTheme.make_label("", UiTheme.heading(16, SideStory.ROSE, 700, 1))
-	head.add_child(_side_hearts)
-	_side_text = UiTheme.make_label("", UiTheme.text(17, UiTheme.TEXT, 600))
+	head.add_child(UiTheme.icon_rect(UiTheme.glyph("heart"), 14, SideStory.ROSE))
+	_side_text = UiTheme.make_label("", UiTheme.text(15, UiTheme.TEXT, 600))
 	_side_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_side_text.custom_minimum_size = Vector2(300, 0)
-	col.add_child(_side_text)
-	_side_hint = UiTheme.make_label("", UiTheme.text(15, UiTheme.TEXT_MUTED, 500))
+	_side_text.custom_minimum_size = Vector2(250, 0)
+	head.add_child(_side_text)
+	_side_hearts = UiTheme.make_label("", UiTheme.heading(13, SideStory.ROSE, 700, 1))
+	head.add_child(_side_hearts)
+	_side_hint = UiTheme.make_label("", UiTheme.text(13, UiTheme.TEXT_MUTED, 500))
 	_side_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_side_hint.custom_minimum_size = Vector2(300, 0)
+	_side_hint.custom_minimum_size = Vector2(250, 0)
 	col.add_child(_side_hint)
 	SideStory.changed.connect(_refresh_side)
 	Relations.changed.connect(func(_w: StringName, _l: int, _p: int) -> void: _refresh_side())
@@ -452,9 +467,13 @@ func _refresh_side() -> void:
 	var text := SideStory.goal_text()
 	_side_card.set_meta("active", text != "")
 	_side_text.text = text
+	if text != _side_shown:
+		# A new goal (or a new step of it): its hint shows for a while.
+		_side_shown = text
+		side_hint_left = SIDE_HINT_SECONDS
 	var hint := SideStory.goal_hint()
 	_side_hint.text = hint
-	_side_hint.visible = hint != ""
+	_side_hint.visible = hint != "" and (side_hint_left > 0.0 or side_waypoint == null or side_waypoint.near(SIDE_HINT_NEAR))
 	var lv := Relations.level(SideStory.WHO)
 	_side_hearts.text = "♥ %d/%d" % [lv, Relations.max_level(SideStory.WHO)]
 	_side_hearts.visible = SideStory.met
@@ -463,6 +482,28 @@ func _refresh_side() -> void:
 	if _side_card.visible:
 		_side_card.reset_size()
 		_place_side_cards()
+
+
+## The quiet side goals' hints: shown for SIDE_HINT_SECONDS after their goal came up or
+## changed, then only near the place (the dot closer than SIDE_HINT_NEAR).
+func _update_side_hints(delta: float) -> void:
+	if _side_card == null:
+		return
+	side_hint_left = maxf(side_hint_left - delta, 0.0)
+	var show := _side_hint.text != "" and (side_hint_left > 0.0 or side_waypoint.near(SIDE_HINT_NEAR))
+	if show != _side_hint.visible:
+		_side_hint.visible = show
+		_side_card.reset_size()
+	for g: SideGoal in _goal_cards:
+		if not g.quiet:
+			continue
+		var e: Dictionary = _goal_cards[g]
+		e["hint_left"] = maxf(float(e.get("hint_left", 0.0)) - delta, 0.0)
+		var hint: Label = e["hint"]
+		var on := g.hint != "" and (float(e["hint_left"]) > 0.0 or (e["dot"] as WaypointMarker).near(SIDE_HINT_NEAR))
+		if on != hint.visible:
+			hint.visible = on
+			(e["card"] as Control).reset_size()
 
 
 ## Under the story's goal card (or in its place when there is none): the other side goals'
@@ -501,38 +542,47 @@ func _sync_goal_cards() -> void:
 		_refresh_goal_card(g)
 
 
-## A side goal's card (like Zeynep's: its glyph and "TITLE · SIDE GOAL" in its colour over
-## the goal and its hint) and its dot, ringed in its colour, beside the others.
+## A side goal's card (its glyph and "TITLE · SIDE GOAL" in its colour over the goal and
+## its hint) and its dot, ringed in its colour, beside the others. A quiet one (an errand
+## that can wait) is compact like Zeynep's: one line, the glyph and the goal, its hint
+## for a while; its dot smaller and fainter.
 func _build_goal_card(g: SideGoal) -> Dictionary:
-	var card := GlassPanel.new(Vector4(16, 10, 18, 12), 16.0)
+	var card := GlassPanel.new(Vector4(12, 6, 14, 7) if g.quiet else Vector4(16, 10, 18, 12), 12.0 if g.quiet else 16.0)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.position = Vector2(28, QUEST_Y)
 	card.visible = false
+	if g.quiet:
+		card.modulate.a = SIDE_QUIET_ALPHA
 	_root.add_child(card)
 	_root.move_child(card, _side_card.get_index())
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 4)
+	col.add_theme_constant_override("separation", 2 if g.quiet else 4)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(col)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(head)
-	head.add_child(UiTheme.icon_rect(UiTheme.glyph(g.glyph), 16, g.color))
+	head.add_child(UiTheme.icon_rect(UiTheme.glyph(g.glyph), 14 if g.quiet else 16, g.color))
 	var title := UiTheme.make_label("", UiTheme.heading(14, g.color, 700, 3))
 	head.add_child(title)
-	var text := UiTheme.make_label("", UiTheme.text(17, UiTheme.TEXT, 600))
+	title.visible = not g.quiet
+	var text := UiTheme.make_label("", UiTheme.text(15 if g.quiet else 17, UiTheme.TEXT, 600))
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	text.custom_minimum_size = Vector2(300, 0)
-	col.add_child(text)
-	var hint := UiTheme.make_label("", UiTheme.text(15, UiTheme.TEXT_MUTED, 500))
+	text.custom_minimum_size = Vector2(250 if g.quiet else 300, 0)
+	if g.quiet:
+		head.add_child(text)
+	else:
+		col.add_child(text)
+	var hint := UiTheme.make_label("", UiTheme.text(13 if g.quiet else 15, UiTheme.TEXT_MUTED, 500))
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.custom_minimum_size = Vector2(300, 0)
+	hint.custom_minimum_size = Vector2(250 if g.quiet else 300, 0)
 	col.add_child(hint)
 	# Under the crosshair, the prompts and every menu, like the other dots.
 	var dot := WaypointMarker.new()
 	dot.source = g
 	dot.ring_color = g.color
+	dot.quiet = g.quiet
 	_root.add_child(dot)
 	_root.move_child(dot, side_waypoint.get_index() + 1)
 	return {"card": card, "title": title, "text": text, "hint": hint, "dot": dot}
@@ -545,10 +595,14 @@ func _refresh_goal_card(g: SideGoal) -> void:
 	var card: GlassPanel = e["card"]
 	card.set_meta("active", g.text != "")
 	(e["title"] as Label).text = UiTheme.caps(tr("HUD_SIDE_GOAL") % g.title)
-	(e["text"] as Label).text = g.text
+	var text: Label = e["text"]
+	if g.quiet and text.text != g.text:
+		e["hint_left"] = SIDE_HINT_SECONDS
+	text.text = g.text
 	var hint: Label = e["hint"]
 	hint.text = g.hint
-	hint.visible = g.hint != ""
+	hint.visible = g.hint != "" and (not g.quiet or float(e.get("hint_left", 0.0)) > 0.0
+			or (e["dot"] as WaypointMarker).near(SIDE_HINT_NEAR))
 	if _crosshair != null:
 		_sync_hud_visibility()
 	if card.visible:

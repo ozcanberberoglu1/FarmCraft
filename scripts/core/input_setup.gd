@@ -22,6 +22,8 @@ static func register_actions() -> void:
 	_key(&"screenshot", KEY_F12)
 	_key(&"vehicle_camera", KEY_V)
 	_key(&"vehicle_lights", KEY_L)
+	# Whistling for the farmer's own dog (Pet).
+	_key(&"whistle", KEY_H)
 	_mouse(&"use", MOUSE_BUTTON_LEFT)
 	_mouse(&"secondary", MOUSE_BUTTON_RIGHT)
 	_mouse(&"hotbar_prev", MOUSE_BUTTON_WHEEL_UP)

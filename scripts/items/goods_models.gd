@@ -40,6 +40,9 @@ const MODELS := {
 	&"tomato_paste": {"path": GOODS + "jam_jar/scene.gltf", "size": 0.11, "tint": Color(1.0, 0.72, 0.56)},
 	&"flour": {"path": GOODS + "burlap_sack/scene.gltf", "size": 0.3, "tint": Color(1.3, 1.28, 1.22)},
 	&"feed": {"path": GOODS + "burlap_sack/scene.gltf", "size": 0.3, "yaw": 150.0},
+	# The big sack: the burlap dyed a feed-sack olive; the big bale: the hay bale, larger.
+	&"feed_big": {"path": GOODS + "burlap_sack/scene.gltf", "size": 0.5, "yaw": 120.0, "tint": Color(0.74, 0.88, 0.58)},
+	&"hay_big": {"path": GOODS + "hay_bales/scene.gltf", "island": true, "size": 0.62},
 	&"manure": {"path": GOODS + "burlap_sack/scene.gltf", "size": 0.3, "yaw": 60.0, "tint": Color(0.55, 0.44, 0.34)},
 	&"fertilizer": {"path": "res://art/models/items/compost_bag_02/compost_bag_02_1k.gltf", "size": 0.26},
 	&"hay": {"path": GOODS + "hay_bales/scene.gltf", "island": true, "size": 0.42},
@@ -56,7 +59,7 @@ const LOW := {
 	&"tomato": 90, &"potato": 90, &"potato_b": 90, &"carrot": 110, &"eggplant": 160, &"strawberry": 60,
 	&"pumpkin": 320, &"pumpkin_b": 320, &"egg": 60, &"cheese": 260, &"pickles": 420, &"jam": 320,
 	&"tomato_paste": 320, &"milk": 500, &"flour": 700, &"feed": 700, &"manure": 700, &"fertilizer": 900,
-	&"hay": 500,
+	&"hay": 500, &"feed_big": 700, &"hay_big": 500,
 }
 const BAKED_LOW := "res://art/models/items/baked/%s_low.res"
 

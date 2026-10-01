@@ -226,3 +226,17 @@ crack are synthesised in the script.
 | sfx/combat/grunt_0-2.ogg | Man in pain, Fighting man voice of pain | 2197, 2173 |
 | sfx/combat/fall.ogg | Body impact falling into the sand, Falling hit | 2498, 757 |
 | sfx/combat/heartbeat.ogg | Human single heart beat | 490 |
+
+## The farmer's whistle
+
+`sfx/player/whistle_1-2.wav`: synthesised by `tools/build_whistle_audio.py` (no source recording; project-owned).
+## The fishing contest (`sfx/contest/*`)
+
+Cut, faded and levelled from Mixkit previews by `tools/build_contest_audio.py` (Mixkit Sound Effects Free License:
+free for commercial use in games, no attribution required).
+
+| File | Mixkit title | Mixkit id |
+|---|---|---|
+| sfx/contest/horn.ogg | Warfare horn | 2289 |
+| sfx/contest/applause.ogg | Medium size crowd applause | 485 |
+| sfx/contest/fanfare.ogg | Successful horns fanfare | 722 |

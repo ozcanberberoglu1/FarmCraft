@@ -7,6 +7,7 @@ extends RefCounted
 ##                             belly (art/textures/food/fish_flesh, tools/make_food_textures.py)
 ##   "<fish>_cleaned_cooked"   the same cut from the grilled fish, the face cooked white
 ##   "<fish>_trophy"           the species' item model, a size up (a giant in the hand)
+##   "<fish>_trophy_cooked"    the same giant grilled (on a mangal: Grill)
 ##   "rabbit_meat(_cooked)"    a jointed hind leg of game: thigh, drumstick and the knuckle
 ##                             of bone at its end, raw red or roasted brown
 ## The fish are cut from FishModels' own meshes (lying along +X, head toward +X): every
@@ -44,10 +45,11 @@ static func has(id: StringName) -> bool:
 	return HEAD_CUT.has(species_of_cleaned(id))
 
 
-## The species of a trophy item ("fish_carp_trophy" -> fish_carp; &"" for anything else).
+## The species of a trophy item ("fish_carp_trophy" -> fish_carp, its grilled
+## "fish_carp_trophy_cooked" too; &"" for anything else).
 ## Kept apart from FishTable, which needs the game's autoloads (tools draw these too).
 static func _trophy_species(id: StringName) -> StringName:
-	var s := String(id)
+	var s := String(id).trim_suffix("_cooked")
 	if not s.ends_with("_trophy"):
 		return &""
 	var species := StringName(s.trim_suffix("_trophy"))
@@ -77,7 +79,8 @@ static func mesh(id: StringName) -> ArrayMesh:
 	if id in MEATS:
 		m = _meat(id.ends_with("_cooked"))
 	elif _trophy_species(id) != &"":
-		var base := FishModels.mesh(_trophy_species(id))
+		var cooked := String(id).ends_with("_cooked")
+		var base := FishModels.mesh(StringName(String(_trophy_species(id)) + ("_cooked" if cooked else "")))
 		var surfaces := []
 		MeshMerge.add_mesh(surfaces, base, Transform3D(Basis.from_scale(Vector3.ONE * TROPHY_ITEM_SCALE), Vector3.ZERO))
 		m = MeshMerge.build(surfaces, 40000)

@@ -8,7 +8,8 @@ const CATEGORIES := [["general", "SETTINGS_GENERAL", "globe"], ["video", "SETTIN
 	["audio", "SETTINGS_AUDIO", "speaker"], ["controls", "SETTINGS_CONTROLS", "keyboard"]]
 const BINDINGS := [["BIND_MOVE", ["W", "A", "S", "D"]], ["BIND_SPRINT", ["SHIFT"]], ["BIND_JUMP", ["SPACE"]],
 	["BIND_USE", ["LMB"]], ["BIND_INTERACT", ["E"]], ["BIND_INFO", ["F"]], ["BIND_INVENTORY", ["TAB", "I"]],
-	["BIND_DROP", ["Q"]], ["BIND_HOTBAR", ["1", "–", "8"]], ["BIND_VEHICLE", ["V", "L"]], ["BIND_PAUSE", ["ESC"]]]
+	["BIND_DROP", ["Q"]], ["BIND_HOTBAR", ["1", "–", "8"]], ["BIND_VEHICLE", ["V", "L"]], ["BIND_WHISTLE", ["H"]],
+	["BIND_PAUSE", ["ESC"]]]
 
 var _nav: VBoxContainer
 var _rows: VBoxContainer

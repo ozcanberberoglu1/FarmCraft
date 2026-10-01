@@ -36,9 +36,12 @@ DebugTools="*res://autoload/debug_tools.gd"
 SaveGame="*res://autoload/save_game.gd"
 Audio="*res://autoload/audio.gd"
 Carnival="*res://autoload/carnival.gd"
+FishingContest="*res://autoload/fishing_contest.gd"
 Relations="*res://autoload/relations.gd"
+Mail="*res://autoload/mail.gd"
 SideStory="*res://autoload/side_story.gd"
 WolfRaids="*res://autoload/wolf_raids.gd"
+Pet="*res://autoload/pet.gd"
 
 [debug]
 

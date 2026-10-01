@@ -15,6 +15,9 @@ var kind := Kind.FEED
 var accepts: Array[StringName] = [&"hay"]
 ## Items of feed (or hay) one fill puts in the trough.
 const FEED_PER_USE := 1
+## Big sacks of feed and big bales of hay (and the ration each stands for): one pours
+## the trough full in one go, whatever its size, and is used up doing it.
+const BIG := {&"feed_big": &"feed", &"hay_big": &"hay"}
 
 var capacity := 8
 var amount := 0.0
@@ -176,13 +179,19 @@ func use_prompt(_player: Node, stack: ItemStack) -> String:
 	return tr(a["verb"]) if not a.is_empty() else ""
 
 
+## Whether the farmer can pour `id` into it: one of its rations, or a big sack of them.
+func takes(id: StringName) -> bool:
+	return kind == Kind.FEED and (id in accepts or (BIG.has(id) and BIG[id] in accepts))
+
+
 func use_action(_player: Node, stack: ItemStack) -> Dictionary:
 	if stack == null:
 		return {}
 	if kind == Kind.WATER and stack.item.water_capacity > 0:
 		return {"id": "fill_water", "verb": "ACTION_FILL_TROUGH", "label": "PROGRESS_FILLING", "duration": 0.8}
-	if kind == Kind.FEED and stack.item.id in accepts:
-		return {"id": "fill_feed", "verb": "ACTION_FILL_TROUGH", "label": "PROGRESS_FILLING", "duration": 0.6}
+	if takes(stack.item.id):
+		var big := BIG.has(stack.item.id)
+		return {"id": "fill_feed", "verb": "ACTION_FILL_TROUGH", "label": "PROGRESS_FILLING", "duration": 1.2 if big else 0.6}
 	return {}
 
 
@@ -214,6 +223,11 @@ func complete_use(_player: Node, stack: ItemStack, action: Dictionary) -> void:
 		stack.water -= used
 		PlayerState.inventory.changed.emit()
 		set_amount(amount + used)
+	elif BIG.has(stack.item.id):
+		# A big sack or bale tipped in whole: full to the brim.
+		PlayerState.inventory.remove_item(stack.item.id, 1)
+		set_amount(capacity)
+		Game.notify(tr("MSG_TROUGH_FILLED") % room)
 	else:
 		# One sack or armful per go (holding the button keeps filling, one at a time).
 		var used := mini(room, mini(stack.count, FEED_PER_USE))
