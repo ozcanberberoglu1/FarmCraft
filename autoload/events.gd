@@ -8,6 +8,8 @@ signal money_changed(new_amount: int, delta: int)
 # Items
 signal item_picked_up(item_id: StringName, count: int)
 signal item_sold(item_id: StringName, count: int, gold: int)
+## Bought at a shop's counter (ShopScreen) into the bag.
+signal item_bought(item_id: StringName, count: int)
 
 # Farm work (quests and farm experience listen to these)
 signal action_done(action_id: String, target: Node)

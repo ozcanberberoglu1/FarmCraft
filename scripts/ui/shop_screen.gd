@@ -475,6 +475,8 @@ func _confirm() -> void:
 		if left > 0:
 			Economy.add_money(Economy.buy_price(id) * left, "REPORT_PURCHASES")
 		Game.notify("+%d× %s" % [_qty - left, ItemDB.get_item(id).display_name()])
+		if _qty - left > 0:
+			Events.item_bought.emit(id, _qty - left)
 	else:
 		var quality: int = _sel["quality"]
 		var removed := 0

@@ -113,6 +113,8 @@ var _quest_count: Label
 var _quest_chapter: Label
 var _quest_note: Label
 var _note_left := 0.0
+## How long Grandpa's line about a spot on the walk round the land stays up (s).
+const SPOT_LINE_SECONDS := 14.0
 ## The side story's goal (SideStory), under the story's own card.
 var _side_card: GlassPanel
 var _side_text: Label
@@ -410,6 +412,7 @@ func _build_quest() -> void:
 	col.add_child(_quest_note)
 	Quests.tutorial_changed.connect(_refresh_quest)
 	Quests.chapter_started.connect(show_chapter_note)
+	Quests.spot_visited.connect(show_spot_line)
 	_refresh_quest()
 
 
@@ -615,6 +618,14 @@ func show_chapter_note(index: int) -> void:
 	_quest_note.text = "“%s”" % Quests.chapter_note(index)
 	_quest_note.visible = true
 	_note_left = 18.0
+
+
+## Grandpa's line about one of his spots on the first day's walk (Quests.spot_visited),
+## under the goal for a while, as a chapter's note.
+func show_spot_line(_spot: String, line: String) -> void:
+	_quest_note.text = "“%s”" % line
+	_quest_note.visible = true
+	_note_left = SPOT_LINE_SECONDS
 
 
 func _on_level_up(level: int) -> void:

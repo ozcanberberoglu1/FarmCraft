@@ -2720,9 +2720,9 @@ func _progression() -> void:
 	await _frames(2)
 	Quests._poll = 0.0
 	await _idle_frames(2)
-	_check(Quests.passed("knife") and Quests.index_of("snack") == Quests.index_of("knife") + 1
+	_check(Quests.passed("knife") and Quests.index_of("rooster_wait") == Quests.index_of("knife") + 1
 			and Quests.index_of("rope") > Quests.index_of("fishing_wait"),
-			"the knife ends the workshop (a bite to eat next); the fishing waits for the fourth day")
+			"the knife ends the workshop (the evening free next); the fishing waits for the fourth day")
 
 	# (5) Fishing on the fourth day: rope and bait from the market, the rod, a fish, a
 	# campfire, a meal.
@@ -2988,10 +2988,11 @@ func _quests() -> void:
 	Quests.chapter_started.connect(on_chapter)
 
 	# The chain: the first day by hand, in the user's order, each goal with a place for the dot;
-	# then the player is free until the next morning's workshop.
+	# then the player is free until the next morning's market.
 	var day_one := ["door", "tools", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens",
 			"drive_home", "crates_in", "coop_wood", "coop_kit", "coop_place", "coop_built", "hens_in",
-			"harvest", "ship", "feed", "coop_water", "straw", "egg", "ship_egg"]
+			"harvest", "ship", "feed", "coop_water", "straw", "egg", "ship_egg", "wood", "patch", "wh_patch",
+			"explore", "stones", "berries", "snack"]
 	var in_order := true
 	for i in day_one.size():
 		in_order = in_order and Quests.index_of(day_one[i]) == i
@@ -2999,7 +3000,7 @@ func _quests() -> void:
 	_check(in_order and free_step == day_one.size() and Quests.TUTORIAL[free_step]["id"] == "free"
 			and int(Quests.TUTORIAL[free_step]["chapter"]) == Quests.DAY_TWO_CHAPTER
 			and Quests.TUTORIAL[free_step + 1]["id"] == "harvest2" and Quests.index_of("sleep") < 0 and Quests.index_of("earn") < 0,
-			"the first day runs door, tools, soil, drawer, key, truck, hens, coop, harvest, bin, the coop's care and the first egg (no mending, no bedtime); the market waits for day two")
+			"the first day runs door, tools, soil, drawer, key, truck, hens, coop, harvest, bin, the coop's care, the first egg, the mending, the walk, stone, berries and a bite (no bedtime); the market waits for day two")
 	var dropped: Array = []
 	for id: String in ["reap", "replant", "refill", "repair_warehouse", "store", "hay", "load", "order", "sell",
 			"workbench", "craft", "repair_house", "coop", "chickens", "eggs", "stone", "quern", "flour"]:
@@ -3400,15 +3401,86 @@ func _quests() -> void:
 	bin.add_item(&"egg", 1)
 	Quests._poll = 0.0
 	await _idle_frames(3)
+	var tidy := int(Quests.TUTORIAL[Quests.index_of("wood")]["chapter"])
+	_check(Quests.current()["id"] == "wood" and begun[0] == tidy and Quests.first_day()
+			and Game.hud._quest_note.text.contains(Quests.chapter_note(tidy)),
+			"the first egg in the bin moves on to tidying up the farm, still the first day (Grandpa's note): wood for the house")
+	bin.remove_item(&"egg", 1)
+	# The mending: wood for the house, counted from when the goal came up; then every board of
+	# the house, then the warehouse's.
+	Quests.tally["picked:wood"] = 20
+	Quests._catch_up()
+	_check(Quests.current()["id"] == "wood" and Quests.step_count == 0, "wood picked up before the goal came up doesn't count")
+	Events.item_picked_up.emit(&"wood", 2)
+	Events.item_picked_up.emit(&"stone", 2)
+	_check(Quests.current()["id"] == "wood" and Quests.step_count == 2, "picked-up wood counts toward the wood goal, stone doesn't")
+	Events.item_picked_up.emit(&"wood", 6)
+	_check(Quests.current()["id"] == "patch", "eight logs complete it: on to the house's boards")
+	Events.wall_patched.emit(&"warehouse", 1, 6)
+	_check(Quests.current()["id"] == "patch" and Quests.step_count == 0, "boards renewed on the warehouse don't count toward the house")
+	for i in 7:
+		Events.wall_patched.emit(&"house", i + 1, 8)
+	_check(Quests.current()["id"] == "patch" and Quests.step_count == 7, "seven of the house's eight boards aren't enough: every one is asked for")
+	Events.wall_patched.emit(&"house", 8, 8)
+	_check(Quests.current()["id"] == "wh_patch", "the house's last board moves on to the warehouse's")
+	# The warehouse board renewed earlier counts too ("ever"): five more finish it.
+	for i in 5:
+		Events.wall_patched.emit(&"warehouse", i + 2, 6)
+	await _frames(2)
+	var walk := int(Quests.TUTORIAL[Quests.index_of("explore")]["chapter"])
+	_check(Quests.current()["id"] == "explore" and begun[0] == walk and Quests.first_day()
+			and Game.hud._quest_note.text.contains(Quests.chapter_note(walk)),
+			"the warehouse's boards renewed: the walk round the land opens with Grandpa's note, still the first day")
+	# The walk, the stone and the berries (in detail in "tutorial14"): each by its events.
+	for id: String in Quests.EXPLORE_SPOTS:
+		Quests.reach_spot(id)
+	_check(Quests.current()["id"] == "stones", "every one of Grandpa's spots reached: on to the quarry's stone")
+	Events.item_picked_up.emit(&"stone", 5)
+	_check(Quests.current()["id"] == "berries", "stone gathered (the two picked up earlier count): on to the berries")
+	Events.item_picked_up.emit(&"blackberry", 6)
+	_check(Quests.current()["id"] == "snack" and int(Quests.TUTORIAL[Quests.index_of("snack")]["chapter"]) == walk,
+			"six berries picked: a bite to eat, the same evening")
+	# A bite to eat if the farmer hasn't had one: the dot finds berries, or says to eat what
+	# is in the bag; too full to eat passes it.
+	var hunger_had := PlayerState.needs.hunger
+	PlayerState.needs.hunger = 50.0
+	var food_had: Array = []
+	for i in inv.size():
+		var st := inv.get_stack(i)
+		if st != null and Eating.food_value(st.item.id) > 0:
+			food_had.append([i, st])
+			inv.set_stack(i, null)
+	Quests._hint = ""
+	var to_food: Variant = Quests._target("food")
+	_check(tree.get_nodes_in_group(&"berry_bushes").is_empty() or (to_food != null and Quests.goal_hint() == tr("HINT_BERRIES")),
+			"nothing to eat in the bag: the dot points at a wild bush with berries (%s)" % str(to_food))
+	inv.add_item(&"blueberry", 2)
+	Quests._hint = ""
+	_check(Quests._target("food") == null and Quests.goal_hint() == tr("HINT_EAT_FOOD"), "berries in the bag: the goal says to eat them (no dot)")
+	inv.remove_item(&"blueberry", 2)
+	for pair: Array in food_had:
+		inv.set_stack(pair[0], pair[1])
+	Quests._poll = 0.0
+	await _idle_frames(2)
+	_check(Quests.current()["id"] == "snack", "a hungry farmer keeps the goal up")
+	Events.food_eaten.emit(&"blueberry")
+	await _frames(2)
 	_check(Quests.current()["id"] == "free" and begun[0] == Quests.DAY_TWO_CHAPTER and not Quests.first_day()
 			and Game.hud._quest_card.visible and not Game.hud._quest_count.visible
 			and Game.hud._quest_note.text.contains(Quests.chapter_note(Quests.DAY_TWO_CHAPTER)),
-			"the first egg in the bin ends the first day's story (the mending waits for day two): Grandpa's note lets the player go free")
-	bin.remove_item(&"egg", 1)
+			"a few berries eaten end the first day's story: Grandpa's note lets the player go free")
 	Quests._wp_left = 0.0
 	await _idle_frames(2)
 	_check(Quests.waypoint() == null, "the free evening has no dot")
-	# Day two's workshop waits for the morning.
+	Quests.step = Quests.index_of("snack")
+	Quests.step_count = 0
+	Quests.tally = {}
+	PlayerState.needs.hunger = Needs.MAX
+	Quests._poll = 0.0
+	await _idle_frames(3)
+	_check(Quests.passed("snack"), "too full to eat: the snack goal passes")
+	PlayerState.needs.hunger = hunger_had
+	# Day two's market waits for the morning.
 	var day_was := GameClock.day
 	GameClock.day = 1
 	Quests._poll = 0.0
@@ -3434,9 +3506,10 @@ func _quests() -> void:
 	_check(Quests.passed("patch"), "a house repaired already passes the wood and the boards")
 	if not house_built:
 		FarmState.built.erase(&"house_1")
-	# The workshop's morning: yesterday's wheat reaped, loaded into the pickup's bed and sold
-	# at the market, then the kit; the rest of the day (the bench, the knife, fishing) in the
-	# "progression" test. (Crops already in the bag or the bed are set aside first.)
+	# The second morning: yesterday's wheat reaped, loaded into the pickup's bed and sold at
+	# the market, seeds bought on the same trip, three more beds; the workshop's day (the
+	# bench, the knife, fishing) in the "progression" test. (Crops already in the bag or the
+	# bed are set aside first.)
 	var crops_had: Array = []
 	for i in inv.size():
 		var st := inv.get_stack(i)
@@ -3460,75 +3533,71 @@ func _quests() -> void:
 	await _idle_frames(3)
 	_check(Quests.current()["id"] == "sell_market", "the harvest in the pickup's bed moves on to selling it at the market")
 	Events.item_sold.emit(&"wheat", 3, 6)
-	var tidy := int(Quests.TUTORIAL[Quests.index_of("wood")]["chapter"])
-	_check(Quests.current()["id"] == "wood" and begun[0] == tidy and Game.hud._quest_note.text.contains(Quests.chapter_note(tidy)),
-			"the harvest sold moves on to tidying up the farm (Grandpa's note): wood for the house")
+	_check(Quests.current()["id"] == "seeds" and int(Quests.TUTORIAL[Quests.index_of("seeds")]["chapter"]) == market,
+			"the harvest sold: seeds from the market on the same trip")
 	truck.cargo.from_dict(bed_had)
 	for pair: Array in crops_had:
 		inv.set_stack(pair[0], pair[1])
-	# The mending: wood for the house, counted from when the goal came up; then every board of
-	# the house, then the warehouse's.
-	Quests.tally["picked:wood"] = 20
-	Quests._catch_up()
-	_check(Quests.current()["id"] == "wood" and Quests.step_count == 0, "wood picked up before the goal came up doesn't count")
-	Events.item_picked_up.emit(&"wood", 2)
-	Events.item_picked_up.emit(&"stone", 2)
-	_check(Quests.current()["id"] == "wood" and Quests.step_count == 2, "picked-up wood counts toward the wood goal, stone doesn't")
-	Events.item_picked_up.emit(&"wood", 6)
-	_check(Quests.current()["id"] == "patch", "eight logs complete it: on to the house's boards")
-	Events.wall_patched.emit(&"warehouse", 1, 6)
-	_check(Quests.current()["id"] == "patch" and Quests.step_count == 0, "boards renewed on the warehouse don't count toward the house")
-	for i in 7:
-		Events.wall_patched.emit(&"house", i + 1, 8)
-	_check(Quests.current()["id"] == "patch" and Quests.step_count == 7, "seven of the house's eight boards aren't enough: every one is asked for")
-	Events.wall_patched.emit(&"house", 8, 8)
-	_check(Quests.current()["id"] == "wh_patch", "the house's last board moves on to the warehouse's")
-	# The warehouse board renewed earlier counts too ("ever"): five more finish it.
-	for i in 5:
-		Events.wall_patched.emit(&"warehouse", i + 2, 6)
+	# The seeds: any the market has (out of season ones aren't on its shelves); only seeds count.
+	var seed_id := Quests._seed_to_buy()
+	_check(seed_id != &"" and seed_id in (ShopStock.town_market()["stock"] as Array) and ItemDB.get_item(seed_id).category == "seed",
+			"the seeds goal asks for a seed the market sells (%s)" % seed_id)
+	var money_had := Economy.money
+	Economy.money = 500
+	Quests._hint = ""
+	_check(same.call(Quests._target("seeds"), Quests._target("market")) and Quests.goal_hint() == tr("HINT_MARKET"),
+			"the dot goes to the market counter for the seeds")
+	Economy.money = money_had
+	Events.item_bought.emit(&"rope", 2)
+	_check(Quests.current()["id"] == "seeds" and Quests.step_count == 0, "rope bought isn't seeds")
+	Events.item_bought.emit(&"carrot_seed", 3)
+	var fields := int(Quests.TUTORIAL[Quests.index_of("till2")]["chapter"])
+	_check(Quests.current()["id"] == "till2" and begun[0] == fields and Game.hud._quest_note.text.contains(Quests.chapter_note(fields)),
+			"three seeds bought: the field grows (Grandpa's note), three more beds to till")
+	# The new beds: counted from when each goal comes up (the first day's beds don't count).
+	for i in 3:
+		Events.action_done.emit("hoe", null)
+	_check(Quests.current()["id"] == "sow", "three beds tilled move on to sowing them")
+	var sow_plot := tree.get_first_node_in_group(&"farm_plots") as FarmPlot
+	var sow_crop := sow_plot.crop
+	sow_plot.crop = &"potato"
+	for i in 3:
+		Events.action_done.emit("plant", sow_plot)
+	sow_plot.crop = sow_crop
+	_check(Quests.current()["id"] == "water2", "any seed sown (Grandpa's potatoes here) moves on to watering")
+	for i in 3:
+		Events.action_done.emit("water", null)
 	await _frames(2)
+	# No sapling in the bag: the goal passes (not every felled tree drops one).
+	var saplings_had := inv.count_item(SaplingGrove.ITEM)
+	inv.remove_item(SaplingGrove.ITEM, saplings_had)
+	Quests._poll = 0.0
+	await _idle_frames(3)
 	var workshop := int(Quests.TUTORIAL[Quests.index_of("bench_kit")]["chapter"])
 	_check(Quests.current()["id"] == "bench_kit" and begun[0] == workshop and Game.hud._quest_note.text.contains(Quests.chapter_note(workshop)),
-			"the warehouse's boards renewed: the workshop opens with Grandpa's note (the knife for the night)")
-	# The knife, then a bite to eat if the farmer hasn't had one: the dot finds berries, or
-	# says to eat what is in the bag; too full to eat passes it.
+			"the beds watered and no sapling to plant: the workshop opens with Grandpa's note (the knife for the night)")
+	# A sapling in the bag: the goal waits for it to be planted.
+	inv.add_item(SaplingGrove.ITEM, 1)
+	Quests.step = Quests.index_of("sapling")
+	Quests.step_count = 0
+	Quests._poll = 0.0
+	await _idle_frames(3)
+	Quests._hint = ""
+	Quests._sapling_spot_searched = false
+	var sap_spot: Variant = Quests._target("sapling")
+	_check(Quests.current()["id"] == "sapling" and Quests.goal_hint() == tr("HINT_PLANT_SAPLING")
+			and (sap_spot == null or SaplingGrove.instance.plant_reason((sap_spot as Vector3) - Vector3(0, 1.0, 0)) == ""),
+			"a sapling in the bag keeps the goal up, the dot on open ground it can go in (%s)" % str(sap_spot))
+	Events.sapling_planted.emit(null)
+	_check(Quests.current()["id"] == "bench_kit", "the sapling planted moves on to the workshop")
+	inv.remove_item(SaplingGrove.ITEM, 1)
+	inv.add_item(SaplingGrove.ITEM, saplings_had)
+	# The knife ends the workshop: the rest of the second day is free.
 	Quests.step = Quests.index_of("knife")
 	Quests.step_count = 0
 	Events.crafted.emit(&"knife", 1)
-	var hunger_had := PlayerState.needs.hunger
-	PlayerState.needs.hunger = 50.0
-	_check(Quests.current()["id"] == "snack" and int(Quests.TUTORIAL[Quests.index_of("snack")]["chapter"]) == workshop,
-			"the knife moves on to a bite to eat, the same day")
-	var food_had: Array = []
-	for i in inv.size():
-		var st := inv.get_stack(i)
-		if st != null and Eating.food_value(st.item.id) > 0:
-			food_had.append([i, st])
-			inv.set_stack(i, null)
-	Quests._hint = ""
-	var to_food: Variant = Quests._target("food")
-	_check(tree.get_nodes_in_group(&"berry_bushes").is_empty() or (to_food != null and Quests.goal_hint() == tr("HINT_BERRIES")),
-			"nothing to eat in the bag: the dot points at a wild bush with berries (%s)" % str(to_food))
-	inv.add_item(&"blueberry", 2)
-	Quests._hint = ""
-	_check(Quests._target("food") == null and Quests.goal_hint() == tr("HINT_EAT_FOOD"), "berries in the bag: the goal says to eat them (no dot)")
-	inv.remove_item(&"blueberry", 2)
-	for pair: Array in food_had:
-		inv.set_stack(pair[0], pair[1])
-	Quests._poll = 0.0
-	await _idle_frames(2)
-	_check(Quests.current()["id"] == "snack", "a hungry farmer keeps the goal up")
-	Events.food_eaten.emit(&"blueberry")
-	_check(Quests.current()["id"] == "rooster_wait", "a few berries eaten: the rest of the second day is free, the rooster waits for the third morning")
-	Quests.step = Quests.index_of("snack")
-	Quests.step_count = 0
-	Quests.tally = {}
-	PlayerState.needs.hunger = Needs.MAX
-	Quests._poll = 0.0
-	await _idle_frames(3)
-	_check(Quests.passed("snack"), "too full to eat: the snack goal passes")
-	PlayerState.needs.hunger = hunger_had
-	# The pond's meal: only a cooked one counts (the berries of day two don't).
+	_check(Quests.current()["id"] == "rooster_wait", "the knife made: the rest of the second day is free, the rooster waits for the third morning")
+	# The pond's meal: only a cooked one counts (the berries of day one don't).
 	Quests.step = Quests.index_of("eat")
 	Quests.step_count = 0
 	Quests.tally = {"eaten:": 2, "eaten:blueberry": 2}
@@ -3588,7 +3657,8 @@ func _quests() -> void:
 	_check(Quests.current()["id"] == "rooster_wait" and Quests.step_count == 0,
 			"a chain 6 save on the old second day's fishing goes on at the rooster's wait (the fishing comes on day four)")
 	Quests.load_data({"chain": 6, "id": "patch", "count": 3, "orders": saved_orders})
-	_check(Quests.current()["id"] == "free", "a chain 6 save on the first day's mending is free until the next morning's market")
+	_check(Quests.current()["id"] == "patch" and Quests.step_count == 3 and Quests.first_day(),
+			"a chain 6 save on the first day's mending keeps it and its boards (the mending is the first day's again)")
 	Quests.load_data({"chain": 6, "id": "egg", "count": 0, "orders": saved_orders})
 	_check(Quests.current()["id"] == "feed" and Quests.first_day(), "a chain 6 save on the first egg does the coop's care first")
 	Quests.load_data({"chain": 2, "id": "sleep", "count": 0, "orders": saved_orders})
@@ -3704,11 +3774,16 @@ func _quests() -> void:
 	await _frames(2)
 
 
-## The story's days (round 14): farm life first. Day one ends with the coop's care and
-## the first egg; day two sells the wheat, mends the house and the warehouse and makes a
-## knife for the night (the wolves' lesson is that night); day three brings the rooster
-## and Grandpa's potatoes, day four the pond. The first two hens and the first rooster are
-## named as they go into the coop, once each; old saves on a moved goal land sensibly.
+## The story's days (round 14, filled out in round 15): farm life first. Day one goes on
+## after the coop's care and the first egg with the house and the warehouse mended, a walk
+## round the land to Grandpa's spots (each counted once, his line under the goal, the dot
+## on to the next), the quarry's stone, wild berries and a bite; its pace keeps all of it
+## in daylight. Day two sells the wheat, buys seeds, sows three more beds, plants a
+## sapling and makes a knife for the night (the wolves' lesson is that night); day three
+## brings the rooster and the beds' watering, day four the pond, the barn after it. The
+## first two hens and the first rooster are named as they go into the coop, once each;
+## old saves on a moved goal land sensibly. -- --tutshots=<dir> also saves screenshots of
+## the walk's dot and the berries.
 func _tutorial14() -> void:
 	await _close_screens()
 	var inv := PlayerState.inventory
@@ -3718,13 +3793,39 @@ func _tutorial14() -> void:
 	# (1) The order, the chapters and the days' gates.
 	var order := ["door", "tools", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens", "drive_home",
 			"crates_in", "coop_wood", "coop_kit", "coop_place", "coop_built", "hens_in", "harvest", "ship", "feed",
-			"coop_water", "straw", "egg", "ship_egg", "free", "harvest2", "load_crops", "sell_market", "wood", "patch",
-			"wh_patch", "bench_kit", "bench_place", "bench_built", "knife", "snack", "rooster_wait", "rooster_buy",
-			"rooster_in", "potatoes", "fishing_wait", "rope", "bait", "rod", "fish", "campfire", "cook", "eat", "level_3"]
+			"coop_water", "straw", "egg", "ship_egg", "wood", "patch", "wh_patch", "explore", "stones", "berries", "snack",
+			"free", "harvest2", "load_crops", "sell_market", "seeds", "till2", "sow", "water2", "sapling",
+			"bench_kit", "bench_place", "bench_built", "knife", "rooster_wait", "rooster_buy", "rooster_in", "water3",
+			"fishing_wait", "rope", "bait", "rod", "fish", "campfire", "cook", "eat", "level_3", "barn", "sheep", "shear"]
 	var in_order := true
 	for i in order.size():
 		in_order = in_order and Quests.index_of(order[i]) == i
-	_check(in_order, "farm life first: day one's coop, care and egg; day two's market, mending and knife; day three's rooster and potatoes; day four's pond")
+	_check(in_order and Quests.index_of("potatoes") < 0,
+			"a full first day: coop, care, egg, mending, the walk, stone, berries, a bite; day two's market, seeds, new beds, sapling and knife; day three's rooster and watering; day four's pond; the barn after it")
+	var day_one_ok := true
+	for i in Quests.index_of("free"):
+		day_one_ok = day_one_ok and int(Quests.TUTORIAL[i]["chapter"]) < Quests.DAY_TWO_CHAPTER and String(Quests.TUTORIAL[i].get("at", "")) != ""
+	_check(day_one_ok and chapter_of.call("explore") == Quests.CHAPTERS.find("explore") and chapter_of.call("wood") == Quests.CHAPTERS.find("repair")
+			and chapter_of.call("till2") == Quests.CHAPTERS.find("fields") and chapter_of.call("barn") == Quests.CHAPTERS.find("barn")
+			and Quests.index_of("barn") > Quests.index_of("eat"),
+			"the mending and the walk are the first day's (each with a dot); the new beds have their chapter; the barn and its sheep wait for after the pond")
+	# The first day's pace: the whole story in daylight at the default 15-minute day (80
+	# game minutes a real minute), about 50 real minutes from noon to sundown (19:15).
+	var per_second := (20.0 * 60.0) / (15.0 * 60.0)
+	var to_sundown := 0.0
+	var to_night := 0.0
+	var m := float(GameClock.FIRST_DAY_START_MINUTE)
+	while m < 20.0 * 60.0:
+		var real := 1.0 / (per_second * Quests.pace_for(m / 60.0)) / 60.0
+		to_night += real
+		if m < 19.25 * 60.0:
+			to_sundown += real
+		m += 1.0
+	var egg_real := ChickenCoop.FIRST_EGG_MINUTES / (per_second * Quests.FIRST_DAY_PACE) / 60.0
+	_check(to_sundown > 46.0 and to_sundown < 56.0 and to_night > 52.0 and to_night < 62.0 and egg_real < 4.0
+			and Quests.LINGER_PACE < Quests.FIRST_DAY_PACE,
+			"the first day's story has %.1f real minutes to sundown, %.1f to nightfall; the first egg comes %.1f minutes after the hens go in"
+			% [to_sundown, to_night, egg_real])
 	var gates := {"free": 2, "rooster_wait": 3, "fishing_wait": 4}
 	var gated := true
 	for id: String in gates:
@@ -3732,10 +3833,11 @@ func _tutorial14() -> void:
 		gated = gated and String(g["kind"]) == "check" and String(g["arg"]) == "day:%d" % int(gates[id]) and String(g.get("at", "")) == ""
 	_check(gated, "each day's goals wait for its morning (day 2, 3 and 4: free time, no dot)")
 	_check(chapter_of.call("knife") == Quests.CHAPTERS.find("workshop") and chapter_of.call("knife") > Quests.DAY_TWO_CHAPTER
-			and Quests.index_of("knife") < Quests.index_of("rooster_wait") and WolfRaids.LESSON_NIGHT == 2,
+			and Quests.index_of("knife") == Quests.index_of("rooster_wait") - 1 and WolfRaids.LESSON_NIGHT == 2,
 			"the knife is made on day two, before the night of the wolves' lesson (night %d)" % WolfRaids.LESSON_NIGHT)
-	_check(chapter_of.call("rooster_buy") == Quests.CHAPTERS.find("rooster") and chapter_of.call("rope") == Quests.CHAPTERS.find("fishing")
-			and Quests.index_of("rope") > Quests.index_of("fishing_wait"), "the rooster comes on day three, the fishing on day four")
+	_check(chapter_of.call("rooster_buy") == Quests.CHAPTERS.find("rooster") and chapter_of.call("water3") == Quests.CHAPTERS.find("rooster")
+			and chapter_of.call("rope") == Quests.CHAPTERS.find("fishing") and Quests.index_of("rope") > Quests.index_of("fishing_wait"),
+			"the rooster and the beds' watering come on day three, the fishing on day four")
 	var texts := true
 	for i in Quests.CHAPTERS.size():
 		texts = texts and not Quests.chapter_title(i).begins_with("CHAPTER_") and not Quests.chapter_note(i).begins_with("CHAPTER_")
@@ -3760,6 +3862,12 @@ func _tutorial14() -> void:
 		_check(waits and Quests.passed(String(pair[0])), "'%s' waits on day %d, the morning of day %d opens the next chapter (now '%s')"
 				% [pair[0], int(pair[1]) - 1, int(pair[1]), Quests.current().get("id", "-")])
 	GameClock.day = day_was
+
+	# (2b) The first day's walk round the land: Grandpa's spots one after another, each
+	# counted once (any order) with his line under the goal and its name in a note, the dot
+	# on to the next one in the walk's order; then the quarry's stone, the berries off a
+	# real bush and a bite to eat.
+	await _tutorial14_walk()
 
 	# (3) The wolves' lesson comes on the second night (the first has none).
 	var kept_raids := Settings.wolf_raids
@@ -3876,9 +3984,185 @@ func _tutorial14() -> void:
 	if rods_had == 0:
 		inv.remove_item(&"fishing_rod", 1)
 	GameClock.day = day_was
+
+	# (6) Saves of chain 7 (the mending on day two after the market, the snack after the
+	# knife, the potatoes on day three).
+	Quests.load_data({"chain": 7, "id": "free", "count": 0, "orders": orders})
+	_check(Quests.current()["id"] == "wood" and Quests.first_day(), "a chain 7 save on the free evening does the mending and the walk first")
+	Quests.load_data({"chain": 7, "id": "sell_market", "count": 2, "orders": orders})
+	_check(Quests.current()["id"] == "wood" and Quests.step_count == 0,
+			"a chain 7 save on the market (before its mending) goes back to the mending, now the first day's")
+	Quests.load_data({"chain": 7, "id": "patch", "count": 3, "orders": orders})
+	var sold_first: bool = Quests.current()["id"] == "patch" and Quests.step_count == 3
+	Quests.step = Quests.index_of("harvest2")
+	Quests.step_count = 0
+	var xp_had := Progress.xp
+	for i in 12:
+		if Quests.passed("sell_market"):
+			break
+		Quests._poll = 0.0
+		await _idle_frames(2)
+	_check(sold_first and Quests.current()["id"] == "seeds" and Progress.xp == xp_had,
+			"a chain 7 save on the mending had sold at the market: its market passes (no experience twice), on to the seeds (now '%s')"
+			% Quests.current().get("id", "-"))
+	Quests.load_data({"chain": 7, "id": "snack", "count": 0, "orders": orders})
+	_check(Quests.current()["id"] == "rooster_wait", "a chain 7 save on the snack after the knife is free until the third morning")
+	Quests.load_data({"chain": 7, "id": "potatoes", "count": 2, "orders": orders})
+	_check(Quests.current()["id"] == "water3" and Quests.step_count == 0, "a chain 7 save on Grandpa's potatoes goes on at the third day's watering")
+	Quests.load_data({"chain": 7, "id": "bench_place", "count": 0, "orders": orders})
+	_check(Quests.current()["id"] == "bench_place", "a chain 7 save on the workshop keeps its goal")
+	Quests.load_data({"chain": Quests.CHAIN, "id": "explore", "count": 2, "orders": orders,
+		"tally": {"visit:": 2, "visit:pond": 1, "visit:quarry": 1}})
+	_check(Quests.current()["id"] == "explore" and Quests.step_count == 2 and Quests.spots_left() == ["woods", "pasture"],
+			"a save on the walk keeps the spots reached (%s left)" % str(Quests.spots_left()))
 	Quests.skip_tutorial()
 	FarmState.remove_placed(coop.entry)
 	coop.queue_free()
+	await _frames(3)
+
+
+## The first day's walk round the land (tutorial14 (2b)).
+func _tutorial14_walk() -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(3)
+	var foot := player.global_transform
+	var shots := String(DebugTools.args.get("tutshots", ""))
+	var hour_had := GameClock.get_hour_float()
+	var spots: Array = Quests.EXPLORE_SPOTS.keys()
+	_check(int(Quests.TUTORIAL[Quests.index_of("explore")]["count"]) == spots.size() and spots == ["pond", "woods", "pasture", "quarry"],
+			"the walk asks for every one of Grandpa's spots (%s)" % ", ".join(spots))
+	# Each on open valley ground (the pond's over its water), each with its name and line,
+	# none within reach of the farmyard.
+	var b := WorldLayout.SHIPPING_BIN_POS
+	var spots_ok := true
+	for id: String in spots:
+		var at: Vector2 = Quests.EXPLORE_SPOTS[id]["at"]
+		var reach := float(Quests.EXPLORE_SPOTS[id]["reach"])
+		spots_ok = spots_ok and WorldLayout.playable_distance(at.x, at.y) > 6.0 and at.distance_to(Vector2(b.x, b.z)) > reach + 2.0
+		spots_ok = spots_ok and (id == "pond" or not TerrainData.is_underwater(at.x, at.y, 0.3))
+		spots_ok = spots_ok and not Quests.spot_name(id).begins_with("SPOT_") and not tr("EXPLORE_%s_LINE" % id.to_upper()).begins_with("EXPLORE_")
+	_check(spots_ok, "Grandpa's spots lie on open valley ground away from the yard, each with its name and line")
+	Quests.step = Quests.index_of("explore")
+	Quests.step_count = 0
+	Quests.tally = {}
+	Quests.tutorial_changed.emit()
+	player.global_position = Vector3(b.x + 1.5, TerrainData.height(b.x + 1.5, b.z + 2.0) + 0.3, b.z + 2.0)
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	var wp: Variant = Quests.waypoint()
+	_check(Quests.step_count == 0 and Quests.spots_left().size() == spots.size() and wp is Vector3
+			and (wp as Vector3).is_equal_approx(Quests.spot_point("pond")) and Quests.goal_hint() == tr("HINT_EXPLORE_NEXT") % Quests.spot_name("pond"),
+			"in the yard no spot counts yet: the dot floats over Grandpa's pond, named under the goal ('%s')" % Quests.goal_hint())
+	var lines: Array = []
+	var on_spot := func(id: String, line: String) -> void: lines.append([id, line])
+	Quests.spot_visited.connect(on_spot)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	# At the pond's east bank.
+	var pc := WorldLayout.POND_CENTER
+	var bank := Vector2(pc.x + WorldLayout.POND_RADIUS + 2.5, pc.y + 1.0)
+	player.global_position = Vector3(bank.x, TerrainData.height(bank.x, bank.y) + 0.3, bank.y)
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	wp = Quests.waypoint()
+	_check(Quests.step_count == 1 and Quests.tally.has("visit:pond") and lines.size() == 1 and String(lines[0][0]) == "pond"
+			and notes.has(tr("MSG_SPOT_FOUND") % Quests.spot_name("pond"))
+			and Game.hud._quest_note.visible and Game.hud._quest_note.text.contains(tr("EXPLORE_POND_LINE"))
+			and wp is Vector3 and (wp as Vector3).is_equal_approx(Quests.spot_point("woods"))
+			and Quests.goal_hint() == tr("HINT_EXPLORE_NEXT") % Quests.spot_name("woods"),
+			"at the pond's bank: counted, Grandpa's line under the goal ('%s'), the dot on to the old forest" % Game.hud._quest_note.text)
+	if shots != "":
+		# The walk's dot over the old forest, the pond's line under the goal, toward evening.
+		GameClock.set_time_of_day(17.4)
+		_look_at(player, Quests.spot_point("woods") + Vector3(0, -2.0, 0))
+		await _shot("%s/tut_explore_dot.png" % shots)
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	_check(Quests.step_count == 1 and lines.size() == 1, "standing at the pond longer doesn't count it again")
+	# Out of the walk's order: the quarry counts, the dot still waits over the forest.
+	var q: Vector2 = Quests.EXPLORE_SPOTS["quarry"]["at"]
+	player.global_position = Vector3(q.x, TerrainData.height(q.x, q.y + 6.0) + 0.5, q.y + 6.0)
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	wp = Quests.waypoint()
+	_check(Quests.step_count == 2 and Quests.tally.has("visit:quarry") and wp is Vector3 and (wp as Vector3).is_equal_approx(Quests.spot_point("woods")),
+			"the quarry reached out of order counts; the dot still waits over the old forest")
+	# A save mid-walk keeps the spots reached.
+	Quests.load_data(Quests.save_data())
+	_check(Quests.current()["id"] == "explore" and Quests.step_count == 2 and Quests.spots_left() == ["woods", "pasture"],
+			"a save mid-walk keeps the spots reached")
+	# The forest's edge from the meadow side, the pasture just inside its gate.
+	for pair: Array in [["woods", Vector2(8.0, 0.0)], ["pasture", Vector2(-8.0, 0.0)]]:
+		var near: Vector2 = Quests.EXPLORE_SPOTS[pair[0]]["at"] + pair[1]
+		player.global_position = Vector3(near.x, TerrainData.height(near.x, near.y) + 0.5, near.y)
+		Quests._wp_left = 0.0
+		await _idle_frames(3)
+	_check(Quests.current()["id"] == "stones" and lines.size() == 4 and Game.hud._quest_note.text.contains(tr("EXPLORE_PASTURE_LINE")),
+			"the old forest and the pasture (the barn's place: '%s') end the walk: on to the quarry's stone" % tr("EXPLORE_PASTURE_LINE"))
+	Quests.spot_visited.disconnect(on_spot)
+	Events.notification_requested.disconnect(on_note)
+	# The stone: the dot finds a rock (or chips lying about); stone counts, wood doesn't.
+	Quests._hint = ""
+	_check(Quests._target("rocks") != null, "the stone's dot finds a rock")
+	Events.item_picked_up.emit(&"stone", 3)
+	Events.item_picked_up.emit(&"wood", 3)
+	_check(Quests.current()["id"] == "stones" and Quests.step_count == 3, "stone picked up counts, wood doesn't (%d)" % Quests.step_count)
+	Events.item_picked_up.emit(&"stone", 2)
+	_check(Quests.current()["id"] == "berries", "five stones: on to the wild berries")
+	# The berries: the dot over the nearest bush with berries; one picked for real counts
+	# what it gave; wood doesn't; no berries left anywhere passes the goal.
+	var bushes: Array = tree.get_nodes_in_group(&"berry_bushes")
+	_check(not bushes.is_empty(), "the valley has wild berry bushes (%d)" % bushes.size())
+	if bushes.is_empty():
+		return
+	Quests._hint = ""
+	var to_bush: Variant = Quests._target("berries")
+	var bush: BerryBush = null
+	for bb: BerryBush in bushes:
+		if bb.is_ripe() and to_bush is Vector3 and bb.global_position.distance_to((to_bush as Vector3) - Vector3(0, 1.2, 0)) < 0.1:
+			bush = bb
+	_check(bush != null and Quests.goal_hint() == tr("HINT_BERRIES"), "the dot floats over the nearest wild bush with berries ('%s')" % Quests.goal_hint())
+	if bush == null:
+		return
+	if shots != "":
+		# Some steps from the bush: its berries, the dot over it (off the crosshair, where it
+		# shows in full) and the goal.
+		var away := bush.global_position + Vector3(8.0, 0.0, 6.0)
+		player.global_position = Vector3(away.x, TerrainData.height(away.x, away.z) + 0.3, away.z)
+		Quests._wp_left = 0.0
+		_look_at(player, bush.global_position + Vector3(2.2, 0.2, -1.6))
+		await _shot("%s/tut_berries_bush.png" % shots)
+	var berry := bush.item_id()
+	var had := inv.count_item(berry)
+	bush.interact(player)
+	var got := inv.count_item(berry) - had
+	_check(got >= BerryBush.PICK.x and Quests.step_count == got and bush.picked,
+			"a bush picked with E gives %d %s, and they count (%d/6)" % [got, berry, Quests.step_count])
+	Events.item_picked_up.emit(&"wood", 2)
+	_check(Quests.step_count == got, "wood isn't berries")
+	var picked_had: Array = bushes.map(func(bb: BerryBush) -> bool: return bb.picked)
+	for bb: BerryBush in bushes:
+		bb.picked = true
+	var none_left := Quests._check_progress("nobush") == 1
+	for i in bushes.size():
+		(bushes[i] as BerryBush).picked = bool(picked_had[i])
+	_check(none_left and Quests._check_progress("nobush") == 0, "every bush picked bare: the berries goal can pass (none to ask for)")
+	Events.item_picked_up.emit(&"raspberry", 6 - got)
+	_check(Quests.current()["id"] == "snack", "six berries picked: a bite to eat")
+	var hunger_had := PlayerState.needs.hunger
+	PlayerState.needs.hunger = 60.0
+	Events.food_eaten.emit(berry)
+	_check(Quests.current()["id"] == "free" and not Quests.first_day(), "the berries eaten: the evening is free")
+	PlayerState.needs.hunger = hunger_had
+	inv.remove_item(berry, got)
+	FarmState.depleted.erase(bush.resource_id)
+	bush._set_picked(false)
+	GameClock.set_time_of_day(hour_had)
+	player.global_transform = foot
 	await _frames(3)
 
 
@@ -6499,9 +6783,9 @@ func _poultry() -> void:
 	var q_count := Quests.step_count
 	var q_tally := Quests.tally.duplicate()
 	var wait := Quests.index_of("rooster_wait")
-	_check(wait == Quests.index_of("snack") + 1 and Quests.index_of("rooster_buy") == wait + 1 and Quests.index_of("rooster_in") == wait + 2
-			and Quests.index_of("potatoes") == wait + 3 and int(Quests.TUTORIAL[wait + 1]["chapter"]) == Quests.CHAPTERS.find("rooster"),
-			"the rooster's chapter follows the second day's knife, before the potatoes and the fishing")
+	_check(wait == Quests.index_of("knife") + 1 and Quests.index_of("rooster_buy") == wait + 1 and Quests.index_of("rooster_in") == wait + 2
+			and Quests.index_of("water3") == wait + 3 and int(Quests.TUTORIAL[wait + 1]["chapter"]) == Quests.CHAPTERS.find("rooster"),
+			"the rooster's chapter follows the second day's knife, before the beds' watering and the fishing")
 	Quests.step = wait
 	Quests.step_count = 0
 	Quests.tally = {}
@@ -6532,8 +6816,8 @@ func _poultry() -> void:
 	CoopDoor.release_held(h)
 	Quests._poll = 0.0
 	await _idle_frames(3)
-	_check(Quests.current()["id"] == "potatoes" and Quests.chapter() == Quests.CHAPTERS.find("rooster"),
-			"let out at the coop: on to Grandpa's potatoes")
+	_check(Quests.current()["id"] == "water3" and Quests.chapter() == Quests.CHAPTERS.find("rooster"),
+			"let out at the coop: on to watering the new beds")
 	Quests.load_data({"chain": 5, "id": "level_3", "count": 0, "orders": Quests.orders.duplicate(true)})
 	_check(Quests.current()["id"] == "rooster_wait", "a chain 5 save just past the fishing goes back for the rooster")
 	Quests.load_data({"chain": 5, "id": "cow", "count": 0, "orders": Quests.orders.duplicate(true)})
@@ -11861,8 +12145,8 @@ func _turntable_shot(path: String) -> void:
 # --- A new game at noon ---------------------------------------------------------------------
 
 ## A new game starts on day 1 at 12:00 and every later morning at 06:00 (a saved game keeps
-## its time); the first afternoon is paced so the story has about the daylight it had from
-## 06:00; wheat sown and watered at 19:00 on a new farm's first day is ripe on the second
+## its time); the first afternoon is paced so the whole first day's story (about 50 real
+## minutes) fits in daylight; wheat sown and watered at 19:00 on a new farm's first day is ripe on the second
 ## morning and reaped (the story's harvest2), while a bed left dry is not, and a slower
 ## crop is only a day along.
 func _scenario_noon_start() -> void:
@@ -11889,7 +12173,7 @@ func _scenario_noon_start() -> void:
 		if m < 19.25 * 60.0:
 			to_sundown += real
 		m += 1.0
-	_check(to_sundown > 22.0 and to_sundown < 27.0 and to_night > 24.0 and to_night < 30.0,
+	_check(to_sundown > 46.0 and to_sundown < 56.0 and to_night > 52.0 and to_night < 62.0,
 			"from noon the story has %.1f real minutes to sundown and %.1f to nightfall" % [to_sundown, to_night])
 	# A saved game keeps its time; a saved day without one starts at 06:00.
 	var clock := GameClock.save_data()

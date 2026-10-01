@@ -251,6 +251,11 @@ func _next_shot() -> void:
 		Quests.step_count = int(t[1])
 		Quests.tutorial_changed.emit()
 		Quests._nudge()
+	if shot.has("visited"):
+		# [spot ids]: Grandpa's spots reached on the first day's walk (the last one's line
+		# shows under the goal).
+		for id: Variant in shot["visited"]:
+			Quests.reach_spot(String(id))
 	if shot.has("note"):
 		# Grandpa's note of a chapter under the goal.
 		Game.hud.show_chapter_note(int(shot["note"]))
