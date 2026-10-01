@@ -1,20 +1,21 @@
 extends Node
 ## The story's goals and the orders on the town board.
-## Grandpa Osman has left the player his run-down farm in Yeşilova. The first day is
-## walked through by hand: the stuck front door, his tools on the worktable inside, three
-## beds of wheat, the pickup's key in the desk drawer, two hens from the poultry stall in
-## town, a coop put up from a kit, the ripe beds he left behind, the shipping bin, the
-## first egg, then the coop looked after (feed from the warehouse, water from the well,
-## straw in the nests) and the broken boards of the house, then of the warehouse, renewed
-## by hand with wood from the trees.
-## After that the player is free; the next morning brings the workshop (a little money
-## earned by selling, a workbench kit bought at the construction board and put up near
-## the house like the coop, a knife made at it) and a first go at fishing (rope from the
-## market for a rod, bait, a fish from the pond by the house, a campfire to cook it on, a
-## meal), on the third morning a rooster for the hens (from the animal market in town, let
-## out at the coop like them: eggs left in the nests under him hatch into chicks), and
-## later only a few milestones of a growing farm (the barn, the dairy, the house), each
-## chapter opened by a line from his notebook. Goals
+## Grandpa Osman has left the player his run-down farm in Yeşilova. The story is farm life
+## first, a day at a time; each day's goals wait for its morning ("day:<n>" goals between
+## them, the player free in between). Day one is walked through by hand: the stuck front
+## door, his tools on the worktable inside, three beds of wheat, the pickup's key in the
+## desk drawer, two hens from the poultry stall in town (named by the farmer as they go
+## into the coop: Animals), a coop put up from a kit, the ripe beds he left behind, the
+## shipping bin, the coop looked after (feed from the warehouse, water from the well, straw
+## in the nests), then the first egg; the evening is free. Day two tidies the farm up: the
+## wheat sold at the town market, the broken boards of the house and the warehouse renewed
+## by hand with wood from the trees, a workbench put up near the house and a knife made at
+## it for the night (the wolves' lesson comes that night: WolfRaids.LESSON_NIGHT), and a
+## bite to eat. Day three brings a rooster for the hens (named like them; eggs left in the
+## nests under him hatch into chicks) and Grandpa's potatoes sown; day four is a day at
+## the pond (rope from the market for a rod, bait, a fish, a campfire to cook it on, a
+## meal). Later only a few milestones of a growing farm (the barn, the dairy, the house),
+## each chapter opened by a line from his notebook. Goals
 ## give farm experience, never money: the farm earns only by selling. A dot on the
 ## screen (waypoint()) shows where a goal is done. Orders: customers who want a number
 ## of one product by a day and pay well above the market for it. They grow with the
@@ -28,10 +29,10 @@ signal chapter_started(chapter: int)
 signal story_finished
 
 const CHAPTERS: Array[String] = ["arrival", "soil", "town", "coop", "harvest", "coop_care",
-	"repair", "free", "workshop", "fishing", "rooster", "barn", "dairy", "legacy"]
+	"free", "market", "repair", "workshop", "rooster", "fishing", "barn", "dairy", "legacy"]
 ## The first chapter after the first day's story (the player is free until morning):
 ## saves from before the first day's story go on from here.
-const DAY_TWO_CHAPTER := 7
+const DAY_TWO_CHAPTER := 6
 ## Format of the chain in saves (2: the hand-held first day; 3: the day ending with the
 ## coop's care and the house mended by hand; 4: the second day's workshop and fishing;
 ## 5: the second morning's harvest sold at the market instead of earning in the bin).
@@ -39,8 +40,9 @@ const DAY_TWO_CHAPTER := 7
 ## the nearest goal still here (MOVED_V3), chain 3 saves on the stonework at the
 ## workshop (MOVED_V4), chain 4 saves on the earning goal at the second harvest (MOVED_V5);
 ## 6: the third morning's rooster after the fishing (chain 5 saves just past the fishing
-## go back for it: MOVED_V6).
-const CHAIN := 6
+## go back for it: MOVED_V6); 7: farm life first: the mending moved to day two, the knife
+## made for the night, the rooster on day three and the fishing on day four (MOVED_V7).
+const CHAIN := 7
 ## Story goals in order: chapter, id, what counts toward it, how many, and the farm
 ## experience it gives ("xp", none when left out). Goals pay no money: the farm earns
 ## only by selling (Economy.STARTING_MONEY).
@@ -59,11 +61,11 @@ const CHAIN := 6
 ## "warehouse", "cargo", "near:town", "day:<n>", "level", "built:<project>",
 ## "animals:<species>", "has:<item>" (in the bag or put down on the farm), "bench:kit" /
 ## "bench:started" / "bench:built" (a workbench bought, put down, finished), "bait"
-## (worms or dough in the bag), "caught" (a fish caught since the story began); the
-## counting ones report progress).
-## Kinds of the second day: "earned" (dollars from sales and orders), "caught" (fish
-## caught: Events.fish_caught), "cooked" (food cooked on a campfire), "eaten" (food
-## eaten).
+## (worms or dough in the bag), "caught" (a fish caught since the story began), "full"
+## (the farmer too full to eat now); the counting ones report progress).
+## Kinds of the later days: "earned" (dollars from sales and orders), "caught" (fish
+## caught: Events.fish_caught), "cooked" (food cooked on a campfire), "eaten" (anything
+## eaten), "meal" (a cooked meal eaten: _is_meal).
 ## "ever": the goal also counts what was done before it came up (see `tally`), so work
 ## done early is never asked for twice and the chain can't stall on it.
 ## "past": a check that shows the player is beyond this goal already (done out of order,
@@ -89,78 +91,87 @@ const TUTORIAL := [
 	{"chapter": 2, "id": "buy_chickens", "kind": "check", "arg": "hens:owned", "count": 2, "at": "stall"},
 	{"chapter": 2, "id": "drive_home", "kind": "check", "arg": "home", "count": 1, "xp": 4, "at": "home", "past": "crates:warehouse"},
 	{"chapter": 2, "id": "crates_in", "kind": "check", "arg": "crates:warehouse", "count": 2, "xp": 5, "at": "crates"},
-	# The coop: wood, a kit from the construction board, a spot, a minute's work, the hens in.
+	# The coop: wood, a kit from the construction board, a spot, a minute's work, the hens in
+	# (each of the first two named by the farmer as she goes in: Animals).
 	{"chapter": 3, "id": "coop_wood", "kind": "picked", "arg": "wood", "count": 15, "xp": 5, "ever": true, "at": "trees", "past": "kit"},
 	{"chapter": 3, "id": "coop_kit", "kind": "check", "arg": "kit", "count": 1, "at": "board"},
 	{"chapter": 3, "id": "coop_place", "kind": "check", "arg": "coop:started", "count": 1, "xp": 4, "at": "coop_spot"},
 	{"chapter": 3, "id": "coop_built", "kind": "check", "arg": "coop:built", "count": 1, "xp": 8, "at": "coop"},
 	{"chapter": 3, "id": "hens_in", "kind": "check", "arg": "animals:chicken", "count": 2, "xp": 6, "at": "hens"},
-	# The first harvest: the ripe beds Grandpa left, the shipping bin, the first egg.
+	# The first harvest: the ripe beds Grandpa left, the shipping bin.
 	{"chapter": 4, "id": "harvest", "kind": "action", "arg": "harvest", "count": 3, "xp": 5, "ever": true, "at": "plot:ripe", "past": "bin:crop"},
 	{"chapter": 4, "id": "ship", "kind": "check", "arg": "bin:crop", "count": 1, "xp": 3, "at": "bin"},
-	{"chapter": 4, "id": "egg", "kind": "picked", "arg": "egg", "count": 1, "ever": true, "at": "egg", "past": "bin:egg"},
-	{"chapter": 4, "id": "ship_egg", "kind": "check", "arg": "bin:egg", "count": 1, "xp": 3, "at": "bin"},
 	# The coop's care: the feed sack that waits in the warehouse into the feeder, the
 	# watering can from the well into the water trough, straw from the meadow in the nests
-	# (the hens lay there from then on).
+	# (the hens lay there from then on); then the first egg (laid 25 minutes after the
+	# first hen went in: ChickenCoop) picked up and put in the bin.
 	{"chapter": 5, "id": "feed", "kind": "fed", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "feeder"},
 	{"chapter": 5, "id": "coop_water", "kind": "watered", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "coop_water"},
 	{"chapter": 5, "id": "straw", "kind": "nests", "arg": "", "count": 3, "xp": 4, "ever": true, "at": "nests"},
-	# Mending: wood for the house (counted from when the goal comes up), then every broken
-	# board of the house renewed by hand, a piece of wood each (its eight holes: the last
-	# one repairs it), then the warehouse's six the same way (no wood goal of its own: with
-	# none in hand the dot goes to the trees first). (A building repaired already passes
-	# its goals.)
-	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 8, "xp": 2, "at": "trees", "past": "built:house_1"},
-	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 8, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
-	{"chapter": 6, "id": "wh_patch", "kind": "patched", "arg": "warehouse", "count": 6, "xp": 8, "ever": true, "at": "warehouse_repair", "past": "built:warehouse_1"},
+	{"chapter": 5, "id": "egg", "kind": "picked", "arg": "egg", "count": 1, "ever": true, "at": "egg", "past": "bin:egg"},
+	{"chapter": 5, "id": "ship_egg", "kind": "check", "arg": "bin:egg", "count": 1, "xp": 3, "at": "bin"},
 	# The first day's story is done: the farm is the player's own until the next morning
 	# (no dot, no task; Grandpa's note says so).
-	{"chapter": 7, "id": "free", "kind": "check", "arg": "day:2", "count": 1},
-	# Day two, the workshop: some money of the farm's own first (the kit is bought, like
-	# everything), the workbench kit from the construction board, put up near the house
-	# with a minute's work like the coop, then the first tool made at it: a knife.
-	# The second morning: yesterday's wheat reaped, loaded into the pickup's bed and sold at
-	# the Yeşilova market, then the workbench from what it fetched.
-	{"chapter": 8, "id": "harvest2", "kind": "check", "arg": "crops", "count": 3, "xp": 4, "at": "plot:ripe", "past": "bench:kit"},
-	{"chapter": 8, "id": "load_crops", "kind": "check", "arg": "cargo:crop", "count": 3, "xp": 3, "at": "truck_load", "past": "bench:kit"},
-	{"chapter": 8, "id": "sell_market", "kind": "sold", "arg": "", "count": 3, "xp": 4, "at": "sell_market", "past": "bench:kit"},
-	{"chapter": 8, "id": "bench_kit", "kind": "check", "arg": "bench:kit", "count": 1, "xp": 4, "at": "bench_board"},
-	{"chapter": 8, "id": "bench_place", "kind": "check", "arg": "bench:started", "count": 1, "xp": 4, "at": "bench_spot"},
-	{"chapter": 8, "id": "bench_built", "kind": "check", "arg": "bench:built", "count": 1, "xp": 6, "at": "bench"},
-	{"chapter": 8, "id": "knife", "kind": "crafted", "arg": "knife", "count": 1, "xp": 6, "ever": true, "at": "craft:knife"},
-	# Fishing, shown once: rope from the town market for a rod (RecipeTable: 2), the rod
-	# made at the bench, bait, a fish from the pond by the house, a campfire made and put
-	# down to cook it on, and the meal.
-	# The rope and the bait on the same trip to the market, then the rod at the bench.
-	{"chapter": 9, "id": "rope", "kind": "check", "arg": "has:rope", "count": 2, "xp": 3, "at": "buy:rope", "past": "rods"},
-	{"chapter": 9, "id": "bait", "kind": "check", "arg": "bait", "count": 1, "xp": 3, "at": "bait", "past": "caught"},
-	# Any rod will do (the cane rod, the standard one or a better one).
-	{"chapter": 9, "id": "rod", "kind": "check", "arg": "rods", "count": 1, "xp": 6, "at": "craft:fishing_rod", "past": "rods"},
-	{"chapter": 9, "id": "fish", "kind": "caught", "arg": "", "count": 1, "xp": 8, "ever": true, "at": "pond"},
-	{"chapter": 9, "id": "campfire", "kind": "crafted", "arg": "campfire", "count": 1, "xp": 4, "ever": true, "at": "craft:campfire", "past": "has:campfire"},
-	{"chapter": 9, "id": "cook", "kind": "cooked", "arg": "", "count": 1, "xp": 6, "ever": true, "at": "campfire"},
-	{"chapter": 9, "id": "eat", "kind": "eaten", "arg": "", "count": 1, "xp": 4, "ever": true},
-	# The rest of the second day (and the next, if the fishing went quickly) is the
-	# player's own; the third morning brings the rooster.
+	{"chapter": 6, "id": "free", "kind": "check", "arg": "day:2", "count": 1},
+	# Day two, market day: yesterday's wheat reaped, loaded into the pickup's bed and sold
+	# at the Yeşilova market (the money for the workbench later in the day).
+	{"chapter": 7, "id": "harvest2", "kind": "check", "arg": "crops", "count": 3, "xp": 4, "at": "plot:ripe", "past": "bench:kit"},
+	{"chapter": 7, "id": "load_crops", "kind": "check", "arg": "cargo:crop", "count": 3, "xp": 3, "at": "truck_load", "past": "bench:kit"},
+	{"chapter": 7, "id": "sell_market", "kind": "sold", "arg": "", "count": 3, "xp": 4, "at": "sell_market", "past": "bench:kit"},
+	# Tidying the farm up: wood for the house (counted from when the goal comes up), then
+	# every broken board of the house renewed by hand, a piece of wood each (its eight
+	# holes: the last one repairs it), then the warehouse's six the same way (no wood goal
+	# of its own: with none in hand the dot goes to the trees first). (A building repaired
+	# already passes its goals.)
+	{"chapter": 8, "id": "wood", "kind": "picked", "arg": "wood", "count": 8, "xp": 2, "at": "trees", "past": "built:house_1"},
+	{"chapter": 8, "id": "patch", "kind": "patched", "arg": "house", "count": 8, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
+	{"chapter": 8, "id": "wh_patch", "kind": "patched", "arg": "warehouse", "count": 6, "xp": 8, "ever": true, "at": "warehouse_repair", "past": "built:warehouse_1"},
+	# The workshop before nightfall: the workbench kit from the construction board (bought,
+	# like everything), put up near the house with a minute's work like the coop, then a
+	# knife made at it: Grandpa's advice for the nights, when the wolves are about (the
+	# lesson comes tonight: WolfRaids.LESSON_NIGHT). Then a bite to eat, if the farmer
+	# hasn't had one yet (berries from a wild bush, or food in the bag).
+	{"chapter": 9, "id": "bench_kit", "kind": "check", "arg": "bench:kit", "count": 1, "xp": 4, "at": "bench_board"},
+	{"chapter": 9, "id": "bench_place", "kind": "check", "arg": "bench:started", "count": 1, "xp": 4, "at": "bench_spot"},
+	{"chapter": 9, "id": "bench_built", "kind": "check", "arg": "bench:built", "count": 1, "xp": 6, "at": "bench"},
+	{"chapter": 9, "id": "knife", "kind": "crafted", "arg": "knife", "count": 1, "xp": 6, "ever": true, "at": "craft:knife"},
+	{"chapter": 9, "id": "snack", "kind": "eaten", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "food", "past": "full"},
+	# The rest of the second day is the player's own (the night brings the wolves' lesson);
+	# the third morning brings the rooster.
 	{"chapter": 9, "id": "rooster_wait", "kind": "check", "arg": "day:3", "count": 1},
-	# Day three, a rooster for the hens: bought at the animal market in town (in his crate,
-	# like the hens) and let out at the coop door; the eggs left in the nests under him
-	# hatch into chicks a day later (the chapter's note and the release say so).
+	# Day three, the flock grows: a rooster for the hens, bought at the animal market in town
+	# (in his crate, like the hens) and let out at the coop door, named by the farmer like
+	# the first hens; the eggs left in the nests under him hatch into chicks a day later
+	# (the chapter's note and the release say so). Then Grandpa's potato seeds sown (any
+	# seed counts: none is asked for twice, and a season without potatoes can't stall it).
 	{"chapter": 10, "id": "rooster_buy", "kind": "check", "arg": "owned:rooster", "count": 1, "xp": 4, "at": "rooster_market", "past": "animals:rooster"},
 	{"chapter": 10, "id": "rooster_in", "kind": "check", "arg": "animals:rooster", "count": 1, "xp": 8, "at": "hens"},
+	{"chapter": 10, "id": "potatoes", "kind": "action", "arg": "plant", "count": 3, "xp": 4, "at": "plot:empty"},
+	{"chapter": 10, "id": "fishing_wait", "kind": "check", "arg": "day:4", "count": 1},
+	# Day four, a day at the pond: rope from the town market for a rod (RecipeTable: 2) and
+	# bait on the same trip, the rod made at the bench, a fish from the pond by the house, a
+	# campfire made and put down to cook it on, and the meal. (Goals a save is past already
+	# pass: a rod in the bag, a fish caught, a meal eaten.)
+	{"chapter": 11, "id": "rope", "kind": "check", "arg": "has:rope", "count": 2, "xp": 3, "at": "buy:rope", "past": "rods"},
+	{"chapter": 11, "id": "bait", "kind": "check", "arg": "bait", "count": 1, "xp": 3, "at": "bait", "past": "caught"},
+	# Any rod will do (the cane rod, the standard one or a better one).
+	{"chapter": 11, "id": "rod", "kind": "check", "arg": "rods", "count": 1, "xp": 6, "at": "craft:fishing_rod", "past": "rods"},
+	{"chapter": 11, "id": "fish", "kind": "caught", "arg": "", "count": 1, "xp": 8, "ever": true, "at": "pond"},
+	{"chapter": 11, "id": "campfire", "kind": "crafted", "arg": "campfire", "count": 1, "xp": 4, "ever": true, "at": "craft:campfire", "past": "has:campfire"},
+	{"chapter": 11, "id": "cook", "kind": "cooked", "arg": "", "count": 1, "xp": 6, "ever": true, "at": "campfire"},
+	{"chapter": 11, "id": "eat", "kind": "meal", "arg": "", "count": 1, "xp": 4, "ever": true},
 	# From here the farm is the player's to run: a few milestones as it grows (sheep, a
 	# cow and a bigger house).
-	{"chapter": 11, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
-	{"chapter": 11, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
-	{"chapter": 11, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
-	{"chapter": 11, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
-	{"chapter": 12, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
-	{"chapter": 12, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
-	{"chapter": 12, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
-	{"chapter": 12, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
-	{"chapter": 13, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
-	{"chapter": 13, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
+	{"chapter": 12, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
+	{"chapter": 12, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
+	{"chapter": 12, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
+	{"chapter": 12, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
+	{"chapter": 13, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
+	{"chapter": 13, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
+	{"chapter": 13, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
+	{"chapter": 13, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
+	{"chapter": 14, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
+	{"chapter": 14, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
 ]
 ## Goals of the chain before the first day's story (saves without "chain") and where
 ## such a save goes on (MOVED_V3 then takes it on to this chain): its first day counts
@@ -228,10 +239,24 @@ const MOVED_V5 := {"earn": "harvest2"}
 ## Chain 5's first goal after the fishing, and where a save on it goes on: the rooster
 ## chapter that came in before the farm's milestones (a save further on keeps its goal).
 const MOVED_V6 := {"level_3": "rooster_wait"}
+## Chain 6's goals that moved when the story put farm life first, and where a save on one
+## goes on: the first egg now comes after the coop's care (a save on it does the care
+## first; the egg, picked or shipped already, then passes), the mending moved to the
+## second day after the market (a save on it is free until that morning; boards renewed
+## already count), and the fishing to the fourth day after the rooster (a save on it goes
+## on at the rooster's morning; what it had of the fishing passes when it comes up again).
+## A save past the fishing (on the rooster) keeps its goal, and the fishing then passes.
+const MOVED_V7 := {
+	"egg": "feed", "ship_egg": "feed",
+	"wood": "free", "patch": "free", "wh_patch": "free",
+	"rope": "rooster_wait", "bait": "rooster_wait", "rod": "rooster_wait", "fish": "rooster_wait",
+	"campfire": "rooster_wait", "cook": "rooster_wait", "eat": "rooster_wait",
+}
 ## The first day keeps time for the story: the clock runs at FIRST_DAY_PACE and from
-## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the first egg still comes, and
-## there is light to mend the house by); once the day's story is done the clock runs as
-## usual. Multiplies GameClock.time_scale; the day length setting still applies.
+## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the coop's care and the first egg
+## still come in daylight); once the day's story is done the clock runs as usual, and
+## the evening is the player's own (the mending waits for the second day). Multiplies
+## GameClock.time_scale; the day length setting still applies.
 ## The day starts at noon (GameClock.FIRST_DAY_START_MINUTE): at the default 15-minute
 ## day (Settings: 80 game minutes a real minute) noon to 16:30 takes 13.5 real minutes
 ## and the linger to sundown (about 19:15) 10 more, to nightfall (20:00) 13: about the
@@ -363,7 +388,10 @@ func _ready() -> void:
 		_count("caught", String(id), 1)
 		_nudge())
 	Events.food_cooked.connect(func(id: StringName) -> void: _count("cooked", String(id), 1))
-	Events.food_eaten.connect(func(id: StringName) -> void: _count("eaten", String(id), 1))
+	Events.food_eaten.connect(func(id: StringName) -> void:
+		_count("eaten", String(id), 1)
+		if _is_meal(id):
+			_count("meal", "", 1))
 	Events.campfire_lit.connect(func(_fire: Node) -> void: _nudge())
 	Events.placed.connect(func(_id: StringName) -> void: _nudge())
 	# A building just finished: the dot shows where it went up.
@@ -736,7 +764,39 @@ func _check_progress(arg: String, count := 1) -> int:
 			return _bait_count()
 		"caught":
 			return int(tally.get("caught:", 0))
+		"full":
+			# Too full to eat now (Eating's "You're full"): no bite asked for.
+			return 1 if PlayerState.needs.hunger >= Needs.MAX - Eating.FULL_MARGIN else 0
 	return 0
+
+
+## A cooked meal (ItemTable category "food": a fish off the campfire), not a raw bite.
+func _is_meal(id: StringName) -> bool:
+	if ItemDB.has_item(id) and ItemDB.get_item(id).category == "food":
+		return true
+	return String(id).ends_with("_cooked")
+
+
+## Something to eat in the bag (Eating.food_value).
+func _has_food() -> bool:
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and Eating.food_value(st.item.id) > 0:
+			return true
+	return false
+
+
+## The nearest wild bush with berries on it, or null.
+func _nearest_berry_bush(from: Vector3) -> Variant:
+	var best: BerryBush = null
+	var best_d := INF
+	for b: BerryBush in get_tree().get_nodes_in_group(&"berry_bushes"):
+		var d := b.global_position.distance_squared_to(from)
+		if b.is_ripe() and d < best_d:
+			best = b
+			best_d = d
+	if best == null:
+		return null
+	return best.global_position + Vector3(0, 1.2, 0)
 
 
 ## A finished workbench stands on the farm (benches from before the kit have no stage).
@@ -1286,6 +1346,15 @@ func _target(at: String) -> Variant:
 				_hint = tr("HINT_NEED_BAIT")
 				return _target("bait")
 			return _pond_edge(from)
+		"food":
+			# Food in the bag already: hold it and eat (no dot). Else berries off a wild bush.
+			if _has_food():
+				_hint = tr("HINT_EAT_FOOD")
+				return null
+			var bush: Variant = _nearest_berry_bush(from)
+			if bush != null:
+				_hint = tr("HINT_BERRIES")
+			return bush
 		"campfire":
 			var fire := _nearest_placed(&"campfire", from)
 			if fire == null:
@@ -1913,6 +1982,11 @@ func load_data(d: Dictionary) -> void:
 	if chain < 6 and MOVED_V6.has(id):
 		id = String(MOVED_V6[id])
 		step_count = 0
+	if chain < 7:
+		if MOVED_V7.has(id):
+			id = String(MOVED_V7[id])
+			step_count = 0
+		_tally_meals()
 	step = TUTORIAL.size() if id == "" else index_of(id)
 	if step < 0:
 		# A goal this version no longer has: go on from about where it stood.
@@ -1932,6 +2006,19 @@ func load_data(d: Dictionary) -> void:
 		refill_board()
 	tutorial_changed.emit()
 	orders_changed.emit()
+
+
+## Saves before chain 7 counted only what was eaten: the cooked meals among it count as
+## meals (the fourth day's "eat" goal), so a fish eaten then isn't asked for again.
+func _tally_meals() -> void:
+	if tally.has("meal:"):
+		return
+	var meals := 0
+	for key: String in tally.keys():
+		if key.begins_with("eaten:") and key.length() > 6 and _is_meal(StringName(key.substr(6))):
+			meals += int(tally[key])
+	if meals > 0:
+		tally["meal:"] = meals
 
 
 ## A save from before the first day's story is being loaded: its farm had the house open,

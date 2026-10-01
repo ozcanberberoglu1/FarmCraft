@@ -73,6 +73,8 @@ static func create_rig(species: StringName, look := &"") -> AnimalRig:
 	for g in rig.find_children("*", "GeometryInstance3D", true, false):
 		(g as GeometryInstance3D).gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		(g as GeometryInstance3D).layers = 2
+	# Cartoon eyes on the poultry ("Komik hayvanlar" setting).
+	ComicFx.dress_rig(rig)
 	return rig
 
 

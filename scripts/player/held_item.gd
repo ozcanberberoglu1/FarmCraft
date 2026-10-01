@@ -99,6 +99,8 @@ func _refresh() -> void:
 	if id == &"" or PlaceableTable.is_placeable(id):
 		return
 	_model.mesh = ItemModels.mesh(id)
+	# A fish in hand gets cartoon eyes ("Komik hayvanlar" setting), anything else none.
+	ComicFx.dress_fish(_model, id, ComicEyes.Mood.HELD)
 	_grip = HeldPoses.grip_point(id, _model.mesh)
 	_base = HeldPoses.rest_pose(id, _model.mesh)
 	_aim_base = HeldPoses.aim_pose(id, _model.mesh)

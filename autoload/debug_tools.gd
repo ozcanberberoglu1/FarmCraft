@@ -303,6 +303,16 @@ func _next_shot() -> void:
 	if shot.has("field"):
 		_setup_field(String(shot["field"]))
 	_setup_vehicle(shot)
+	if shot.has("name_prompt"):
+		# The naming prompt of the farm's first birds (Animals) for the first animal of that
+		# kind: one left open by the shot before is settled first.
+		var naming := Animals.naming_screen()
+		if naming and naming.visible:
+			naming.hide_screen()
+		for an in Animals.animals:
+			if an.species == StringName(shot["name_prompt"]):
+				Animals.offer_name.call_deferred(an)
+				break
 	match String(shot.get("ui", "")):
 		"inventory":
 			Game.hud.inventory_screen.open()
@@ -327,6 +337,8 @@ func _next_shot() -> void:
 			Game.hud.settings_screen.hide_screen()
 			Game.hud.pause_menu.hide_screen()
 			Game.hud.title_screen.hide_screen()
+			if Animals.naming_screen():
+				Animals.naming_screen().hide_screen()
 		"pause":
 			Game.hud.pause_menu.show_screen()
 		"settings":

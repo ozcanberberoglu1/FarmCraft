@@ -61,7 +61,7 @@ const FAINT_FALL := 0.45
 const FAINT_OUT := 6.0
 const FAINT_RISE := 1.5
 const FAINT_FLUFF := 0.7
-## "The rooster fainted!" shows over him while the farmer, this close (metres), looks
+## "Paşa fainted!" (his name) shows over him while the farmer, this close (metres), looks
 ## right at him (the view direction's dot with the way to him above FAINT_LOOK).
 const FAINT_SEEN := 12.0
 const FAINT_LOOK := 0.9
@@ -604,7 +604,9 @@ func _show_faint_label(on: bool) -> void:
 	if _faint_label:
 		_faint_label.visible = on
 		if on:
-			_faint_label.text = tr("MSG_ROOSTER_FAINTED")
+			# By his name ("Paşa fainted!"), else just "The rooster fainted!".
+			var who := data.name if data != null else ""
+			_faint_label.text = tr("MSG_ROOSTER_FAINTED_NAMED") % who if who != "" else tr("MSG_ROOSTER_FAINTED")
 
 
 ## 0..1: how far into the crowing pose (up quickly, held, eased back down).

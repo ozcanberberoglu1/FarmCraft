@@ -91,6 +91,8 @@ func _ready() -> void:
 		_mi.rotation = Vector3(0.0, 0.0, -PI * 0.5)
 		_mi.position = Vector3(-aabb.get_center().y, 0.0, 0.0) * size
 	add_child(_mi)
+	# Cartoon eyes ("Komik hayvanlar" setting): rolling as it flops.
+	ComicFx.dress_fish(_mi, species, ComicEyes.Mood.FLOP)
 	var box := _mi.mesh.get_aabb()
 	var extent := box.size * size
 	if _junk:

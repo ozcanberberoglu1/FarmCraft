@@ -62,6 +62,8 @@ func _ready() -> void:
 	_mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 	_mi.layers = 2
 	add_child(_mi)
+	# A dropped fish keeps its cartoon eyes ("Komik hayvanlar" setting).
+	ComicFx.dress_fish(_mi, stack.item.id)
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = (aabb.size * s).max(Vector3(0.08, 0.08, 0.08))

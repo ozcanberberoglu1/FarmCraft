@@ -2,8 +2,8 @@ extends Node
 ## Wolf raids: now and then at night wolves come down out of the forest round the valley
 ## for the farm's animals. Never into town, never by day; they are gone by dawn.
 ##
-## The first raid is a lesson, on LESSON_NIGHT (the third night; the first night after
-## it with animals on the farm): from HOWL_MINUTE intense howling far off, at NOTE_MINUTE
+## The first raid is a lesson, on LESSON_NIGHT (the second night, when the story's knife
+## has just been made; the first night after it with animals on the farm): from HOWL_MINUTE intense howling far off, at NOTE_MINUTE
 ## a note and a side goal (SideStory.goals): shut the coop door once every bird is in,
 ## then go home and sleep (the dot on the coop door, then on the bed). The pack comes at
 ## ARRIVE_MINUTE. Later raids come on random nights, roughly every 4 to 7 (RARE_GAP when
@@ -33,7 +33,7 @@ extends Node
 ## tonight's raid is decided from ROLL_MINUTE; distant howls from HOWL_MINUTE, the note at
 ## NOTE_MINUTE (later raids an hour earlier: EARLY_*), the pack at ARRIVE_MINUTE. They
 ## have gone by LEAVE_MINUTE (04:00; nobody stays up past 02:00 anyway).
-const LESSON_NIGHT := 3
+const LESSON_NIGHT := 2
 const ROLL_MINUTE := 18 * 60
 const HOWL_MINUTE := 20 * 60 + 30
 const NOTE_MINUTE := 21 * 60

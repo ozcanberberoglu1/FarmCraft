@@ -50,6 +50,19 @@ var _warmed := false
 var _homes := {}
 ## What is left of animals that died on the farm (Remains records, saved).
 var remains: Array[Dictionary] = []
+## The farm's first two hens and its first rooster are named by the farmer as they are let
+## into the coop (release): a small prompt (PetNameScreen) with a funny name filled in and
+## a few other ideas (ANIMAL_NAME_IDEAS_*). Once each: how many of a kind were asked about
+## is kept in FarmState.flags (NAMING_FLAGS), and a farm that had more of them grown
+## already (an older save) is never asked. Automated runs let them in with the name
+## they came with unless a test turns `naming_in_tests` on.
+const NAMING_FLAGS := {&"chicken": "named_hens", &"rooster": "named_rooster"}
+const NAMING_COUNT := {&"chicken": 2, &"rooster": 1}
+var naming_in_tests := false
+var _naming: PetNameScreen
+## Animals let in waiting for their name, and the one whose prompt is open.
+var _to_name: Array[AnimalData] = []
+var _naming_now: AnimalData
 
 
 func _ready() -> void:
@@ -243,11 +256,98 @@ func release(species: StringName, housing: AnimalHousing, at := Vector3.INF) -> 
 			n.arrive(housing.door_inside())
 		else:
 			n.arrive(housing.random_outdoor_point(RandomNumberGenerator.new()))
-	Game.notify(tr("MSG_ANIMAL_ARRIVED") % [a.name, species_name(species)], Color(0.55, 1.0, 0.45))
+	# The farm's first birds: the farmer names them (the note comes with the name).
+	if not _ask_name(a):
+		Game.notify(tr("MSG_ANIMAL_ARRIVED") % [a.name, species_name(species)], Color(0.55, 1.0, 0.45))
 	var home: Node = housing.get_parent() if housing.placed else housing
 	Events.animal_released.emit(species, home)
 	changed.emit()
 	return a
+
+
+## Whether `a`, just let in, is one of the farm's first birds the farmer names
+## (NAMING_FLAGS): then its prompt opens (or waits for the one open) and true.
+func _ask_name(a: AnimalData) -> bool:
+	if not NAMING_FLAGS.has(a.species) or Game.hud == null or not is_instance_valid(Game.hud):
+		return false
+	if SaveGame.loading or (DebugTools.is_automated() and not naming_in_tests):
+		return false
+	var flag: String = NAMING_FLAGS[a.species]
+	var limit: int = NAMING_COUNT[a.species]
+	var asked := int(FarmState.flags.get(flag, 0))
+	var grown := animals.filter(func(x: AnimalData) -> bool: return x.species == a.species and x.adult).size()
+	if asked >= limit or grown > limit:
+		return false
+	FarmState.flags[flag] = asked + 1
+	offer_name(a)
+	return true
+
+
+## Opens the naming prompt for `a` (or queues it behind the one open): the first birds
+## let in, and screenshots.
+func offer_name(a: AnimalData) -> void:
+	if a == null or a == _naming_now or a in _to_name:
+		return
+	_to_name.append(a)
+	_next_name()
+
+
+## Opens the naming prompt for the next bird waiting for its name (one at a time: none
+## while a prompt is open).
+func _next_name() -> void:
+	if _naming_now != null:
+		return
+	while not _to_name.is_empty():
+		var a: AnimalData = _to_name.pop_front()
+		if a in animals:
+			_naming_now = a
+			break
+	if _naming_now == null or Game.hud == null or not is_instance_valid(Game.hud):
+		_naming_now = null
+		return
+	if _naming == null or not is_instance_valid(_naming):
+		_naming = PetNameScreen.new()
+		_naming.named.connect(_on_named)
+		Game.hud.add_child(_naming)
+	var rooster := _naming_now.species == &"rooster"
+	var ideas := name_ideas(_naming_now.species, _naming_now)
+	var first: String = ideas[0] if not ideas.is_empty() else _naming_now.name
+	_naming.open(first, tr("ANIMAL_NAME_TITLE_ROOSTER" if rooster else "ANIMAL_NAME_TITLE_HEN"),
+			tr("ANIMAL_NAME_SUB_ROOSTER" if rooster else "ANIMAL_NAME_SUB_HEN"), "paw", ideas)
+
+
+## The funny names offered for a `species` bird (ANIMAL_NAME_IDEAS_*, in the player's
+## language), those other animals (not `own`) already have left out.
+func name_ideas(species: StringName, own: AnimalData = null) -> PackedStringArray:
+	var key := "ANIMAL_NAME_IDEAS_ROOSTER" if species == &"rooster" else "ANIMAL_NAME_IDEAS_HEN"
+	var taken := animals.filter(func(x: AnimalData) -> bool: return x != own).map(func(x: AnimalData) -> String: return x.name)
+	var out := PackedStringArray()
+	for n: String in tr(key).split("|", false):
+		if n.strip_edges() != "" and n.strip_edges() not in taken:
+			out.append(n.strip_edges())
+	return out
+
+
+## The name the farmer chose for the bird whose prompt was open: kept, with a note; then
+## the next waiting bird's prompt.
+func _on_named(chosen: String) -> void:
+	var a := _naming_now
+	if a != null and a in animals:
+		a.name = chosen.strip_edges().left(18)
+		Game.notify(tr("MSG_ANIMAL_NAMED") % a.name, Color(0.55, 1.0, 0.45))
+		changed.emit()
+	_naming_now = null
+	_next_name.call_deferred()
+
+
+## Whether a naming prompt is open or waiting (tests answer it).
+func naming() -> AnimalData:
+	return _naming_now
+
+
+## The naming prompt (null before the first one).
+func naming_screen() -> PetNameScreen:
+	return _naming if is_instance_valid(_naming) else null
 
 
 ## A fertile egg hatched in `housing` at `at` (ChickenCoop): a chick of `mother` (her
@@ -970,6 +1070,8 @@ func new_game() -> void:
 	for n in get_tree().get_nodes_in_group(Remains.GROUP):
 		n.queue_free()
 	_next_id = 1
+	_to_name.clear()
+	_naming_now = null
 
 
 func save_data() -> Dictionary:

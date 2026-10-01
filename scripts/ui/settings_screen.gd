@@ -177,6 +177,8 @@ func _general() -> void:
 	_choice("SETTINGS_WOLF_RAIDS", "SETTINGS_WOLF_RAIDS_DESC",
 			[tr("WOLF_RAIDS_OFF"), tr("WOLF_RAIDS_RARE"), tr("WOLF_RAIDS_NORMAL")], Settings.wolf_raids,
 			func(i: int) -> void: Settings.wolf_raids = i as Settings.Raids)
+	_switch("SETTINGS_COMIC_ANIMALS", "SETTINGS_COMIC_ANIMALS_DESC", Settings.comic_animals,
+			func(on: bool) -> void: Settings.comic_animals = on)
 
 
 ## Every language as a button showing its own name in its own script; picking one
