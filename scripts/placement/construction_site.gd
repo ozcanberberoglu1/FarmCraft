@@ -7,6 +7,12 @@ extends Node3D
 ## counting down. Built in the parent's frame: `house` is the building's rect (door
 ## toward +Z, the AnimalBuildings.coop proportions) and `yard` the whole plot. A solid
 ## body keeps the farmer out of the frame and lets the interaction ray find the owner.
+## A standing coop made longer (`extension`, ChickenCoop's expansion): `house` is only the
+## new part, framed against the old end wall on its west side (-X): no doorway, no frame
+## on that side, no ramp, its rafters clear of the old roof's overhang; stakes on its three
+## open sides, a ladder against its end, the timber and the sawhorse out in front (clear of
+## the chopping log, ChickenCoop.LOG_AT); `ground` is the world height the coop's floor
+## stands on, so the new floor meets the old.
 
 const STAGES := 3
 ## Hammering is heard from this close (metres).
@@ -24,6 +30,8 @@ const TUBE := Color(0.6, 0.62, 0.63)
 
 var house := Rect2()
 var yard := Rect2()
+var extension := false
+var ground := INF
 
 var _stage := -1
 var _mi: MeshInstance3D
@@ -34,6 +42,10 @@ var _knock := 1.0
 
 ## Built once per stage and size (every coop is the same).
 static var _meshes := {}
+## An extension's timber stack (its middle, over the new part's middle, in its space) and
+## the sawhorse.
+const EXT_STACK := Vector2(-0.3, 2.3)
+const EXT_HORSE := Vector2(-0.2, 3.4)
 
 
 ## "2:14" for a count of seconds (rounded up).
@@ -46,7 +58,8 @@ func _ready() -> void:
 	# Level with the ground under the house (the owner stands on the plot's middle).
 	var c := house.get_center()
 	var w := get_parent_node_3d().global_transform * Vector3(c.x, 0.0, c.y)
-	position = Vector3(c.x, TerrainData.height(w.x, w.z) - get_parent_node_3d().global_position.y, c.y)
+	var y := ground if ground != INF else TerrainData.height(w.x, w.z)
+	position = Vector3(c.x, y - get_parent_node_3d().global_position.y, c.y)
 	_mi = MeshInstance3D.new()
 	_mi.name = "Frame"
 	add_child(_mi)
@@ -76,7 +89,7 @@ func set_progress(ratio: float, seconds_left: float) -> void:
 	if stage != _stage:
 		var first := _stage < 0
 		_stage = stage
-		_mi.mesh = _stage_mesh(house.size, yard, house.get_center(), stage)
+		_mi.mesh = _stage_mesh(house.size, yard, house.get_center(), stage, extension)
 		if not first and is_inside_tree():
 			# The next part of the frame goes up.
 			Fx.dust_cloud(global_position + Vector3(0, 1.2, 0), house.size * 0.55)
@@ -109,6 +122,19 @@ func _process(delta: float) -> void:
 		Audio.play("plank", at, -10.0)
 
 
+## The ground its work takes (rects of the parent's frame): an extension's frame with its
+## stakes and ladder out to the plot's edge behind and beyond it, and its timber with the
+## sawhorse (the hens keep off them).
+func works() -> Array[Rect2]:
+	var c := house.get_center()
+	var d := house.size.y
+	var x0 := c.x + EXT_STACK.x - 1.1
+	var out: Array[Rect2] = [Rect2(house.position.x, yard.position.y, maxf(yard.end.x - house.position.x, house.size.x + 0.5),
+			house.end.y + 0.5 - yard.position.y),
+		Rect2(x0, c.y + d * 0.5 + 1.9, maxf(yard.end.x - x0, 2.3), 2.2)]
+	return out
+
+
 ## Solid where the work is: the frame, the scaffolding and the timber stack.
 func _add_body() -> void:
 	var body := StaticBody3D.new()
@@ -117,9 +143,13 @@ func _add_body() -> void:
 	body.collision_mask = 0
 	var w := house.size.x
 	var d := house.size.y
-	for b: Array in [[Vector3(0, 1.3, 0), Vector3(w + 0.2, 2.6, d + 0.2)],
+	var parts := [[Vector3(0, 1.3, 0), Vector3(w + 0.2, 2.6, d + 0.2)],
 			[Vector3(0, 1.3, d * 0.5 + 0.9), Vector3(w + 0.9, 2.6, 1.1)],
-			[Vector3(w * 0.5 + 1.3, 0.3, 0.3), Vector3(0.9, 0.6, 3.1)]]:
+			[Vector3(w * 0.5 + 1.3, 0.3, 0.3), Vector3(0.9, 0.6, 3.1)]]
+	if extension:
+		parts = [[Vector3(0, 1.3, 0), Vector3(w + 0.2, 2.6, d + 0.2)],
+			[Vector3(EXT_STACK.x, 0.25, d * 0.5 + EXT_STACK.y), Vector3(2.1, 0.5, 0.75)]]
+	for b: Array in parts:
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
 		box.size = b[1]
@@ -132,22 +162,30 @@ func _add_body() -> void:
 # --- Meshes --------------------------------------------------------------------------------
 
 ## The site at `stage` (0 floor, 1 walls framed, 2 rafters and boards), centred on the
-## house; `yard` and `hc` (the house's centre in the yard's frame) place the stakes.
-static func _stage_mesh(size: Vector2, plot: Rect2, hc: Vector2, stage: int) -> ArrayMesh:
-	var key := "%s|%s|%d" % [size, plot, stage]
+## house; `yard` and `hc` (the house's centre in the yard's frame) place the stakes. `ext`:
+## an extension's (see `extension`).
+static func _stage_mesh(size: Vector2, plot: Rect2, hc: Vector2, stage: int, ext := false) -> ArrayMesh:
+	var key := "%s|%s|%d|%s" % [size, plot, stage, ext]
 	if _meshes.has(key):
 		return _meshes[key]
 	var mb := MeshBuilder.new()
 	var w := size.x
 	var d := size.y
-	_stakes(mb, Rect2(plot.position - hc, plot.size))
+	if ext:
+		_ext_stakes(mb, w, d)
+		_ext_lumber(mb, d, stage)
+	else:
+		_stakes(mb, Rect2(plot.position - hc, plot.size))
+		_lumber(mb, w, d, stage)
 	_floor(mb, w, d, stage > 0)
-	_lumber(mb, w, d, stage)
 	if stage >= 1:
-		_studs(mb, w, d)
-		_scaffold(mb, w, d)
+		_studs(mb, w, d, ext)
+		if ext:
+			_ladder(mb, w, d)
+		else:
+			_scaffold(mb, w, d)
 	if stage >= 2:
-		_roof_frame(mb, w, d)
+		_roof_frame(mb, w, d, ext)
 	var m := mb.build()
 	_meshes[key] = m
 	return m
@@ -168,6 +206,21 @@ static func _stakes(mb: MeshBuilder, r: Rect2) -> void:
 		mb.cylinder_between(&"cloth", Vector3(p.x, 0.46, p.y), Vector3(q.x, 0.46, q.y), 0.004, 0.004, 3, Color(0.86, 0.84, 0.74), false, false)
 
 
+## An extension's pegs and line on its three open sides (the old house closes the fourth).
+static func _ext_stakes(mb: MeshBuilder, w: float, d: float) -> void:
+	var x0 := -w * 0.5 + 0.06
+	var x1 := w * 0.5 + 0.45
+	var pts: Array[Vector2] = [Vector2(x0, -d * 0.5 - 0.45), Vector2(x1, -d * 0.5 - 0.45), Vector2(x1, 0.0),
+		Vector2(x1, d * 0.5 + 0.45), Vector2(x0, d * 0.5 + 0.45)]
+	for i in pts.size():
+		var p := pts[i]
+		mb.box_at(&"wood", Vector3(p.x, -0.05, p.y), Vector3(0.05, 1.12, 0.05), TIMBER_DARK, Vector3(0, i * 23.0, 0))
+		mb.box_at(&"paint", Vector3(p.x, 0.44, p.y), Vector3(0.056, 0.05, 0.056), Color(0.86, 0.42, 0.14))
+		if i + 1 < pts.size():
+			var q := pts[i + 1]
+			mb.cylinder_between(&"cloth", Vector3(p.x, 0.46, p.y), Vector3(q.x, 0.46, q.y), 0.004, 0.004, 3, Color(0.86, 0.84, 0.74), false, false)
+
+
 ## Posts, sill beams and joists; the plank floor half laid (all of it once `full`).
 static func _floor(mb: MeshBuilder, w: float, d: float, full: bool) -> void:
 	for sx: float in [-1.0, 0.0, 1.0]:
@@ -176,8 +229,9 @@ static func _floor(mb: MeshBuilder, w: float, d: float, full: bool) -> void:
 					Vector3(0.14, FLOOR_Y + 0.3, 0.14), TIMBER_DARK, Vector3.ZERO, true)
 	for sz: float in [-1.0, 1.0]:
 		mb.box_at(&"wood", Vector3(0, FLOOR_Y - 0.17, sz * (d * 0.5 - 0.1)), Vector3(w, 0.14, 0.12), TIMBER)
-	for i in 6:
-		var x := -w * 0.5 + 0.1 + i * (w - 0.2) / 5.0
+	var joists := clampi(int(w / 0.9) + 1, 3, 6)
+	for i in joists:
+		var x := -w * 0.5 + 0.1 + i * (w - 0.2) / float(joists - 1)
 		mb.box_at(&"wood", Vector3(x, FLOOR_Y - 0.09, 0), Vector3(0.07, 0.14, d - 0.1), TIMBER.darkened(0.05))
 	var boards := 16 if full else 9
 	var bd := d / 16.0
@@ -187,8 +241,9 @@ static func _floor(mb: MeshBuilder, w: float, d: float, full: bool) -> void:
 		mb.box_at(&"floor", Vector3(0, FLOOR_Y - 0.01, z), Vector3(w - 0.02, 0.03, bd - 0.008), shade)
 
 
-## Wall studs every 0.6 m (a gap for the door), sill and top plates, the door header.
-static func _studs(mb: MeshBuilder, w: float, d: float) -> void:
+## Wall studs every 0.6 m (a gap for the door), sill and top plates, the door header. An
+## extension's (`ext`): no doorway, no side frame against the old house.
+static func _studs(mb: MeshBuilder, w: float, d: float, ext := false) -> void:
 	var y0 := FLOOR_Y + 0.02
 	# Back wall.
 	var n := int(w / 0.6)
@@ -198,7 +253,7 @@ static func _studs(mb: MeshBuilder, w: float, d: float) -> void:
 	mb.box_at(&"wood", Vector3(0, y0 + BACK_H - 0.03, -d * 0.5 + WALL * 0.5), Vector3(w, 0.06, 0.12), TIMBER_DARK)
 	# Side walls: rising toward the front.
 	var ns := int(d / 0.6)
-	for sx: float in [-1.0, 1.0]:
+	for sx: float in ([1.0] if ext else [-1.0, 1.0]):
 		var x := sx * (w * 0.5 - WALL * 0.5)
 		for i in ns + 1:
 			var z := -d * 0.5 + WALL * 0.5 + i * (d - WALL) / ns
@@ -210,39 +265,46 @@ static func _studs(mb: MeshBuilder, w: float, d: float) -> void:
 	# Front wall with the doorway.
 	for i in n + 1:
 		var x := -w * 0.5 + WALL * 0.5 + i * (w - WALL) / n
-		if absf(x) < DOOR_W * 0.5 + 0.02:
+		if absf(x) < DOOR_W * 0.5 + 0.02 and not ext:
 			continue
 		mb.box_at(&"wood", Vector3(x, y0 + FRONT_H * 0.5, d * 0.5 - WALL * 0.5), Vector3(0.06, FRONT_H, 0.1), TIMBER)
-	for sx: float in [-1.0, 1.0]:
-		mb.box_at(&"wood", Vector3(sx * (DOOR_W * 0.5 + 0.04), y0 + FRONT_H * 0.5, d * 0.5 - WALL * 0.5), Vector3(0.08, FRONT_H, 0.1), TIMBER_DARK)
-	mb.box_at(&"wood", Vector3(0, y0 + DOOR_H + 0.05, d * 0.5 - WALL * 0.5), Vector3(DOOR_W + 0.16, 0.1, 0.1), TIMBER_DARK)
+	if not ext:
+		for sx: float in [-1.0, 1.0]:
+			mb.box_at(&"wood", Vector3(sx * (DOOR_W * 0.5 + 0.04), y0 + FRONT_H * 0.5, d * 0.5 - WALL * 0.5), Vector3(0.08, FRONT_H, 0.1), TIMBER_DARK)
+		mb.box_at(&"wood", Vector3(0, y0 + DOOR_H + 0.05, d * 0.5 - WALL * 0.5), Vector3(DOOR_W + 0.16, 0.1, 0.1), TIMBER_DARK)
 	mb.box_at(&"wood", Vector3(0, y0 + FRONT_H - 0.03, d * 0.5 - WALL * 0.5), Vector3(w, 0.06, 0.12), TIMBER_DARK)
 	# The first boards on the back wall.
 	for i in 7:
 		var x := -w * 0.5 + 0.2 + i * 0.26
+		if x > w * 0.5 - 0.1:
+			break
 		mb.box_at(&"planks", Vector3(x, y0 + BACK_H * 0.5, -d * 0.5 - 0.01), Vector3(0.24, BACK_H, 0.03), AnimalBuildings.PLANK.lightened(0.08), Vector3.ZERO, true)
 
 
 ## Rafters on the slope with the overhang, more wall boards, half the roof sheeted and
-## the ramp.
-static func _roof_frame(mb: MeshBuilder, w: float, d: float) -> void:
+## the ramp. An extension's (`ext`) start clear of the old roof's overhang (0.3 m past the
+## old end wall) and have no ramp.
+static func _roof_frame(mb: MeshBuilder, w: float, d: float, ext := false) -> void:
 	var y0 := FLOOR_Y + 0.02
 	var ang := atan2(FRONT_H - BACK_H, d)
 	var run := Vector2(d + 0.7, (FRONT_H - BACK_H) * (d + 0.7) / d).length()
 	var n := int(w / 0.6)
+	var x0 := -w * 0.5 + (0.36 if ext else 0.05)
 	for i in n + 1:
-		var x := -w * 0.5 + 0.05 + i * (w - 0.1) / n
+		var x := x0 + i * (w * 0.5 - 0.05 - x0) / n
 		var c := Vector3(x, y0 + (FRONT_H + BACK_H) * 0.5 + 0.06, 0.05)
 		mb.box(&"wood", Transform3D(Basis(Vector3.RIGHT, -ang), c), Vector3(0.05, 0.12, run), TIMBER)
 	# Roof boards over the back half.
 	var roof_basis := Basis(Vector3.RIGHT, -ang)
 	var back := Vector3(0, y0 + BACK_H + 0.14, -d * 0.5 - 0.2)
+	var bx0 := -w * 0.5 + (0.33 if ext else -0.25)
+	var bx1 := w * 0.5 + 0.25
 	for i in 6:
 		var along := 0.12 + i * 0.25
-		var c := back + roof_basis * Vector3(0, 0, along)
-		mb.box(&"planks", Transform3D(roof_basis, c), Vector3(w + 0.5, 0.025, 0.24), AnimalBuildings.PLANK.lightened(0.02), true)
+		var c := back + roof_basis * Vector3(0, 0, along) + Vector3((bx0 + bx1) * 0.5, 0, 0)
+		mb.box(&"planks", Transform3D(roof_basis, c), Vector3(bx1 - bx0, 0.025, 0.24), AnimalBuildings.PLANK.lightened(0.02), true)
 	# Side walls boarded up to the window line.
-	for sx: float in [-1.0, 1.0]:
+	for sx: float in ([1.0] if ext else [-1.0, 1.0]):
 		for i in 12:
 			var z := -d * 0.5 + 0.15 + i * (d - 0.3) / 11.0
 			mb.box_at(&"planks", Vector3(sx * (w * 0.5 + 0.01), y0 + 0.55, z), Vector3(0.03, 1.1, 0.27), AnimalBuildings.PLANK.lightened(0.06), Vector3.ZERO, true)
@@ -252,11 +314,28 @@ static func _roof_frame(mb: MeshBuilder, w: float, d: float) -> void:
 		if x > w * 0.5 - 0.1:
 			break
 		mb.box_at(&"planks", Vector3(x, y0 + BACK_H * 0.5, -d * 0.5 - 0.01), Vector3(0.24, BACK_H, 0.03), AnimalBuildings.PLANK.lightened(0.08), Vector3.ZERO, true)
+	if ext:
+		return
 	# The ramp down from the doorway.
 	var ramp_len := 1.1
 	var ramp_ang := atan2(FLOOR_Y, ramp_len)
 	mb.box_at(&"planks", Vector3(0, FLOOR_Y * 0.5, d * 0.5 + ramp_len * 0.5), Vector3(DOOR_W - 0.1, 0.05, Vector2(ramp_len, FLOOR_Y).length()),
 			AnimalBuildings.PLANK_DARK, Vector3(rad_to_deg(ramp_ang), 0, 0))
+
+
+## A wooden ladder leaning on an extension's end wall, a little toward the front.
+static func _ladder(mb: MeshBuilder, w: float, d: float) -> void:
+	var z := 0.4
+	var top := FLOOR_Y + lerpf(BACK_H, FRONT_H, (z + d * 0.5) / d) - 0.08
+	var foot := Vector3(w * 0.5 + 0.36, 0.0, z)
+	var head := Vector3(w * 0.5 + 0.05, top, z)
+	for side: float in [-1.0, 1.0]:
+		var o := Vector3(0, 0, side * 0.2)
+		mb.cylinder_between(&"wood", foot + o * 1.1 + Vector3(0, -0.04, 0), head + o, 0.024, 0.024, 6, TIMBER_DARK)
+	var rungs := int(top / 0.28)
+	for i in range(1, rungs + 1):
+		var p := foot.lerp(head, float(i) / (rungs + 1))
+		mb.cylinder_between(&"wood", p + Vector3(0, 0, -0.21), p + Vector3(0, 0, 0.21), 0.016, 0.016, 6, TIMBER)
 
 
 ## Galvanised tube scaffolding one bay deep along the front, with a board deck at
@@ -313,3 +392,24 @@ static func _lumber(mb: MeshBuilder, w: float, d: float, stage: int) -> void:
 	mb.box_at(&"planks", h + Vector3(0.1, 0.785, 0.05), Vector3(1.8, 0.05, 0.2), TIMBER.lightened(0.05), Vector3(0, 8, 0), true)
 	mb.cylinder(&"galv", Transform3D(Basis(), h + Vector3(0.9, 0.0, 0.5)), 0.13, 0.15, 0.3, 12, TUBE.darkened(0.15))
 	mb.disc(&"rusty", Transform3D(Basis(), h + Vector3(0.9, 0.24, 0.5)), 0.13, 12, Color(0.3, 0.28, 0.26))
+
+
+## An extension's timber, out in front of it: boards two metres long stacked across, fewer
+## as the frame goes up, and the sawhorse with a board on it and the nail bucket beyond.
+static func _ext_lumber(mb: MeshBuilder, d: float, stage: int) -> void:
+	var c := Vector3(EXT_STACK.x, 0.0, d * 0.5 + EXT_STACK.y)
+	for layer in 4 - stage:
+		var y := 0.06 + layer * 0.11
+		for bx: float in [-0.8, 0.8]:
+			mb.box_at(&"wood", c + Vector3(bx, y - 0.04, 0), Vector3(0.06, 0.05, 0.7), TIMBER_DARK)
+		for k in 3:
+			var z := -0.2 + k * 0.2 + (layer % 2) * 0.03
+			mb.box_at(&"planks", c + Vector3(0, y + 0.02, z), Vector3(2.0, 0.05, 0.18), TIMBER.lightened(0.02 * ((layer + k) % 3)), Vector3.ZERO, true)
+	var h := Vector3(EXT_HORSE.x, 0.0, d * 0.5 + EXT_HORSE.y)
+	mb.box_at(&"wood", h + Vector3(0, 0.72, 0), Vector3(1.1, 0.08, 0.1), TIMBER_DARK)
+	for ex: float in [-0.45, 0.45]:
+		for ez: float in [-1.0, 1.0]:
+			mb.cylinder_between(&"wood", h + Vector3(ex, 0.7, 0), h + Vector3(ex * 1.05, 0.0, ez * 0.28), 0.025, 0.025, 6, TIMBER_DARK)
+	mb.box_at(&"planks", h + Vector3(0.1, 0.785, 0.05), Vector3(1.6, 0.05, 0.2), TIMBER.lightened(0.05), Vector3(0, -6, 0), true)
+	mb.cylinder(&"galv", Transform3D(Basis(), h + Vector3(0.8, 0.0, 0.45)), 0.13, 0.15, 0.3, 12, TUBE.darkened(0.15))
+	mb.disc(&"rusty", Transform3D(Basis(), h + Vector3(0.8, 0.24, 0.45)), 0.13, 12, Color(0.3, 0.28, 0.26))

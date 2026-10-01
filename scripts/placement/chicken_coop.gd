@@ -19,14 +19,28 @@ extends PlacedObject
 ## lay (in a nest box or on the floor) for a whole day hatches there (HatchingEgg) into a
 ## chick of the hen that laid it, if the coop has room for one more (else it stays an
 ## egg, and the farmer is told). Picking an egg up stops it.
+## Made longer from the construction board (the coop expansion, twice at most): the
+## house grows EXPAND_STEP at its east end under the same roof (the yard stays as it
+## was), a minute of play behind stakes, a frame and a sign counting down (a night's
+## sleep finishes it), its hens living on in it meanwhile; then it holds 14 birds (20
+## after the second step), two more nest boxes each time, a longer feeder and waterer and
+## a second roost. Its door, ramp and floor stay where they were.
 ## Entry fields besides {id, pos, yaw}: stage ("site" / "done"), build_left (real
 ## seconds), door (open), uid (its home id), egg ("", "due", "nest", "laid", "taken"),
 ## egg_at (game minutes), egg_pos, nests ([bool] bedded), lay (eggs due: hen id ->
 ## {at, q, first, more}), fertile (eggs that may hatch: [{id, pos, at, hen, q}]),
-## fertile_next (their next id).
+## fertile_next (their next id), expand (expansion steps done; none: 0) and expand_left
+## (real seconds of the one going up, only while it does).
 
 ## Its id in Events.construction_started and Events.building_completed.
 const BUILD_ID := &"coop"
+## Its id in those events while it is made longer.
+const EXPAND_ID := &"coop_expansion"
+## Made longer up to MAX_EXPANSION times, EXPAND_STEP metres at its east end each time
+## (7.4 m long at most: still inside its yard, roof and all), EXPAND_SECONDS of play each.
+const MAX_EXPANSION := 2
+const EXPAND_STEP := 1.2
+const EXPAND_SECONDS := 60.0
 ## Layout in the coop's own frame (door toward +Z). The yard is the whole footprint
 ## (PlaceableTable size 11 x 10); the house stands at its back.
 const YARD := Rect2(-5.5, -5.0, 11.0, 10.0)
@@ -49,7 +63,11 @@ const ANCHOR_NEST := &"coop_nest"
 ## Nest boxes on a bench along the inside of the west wall (the coop's frame, heights over
 ## the coop floor): the bench's back and depth, the first box's middle and the pitch,
 ## the straw's top (where a hen sits and her egg lies) and the lid over the boxes.
+## NESTS as it comes, NESTS_BY_SIZE made longer: the west bench takes WEST_NESTS, the
+## last two stand on a second bench along the back wall of the newer east end.
 const NESTS := 3
+const NESTS_BY_SIZE: Array[int] = [3, 5, 7]
+const WEST_NESTS := 5
 const NEST_BACK := -2.38
 const NEST_DEPTH := 0.52
 const NEST_Z0 := -3.93
@@ -79,6 +97,8 @@ var _nests: Array[Nest] = []
 var _floor_local := 0.0
 var _nest_marker: Marker3D
 var _claims := {}
+## The guide dot's anchor over the roof (moved to the middle of a longer one).
+var _roof_marker: Marker3D
 ## Fertile eggs lying about: record id -> their Pickup; the day the farmer was last told
 ## an egg could not hatch in a full coop.
 var _fertile_eggs := {}
@@ -86,7 +106,8 @@ var _full_told := -1
 
 static var _props_mesh: ArrayMesh
 static var _ghost_mesh: ArrayMesh
-static var _bench_mesh: ArrayMesh
+## Bench meshes by their number of boxes.
+static var _bench_meshes := {}
 static var _straw_mesh: ArrayMesh
 
 
@@ -106,9 +127,11 @@ func _setup() -> void:
 	_add_markers()
 	if is_built():
 		_build_coop()
+		if expanding():
+			_start_expansion_site()
 	else:
 		_start_site()
-	set_process(not is_built())
+	set_process(not is_built() or expanding())
 	Events.time_skipped.connect(_on_time_skipped)
 	Events.clock_tick.connect(_on_tick)
 	Events.animal_released.connect(_on_animal_released)
@@ -161,7 +184,7 @@ func door_point() -> Vector3:
 
 ## The middle of the house on the ground (a waypoint for the coop itself).
 func center_point() -> Vector3:
-	var c := HOUSE.get_center()
+	var c := house().get_center()
 	var w := global_transform * Vector3(c.x, 0.0, c.y)
 	return Vector3(w.x, TerrainData.height(w.x, w.z), w.z)
 
@@ -221,11 +244,19 @@ func _start_site() -> void:
 
 
 func _process(delta: float) -> void:
-	if is_built():
+	if is_built() and not expanding():
 		set_process(false)
 		return
 	# Real time of play: on while the bag or a shop is open, not in the pause menu.
 	if Game.is_paused():
+		return
+	if is_built():
+		var rest := maxf(expansion_left() - delta, 0.0)
+		entry["expand_left"] = rest
+		if rest <= 0.0:
+			finish_expansion()
+		elif site:
+			site.set_progress(1.0 - rest / EXPAND_SECONDS, rest)
 		return
 	var left := maxf(seconds_left() - delta, 0.0)
 	entry["build_left"] = left
@@ -259,15 +290,20 @@ func finish() -> void:
 
 
 func _on_time_skipped(minutes: float) -> void:
-	if not is_built() and minutes >= SKIP_FINISHES:
+	if minutes < SKIP_FINISHES:
+		return
+	if not is_built():
 		finish()
+	elif expanding():
+		finish_expansion()
 
 
 func _build_coop() -> void:
 	var pos: Vector3 = entry["pos"]
 	housing = AnimalHousing.new()
-	housing.setup_placed(Transform3D(Basis(Vector3.UP, float(entry.get("yaw", 0.0))), pos), YARD, HOUSE,
+	housing.setup_placed(Transform3D(Basis(Vector3.UP, float(entry.get("yaw", 0.0))), pos), YARD, house(),
 			bool(entry.get("door", true)), uid())
+	housing.set_extension(house(), expansion(), EXPAND_STEP * expansion())
 	add_child(housing)
 	housing.set_level(2)
 	housing.changed.connect(func() -> void: entry["door"] = housing.door_open)
@@ -350,8 +386,10 @@ func _clear_ground() -> void:
 ## Where the story's guide dot floats: over the roof (the site's sign while it goes up)
 ## and over the door, just outside the ramp.
 func _add_markers() -> void:
-	var c := HOUSE.get_center()
-	for m: Array in [[ANCHOR_COOP, Vector3(c.x, 0.0, c.y), 3.4], [ANCHOR_DOOR, Vector3(c.x, 0.0, HOUSE.end.y + 1.5), 1.4]]:
+	var c := house().get_center()
+	# The door stays at the middle of the house as it came.
+	var door_x := HOUSE.get_center().x
+	for m: Array in [[ANCHOR_COOP, Vector3(c.x, 0.0, c.y), 3.4], [ANCHOR_DOOR, Vector3(door_x, 0.0, HOUSE.end.y + 1.5), 1.4]]:
 		var marker := Marker3D.new()
 		marker.name = "Waypoint_%s" % m[0]
 		var at: Vector3 = m[1]
@@ -361,6 +399,8 @@ func _add_markers() -> void:
 		add_child(marker)
 		WaypointMarker.tag(marker, m[0])
 		marker.add_to_group(&"waypoints")
+		if m[0] == ANCHOR_COOP:
+			_roof_marker = marker
 
 
 func _farm() -> Farm:
@@ -368,6 +408,202 @@ func _farm() -> Farm:
 	while n and not (n is Farm):
 		n = n.get_parent()
 	return n as Farm
+
+
+# --- Expansion ----------------------------------------------------------------------------
+
+## Steps it has been made longer by (0 as it came, up to MAX_EXPANSION).
+func expansion() -> int:
+	return clampi(int(entry.get("expand", 0)), 0, MAX_EXPANSION)
+
+
+## An expansion is going up (the time left is in the entry).
+func expanding() -> bool:
+	return entry.has("expand_left")
+
+
+## Real seconds of play until the expansion going up is done (0 with none).
+func expansion_left() -> float:
+	return maxf(float(entry.get("expand_left", 0.0)), 0.0) if expanding() else 0.0
+
+
+## The house after `step` expansion steps (in the coop's frame): longer at its east end.
+static func house_at(step: int) -> Rect2:
+	return Rect2(HOUSE.position, HOUSE.size + Vector2(EXPAND_STEP * step, 0.0))
+
+
+## The house as it stands now.
+func house() -> Rect2:
+	return house_at(expansion())
+
+
+## Birds it has room for at `step` expansion steps (as it stands: the housing's capacity).
+static func capacity_at(step: int) -> int:
+	return ProjectTable.KIT_COOP_CAPACITY[clampi(step, 0, MAX_EXPANSION)]
+
+
+## How many nest boxes it has (more on a longer coop).
+func nest_count() -> int:
+	return NESTS_BY_SIZE[expansion()]
+
+
+## Its number among the farm's kit-built coops in the order they were put up (1: the first).
+func number() -> int:
+	var farm := _farm()
+	return farm.kit_coops().find(self) + 1 if farm else 1
+
+
+## "Coop 2": what the construction board and the guide dot call it.
+func coop_name() -> String:
+	return tr("COOP_NUMBER") % number()
+
+
+## Why it can't be made longer now (a translation key), "" when it can: still going up,
+## an expansion already going up, as long as it gets.
+func expand_block() -> String:
+	if not is_built():
+		return "COOP_STILL_BUILDING"
+	if expanding():
+		return "COOP_EXPANDING"
+	if expansion() >= MAX_EXPANSION:
+		return "COOP_LARGEST"
+	return ""
+
+
+## The next expansion step's price ({cost, items}; {} once it is as long as it gets).
+func next_step() -> Dictionary:
+	return ProjectTable.coop_step(expansion())
+
+
+## Pays for the next step at the construction board and starts it: false when it can't be
+## made longer now, the farm level is too low for the step or money or materials are short.
+func buy_expansion() -> bool:
+	if expand_block() != "" or Progress.level < UnlockTable.coop_step_level(expansion()):
+		return false
+	var step := next_step()
+	if FarmState.missing_cost(int(step["cost"]), step["items"]) != "":
+		return false
+	FarmState.pay(int(step["cost"]), step["items"])
+	return start_expansion()
+
+
+## Starts the next step (paid for, or tests and debug): stakes, a frame and a sign
+## counting down on the ground east of the house; its hens live on in it meanwhile.
+func start_expansion() -> bool:
+	if expand_block() != "":
+		return false
+	entry["expand_left"] = EXPAND_SECONDS
+	_start_expansion_site()
+	set_process(true)
+	Audio.play("plank", center_point() + Vector3(0, 1.0, 0), -4.0)
+	Events.construction_started.emit(EXPAND_ID, self)
+	return true
+
+
+## The part going up now, in the coop's frame: EXPAND_STEP more house at its east end.
+func _new_part() -> Rect2:
+	var h := house()
+	return Rect2(h.end.x, h.position.y, EXPAND_STEP, h.size.y)
+
+
+func _start_expansion_site() -> void:
+	site = ConstructionSite.new()
+	site.name = "ExpansionSite"
+	site.house = _new_part()
+	site.yard = YARD
+	site.extension = true
+	# The new floor meets the old one.
+	site.ground = housing.floor_height() - ConstructionSite.FLOOR_Y
+	add_child(site)
+	site.set_progress(1.0 - expansion_left() / EXPAND_SECONDS, expansion_left())
+	housing.works = site.works()
+	_clear_works()
+
+
+## Eggs (or anything dropped) lying where the builders work are put down in the yard clear
+## of it: the new floor would cover them (a fertile egg goes on lying its day out there).
+func _clear_works() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(uid()) + expansion()
+	for n in get_tree().get_nodes_in_group(&"pickups"):
+		var p := n as Pickup
+		if p == null or p.is_queued_for_deletion() or housing.is_in_building(p.global_position):
+			continue
+		var l := to_local(p.global_position)
+		var on := false
+		for w: Rect2 in housing.works:
+			on = on or w.grow(0.3).has_point(Vector2(l.x, l.z))
+		if not on:
+			continue
+		var to := housing.random_outdoor_point(rng) + Vector3(0, 0.1, 0)
+		p.global_position = to
+		p.linear_velocity = Vector3.ZERO
+		p.reset_physics_interpolation()
+		if p == first_egg():
+			entry["egg_pos"] = to
+		# A fertile egg's record too (it is brought up to date on the clock's tick only): a
+		# save before then would put it back on the works.
+		var id: Variant = _fertile_eggs.find_key(p)
+		var rec: Dictionary = _record(int(id)) if id != null else {}
+		if not rec.is_empty():
+			rec["pos"] = to
+
+
+## The expansion is done (its time up, a night's sleep, tests): the longer house stands in
+## a cloud of dust, its new nest boxes bare, its troughs as full as they were; the dot shows
+## it a while.
+func finish_expansion() -> void:
+	if not expanding():
+		return
+	var step := mini(expansion() + 1, MAX_EXPANSION)
+	var part := _new_part()
+	entry["expand"] = step
+	entry.erase("expand_left")
+	set_process(false)
+	if site:
+		site.queue_free()
+		site = null
+	housing.works.clear()
+	housing.set_extension(house(), step, EXPAND_STEP * step)
+	# It has new troughs: their guide dots, and the story hears them filled.
+	_add_care()
+	_resize_nests()
+	if _roof_marker:
+		var c := house().get_center()
+		var w := global_transform * Vector3(c.x, 0.0, c.y)
+		_roof_marker.position = Vector3(c.x, TerrainData.height(w.x, w.z) - global_position.y + 3.4, c.y)
+	var pc := global_transform * Vector3(part.get_center().x, 0.0, part.get_center().y)
+	pc.y = housing.floor_height()
+	Fx.dust_cloud(pc + Vector3(0, 0.8, 0), part.size * 0.8)
+	Audio.play("plank", pc + Vector3(0, 1.0, 0), 0.0)
+	Audio.play("wood_hit", pc + Vector3(0, 1.5, 0), -3.0)
+	Game.notify(tr("MSG_COOP_EXPANDED") % [coop_name(), capacity_at(step)], Color(0.55, 1.0, 0.45))
+	# A longer roof: the rain height map is rendered again, and the light inside worked out
+	# again.
+	Weather.refresh_rain_blockers.call_deferred()
+	_refresh_gi()
+	Events.building_completed.emit(EXPAND_ID, self)
+
+
+## SDFGI keeps the static geometry it voxelized (the old end wall, open sky over the new
+## end) until its cascades scroll past it: its cells set a hair finer for a frame, it
+## starts over and voxelizes the longer house.
+func _refresh_gi() -> void:
+	if not is_inside_tree():
+		return
+	# A WorldEnvironment node sets the world's fallback environment.
+	var world := get_world_3d()
+	var env := world.environment if world.environment else world.fallback_environment
+	# One under way (its cell size kept on the environment) voxelizes this one too.
+	if env == null or not env.sdfgi_enabled or env.has_meta(&"gi_cell"):
+		return
+	var cell := env.sdfgi_min_cell_size
+	env.set_meta(&"gi_cell", cell)
+	env.sdfgi_min_cell_size = cell * 0.999
+	await get_tree().process_frame
+	await get_tree().process_frame
+	env.sdfgi_min_cell_size = cell
+	env.remove_meta(&"gi_cell")
 
 
 # --- Prompts ------------------------------------------------------------------------------
@@ -378,11 +614,12 @@ func can_pick_up() -> bool:
 	return not is_built()
 
 
-## The countdown over the site, as a plain prompt line.
+## The countdown over the site (or over an expansion going up), as a plain prompt line.
 func hint_prompt() -> String:
-	if is_built():
+	if is_built() and not expanding():
 		return ""
-	return "%s · %s" % [tr("SIGN_CONSTRUCTION"), tr("CROP_TIME_LEFT") % ConstructionSite.clock_text(seconds_left())]
+	var left := expansion_left() if is_built() else seconds_left()
+	return "%s · %s" % [tr("SIGN_CONSTRUCTION"), tr("CROP_TIME_LEFT") % ConstructionSite.clock_text(left)]
 
 
 ## F on a site: the kit back into the bag.
@@ -472,6 +709,12 @@ func _lay_first_egg() -> void:
 		break
 	if spot == Vector3.INF:
 		spot = _loose_spot(rng)
+	# On top of whatever is under it there (the yard, the coop's ramp or floor): an egg
+	# put down inside the thin ramp is pushed out through it and lost under the ground.
+	var q := PhysicsRayQueryParameters3D.create(spot + Vector3(0, 0.6, 0), spot - Vector3(0, 1.0, 0), 1)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit:
+		spot.y = (hit["position"] as Vector3).y + 0.03
 	entry["egg"] = "laid"
 	entry["egg_pos"] = spot
 	_spawn_first_egg()
@@ -532,43 +775,52 @@ func _add_care() -> void:
 		housing.water.filled.connect(func() -> void: Events.coop_watered.emit(self))
 
 
-## The bench of nest boxes along the west wall, each bedded or bare as saved, and the
-## guide dot over the next one to bed.
+## The benches of nest boxes (along the west wall; a longer coop's last two along the back
+## wall of its newer end), each box bedded or bare as saved, and the guide dot over the
+## next one to bed.
 func _add_nests() -> void:
 	_floor_local = housing.ground_height(center_point()) - global_position.y
-	if _bench_mesh == null:
-		_bench_mesh = _build_bench()
+	if _straw_mesh == null:
 		_straw_mesh = _build_straw()
 	var root := Node3D.new()
 	root.name = "Nests"
 	root.position.y = _floor_local
 	add_child(root)
-	var mi := MeshInstance3D.new()
-	mi.mesh = _bench_mesh
-	root.add_child(mi)
-	# Solid under the straw (eggs lie on it) and over the boxes (the lid).
-	var bench := StaticBody3D.new()
-	bench.name = "Bench"
-	bench.collision_layer = 1
-	bench.collision_mask = 0
-	var length := NEST_PITCH * NESTS
-	var mid := Vector3(NEST_BACK + NEST_DEPTH * 0.5, 0.0, NEST_Z0 + NEST_PITCH * (NESTS - 1) * 0.5)
-	for part: Array in [[NEST_SEAT * 0.5, NEST_SEAT], [NEST_LID + 0.13, 0.26]]:
-		var cs := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = Vector3(NEST_DEPTH, float(part[1]), length)
-		cs.shape = box
-		cs.position = mid + Vector3(0, float(part[0]), 0)
-		bench.add_child(cs)
-	root.add_child(bench)
+	var count := nest_count()
+	for b in 2:
+		var boxes := mini(count, WEST_NESTS) if b == 0 else count - WEST_NESTS
+		if boxes <= 0:
+			continue
+		var xf := _bench_xf(b)
+		if not _bench_meshes.has(boxes):
+			_bench_meshes[boxes] = _build_bench(boxes)
+		var mi := MeshInstance3D.new()
+		mi.mesh = _bench_meshes[boxes]
+		mi.transform = xf
+		root.add_child(mi)
+		# Solid under the straw (eggs lie on it) and over the boxes (the lid).
+		var bench := StaticBody3D.new()
+		bench.name = "Bench" if b == 0 else "Bench%d" % b
+		bench.collision_layer = 1
+		bench.collision_mask = 0
+		var length := NEST_PITCH * boxes
+		var mid := Vector3(NEST_BACK + NEST_DEPTH * 0.5, 0.0, NEST_Z0 + NEST_PITCH * (boxes - 1) * 0.5)
+		for part: Array in [[NEST_SEAT * 0.5, NEST_SEAT], [NEST_LID + 0.13, 0.26]]:
+			var cs := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = Vector3(NEST_DEPTH, float(part[1]), length)
+			cs.shape = box
+			cs.transform = xf * Transform3D(Basis(), mid + Vector3(0, float(part[0]), 0))
+			bench.add_child(cs)
+		root.add_child(bench)
 	var flags: Array = entry.get("nests", [])
-	for i in NESTS:
+	for i in count:
 		var n := Nest.new()
 		n.name = "Nest%d" % i
 		n.coop = self
 		n.index = i
 		n.straw_mesh = _straw_mesh
-		n.position = _nest_local(i)
+		n.transform = _nest_xf(i)
 		root.add_child(n)
 		n.set_filled(i < flags.size() and bool(flags[i]))
 		_nests.append(n)
@@ -579,16 +831,50 @@ func _add_nests() -> void:
 	_refresh_nest_anchor()
 
 
+## A longer coop's nest boxes: the ones it had stay as they were (their straw, the eggs in
+## them, a hen on one), the new ones come bare.
+func _resize_nests() -> void:
+	var flags: Array = (entry.get("nests", []) as Array).duplicate()
+	while flags.size() < nest_count():
+		flags.append(false)
+	entry["nests"] = flags
+	var old := get_node_or_null("Nests")
+	if old:
+		old.name = "NestsOld"
+		old.queue_free()
+	_nests.clear()
+	_nest_marker = null
+	_add_nests()
+
+
+## Where bench `b` stands in the "Nests" node's space: along the west wall (0, as built),
+## or along the back wall of a longer coop's newer end (1: turned to face the front, its
+## first box 1.15 m in from the east end wall, clear of the roost there).
+func _bench_xf(b: int) -> Transform3D:
+	if b == 0:
+		return Transform3D.IDENTITY
+	var first := house().end.x - 1.15
+	return Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(first + NEST_Z0, 0.0, HOUSE.position.y + 0.12 - NEST_BACK))
+
+
+## Nest box `i` in the "Nests" node's space: its middle on the coop floor, its +X out of
+## the box into the coop.
+func _nest_xf(i: int) -> Transform3D:
+	var b := 0 if i < WEST_NESTS else 1
+	var k := i - b * WEST_NESTS
+	return _bench_xf(b) * Transform3D(Basis(), Vector3(NEST_BACK + NEST_DEPTH * 0.5, 0.0, NEST_Z0 + k * NEST_PITCH))
+
+
 ## Nest box `i`'s middle on the coop floor (in the "Nests" node's space).
 func _nest_local(i: int) -> Vector3:
-	return Vector3(NEST_BACK + NEST_DEPTH * 0.5, 0.0, NEST_Z0 + i * NEST_PITCH)
+	return _nest_xf(i).origin
 
 
 ## The guide dot floats over the first box still bare; with all bedded it is gone.
 func _refresh_nest_anchor() -> void:
 	if _nest_marker == null:
 		return
-	for i in NESTS:
+	for i in nest_count():
 		if not nest_filled(i):
 			_nest_marker.position = _nest_local(i) + Vector3(0, NEST_LID + 0.45, 0)
 			WaypointMarker.tag(_nest_marker, ANCHOR_NEST)
@@ -605,7 +891,7 @@ func nest_filled(i: int) -> bool:
 ## How many nest boxes are bedded.
 func filled_nests() -> int:
 	var n := 0
-	for i in NESTS:
+	for i in nest_count():
 		if nest_filled(i):
 			n += 1
 	return n
@@ -613,11 +899,12 @@ func filled_nests() -> int:
 
 ## Beds nest box `i` with straw (the farmer's armful of hay): Events.nest_filled.
 func bed_nest(i: int) -> bool:
-	if i < 0 or i >= NESTS or nest_filled(i):
+	var count := nest_count()
+	if i < 0 or i >= count or nest_filled(i):
 		return false
 	var flags: Array = (entry.get("nests", []) as Array).duplicate()
-	flags.resize(NESTS)
-	for k in NESTS:
+	flags.resize(count)
+	for k in count:
 		flags[k] = flags[k] is bool and flags[k]
 	flags[i] = true
 	entry["nests"] = flags
@@ -626,28 +913,40 @@ func bed_nest(i: int) -> bool:
 	_refresh_nest_anchor()
 	var n := filled_nests()
 	Events.nest_filled.emit(self, n)
-	if n == NESTS:
+	if n == count:
 		Game.notify(tr("MSG_NESTS_BEDDED"), Color(0.55, 1.0, 0.45))
 	return true
 
 
 ## World point where a hen sits in nest box `i` (on the straw).
 func nest_seat(i: int) -> Vector3:
-	return global_transform * (_nest_local(i) + Vector3(0, _floor_local + NEST_SEAT, 0))
+	return global_transform * (_nest_xf(i) * Vector3(0, NEST_SEAT, 0) + Vector3(0, _floor_local, 0))
 
 
 ## World point on the coop floor in front of nest box `i`, where a hen hops up from.
 func nest_front(i: int) -> Vector3:
-	return global_transform * (_nest_local(i) + Vector3(NEST_DEPTH * 0.5 + 0.4, _floor_local, 0))
+	return global_transform * (_nest_xf(i) * Vector3(NEST_DEPTH * 0.5 + 0.4, 0, 0) + Vector3(0, _floor_local, 0))
 
 
-## Out of the boxes, into the coop (world).
-func nest_out() -> Vector3:
-	return global_basis.x
+## Out of nest box `i`, into the coop (world).
+func nest_out(i := 0) -> Vector3:
+	return global_basis * _nest_xf(i).basis.x
+
+
+## The nest box whose straw is nearest `p` (world).
+func nest_near(p: Vector3) -> int:
+	var best := 0
+	var best_d := INF
+	for i in nest_count():
+		var d := nest_seat(i).distance_squared_to(p)
+		if d < best_d:
+			best = i
+			best_d = d
+	return best
 
 
 func _nest_egg_spot(i: int) -> Vector3:
-	return nest_seat(i) + global_basis * Vector3(randf_range(-0.08, 0.04), 0.07, randf_range(-0.1, 0.1))
+	return nest_seat(i) + global_basis * (_nest_xf(i).basis * Vector3(randf_range(-0.08, 0.04), 0.07, randf_range(-0.1, 0.1)))
 
 
 # --- Laying --------------------------------------------------------------------------------
@@ -689,7 +988,7 @@ func wants_to_lay(id: int) -> bool:
 func claim_nest(hen: Animal) -> int:
 	release_nest(hen)
 	var free: Array[int] = []
-	for i in NESTS:
+	for i in nest_count():
 		if nest_filled(i) and not _is_claimed(i):
 			free.append(i)
 	if free.is_empty():
@@ -768,7 +1067,7 @@ func _lay_now(key: String) -> void:
 		release_nest(hen)
 	var q := int(d.get("q", ItemStack.Quality.NORMAL))
 	var boxes: Array[int] = []
-	for i in NESTS:
+	for i in nest_count():
 		if nest_filled(i):
 			boxes.append(i)
 	var reach := hen == null or hen.indoors or housing.can_pass()
@@ -919,15 +1218,16 @@ func hatch_egg(rec: Dictionary) -> Animal:
 
 # --- Models ---------------------------------------------------------------------------------
 
-## The nest bench: a plank-clad base, the boxes' floor, dividers, a lip that keeps the
-## straw in and a sloping lid the hens can't roost on (the "Nests" node's space).
-static func _build_bench() -> ArrayMesh:
+## A nest bench of `boxes` boxes: a plank-clad base, the boxes' floor, dividers, a lip
+## that keeps the straw in and a sloping lid the hens can't roost on (the bench's space:
+## the west wall's, see _bench_xf).
+static func _build_bench(boxes: int) -> ArrayMesh:
 	var mb := MeshBuilder.new()
 	var dark := AnimalBuildings.PLANK_DARK
 	var x1 := NEST_BACK + NEST_DEPTH
 	var xc := NEST_BACK + NEST_DEPTH * 0.5
 	var z0 := NEST_Z0 - NEST_PITCH * 0.5
-	var length := NEST_PITCH * NESTS
+	var length := NEST_PITCH * boxes
 	var zc := z0 + length * 0.5
 	var floor_top := NEST_SEAT - 0.03
 	mb.box_at(&"planks", Vector3(xc, floor_top * 0.5, zc), Vector3(NEST_DEPTH, floor_top, length), dark, Vector3.ZERO, true)
@@ -935,7 +1235,7 @@ static func _build_bench() -> ArrayMesh:
 	# A kick board along the foot, scuffed darker.
 	mb.box_at(&"wood_in", Vector3(x1 + 0.012, 0.06, zc), Vector3(0.025, 0.12, length), dark.darkened(0.15))
 	var h := NEST_LID - floor_top
-	for i in NESTS + 1:
+	for i in boxes + 1:
 		var z := z0 + i * NEST_PITCH
 		mb.box_at(&"wood_in", Vector3(xc, floor_top + h * 0.5, z), Vector3(NEST_DEPTH, h, 0.025), dark.lightened(0.03 * (i % 2)))
 	mb.box_at(&"wood_in", Vector3(x1 - 0.015, NEST_SEAT + 0.04, zc), Vector3(0.03, 0.12, length), dark.darkened(0.06))

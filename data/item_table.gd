@@ -86,6 +86,9 @@ const ITEMS := {
 	## A short fish knife: guts and fillets the catch.
 	&"knife": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 200, "tool": &"knife"},
 	&"bow": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 250, "tool": &"bow"},
+	## What the bow shoots (Combat): a shot takes one, and it can be picked up again
+	## where it landed (Arrow). Five from the workbench for two wood and a stone.
+	&"arrow": {"cat": "ammo", "stack": 20, "sell": 0, "buy": 0},
 	## The standard rod (FishTable.RODS: the cane pole, carbon and carp rods further down).
 	## Every cast wears it by one.
 	&"fishing_rod": {"cat": "tool", "stack": 1, "sell": 0, "buy": 0, "dur": 150, "tool": &"fishing_rod"},
@@ -115,6 +118,9 @@ const ITEMS := {
 	&"rosehip": {"cat": "forage", "stack": 50, "sell": 2, "buy": 0, "food": 3},
 	&"rabbit": {"cat": "game", "stack": 5, "sell": 15, "buy": 0},
 	# --- end NATURE ---
+	## A wolf's pelt, taken from a wolf killed defending the farm (Wolf): sold at the
+	## market in town.
+	&"wolf_pelt": {"cat": "game", "stack": 10, "sell": 30, "buy": 0},
 	# --- FOOD agent: the food table, the catch cleaned on it, meat and trophy fish ---
 	## The food table (Yemek Tezgahı): a butcher's table put down on the farm. A fish or
 	## game laid on it is cleaned with a knife from the bag (scripts/placement/food_table.gd).
@@ -259,7 +265,7 @@ const CATEGORY_KEYS := {
 	"placeable": "CAT_PLACEABLE", "supply": "CAT_SUPPLY", "key": "CAT_KEY", "animal": "CAT_ANIMAL",
 	"material": "CAT_MATERIAL", "bait": "CAT_BAIT", "sapling": "CAT_SAPLING",
 	"fish": "CAT_FISH", "food": "CAT_FOOD", "junk": "CAT_JUNK", "meat": "CAT_MEAT",
-	"forage": "CAT_FORAGE", "game": "CAT_GAME", "pet": "CAT_PET",
+	"forage": "CAT_FORAGE", "game": "CAT_GAME", "pet": "CAT_PET", "ammo": "CAT_AMMO",
 }
 
 ## Items the player starts a new game with: [id, count]

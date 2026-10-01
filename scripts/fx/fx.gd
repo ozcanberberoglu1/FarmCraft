@@ -344,6 +344,14 @@ static func egg_splat(at: Vector3, normal := Vector3.UP) -> void:
 			9.8, 0.0, 1.5, false, 0.5)
 
 
+## A knife or an arrow striking an animal: a few small dark drops thrown off the wound
+## the way the blow came back out (`out`), falling to the ground. Kept small and few.
+static func blood_drops(at: Vector3, out := Vector3.UP) -> void:
+	var dir := (out.normalized() + Vector3.UP * 0.5).normalized()
+	_burst(at, Color(0.32, 0.03, 0.03), _n(9), Vector3(0.02, 0.02, 0.02), 1.6, 0.5, 45.0, 0.011, dir,
+			9.8, 0.0, 1.0, false, 0.35)
+
+
 ## Construction dust over an area (half extents in meters).
 static func dust_cloud(at: Vector3, half_extents: Vector2) -> void:
 	var amount := roundi(clampf(half_extents.x * half_extents.y * 1.6, 8.0, 90.0) * detail())

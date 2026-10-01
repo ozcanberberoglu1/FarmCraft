@@ -6,7 +6,9 @@ signs, shop posters, the dealer's banners) used by scripts/world/town.gd.
 
 Run from the project root:  python3 art/textures/town/make_town_textures.py
 Needs numpy and Pillow; the lettering uses the game's Barlow fonts (art/fonts).
-Output: art/textures/town/decal_*.png (RGBA, straight alpha) and town_print_albedo.png.
+Output: art/textures/town/decal_*.png (RGBA, straight alpha), town_print_albedo.png and
+vet_print_albedo.png (the vet clinic's sign, posters and labels; "... make_town_textures.py
+vet" paints only that one).
 The decals stay small (256-512 px): Godot copies them into its uncompressed decal atlas.
 Deterministic (fixed seeds), so re-running gives the same images. The atlas regions
 are printed as the GDScript dictionary Town.PRINT (keep the two in step).
@@ -476,14 +478,247 @@ def print_atlas():
     print("}")
 
 
+# --- The vet clinic's prints -------------------------------------------------------
+
+# name -> (x, y, w, h) in pixels of vet_print_albedo.png (VetClinic.PRINT).
+VET_REGIONS = {
+    "sign": (0, 0, 1024, 128),
+    "logo": (0, 128, 256, 256),
+    "hours": (256, 128, 256, 128),
+    "open": (512, 128, 256, 128),
+    "closed": (768, 128, 256, 128),
+    "door_plate": (256, 256, 256, 64),
+    "scale": (256, 320, 128, 64),
+    "clock": (384, 320, 64, 64),
+    "screen": (512, 256, 256, 128),
+    "diploma": (768, 256, 256, 128),
+    "poster_rabies": (0, 384, 256, 384),
+    "poster_parasite": (256, 384, 256, 384),
+    "poster_farm": (512, 384, 256, 384),
+    "poster_care": (768, 384, 256, 384),
+    "bag_dog": (0, 768, 128, 192),
+    "bag_cat": (128, 768, 128, 192),
+    "bag_puppy": (256, 768, 128, 192),
+    "bag_feed": (384, 768, 128, 192),
+    "box_meds": (512, 768, 256, 128),
+    "chart": (768, 768, 256, 256),
+}
+GREEN_DARK = (18, 92, 62)
+GREEN = (36, 140, 84)
+
+
+def paw(d, cx, cy, r, fill):
+    """A paw print: the big pad and four toes over it, `r` the pad's half width."""
+    d.ellipse((cx - r, cy - r * 0.55, cx + r, cy + r * 0.95), fill=fill)
+    for tx, ty, tr in ((-0.95, -0.95, 0.36), (-0.36, -1.45, 0.38), (0.36, -1.45, 0.38), (0.95, -0.95, 0.36)):
+        d.ellipse((cx + tx * r - tr * r, cy + ty * r - tr * r * 1.25, cx + tx * r + tr * r, cy + ty * r + tr * r * 1.25), fill=fill)
+
+
+def vet_logo(d, box, ring=True):
+    """The clinic's badge: a white cross on a green disc, a green paw on the cross."""
+    x, y, w, h = box
+    cx, cy = x + w / 2, y + h / 2
+    r = min(w, h) * 0.47
+    if ring:
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(250, 250, 246))
+        r2 = r * 0.9
+        d.ellipse((cx - r2, cy - r2, cx + r2, cy + r2), fill=GREEN)
+    a = r * 0.56
+    b = r * 0.2
+    d.rounded_rectangle((cx - b, cy - a, cx + b, cy + a), radius=b * 0.3, fill=(250, 250, 246))
+    d.rounded_rectangle((cx - a, cy - b, cx + a, cy + b), radius=b * 0.3, fill=(250, 250, 246))
+    paw(d, cx, cy + r * 0.06, r * 0.13, GREEN_DARK)
+
+
+def dog(d, x, y, s, fill):
+    """A standing dog in profile (facing right), `s` pixels a unit, its feet on y."""
+    pts = [(0.0, -1.0), (0.15, -1.35), (0.1, -1.05), (0.25, -1.0), (1.35, -1.05), (1.5, -1.4), (1.62, -1.62),
+           (1.72, -1.56), (1.78, -1.62), (1.82, -1.5), (2.1, -1.4), (2.12, -1.3), (1.86, -1.22), (1.64, -1.1),
+           (1.55, -0.6), (1.6, 0.0), (1.48, 0.0), (1.4, -0.55), (1.2, -0.6), (1.18, 0.0), (1.06, 0.0), (1.0, -0.6),
+           (0.5, -0.6), (0.45, 0.0), (0.33, 0.0), (0.3, -0.6), (0.2, -0.65), (0.12, 0.0), (0.0, 0.0), (0.05, -0.7)]
+    d.polygon([(x + px * s, y + py * s) for px, py in pts], fill=fill)
+
+
+def cat(d, x, y, s, fill):
+    """A sitting cat seen from the front-side, `s` pixels a unit, sitting on y."""
+    d.ellipse((x - 0.55 * s, y - 1.25 * s, x + 0.55 * s, y), fill=fill)
+    d.ellipse((x - 0.38 * s, y - 1.75 * s, x + 0.38 * s, y - 1.05 * s), fill=fill)
+    for sx in (-1, 1):
+        d.polygon([(x + sx * 0.36 * s, y - 1.5 * s), (x + sx * 0.33 * s, y - 1.95 * s), (x + sx * 0.1 * s, y - 1.7 * s)], fill=fill)
+    d.line([(x + 0.3 * s, y - 0.12 * s), (x + 0.8 * s, y - 0.1 * s), (x + 1.0 * s, y - 0.3 * s), (x + 1.02 * s, y - 0.62 * s)],
+           fill=fill, width=int(0.16 * s), joint="curve")
+
+
+def cow(d, x, y, s, fill):
+    """A cow in profile (facing left), `s` pixels a unit, its feet on y."""
+    d.rounded_rectangle((x, y - 1.55 * s, x + 2.2 * s, y - 0.6 * s), radius=0.25 * s, fill=fill)
+    d.polygon([(x + 0.05 * s, y - 1.45 * s), (x - 0.55 * s, y - 1.25 * s), (x - 0.62 * s, y - 0.95 * s), (x - 0.4 * s, y - 0.85 * s),
+               (x + 0.1 * s, y - 1.0 * s)], fill=fill)
+    d.polygon([(x - 0.05 * s, y - 1.55 * s), (x - 0.2 * s, y - 1.78 * s), (x + 0.08 * s, y - 1.5 * s)], fill=fill)
+    for lx in (0.12, 0.42, 1.65, 1.95):
+        d.rectangle((x + lx * s, y - 0.75 * s, x + (lx + 0.18) * s, y), fill=fill)
+    d.line([(x + 2.2 * s, y - 1.45 * s), (x + 2.35 * s, y - 0.75 * s)], fill=fill, width=int(0.07 * s))
+    d.ellipse((x + 1.4 * s, y - 0.72 * s, x + 1.75 * s, y - 0.5 * s), fill=fill)
+
+
+def vet_print():
+    """The clinic's sign, its hours plate and door signs, posters, the diploma, the labels
+    of the pet food and medicine boxes, the scale's readout, the monitor and the clock."""
+    img = Image.new("RGBA", (ATLAS, ATLAS), (128, 128, 128, 255))
+    d = ImageDraw.Draw(img)
+    R = VET_REGIONS
+    white = (248, 248, 244)
+    ink = (34, 38, 36)
+    # The fascia: a white panel, a green band along the foot, the badge, the name.
+    x, y, w, h = R["sign"]
+    d.rectangle((x, y, x + w, y + h), fill=white)
+    d.rectangle((x, y + h - 22, x + w, y + h), fill=GREEN)
+    vet_logo(d, (x + 8, y + 4, 112, 100))
+    text_c(d, (x + 124, y + 4, 640, 64), "YEŞİLOVA VETERİNER KLİNİĞİ", 60, GREEN_DARK)
+    text_c(d, (x + 124, y + 64, 640, 40), "KÜÇÜK VE BÜYÜKBAŞ HAYVAN SAĞLIĞI", 30, (60, 70, 64), weight="SemiBold")
+    d.line((x + 774, y + 14, x + 774, y + h - 34), fill=(200, 205, 200), width=3)
+    for k, line in enumerate(("AŞI · MUAYENE", "CERRAHİ · ACİL")):
+        text_c(d, (x + 780, y + 10 + k * 46, 240, 44), line, 34, (60, 70, 64), weight="SemiBold")
+    text_c(d, (x, y + h - 22, w, 22), "Dr. Selin Aydın  ·  Veteriner Hekim", 18, white, weight="SemiBold")
+    # The badge alone (the blade sign over the pavement).
+    x, y, w, h = R["logo"]
+    d.rectangle((x, y, x + w, y + h), fill=white)
+    vet_logo(d, (x, y, w, h))
+    # Opening hours on the glass by the door.
+    x, y, w, h = R["hours"]
+    d.rectangle((x, y, x + w, y + h), fill=white)
+    d.rectangle((x + 4, y + 4, x + w - 4, y + h - 4), outline=GREEN, width=4)
+    text_c(d, (x, y + 8, w, 34), "ÇALIŞMA SAATLERİ", 30, GREEN_DARK)
+    text_c(d, (x, y + 44, w, 44), "HER GÜN 08:00 - 20:00", 36, ink)
+    text_c(d, (x, y + 88, w, 30), "PAZAR DAHİL", 24, (90, 96, 92), weight="SemiBold")
+    # The hanging sign in the door: open (green) or closed (red).
+    for key, bg, text in (("open", GREEN, "AÇIK"), ("closed", (190, 28, 34), "KAPALI")):
+        x, y, w, h = R[key]
+        d.rectangle((x, y, x + w, y + h), fill=(128, 128, 128, 0))
+        d.rounded_rectangle((x + 6, y + 10, x + w - 6, y + h - 6), 16, fill=bg)
+        d.rounded_rectangle((x + 14, y + 18, x + w - 14, y + h - 14), 10, outline=white, width=4)
+        text_c(d, (x, y + 10, w, h - 16), text, 72, white, dy=2)
+    # The treatment room's door plate.
+    x, y, w, h = R["door_plate"]
+    d.rectangle((x, y, x + w, y + h), fill=(214, 216, 212))
+    d.rectangle((x + 3, y + 3, x + w - 3, y + h - 3), outline=(160, 162, 158), width=2)
+    text_c(d, (x, y, w, h), "MUAYENE", 44, ink)
+    # The floor scale's readout and the wall clock.
+    x, y, w, h = R["scale"]
+    d.rectangle((x, y, x + w, y + h), fill=(30, 34, 32))
+    d.rectangle((x + 8, y + 8, x + w - 8, y + h - 8), fill=(130, 170, 120))
+    text_c(d, (x + 8, y + 8, w - 16, h - 16), "0.00 kg", 36, (24, 36, 22))
+    x, y, w, h = R["clock"]
+    d.rectangle((x, y, x + w, y + h), fill=(128, 128, 128, 0))
+    cx, cy, r = x + h / 2, y + h / 2, h / 2 - 2
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(40, 40, 40))
+    d.ellipse((cx - r + 4, cy - r + 4, cx + r - 4, cy + r - 4), fill=white)
+    for k in range(12):
+        a = k * np.pi / 6
+        d.line((cx + np.sin(a) * r * 0.72, cy - np.cos(a) * r * 0.72, cx + np.sin(a) * r * 0.86, cy - np.cos(a) * r * 0.86), fill=ink, width=2)
+    d.line((cx, cy, cx + r * 0.45, cy - r * 0.2), fill=ink, width=3)
+    d.line((cx, cy, cx - r * 0.1, cy - r * 0.7), fill=ink, width=2)
+    # A clock face for the monitor's corner is not needed: the monitor shows the day's list.
+    x, y, w, h = R["screen"]
+    d.rectangle((x, y, x + w, y + h), fill=(232, 238, 242))
+    d.rectangle((x, y, x + w, y + 22), fill=(28, 110, 160))
+    text_c(d, (x, y, w, 22), "RANDEVULAR", 18, white)
+    f = font(16, weight="SemiBold")
+    for k, (t, n) in enumerate((("09:30", "Karabaş - aşı"), ("11:00", "Sarıkız - muayene"), ("14:15", "Pamuk - parazit"), ("16:40", "Minnoş - kontrol"))):
+        yy = y + 30 + k * 24
+        d.rectangle((x + 6, yy, x + w - 6, yy + 20), fill=(250, 252, 252) if k % 2 == 0 else (222, 232, 238))
+        d.text((x + 12, yy + 1), t, font=f, fill=(28, 110, 160))
+        d.text((x + 70, yy + 1), n, font=f, fill=ink)
+    # The diploma in its frame behind the counter.
+    x, y, w, h = R["diploma"]
+    d.rectangle((x, y, x + w, y + h), fill=(240, 232, 212))
+    d.rectangle((x + 6, y + 6, x + w - 6, y + h - 6), outline=(170, 140, 80), width=3)
+    text_c(d, (x, y + 12, w, 30), "DİPLOMA", 28, (90, 60, 30))
+    text_c(d, (x, y + 44, w, 24), "VETERİNER FAKÜLTESİ", 20, (60, 50, 40), weight="SemiBold")
+    text_c(d, (x, y + 70, w, 24), "Selin AYDIN", 22, (40, 40, 60), condensed=False, weight="SemiBold")
+    d.ellipse((x + w - 54, y + h - 50, x + w - 18, y + h - 14), fill=(170, 40, 40))
+    for k in range(3):
+        d.line((x + 30, y + h - 24 + k * 0, x + 110, y + h - 24), fill=(120, 110, 100), width=1)
+    # Posters: rabies jabs (dog), parasites (cat), the herd's vaccinations (cow), care tips.
+    for key, top, title, animal, lines in (
+            ("poster_rabies", (28, 92, 170), "KUDUZ AŞISI", "dog", ("Kedi ve köpeklerinizin", "kuduz aşısını", "her yıl yaptırın")),
+            ("poster_parasite", (226, 120, 30), "PARAZİT", "cat", ("İç ve dış parazit", "uygulaması", "3 ayda bir")),
+            ("poster_farm", GREEN, "ŞAP · BRUSELLA", "cow", ("Büyükbaş ve küçükbaş", "hayvanlarınızın aşılarını", "aksatmayın")),
+            ("poster_care", (120, 70, 140), "SEVGİ VE BAKIM", "paw", ("Düzenli kontrol,", "temiz su ve dengeli mama", "uzun ve sağlıklı ömür"))):
+        x, y, w, h = R[key]
+        d.rectangle((x, y, x + w, y + h), fill=white)
+        d.rectangle((x, y, x + w, y + 80), fill=top)
+        text_c(d, (x, y + 6, w, 70), title, 54, white)
+        light = tuple(int(c + (255 - c) * 0.82) for c in top)
+        d.ellipse((x + 38, y + 96, x + w - 38, y + 96 + w - 76), fill=light)
+        ax, ay = x + w / 2, y + 96 + (w - 76) * 0.82
+        if animal == "dog":
+            dog(d, ax - 1.05 * 62, ay, 62, top)
+        elif animal == "cat":
+            cat(d, ax - 10, ay, 70, top)
+        elif animal == "cow":
+            cow(d, ax - 0.8 * 56, ay, 56, top)
+        else:
+            paw(d, ax, ay - 60, 34, top)
+        for k, line in enumerate(lines):
+            text_c(d, (x + 6, y + 290 + k * 30, w - 12, 30), line, 26, ink, weight="SemiBold")
+    # Fronts of the food bags (fictional brands) and the medicine boxes' labels.
+    for key, bg, brand, what, animal in (("bag_dog", (196, 40, 36), "PATİ", "KÖPEK MAMASI", "dog"),
+                                         ("bag_cat", (110, 60, 150), "MİNNOŞ", "KEDİ MAMASI", "cat"),
+                                         ("bag_puppy", (40, 120, 190), "PATİ", "YAVRU KÖPEK", "dog"),
+                                         ("bag_feed", (60, 130, 60), "BEREKET", "BUZAĞI YEMİ", "cow")):
+        x, y, w, h = R[key]
+        d.rectangle((x, y, x + w, y + h), fill=bg)
+        d.rectangle((x, y + 8, x + w, y + 48), fill=white)
+        text_c(d, (x, y + 8, w, 40), brand, 36, bg)
+        d.ellipse((x + 18, y + 58, x + w - 18, y + 58 + w - 36), fill=tuple(min(255, c + 60) for c in bg))
+        if animal == "dog":
+            dog(d, x + 22, y + 58 + w - 50, 40, white)
+        elif animal == "cat":
+            cat(d, x + w / 2 - 6, y + 58 + w - 44, 40, white)
+        else:
+            cow(d, x + 36, y + 58 + w - 52, 30, white)
+        text_c(d, (x, y + h - 36, w, 30), what, 22, white)
+    x, y, w, h = R["box_meds"]
+    for k, (bg, name) in enumerate((((236, 236, 232), "AMOKSİSİLİN"), ((210, 228, 240), "MELOKSİKAM"), ((240, 226, 200), "İVERMEKTİN"),
+                                    ((222, 238, 220), "VİTAMİN AD3E"))):
+        bx = x + (k % 2) * 128
+        by = y + (k // 2) * 64
+        d.rectangle((bx, by, bx + 128, by + 64), fill=bg)
+        d.rectangle((bx, by + 44, bx + 128, by + 52), fill=[(200, 40, 40), (30, 100, 170), (200, 130, 20), (40, 140, 70)][k])
+        text_c(d, (bx + 4, by + 6, 120, 34), name, 22, ink)
+    # A chart on the wall: a dog's and a cat's outline with the vaccination calendar.
+    x, y, w, h = R["chart"]
+    d.rectangle((x, y, x + w, y + h), fill=(246, 246, 238))
+    d.rectangle((x, y, x + w, y + 36), fill=(28, 92, 170))
+    text_c(d, (x, y, w, 36), "AŞI TAKVİMİ", 30, white)
+    f = font(17, weight="SemiBold")
+    for k, (age, jab) in enumerate((("6-8 hafta", "Karma aşı 1"), ("10-12 hafta", "Karma aşı 2"), ("12 hafta", "Kuduz"),
+                                    ("14-16 hafta", "Karma aşı 3"), ("Her yıl", "Karma + Kuduz"), ("3 ayda bir", "Parazit"))):
+        yy = y + 46 + k * 34
+        d.rectangle((x + 8, yy, x + w - 8, yy + 28), fill=(255, 255, 255) if k % 2 == 0 else (226, 234, 244))
+        d.text((x + 14, yy + 4), age, font=f, fill=(28, 92, 170))
+        d.text((x + 122, yy + 4), jab, font=f, fill=ink)
+    img.save(os.path.join(OUT, "vet_print_albedo.png"))
+    print("wrote vet_print_albedo.png")
+    print("const PRINT := {")
+    for k, (x, y, w, h) in VET_REGIONS.items():
+        print('\t"%s": Rect2(%g, %g, %g, %g),' % (k, x / ATLAS, y / ATLAS, w / ATLAS, h / ATLAS))
+    print("}")
+
+
 if __name__ == "__main__":
-    oil_stain()
-    asphalt_patch()
-    cracks()
-    dirt_edge()
-    zebra()
-    streaks()
-    tyre_marks()
-    ground_mud()
-    road_line()
-    print_atlas()
+    import sys
+    # "vet": only the clinic's prints.
+    if "vet" not in sys.argv[1:]:
+        oil_stain()
+        asphalt_patch()
+        cracks()
+        dirt_edge()
+        zebra()
+        streaks()
+        tyre_marks()
+        ground_mud()
+        road_line()
+        print_atlas()
+    vet_print()

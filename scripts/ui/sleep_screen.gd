@@ -3,12 +3,19 @@ extends CanvasLayer
 ## Sleep sequence: fade to black, close the day (sales, report), skip to 06:00,
 ## show the morning report, then fade back in. Once the morning shows, the night's
 ## shipping-bin income goes out on the bus (Events.morning_sale) and the HUD shows it
-## under the money.
+## under the money. A night the wolves came has a card of its own (WolfRaids.take_report).
+## Fainting from wounds (PlayerState.knock_out) runs the same night: the view sinks to
+## the ground as the screen darkens, a line on the black tells how he got home, and the
+## morning finds him in his bed, hungry and worn out.
 
 signal _continue
 
 const PASS_OUT_FEE_RATE := 0.1
 const PASS_OUT_FEE_MAX := 60
+## Fainting: seconds the view takes to sink and the screen to go black, and the line
+## shows on the black.
+const FAINT_FALL := 1.6
+const FAINT_LINE := 3.6
 
 var _black: ColorRect
 var _report: VBoxContainer
@@ -16,6 +23,10 @@ var _hint: Label
 var _busy := false
 var _waiting := false
 var _blink := 0.0
+## The line on the black after fainting.
+var _faint_line: Label
+## The red the screen goes through as he faints, under the black.
+var _faint_red: ColorRect
 
 
 func _ready() -> void:
@@ -37,13 +48,27 @@ func _ready() -> void:
 	_report.custom_minimum_size = Vector2(760, 0)
 	_report.visible = false
 	center.add_child(_report)
+	_faint_red = ColorRect.new()
+	_faint_red.color = Color(0.32, 0.02, 0.02)
+	_faint_red.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_faint_red.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_faint_red.modulate.a = 0.0
+	_faint_red.visible = false
+	add_child(_faint_red)
+	move_child(_faint_red, 0)
+	_faint_line = UiTheme.paragraph("", 26, UiTheme.TEXT, 820)
+	_faint_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_faint_line.visible = false
+	center.add_child(_faint_line)
 
 
 func is_busy() -> bool:
 	return _busy
 
 
-func start_sleep(passed_out := false) -> void:
+## `passed_out`: collapsed at 02:00 (a fee is lost); `knocked_out`: fainted from wounds
+## (PlayerState.knock_out).
+func start_sleep(passed_out := false, knocked_out := false) -> void:
 	if _busy:
 		return
 	_busy = true
@@ -51,7 +76,10 @@ func start_sleep(passed_out := false) -> void:
 	Game.push_ui(&"sleep")
 	Events.action_progress_finished.emit(false)
 	_black.visible = true
-	await _fade(1.0, 0.9)
+	if knocked_out:
+		await _faint()
+	else:
+		await _fade(1.0, 0.9)
 	Events.day_ending.emit()
 	var fee := 0
 	if passed_out:
@@ -64,8 +92,11 @@ func start_sleep(passed_out := false) -> void:
 	if passed_out:
 		GameClock.running = not DebugTools.args.has("freeze-time")
 	_wake_player()
+	# The night's wolf lines are taken before the morning's autosave, so a game loaded
+	# from it doesn't tell of them again the next morning.
+	var wolves := WolfRaids.take_report()
 	var autosaved := SaveGame.save(SaveGame.AUTO)
-	_show_report(summary, fee)
+	_show_report(summary, fee, knocked_out, wolves)
 	_waiting = true
 	await _continue
 	_waiting = false
@@ -106,6 +137,35 @@ func _process(delta: float) -> void:
 		_hint.modulate.a = 0.5 + 0.5 * sin(_blink * 3.0)
 
 
+## He faints: the view sinks to the ground as the screen reddens and goes black (a
+## heartbeat, the thud of the fall), then a line on the black says how he got home.
+func _faint() -> void:
+	var player := Game.player as Player
+	if player:
+		player.collapse(FAINT_FALL)
+	CombatSfx.play("heartbeat", null, -4.0, 0.0)
+	get_tree().create_timer(FAINT_FALL * 0.8).timeout.connect(func() -> void: CombatSfx.play("fall", null, -3.0, 0.03))
+	_faint_red.visible = true
+	var red := create_tween()
+	red.tween_property(_faint_red, "modulate:a", 0.55, FAINT_FALL * 0.5)
+	_black.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_interval(FAINT_FALL * 0.35)
+	tw.tween_property(_black, "modulate:a", 1.0, FAINT_FALL * 0.9).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	await tw.finished
+	_faint_red.visible = false
+	_faint_red.modulate.a = 0.0
+	_faint_line.text = tr("MSG_KNOCKED_OUT_WOLVES" if GameClock.is_night() else "MSG_KNOCKED_OUT")
+	_faint_line.visible = true
+	_faint_line.modulate.a = 0.0
+	var line := create_tween()
+	line.tween_property(_faint_line, "modulate:a", 1.0, 0.6)
+	line.tween_interval(FAINT_LINE)
+	line.tween_property(_faint_line, "modulate:a", 0.0, 0.6)
+	await line.finished
+	_faint_line.visible = false
+
+
 func _fade(to: float, seconds: float) -> void:
 	var tw := create_tween()
 	tw.tween_property(_black, "modulate:a", to, seconds)
@@ -117,9 +177,24 @@ func _wake_player() -> void:
 	var player := Game.player as Player
 	if bed == null or player == null:
 		return
+	player.end_collapse()
 	player.global_position = bed.global_position + Vector3(-1.25, 0.05, 0.4)
 	player.velocity = Vector3.ZERO
 	player.look_at_yaw_pitch(PI * 0.5, deg_to_rad(-8.0))
+
+
+## A dotted line for each of `lines` in `box` (the wolves' card), in `color`.
+func _note_rows(box: VBoxContainer, lines: PackedStringArray, color: Color) -> void:
+	for note in lines:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var dot := PanelContainer.new()
+		dot.custom_minimum_size = Vector2(8, 8)
+		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		dot.add_theme_stylebox_override("panel", UiTheme.box(color, 4))
+		row.add_child(dot)
+		row.add_child(UiTheme.paragraph(note, 18, color.lerp(Color.WHITE, 0.55), 660))
+		box.add_child(row)
 
 
 func _card(min_size := Vector2(0, 0)) -> Array:
@@ -135,7 +210,10 @@ func _card(min_size := Vector2(0, 0)) -> Array:
 	return [card, box]
 
 
-func _show_report(summary: Dictionary, fee: int) -> void:
+## The morning report: the day closed (`summary`, Economy.close_day), the fee for passing
+## out, a faint, the night's `wolves` lines (WolfRaids.take_report), the animals' notes,
+## the weather.
+func _show_report(summary: Dictionary, fee: int, knocked_out := false, wolves := PackedStringArray()) -> void:
 	for c in _report.get_children():
 		c.queue_free()
 	var head := VBoxContainer.new()
@@ -158,6 +236,10 @@ func _show_report(summary: Dictionary, fee: int) -> void:
 		var po := UiTheme.chip(tr("MSG_PASSED_OUT") % UiTheme.money(fee), UiTheme.RED, "info", 17)
 		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_report.add_child(po)
+	if knocked_out:
+		var ko := UiTheme.chip(tr("REPORT_KNOCKED_OUT"), UiTheme.RED, "info", 17)
+		ko.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		_report.add_child(ko)
 	_report.add_child(UiTheme.section(tr("REPORT_YESTERDAY"), "calendar"))
 	var money_row := HBoxContainer.new()
 	money_row.add_theme_constant_override("separation", 14)
@@ -182,15 +264,19 @@ func _show_report(summary: Dictionary, fee: int) -> void:
 		var chip := UiTheme.chip(tr("REPORT_SHIPPED") % UiTheme.money(shipped), UiTheme.GREEN, "", 17)
 		chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_report.add_child(chip)
-	if not Animals.report_notes.is_empty():
+	if not wolves.is_empty():
+		_report.add_child(UiTheme.section(tr("REPORT_WOLVES"), "moon"))
+		var wc := _card()
+		_report.add_child(wc[0])
+		_note_rows(wc[1], wolves.slice(0, 5), WolfRaids.AMBER)
+	# Every hurt animal's time left (and a death from wounds, one healed) shows, the
+	# everyday lines in the room left (Animals.take_report_lines).
+	var notes := Animals.take_report_lines(5)
+	if not notes.is_empty():
 		_report.add_child(UiTheme.section(tr("REPORT_ANIMALS"), "paw"))
 		var c := _card()
 		_report.add_child(c[0])
-		var seen := {}
-		for note in Animals.report_notes.slice(-5):
-			if seen.has(note):
-				continue
-			seen[note] = true
+		for note in notes:
 			var row := HBoxContainer.new()
 			row.add_theme_constant_override("separation", 10)
 			var dot := PanelContainer.new()
@@ -200,7 +286,6 @@ func _show_report(summary: Dictionary, fee: int) -> void:
 			row.add_child(dot)
 			row.add_child(UiTheme.paragraph(note, 18, Color("ffd2bb"), 660))
 			c[1].add_child(row)
-		Animals.report_notes.clear()
 	_report.add_child(UiTheme.section(tr("REPORT_WEATHER"), "sun"))
 	var weather_row := HBoxContainer.new()
 	weather_row.add_theme_constant_override("separation", 14)

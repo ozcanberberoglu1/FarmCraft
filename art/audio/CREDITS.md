@@ -185,3 +185,44 @@ Built by `tools/build_story_audio.py` (Zeynep's front door, SideStory).
 | Used for | Recording | Author / source | Licence |
 |---|---|---|---|
 | knock_0-2 | synthesised in the script (a knuckle's tick over a wooden panel's damped modes, a hallway's early reflections) | — | — |
+
+## The wolves' sounds (`sfx/animals/wolf_*`)
+
+Cut, cleaned and levelled from these recordings by `tools/build_wolf_audio.py` (the recipe of every take is in the
+script; the far howls are made distant there: highs off, a long forest echo). All are CC0 or Mixkit's free licence:
+none needs attribution or share-alike.
+
+| Used for | Recording | Author / source | Licence |
+|---|---|---|---|
+| wolf_howl_0 | *Wolf howl* | NaturesTemper, https://freesound.org/people/NaturesTemper/sounds/398430/ | CC0 |
+| wolf_howl_1/2, wolf_howl_far_2 (answer) | *Cooper Creek 20160313_014852 solitary wolf howl very clear* | betchkal, https://freesound.org/people/betchkal/sounds/500646/ | CC0 |
+| wolf_howl_3 | Lone wolf howling (1729) | Mixkit | Mixkit free licence |
+| wolf_howl_far_0 | *Howling wolves* | Kingcornz, https://freesound.org/people/Kingcornz/sounds/378334/ | CC0 |
+| wolf_howl_far_1 | Wolves at scary forest (2485) | Mixkit | Mixkit free licence |
+| wolf_howl_far_2 | Wolves pack howling (1776) | Mixkit | Mixkit free licence |
+| wolf_growl_* | *dog_growling_mono_4824.wav* | Mystikuum, https://freesound.org/people/Mystikuum/sounds/401820/ | CC0 |
+| wolf_snarl_0, wolf_bite_* (burst) | Wolf attack (1773) | Mixkit | Mixkit free licence |
+| wolf_snarl_1 | *R01-63-Dog Snarling and Attacking.wav* | craigsmith, https://freesound.org/people/craigsmith/sounds/479633/ | CC0 |
+| wolf_snarl_2 | *Dog Growling Snarling Grumbling* | qubodup, https://freesound.org/people/qubodup/sounds/122183/ | CC0 |
+| wolf_bite_* (teeth) | *Dog Teeth Clattering Clicking* | qubodup, https://freesound.org/people/qubodup/sounds/841350/ | CC0 |
+| wolf_yelp_* | *Dog's Yelping 7* | unfa, https://freesound.org/people/unfa/sounds/160478/ | CC0 |
+| wolf_death_* | *dog crying.wav* | jocelynlopez, https://freesound.org/people/jocelynlopez/sounds/635114/ | CC0 |
+## Knife, bow and arrows, the farmer hurt (`sfx/combat/*`)
+
+Cut, filtered and levelled from Mixkit recordings by `tools/build_combat_audio.py` (Mixkit Sound Effects Free
+License: free for commercial use in games, no attribution required); the bow's creak and twang and the shaft's
+crack are synthesised in the script.
+
+| File | Mixkit title | Mixkit id |
+|---|---|---|
+| sfx/combat/knife_swing_0/1.ogg | Dagger woosh | 1487 |
+| sfx/combat/knife_hit_0/1.ogg | Body punch quick hit, Knife fast hit, Body cutting impact | 2153, 2184, 2199 |
+| sfx/combat/bow_draw.ogg, bow_letdown.ogg | synthesised (stick-slip clicks through a yew stave's modes) | — |
+| sfx/combat/bow_release_0/1.ogg | synthesised twang and thump, with Arrow shot through air | 2771 |
+| sfx/combat/arrow_wood_0/1.ogg | Metal arrow hit, Metal arrow fast hit | 2769, 2770 |
+| sfx/combat/arrow_ground_0/1.ogg | Body impact falling into the sand, Wood hard hit | 2498, 2182 |
+| sfx/combat/arrow_flesh.ogg | Body punch quick hit, Sword cutting flesh | 2153, 2788 |
+| sfx/combat/arrow_break.ogg | Wood hard hit, with a synthesised crack | 2182 |
+| sfx/combat/grunt_0-2.ogg | Man in pain, Fighting man voice of pain | 2197, 2173 |
+| sfx/combat/fall.ogg | Body impact falling into the sand, Falling hit | 2498, 757 |
+| sfx/combat/heartbeat.ogg | Human single heart beat | 490 |

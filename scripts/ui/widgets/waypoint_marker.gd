@@ -156,6 +156,15 @@ func _guide() -> Object:
 	return source if source != null else Quests
 
 
+## The dot and its pill on the screen now (empty while hidden): another dot riding the same
+## edge keeps clear of it (HUD).
+func screen_rect() -> Rect2:
+	if not visible:
+		return Rect2()
+	var ring := Vector2(RING + 5.0, RING + 5.0)
+	return Rect2(_pos - ring, ring * 2.0).merge(Rect2(_pill.position, _pill.size))
+
+
 func _pop_in() -> void:
 	if _pop_tween and _pop_tween.is_valid():
 		_pop_tween.kill()

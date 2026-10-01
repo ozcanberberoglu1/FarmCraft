@@ -182,6 +182,14 @@ const PROFILES := {
 		[0.56, Vector3(-0.07, -0.22, -0.14), Vector3(-26, 6, 8), Tween.TRANS_EXPO, Tween.EASE_IN],
 		[0.68, Vector3(-0.07, -0.23, -0.14), Vector3(-27, 6, 8), Tween.TRANS_LINEAR, Tween.EASE_IN],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
+	# The knife: drawn back a hand's width, then a fast straight stab ahead along the blade,
+	# a hold at full reach, and back (Combat: LMB with the knife in hand).
+	&"stab": {"impact": 0.4, "whoosh": true, "kick": Vector4(-0.5, 0.0, 0.3, -0.004), "trauma": 0.0, "keys": [
+		[0.0, Vector3.ZERO, Vector3.ZERO],
+		[0.22, Vector3(0.03, -0.015, 0.08), Vector3(10, -6, 4), Tween.TRANS_SINE, Tween.EASE_OUT],
+		[0.4, Vector3(-0.07, 0.045, -0.24), Vector3(-6, 10, -6), Tween.TRANS_EXPO, Tween.EASE_IN],
+		[0.5, Vector3(-0.072, 0.046, -0.245), Vector3(-7, 10, -6), Tween.TRANS_LINEAR, Tween.EASE_IN],
+		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
 	# A short push forward and back (milking, feeding, medicine, anything else).
 	&"work": {"impact": 0.5, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],

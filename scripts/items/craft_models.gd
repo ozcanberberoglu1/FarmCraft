@@ -59,9 +59,37 @@ static func mesh(id: StringName) -> ArrayMesh:
 
 # --- Bow ---------------------------------------------------------------------------------
 
-static func _bow(mb: MeshBuilder) -> void:
-	var half := 0.62
-	var bend := 0.12
+## The stave's half length and how far its tips stand back toward the string, braced and
+## at full draw (the limbs bend and the tips come in and back as the string is drawn).
+const BOW_HALF := Vector2(0.62, 0.588)
+const BOW_BEND := Vector2(0.12, 0.25)
+## Steps of bend the drawn bow in hand is built at (Combat's draw picks the nearest).
+const BOW_FLEX_STEPS := 6
+
+static var _bow_bodies: Dictionary = {}
+
+
+## The stave without its string, bent to `flex` (0 braced .. 1 full draw), for the bow
+## in hand: HeldBow strings it and draws the string back to the nock.
+static func bow_body(flex: float) -> ArrayMesh:
+	var step := clampi(roundi(flex * (BOW_FLEX_STEPS - 1)), 0, BOW_FLEX_STEPS - 1)
+	if not _bow_bodies.has(step):
+		var mb := MeshBuilder.new()
+		_bow(mb, float(step) / (BOW_FLEX_STEPS - 1), false)
+		_bow_bodies[step] = mb.build()
+	return _bow_bodies[step]
+
+
+## Where the string is tied at the upper tip of a stave bent to `flex` (the lower tip is
+## the same with -y), in the bow's model space.
+static func bow_nock(flex: float) -> Vector3:
+	var f := clampf(roundi(flex * (BOW_FLEX_STEPS - 1)) / float(BOW_FLEX_STEPS - 1), 0.0, 1.0)
+	return Vector3(0, lerpf(BOW_HALF.x, BOW_HALF.y, f) - 0.012, lerpf(BOW_BEND.x, BOW_BEND.y, f) + 0.006)
+
+
+static func _bow(mb: MeshBuilder, flex := 0.0, strung := true) -> void:
+	var half := lerpf(BOW_HALF.x, BOW_HALF.y, flex)
+	var bend := lerpf(BOW_BEND.x, BOW_BEND.y, flex)
 	var centers: Array[Vector3] = []
 	var radii: Array[Vector2] = []
 	var colors: Array[Color] = []
@@ -93,6 +121,8 @@ static func _bow(mb: MeshBuilder) -> void:
 	for s: float in [-1.0, 1.0]:
 		var at := Vector3(0, s * half, tip_z)
 		mb.cylinder_between(&"wood", at - Vector3(0, s * 0.03, 0), at + Vector3(0, s * 0.02, 0), 0.0075, 0.004, 8, Color(0.86, 0.8, 0.68))
+	if not strung:
+		return
 	mb.cylinder_between(&"cloth", Vector3(0, half - 0.012, tip_z + 0.006), Vector3(0, -half + 0.012, tip_z + 0.006), 0.0013, 0.0013, 5, LINE.darkened(0.1), true, false)
 	# The serving where the arrow's nock sits.
 	mb.cylinder(&"cloth", Transform3D(Basis(), Vector3(0, -0.04, tip_z + 0.006)), 0.0022, 0.0022, 0.08, 6, Color(0.2, 0.18, 0.16))

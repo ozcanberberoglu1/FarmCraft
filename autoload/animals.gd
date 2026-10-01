@@ -10,9 +10,17 @@ extends Node
 ## (eggs_today); with a rooster in her coop the eggs left in the nest hatch a day later
 ## (ChickenCoop calls hatch): the chick follows its mother (Animal) and grows up into a
 ## hen, now and then a rooster, which then lays (or crows) like any other.
+## Wolves (WolfRaids) can hurt an animal (injure) or kill it (kill). A hurt one limps,
+## gives nothing and dies INJURY_MINUTES later unless the vet in town treats it in time
+## (send_to_vet: it leaves the farm for the clinic, can't die there and comes back healed
+## by itself when its time is up, across a sleep or a load too); the farmer is reminded in
+## the morning and INJURY_REMIND before. A dead one leaves its remains where it fell
+## (Remains: `remains`, saved), gone after a while or cleared away by hand.
 
 signal changed
 signal notes_changed
+## An animal was taken to the vet's clinic (send_to_vet): the vet's side goal is done.
+signal vet_visit(id: int)
 
 const FULL_DECAY := 100.0 / 24.0
 const WATER_DECAY := 100.0 / 22.0
@@ -20,10 +28,19 @@ const WATER_RATION := 50.0
 const RAIN_DAMAGE := {Weather.Kind.RAIN: 3.5, Weather.Kind.STORM: 6.5, Weather.Kind.SNOW: 5.0}
 ## The vet's call-out fee in dollars (a share of the animal's value comes on top).
 const VET_CALL := 10
+## Game minutes a hurt animal lives untreated, and how long before the end the farmer is
+## reminded; its health while hurt (shown lower) and once the vet has healed it.
+const INJURY_MINUTES := 24.0 * 60.0
+const INJURY_REMIND := 6.0 * 60.0
+const INJURED_HEALTH := 35.0
+const HEALED_HEALTH := 85.0
 
 var animals: Array[AnimalData] = []
-## Lines for the morning report (cleared when shown).
+## Lines for the morning report (cleared when shown: take_report_lines).
 var report_notes: PackedStringArray = []
+## Those of them the everyday ones (hungry, grown, in the rain) never crowd out of the
+## report: a hurt animal's time left, one dead of its wounds, one home from the clinic.
+var _urgent_notes := {}
 var _next_id := 1
 var _nodes := {}
 var _warned_day := {}
@@ -31,12 +48,15 @@ var _warmed := false
 ## Animal id -> the home id of the kit-built coop it lives in (AnimalHousing.home_id);
 ## the others live in their kind's main housing (Farm.housing_for).
 var _homes := {}
+## What is left of animals that died on the farm (Remains records, saved).
+var remains: Array[Dictionary] = []
 
 
 func _ready() -> void:
 	Events.clock_tick.connect(_on_tick)
 	Events.day_started.connect(_on_day_started)
 	Events.day_ending.connect(_on_day_ending)
+	Events.time_skipped.connect(_on_time_skipped)
 
 
 # --- Queries -------------------------------------------------------------------------------
@@ -110,6 +130,50 @@ func by_id(id: int) -> AnimalData:
 		if a.id == id:
 			return a
 	return null
+
+
+## Ids of the hurt animals on the farm (not those at the vet's clinic).
+func injured_ids() -> Array:
+	var out := []
+	for a in animals:
+		if a.injured() and not a.at_vet():
+			out.append(a.id)
+	return out
+
+
+## Whether animal `id` is hurt (on the farm or at the clinic).
+func is_injured(id: int) -> bool:
+	var a := by_id(id)
+	return a != null and a.injured()
+
+
+## Game hours a hurt animal has left to be treated before it dies (0 when it isn't hurt);
+## at the clinic, the hours until it comes back.
+func hours_left(id: int) -> float:
+	var a := by_id(id)
+	if a == null:
+		return 0.0
+	if a.at_vet():
+		return maxf(a.vet_until - GameClock.total_minutes, 0.0) / 60.0
+	if not a.injured():
+		return 0.0
+	return maxf(a.injured_at + INJURY_MINUTES - GameClock.total_minutes, 0.0) / 60.0
+
+
+## Ids of the animals at the vet's clinic now.
+func at_vet_ids() -> Array:
+	var out := []
+	for a in animals:
+		if a.at_vet():
+			out.append(a.id)
+	return out
+
+
+## When animal `id` at the vet's clinic comes home (GameClock.total_minutes; -1 when it
+## isn't there).
+func vet_return_at(id: int) -> float:
+	var a := by_id(id)
+	return a.vet_until if a and a.at_vet() else -1.0
 
 
 ## Grown roosters living in `housing`.
@@ -276,6 +340,8 @@ func spawn_all() -> void:
 	for a in animals:
 		if node_of(a) == null:
 			_spawn(a)
+	for rec in remains:
+		_spawn_remains(rec)
 
 
 ## Once per session, while the world is being built: puts one model of every
@@ -300,7 +366,8 @@ func _warm_up() -> void:
 
 func _spawn(a: AnimalData) -> void:
 	var housing := housing_of(a)
-	if housing == null:
+	# At the vet's clinic it isn't on the farm.
+	if housing == null or a.at_vet():
 		return
 	var n := Animal.new()
 	n.name = "%s_%d" % [a.species, a.id]
@@ -389,6 +456,204 @@ func collect_product(a: AnimalData) -> void:
 	changed.emit()
 
 
+# --- Wolves and the vet -----------------------------------------------------------------------
+
+## A wolf hurt animal `id` (and it lived): it limps, gives nothing and dies INJURY_MINUTES
+## from now unless the vet treats it. Events.animal_injured.
+func injure(id: int) -> void:
+	var a := by_id(id)
+	if a == null or a.injured():
+		return
+	a.injured_at = GameClock.total_minutes
+	a.injury_warned = false
+	Remains.prepare()
+	a.health = minf(a.health, INJURED_HEALTH)
+	a.happiness = maxf(a.happiness - 30.0, 0.0)
+	var n := node_of(a)
+	if n:
+		if n.ridden and Game.player:
+			(Game.player as Player).dismount()
+		n.hurt()
+	Events.animal_injured.emit(id)
+	changed.emit()
+
+
+## Animal `id` is dead (`cause` &"wolf": taken by wolves; &"wounds": its injury went
+## untreated): it leaves the farm (its body, its place in its home, a chick's mother gone)
+## and its remains lie where it fell. Events.animal_killed.
+func kill(id: int, cause: StringName) -> void:
+	var a := by_id(id)
+	if a == null:
+		return
+	var n := node_of(a)
+	var at := Vector3.INF
+	var yaw := randf() * TAU
+	var flat := false
+	if n:
+		if n.ridden and Game.player:
+			(Game.player as Player).dismount()
+		at = n.global_position
+		yaw = n.rotation.y
+		flat = n.indoors
+		n.queue_free()
+	if at == Vector3.INF:
+		var h := housing_of(a)
+		at = h.random_outdoor_point(RandomNumberGenerator.new()) if h else Vector3(0, TerrainData.height(0.0, 0.0), 0)
+	_nodes.erase(a.id)
+	_homes.erase(a.id)
+	animals.erase(a)
+	# Her chicks have no mother to follow now.
+	for c in animals:
+		if c.mother == a.id:
+			c.mother = 0
+	var rec := {"species": String(a.species), "name": a.name, "adult": a.adult, "variant": a.variant,
+		"pos": [at.x, at.y, at.z], "yaw": yaw, "at": GameClock.total_minutes, "flat": flat, "seed": randi()}
+	remains.append(rec)
+	_spawn_remains(rec)
+	if cause == &"wolf":
+		if AnimalTable.is_poultry(a.species):
+			CoopDoor.feathers(at + Vector3(0, 0.35, 0))
+		Audio.animal_voice(a.species, a.adult, at + Vector3(0, 0.4, 0), 0.0)
+	else:
+		var msg := tr("MSG_ANIMAL_DIED_WOUNDS") % a.name
+		Game.notify(msg, Color(1.0, 0.45, 0.35))
+		_urgent_note(msg)
+		notes_changed.emit()
+	Events.animal_killed.emit(id, a.species, at)
+	changed.emit()
+
+
+## A line for the morning report that the everyday ones never crowd out (_urgent_notes).
+func _urgent_note(msg: String) -> void:
+	report_notes.append(msg)
+	_urgent_notes[msg] = true
+
+
+## The morning report's lines about the animals (then cleared): each once, at most
+## `limit` of them: every urgent one first (a hurt animal's time left, a death from
+## wounds, one healed: these all show even when more), then the latest of the everyday
+## ones in the room left, each kind in the order they came.
+func take_report_lines(limit: int) -> PackedStringArray:
+	var seen := {}
+	var urgent := 0
+	for note in report_notes:
+		if _urgent_notes.has(note) and not seen.has(note):
+			seen[note] = true
+			urgent += 1
+	var room := maxi(limit - urgent, 0)
+	var others := {}
+	for i in range(report_notes.size() - 1, -1, -1):
+		var note := report_notes[i]
+		if others.size() >= room:
+			break
+		if not seen.has(note):
+			others[note] = true
+			seen[note] = true
+	var out := PackedStringArray()
+	for note in report_notes:
+		if _urgent_notes.has(note) and not out.has(note):
+			out.append(note)
+	for note in report_notes:
+		if others.has(note) and not out.has(note):
+			out.append(note)
+	report_notes.clear()
+	_urgent_notes.clear()
+	return out
+
+
+## The vet's clinic takes animal `id` in (the vet screen, once paid): it leaves the farm
+## until `return_at` (GameClock.total_minutes), can't die meanwhile and then comes back
+## healed into its home by itself (_check_vet_returns). vet_visit.
+func send_to_vet(id: int, return_at: float) -> void:
+	var a := by_id(id)
+	if a == null or a.at_vet():
+		return
+	a.vet_until = return_at
+	var n := node_of(a)
+	if n:
+		if n.ridden and Game.player:
+			(Game.player as Player).dismount()
+		n.queue_free()
+	_nodes.erase(a.id)
+	a.away = false
+	vet_visit.emit(id)
+	changed.emit()
+
+
+## Hurt animals whose time ran out die (not at the clinic); the farmer is reminded
+## INJURY_REMIND before.
+func _check_injuries() -> void:
+	var now := GameClock.total_minutes
+	for a: AnimalData in animals.duplicate():
+		if not a.injured() or a.at_vet():
+			continue
+		var left := a.injured_at + INJURY_MINUTES - now
+		if left <= 0.0:
+			kill(a.id, &"wounds")
+		elif left <= INJURY_REMIND and not a.injury_warned:
+			a.injury_warned = true
+			var msg := tr("MSG_INJURED_HURRY") % [a.name, maxi(1, ceili(left / 60.0))]
+			Game.notify(msg, Color(1.0, 0.6, 0.35))
+			_urgent_note(msg)
+
+
+## Animals whose time at the clinic is up come home healed (a toast and a line for the
+## morning report). Events.animal_healed.
+func _check_vet_returns() -> void:
+	var now := GameClock.total_minutes
+	for a in animals:
+		if not a.at_vet() or now < a.vet_until:
+			continue
+		a.vet_until = -1.0
+		a.injured_at = -1.0
+		a.injury_warned = false
+		a.sick = false
+		a.health = maxf(a.health, HEALED_HEALTH)
+		a.happiness = maxf(a.happiness, 60.0)
+		a.fullness = maxf(a.fullness, 70.0)
+		a.hydration = maxf(a.hydration, 70.0)
+		if node_of(a) == null:
+			_spawn(a)
+		var msg := tr("MSG_ANIMAL_HEALED") % a.name
+		Game.notify(msg, Color(0.55, 1.0, 0.45))
+		_urgent_note(msg)
+		Events.animal_healed.emit(a.id)
+		changed.emit()
+
+
+## Animals within `radius` metres of a wolf at `from` bolt away from it.
+func spook(from: Vector3, radius: float) -> void:
+	for a in animals:
+		var n := node_of(a)
+		if n and n.global_position.distance_to(from) < radius:
+			n.scare(from)
+
+
+func _spawn_remains(rec: Dictionary) -> void:
+	if Game.world == null or Game.world.farm == null:
+		return
+	for n in get_tree().get_nodes_in_group(Remains.GROUP):
+		if is_same((n as Remains).record, rec) and not n.is_queued_for_deletion():
+			return
+	Game.world.farm.add_child(Remains.create(rec))
+
+
+## A night slept through doesn't count toward remains going by themselves (Remains): the
+## time they were first seen moves on with the skip.
+func _on_time_skipped(minutes: float) -> void:
+	for rec in remains:
+		if rec.has("seen"):
+			rec["seen"] = float(rec["seen"]) + minutes
+
+
+## Remains taken away (cleared by hand, or gone by themselves while nobody looked).
+func clear_remains(node: Remains, by_hand: bool) -> void:
+	remains.erase(node.record)
+	if by_hand:
+		Game.notify(tr("MSG_REMAINS_CLEARED"), UiTheme.TEXT_MUTED)
+	node.queue_free()
+
+
 # --- Simulation -----------------------------------------------------------------------------
 
 func _on_tick(total: float, delta_minutes: float) -> void:
@@ -401,6 +666,8 @@ func _on_tick(total: float, delta_minutes: float) -> void:
 		_simulate(step / 60.0, t, t + step)
 		t += step
 		remaining -= step
+	_check_vet_returns()
+	_check_injuries()
 	changed.emit()
 
 
@@ -420,6 +687,9 @@ func _simulate(hours: float, t0: float, t1: float) -> void:
 	var winter := GameClock.get_season() == GameClock.Season.WINTER
 	var exposed_names := []
 	for a in animals:
+		# At the vet's clinic: looked after there.
+		if a.at_vet():
+			continue
 		var info := a.info()
 		var housing := housing_of(a)
 		var outdoors := _is_outdoors(a)
@@ -456,8 +726,8 @@ func _simulate(hours: float, t0: float, t1: float) -> void:
 			a.happiness -= 5.0 * hours
 		if a.fullness > 25.0:
 			a.fed_hours += hours
-		# Recovery when cared for.
-		if a.fullness > 40.0 and a.hydration > 40.0 and a.wet < 0.2 and not a.sick and not cold:
+		# Recovery when cared for (not from a wolf's bite: only the vet heals that).
+		if a.fullness > 40.0 and a.hydration > 40.0 and a.wet < 0.2 and not a.sick and not cold and not a.injured():
 			a.health += 1.5 * hours
 			a.happiness += (2.0 if outdoors and not night and precip == 0.0 else 1.0) * hours
 		# Sickness.
@@ -478,7 +748,10 @@ func _simulate(hours: float, t0: float, t1: float) -> void:
 		a.hydration = clampf(a.hydration, 0.0, 110.0)
 		a.happiness = clampf(a.happiness, 0.0, 100.0)
 		a.health = minf(a.health, 100.0)
-		if a.health <= 0.0:
+		if a.injured():
+			# A hurt one lives out its time (INJURY_MINUTES) unless treated.
+			a.health = maxf(a.health, 1.0)
+		elif a.health <= 0.0:
 			_vet(a)
 	if not exposed_names.is_empty():
 		_warn_exposure(exposed_names)
@@ -522,6 +795,10 @@ func _on_day_started(_day: int) -> void:
 			housing.morning_refill()
 	var grown: Array[AnimalData] = []
 	for a in animals:
+		if a.at_vet():
+			# The clinic looks after it: nothing of the farm's day for it.
+			a.fed_hours = 0.0
+			continue
 		var info := a.info()
 		var fed := a.fed_hours >= 16.0
 		if not a.adult and fed:
@@ -539,7 +816,10 @@ func _on_day_started(_day: int) -> void:
 		if not fed:
 			a.affection = maxf(a.affection - 25.0, 0.0)
 			report_notes.append(tr("MSG_ANIMAL_HUNGRY") % a.name)
-		if a.species == &"chicken" and a.adult:
+		if a.injured():
+			# Hurt: nothing from it, and a word in the morning report about the time left.
+			_urgent_note(tr("MSG_INJURED_MORNING") % [a.name, maxi(1, ceili(hours_left(a.id)))])
+		elif a.species == &"chicken" and a.adult:
 			# A hen fed only part of the day may still lay (eggs_today).
 			_lay(a)
 		elif a.adult and fed and a.health > 30.0 and not a.sick:
@@ -590,6 +870,8 @@ const SECOND_EGG_HAPPY := 0.12
 func _muck_out() -> void:
 	var total := 0.0
 	for a in animals:
+		if a.at_vet():
+			continue
 		total += float(MANURE.get(a.species, 1.0)) * (1.0 if a.adult else 0.5)
 	if total > 0.0:
 		FarmState.add_manure(total)
@@ -600,8 +882,8 @@ func _muck_out() -> void:
 func _breed() -> void:
 	for species: StringName in BREED_CHANCE:
 		var parents := animals.filter(func(a: AnimalData) -> bool:
-			return a.species == species and a.adult and not a.sick and a.health >= 70.0 \
-					and a.happiness >= 60.0 and a.hearts() >= 2)
+			return a.species == species and a.adult and not a.sick and not a.injured() and not a.at_vet() \
+					and a.health >= 70.0 and a.happiness >= 60.0 and a.hearts() >= 2)
 		if parents.size() < 2:
 			continue
 		var mothers := parents.filter(func(a: AnimalData) -> bool:
@@ -627,7 +909,7 @@ func _breed() -> void:
 ## the day through lays one, one fed only part of it sometimes; a content one with
 ## hearts now and then lays a second later in the day. None when sick or run down.
 func eggs_today(a: AnimalData) -> int:
-	if a.sick or a.health <= 30.0:
+	if a.sick or a.injured() or a.at_vet() or a.health <= 30.0:
 		return 0
 	var n := 0
 	if a.fed_hours >= FED_EGG_HOURS:
@@ -684,6 +966,9 @@ func new_game() -> void:
 	animals.clear()
 	_nodes.clear()
 	_homes.clear()
+	remains.clear()
+	for n in get_tree().get_nodes_in_group(Remains.GROUP):
+		n.queue_free()
 	_next_id = 1
 
 
@@ -691,7 +976,8 @@ func save_data() -> Dictionary:
 	var homes := {}
 	for id: int in _homes:
 		homes[str(id)] = String(_homes[id])
-	return {"next_id": _next_id, "animals": animals.map(func(a: AnimalData): return a.to_dict()), "homes": homes}
+	return {"next_id": _next_id, "animals": animals.map(func(a: AnimalData): return a.to_dict()), "homes": homes,
+		"remains": remains.map(func(r: Dictionary): return r.duplicate(true))}
 
 
 func load_data(d: Dictionary) -> void:
@@ -706,4 +992,6 @@ func load_data(d: Dictionary) -> void:
 	var homes: Dictionary = d.get("homes", {})
 	for k: Variant in homes:
 		_homes[int(str(k))] = String(homes[k])
+	for r: Dictionary in d.get("remains", []):
+		remains.append(r.duplicate(true))
 	spawn_all()

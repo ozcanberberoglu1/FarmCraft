@@ -1,6 +1,6 @@
 class_name SettingsScreen
 extends ModalScreen
-## Settings: general (language, day length), video (quality preset, fullscreen,
+## Settings: general (language, day length, wolf raids), video (quality preset, fullscreen,
 ## v-sync, resolution scale, field of view, camera shake, FPS counter), audio and
 ## controls (mouse, key bindings). Changes apply at once and are saved when the window closes.
 
@@ -173,6 +173,9 @@ func _general() -> void:
 	_slider("SETTINGS_DAY_LENGTH", "SETTINGS_DAY_LENGTH_DESC", 5.0, 40.0, 1.0, Settings.day_length_minutes,
 			func(v: float) -> String: return tr("SETTINGS_MINUTES") % int(v),
 			func(v: float) -> void: Settings.day_length_minutes = v)
+	_choice("SETTINGS_WOLF_RAIDS", "SETTINGS_WOLF_RAIDS_DESC",
+			[tr("WOLF_RAIDS_OFF"), tr("WOLF_RAIDS_RARE"), tr("WOLF_RAIDS_NORMAL")], Settings.wolf_raids,
+			func(i: int) -> void: Settings.wolf_raids = i as Settings.Raids)
 
 
 ## Every language as a button showing its own name in its own script; picking one

@@ -72,7 +72,9 @@ const LIE_REACH := 0.2
 const SIT_TIME := 0.8
 const LIE_TIME := 1.1
 
-static var _scene: PackedScene
+## Loaded models by path, and the coat's materials by model and surface (WolfRig shares
+## this rig and these caches with its own model).
+static var _scenes := {}
 static var _materials := {}
 
 var skeleton: Skeleton3D
@@ -95,6 +97,18 @@ var head_rest := false
 var panting := false
 ## Ground height under a world point (x, z) -> y; without one the ground is level with the rig.
 var ground := Callable()
+## The gait's measures (DogRig's constants; WolfRig, a bigger animal, sets its own):
+## the walking speed and the trot's, how high the paws are lifted, how much lower the
+## body goes walking and trotting.
+var walk_speed := WALK_SPEED
+var walk_rate := WALK_RATE
+var trot_from := TROT_FROM
+var lift := LIFT
+var gait_crouch := GAIT_CROUCH
+## Sitting's hips and lying's body (the constants', scaled for a bigger animal).
+var sit_hips := SIT_HIPS
+var lie_body := LIE_BODY
+var lie_reach := LIE_REACH
 
 var _b := {}  # rig bone -> bone index
 var _conv := {}  # bone index -> [A, C, parent rest basis inverse]
@@ -150,32 +164,45 @@ var _hips := Vector3.ZERO
 
 static func create() -> DogRig:
 	var rig := DogRig.new()
-	rig.name = "Rig"
-	var scene := _load()
-	if scene == null:
-		push_error("DogRig: no model at %s" % MODEL_PATH)
-		return rig
-	var model: Node3D = scene.instantiate()
-	model.name = "Model"
-	rig.add_child(model)
-	rig._setup(model)
+	rig._build()
 	return rig
 
 
-static func _load() -> PackedScene:
-	if _scene == null:
-		if ResourceLoader.load_threaded_get_status(MODEL_PATH) != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
-			_scene = ResourceLoader.load_threaded_get(MODEL_PATH) as PackedScene
-		if _scene == null and ResourceLoader.exists(MODEL_PATH):
-			_scene = load(MODEL_PATH) as PackedScene
-	return _scene
+## The model this rig drives (WolfRig's is its own).
+func model_path() -> String:
+	return MODEL_PATH
 
 
-## Starts loading the model on a background thread.
-static func preload_model() -> void:
-	if _scene == null and ResourceLoader.exists(MODEL_PATH) \
-			and ResourceLoader.load_threaded_get_status(MODEL_PATH) == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
-		ResourceLoader.load_threaded_request(MODEL_PATH)
+## Puts the model under the rig and sets it up.
+func _build() -> void:
+	name = "Rig"
+	var scene := _load(model_path())
+	if scene == null:
+		push_error("DogRig: no model at %s" % model_path())
+		return
+	var model: Node3D = scene.instantiate()
+	model.name = "Model"
+	add_child(model)
+	_setup(model)
+
+
+static func _load(path: String = MODEL_PATH) -> PackedScene:
+	var scene: PackedScene = _scenes.get(path)
+	if scene == null:
+		if ResourceLoader.load_threaded_get_status(path) != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			scene = ResourceLoader.load_threaded_get(path) as PackedScene
+		if scene == null and ResourceLoader.exists(path):
+			scene = load(path) as PackedScene
+		if scene:
+			_scenes[path] = scene
+	return scene
+
+
+## Starts loading a model (the dog's unless told) on a background thread.
+static func preload_model(path: String = MODEL_PATH) -> void:
+	if not _scenes.has(path) and ResourceLoader.exists(path) \
+			and ResourceLoader.load_threaded_get_status(path) == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+		ResourceLoader.load_threaded_request(path)
 
 
 ## The graphics preset (ULTRA where there are no settings, e.g. in tools).
@@ -290,7 +317,7 @@ func _prepare_sit() -> void:
 	var F: Dictionary = _legs["fl"]
 	var R: Dictionary = _legs["rl"]
 	var root := _rest_rig("root")
-	var hips := root + Vector3(0, SIT_HIPS.x, SIT_HIPS.y)
+	var hips := root + Vector3(0, sit_hips.x, sit_hips.y)
 	var phi: float = F["phi0"]
 	var l3: float = F["l3"]
 	var wrist_h := float(F["c_h"]) + cos(phi) * l3
@@ -318,7 +345,7 @@ func _prepare_sit() -> void:
 # --- Materials -----------------------------------------------------------------------------
 
 func _material(mi: MeshInstance3D, si: int) -> Material:
-	var key := "%s/%d" % [mi.name, si]
+	var key := "%s/%s/%d" % [model_path(), mi.name, si]
 	if _materials.has(key):
 		return _materials[key]
 	var src := mi.mesh.surface_get_material(si)
@@ -525,10 +552,10 @@ func _pose_body(delta: float) -> void:
 	var breath := sin(TAU * _breath)
 	# Eating or sniffing: the forequarters come down a little.
 	var dip := _nose * (1.0 - ws) * (1.0 - wl)
-	var hips := Vector3(0.0, SIT_HIPS.x, SIT_HIPS.y) * ws + Vector3(0.0, LIE_BODY.x, LIE_BODY.y) * wl
+	var hips := Vector3(0.0, sit_hips.x, sit_hips.y) * ws + Vector3(0.0, lie_body.x, lie_body.y) * wl
 	# A leg that fell short of its planted paw brings the body down to it.
 	_crouch = move_toward(_crouch, clampf(_short * 1.2, 0.0, 0.05), delta * (0.8 if _short > _crouch else 0.05))
-	hips.y += bob + breath * 0.002 * still - lerpf(GAIT_CROUCH.x, GAIT_CROUCH.y, _trot) * clampf(_gamp, 0.0, 1.0) - _crouch
+	hips.y += bob + breath * 0.002 * still - lerpf(gait_crouch.x, gait_crouch.y, _trot) * clampf(_gamp, 0.0, 1.0) - _crouch
 	hips.x += _shift * 0.006 * still * (1.0 - ws - wl)
 	var pitch := _sit_pitch * ws + LIE_PITCH * wl - 0.07 * dip + _bark * 0.03
 	# A hard wag swings the hips.
@@ -607,6 +634,21 @@ static func gait_rate(v: float) -> float:
 	return WALK_RATE * pow(clampf(v / WALK_SPEED, 0.35, 3.5), RATE_EXP)
 
 
+## This rig's stride cycles a second at `v` m/s (by its walk_speed and walk_rate).
+func _rate(v: float) -> float:
+	return walk_rate * pow(clampf(v / walk_speed, 0.35, 3.5), RATE_EXP)
+
+
+## When `leg`'s paw is set down (share of the cycle), and the share of a cycle a paw is
+## down, by the gait (walk to trot; WolfRig adds the gallop).
+func _touch(leg: String) -> float:
+	return lerpf(float(TOUCH_WALK[leg]), float(TOUCH_TROT[leg]), _trot)
+
+
+func _duty() -> float:
+	return lerpf(DUTY_WALK, DUTY_TROT, _trot)
+
+
 ## Advances the gait and works out where each paw goes (leg["cur"], rig frame) and its
 ## pastern's angle and curl. A planted paw stays where it was set down in the world; at
 ## its turn it lifts and swings forward to land ahead of its place (as far as the stance
@@ -616,7 +658,7 @@ static func gait_rate(v: float) -> float:
 func _update_gait(delta: float, speed: float, xf: Transform3D) -> void:
 	var v := maxf(speed, 0.0)
 	var moving := v > 0.04
-	_trot = move_toward(_trot, 1.0 if v > TROT_FROM else 0.0, delta * 2.5)
+	_trot = move_toward(_trot, 1.0 if v > trot_from else 0.0, delta * 2.5)
 	var inv := xf.affine_inverse()
 	var settling := false
 	var seated := _sit > 0.02 or _lie > 0.02
@@ -626,12 +668,12 @@ func _update_gait(delta: float, speed: float, xf: Transform3D) -> void:
 			L["lock"] = xf * _grounded(L["foot0"], xf, L["c_h"])
 		if L["swing"] or (not seated and _off_place(L, inv) > SETTLE_OFF):
 			settling = true
-	var rate := gait_rate(v) if moving else gait_rate(WALK_SPEED) * 0.9
+	var rate := _rate(v) if moving else _rate(walk_speed) * 0.9
 	var run := moving or settling
-	_gamp = move_toward(_gamp, clampf(v / WALK_SPEED, 0.0, 1.3) if moving else 0.0, delta * 3.0)
+	_gamp = move_toward(_gamp, clampf(v / walk_speed, 0.0, 1.3) if moving else 0.0, delta * 3.0)
 	if run:
 		_phase = fposmod(_phase + rate * delta, 1.0)
-	var duty := lerpf(DUTY_WALK, DUTY_TROT, _trot)
+	var duty := _duty()
 	var stride := v / rate if moving else 0.0
 	var stance := stride * duty
 	for leg: String in _legs:
@@ -639,7 +681,7 @@ func _update_gait(delta: float, speed: float, xf: Transform3D) -> void:
 		var front: bool = L["front"]
 		var n: Vector3 = L["foot0"]
 		var ln := float(L["l1"]) + float(L["l2"]) + float(L["l3"])
-		var touch := lerpf(float(TOUCH_WALK[leg]), float(TOUCH_TROT[leg]), _trot)
+		var touch := _touch(leg)
 		var u := fposmod(_phase - touch, 1.0)
 		var prev: float = L["u"]
 		L["u"] = u
@@ -689,7 +731,7 @@ func _update_gait(delta: float, speed: float, xf: Transform3D) -> void:
 			var t := smoothstep(0.05, 0.95, p) if front else smoothstep(0.0, 1.0, p)
 			var cur := from.lerp(land, t)
 			var step_len := Vector2(land.x - from.x, land.z - from.z).length()
-			var h := (LIFT.x if front else LIFT.y) * (1.0 + 0.35 * _trot) * clampf(step_len / 0.25, 0.35, 1.0)
+			var h := (lift.x if front else lift.y) * (1.0 + 0.35 * _trot) * clampf(step_len / 0.25, 0.35, 1.0)
 			var arch := sin(PI * pow(p, 0.8 if front else 1.0))
 			cur.y = lerpf(from.y, land.y, t) + h * arch
 			L["cur"] = cur
@@ -757,7 +799,7 @@ func _pose_legs(xf: Transform3D) -> void:
 		if not front:
 			phi = lerpf(phi, 1.42, ws)
 		if wl > 0.0:
-			var lying := n + (Vector3(0, 0, -LIE_REACH) if front else Vector3(0.03 * float(L["side"]), 0, -0.1))
+			var lying := n + (Vector3(0, 0, -lie_reach) if front else Vector3(0.03 * float(L["side"]), 0, -0.1))
 			lying.y = mcp.y
 			mcp = mcp.lerp(lying, wl)
 			phi = lerpf(phi, 1.45, wl)

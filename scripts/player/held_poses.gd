@@ -50,6 +50,8 @@ const POSES := {
 	&"knife": [Vector3(0.19, -0.19, -0.4), Vector3(-19.2, 95.3, -64.9), 1.0],
 	# The bow in the left hand, upright and canted, turned to show its curve and string.
 	&"bow": [Vector3(-0.17, -0.12, -0.62), Vector3(12.6, 59.3, -0.9), 0.62],
+	# A sheaf of arrows held by its twine, the heads leaning ahead.
+	&"arrow": [Vector3(0.26, -0.3, -0.52), Vector3(-38, 18, -16), 0.62, Vector3(0.0, 0.28, 0.0)],
 	# Small goods carried in the palm.
 	&"rope": [Vector3(0.28, -0.3, -0.55), Vector3(24, 25, 0), 0.8],
 	&"dough": [Vector3(0.27, -0.28, -0.5), Vector3(18, 25, 0), 0.9],
@@ -65,6 +67,13 @@ const POSES := {
 	&"sapling": [Vector3(0.28, -0.46, -0.62), Vector3(0, 20, 6), 0.85],
 }
 const DEFAULT_POSE := [Vector3(0.25, -0.24, -0.46), Vector3(12, 30, 0), 1.0]
+## Items raised to aim (camera space, as POSES): the bow held out at arm's length just
+## under the line of sight, its string toward the eye and its top canted right, so the
+## drawn arrow runs under the eye straight at the crosshair, the point at the shelf just
+## below it (Combat draws it).
+const AIM_POSES := {
+	&"bow": [Vector3(0.05, -0.135, -0.6), Vector3(-0.6, -1.6, -20.0), 0.62],
+}
 const DEG := PI / 180.0
 ## The watering can's spout tip (the middle of the rose's face) and pouring direction (the
 ## axis of the spout and the rose, rising ~40 degrees) in its model space, measured on
@@ -87,6 +96,15 @@ static func grip_point(id: StringName, mesh: Mesh) -> Vector3:
 ## The item's rest transform in camera space: its grip at the pose's position.
 static func rest_pose(id: StringName, mesh: Mesh) -> Transform3D:
 	var pose: Array = POSES.get(id, DEFAULT_POSE)
+	var b := Basis.from_euler((pose[1] as Vector3) * DEG).scaled(Vector3.ONE * float(pose[2]))
+	return Transform3D(b, (pose[0] as Vector3) - b * grip_point(id, mesh))
+
+
+## The item's aim transform in camera space (AIM_POSES; its rest pose when it has none).
+static func aim_pose(id: StringName, mesh: Mesh) -> Transform3D:
+	if not AIM_POSES.has(id):
+		return rest_pose(id, mesh)
+	var pose: Array = AIM_POSES[id]
 	var b := Basis.from_euler((pose[1] as Vector3) * DEG).scaled(Vector3.ONE * float(pose[2]))
 	return Transform3D(b, (pose[0] as Vector3) - b * grip_point(id, mesh))
 

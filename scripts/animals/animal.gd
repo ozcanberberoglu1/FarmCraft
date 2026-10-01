@@ -11,6 +11,8 @@ extends AnimatableBody3D
 ## body changes from the downy chick to a pullet half way through growing up. A grown
 ## rooster crows a few times at first light, neck stretched and wings beating; now and
 ## then he holds a crow far too long, trembles and faints dead away for a while.
+## One hurt by a wolf (AnimalData.injured) limps along slower on a sore leg, now and then
+## stumbling, with a badge over it; one a wolf comes at (scare) bolts away from it.
 
 enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN, GO_NEST, NEST, HATCH, BROOD }
 
@@ -18,7 +20,7 @@ const BADGES := {
 	"sick": preload("res://art/icons/ui/badge_sick.svg"), "wet": preload("res://art/icons/ui/badge_rain.svg"),
 	"cold": preload("res://art/icons/ui/badge_cold.svg"), "thirsty": preload("res://art/icons/ui/badge_water.svg"),
 	"hungry": preload("res://art/icons/ui/badge_hungry.svg"), "milk": preload("res://art/icons/ui/badge_milk.svg"),
-	"wool": preload("res://art/icons/ui/badge_wool.svg"),
+	"wool": preload("res://art/icons/ui/badge_wool.svg"), "injured": preload("res://art/icons/ui/badge_injured.svg"),
 }
 const HEART := preload("res://art/icons/ui/heart.svg")
 ## Seconds of a hen's hop up into a nest box (and down again), and of sitting on it.
@@ -63,6 +65,16 @@ const FAINT_FLUFF := 0.7
 ## right at him (the view direction's dot with the way to him above FAINT_LOOK).
 const FAINT_SEEN := 12.0
 const FAINT_LOOK := 0.9
+## Hurt (AnimalData.injured): its pace, how much slower still while the sore leg takes the
+## weight (rig.limp_load), the walking seconds between stumbles and a stumble's length.
+const INJURED_PACE := 0.55
+const LIMP_HITCH := 0.55
+const STUMBLE_EVERY := Vector2(5.0, 12.0)
+const STUMBLE_TIME := 0.75
+## Seconds an animal bolts from a wolf (scare), how much faster it goes and how far.
+const SCARE_TIME := 3.0
+const SCARE_PACE := 1.9
+const SCARE_RUN := 4.5
 
 var data: AnimalData
 var housing: AnimalHousing
@@ -112,6 +124,11 @@ var _crow_day := -1
 var _faint_t := -1.0
 var _faint_label: Label3D
 var _faint_look := 0.0
+## Hurt: seconds into a stumble (-1: none) and the walking left before the next; seconds
+## left of bolting from a wolf.
+var _stumble_t := -1.0
+var _stumble_wait := 0.0
+var _scared := 0.0
 
 ## Crows end in a faint only in play: automated runs keep to what they check (the
 ## rooster scenario switches it on).
@@ -149,6 +166,7 @@ func _ready() -> void:
 	# Feet set down on the ground under them (terrain, floors, ramps).
 	rig.ground = func(p: Vector3) -> float: return housing.ground_height(p)
 	_cheep = _rng.randf_range(1.0, 5.0)
+	_stumble_wait = _rng.randf_range(STUMBLE_EVERY.x, STUMBLE_EVERY.y)
 	_shape = CollisionShape3D.new()
 	_shape.shape = BoxShape3D.new()
 	add_child(_shape)
@@ -269,7 +287,7 @@ func hatch_in(at: Vector3) -> void:
 	var coop := ChickenCoop.of(housing)
 	# Out of a nest box: a hop down onto the floor in front of it.
 	if at.y - floor_at.y > 0.15 and coop:
-		floor_at = at + coop.nest_out() * 0.42
+		floor_at = at + coop.nest_out(coop.nest_near(at)) * 0.42
 		floor_at.y = housing.ground_height(floor_at)
 	_hatch_to = floor_at
 	indoors = housing.is_in_building(floor_at)
@@ -609,7 +627,9 @@ func _physics_process(delta: float) -> void:
 		return
 	_state_time += delta
 	_attention = maxf(_attention - delta, 0.0)
+	_scared = maxf(_scared - delta, 0.0)
 	_think -= delta
+	_update_limp(delta)
 	var chick := data.is_chick()
 	if _think <= 0.0:
 		# Chicks look up to their mother often: they keep close.
@@ -650,7 +670,9 @@ func _physics_process(delta: float) -> void:
 			# A downy chick running to catch up flutters its stubs of wings (RUN); a crow is
 			# posed by hand.
 			if _speed > 0.05:
-				_mode = AnimalRig.Mode.RUN if _hurry > 1.5 and _look == &"chick" else AnimalRig.Mode.WALK
+				# Bolting from a wolf it runs too (a bird flutters), not on a sore leg.
+				var run := (_hurry > 1.5 and _look == &"chick") or (_scared > 0.0 and not data.injured())
+				_mode = AnimalRig.Mode.RUN if run else AnimalRig.Mode.WALK
 			else:
 				_mode = AnimalRig.Mode.IDLE
 	if _crow_t >= 0.0 or _faint_t >= 0.0:
@@ -758,7 +780,7 @@ func _grazing_ok() -> bool:
 
 ## Where to stand to eat or drink: in front of the trough (troughs face the housing's +Z).
 func _trough_spot(t: Trough) -> Vector3:
-	var along := _rng.randf_range(-0.7, 0.7) if t.long else _rng.randf_range(-0.15, 0.15)
+	var along := _rng.randf_range(-t.reach(), t.reach())
 	return t.global_position + housing.frame.basis * Vector3(along, 0, 0.45 + radius() * 1.1)
 
 
@@ -833,7 +855,13 @@ func _move(delta: float) -> void:
 	var facing := Vector3(-sin(rotation.y), 0.0, -cos(rotation.y))
 	var align := maxf(0.0, facing.dot(dir))
 	var target_speed := _move_speed * (0.3 + 0.7 * align) * (1.25 if state == State.SHELTER else 1.0) \
-			* (_hurry if state == State.BROOD else 1.0)
+			* (_hurry if state == State.BROOD else 1.0) * (SCARE_PACE if _scared > 0.0 else 1.0)
+	if data.injured():
+		# On a sore leg: slower, and slower still each time it takes the weight; stopped dead
+		# in a stumble.
+		target_speed *= INJURED_PACE * (1.0 - LIMP_HITCH * rig.limp_load())
+		if _stumble_t >= 0.0:
+			target_speed = 0.0
 	_speed = move_toward(_speed, minf(target_speed, dist * 2.0 + 0.2), delta * (3.0 if state == State.BROOD else 1.6))
 	var p := pos + facing * _speed * delta + _separation() * delta
 	var transit := _path_inside[0] != indoors
@@ -932,7 +960,7 @@ func _sit_nest() -> void:
 		return
 	if t < down_at:
 		global_position = seat
-		var out := coop.nest_out()
+		var out := coop.nest_out(_nest)
 		rotation.y = lerp_angle(rotation.y, atan2(-out.x, -out.z), 0.06)
 		if not _laid and t >= NEST_HOP + (down_at - NEST_HOP) * 0.75:
 			_laid = true
@@ -970,9 +998,66 @@ func _face(p: Vector3) -> void:
 		rotation.y = atan2(-d.x, -d.z)
 
 
+# --- Hurt and frightened --------------------------------------------------------------------
+
+## The limp of a hurt one (rig.limp) and now and then, walking, a stumble (rig.stumble):
+## it catches the sore leg, lurches and stops a moment.
+func _update_limp(delta: float) -> void:
+	var hurt := data.injured()
+	rig.limp = move_toward(rig.limp, 1.0 if hurt else 0.0, delta * 2.0)
+	if _stumble_t >= 0.0:
+		_stumble_t += delta
+		rig.stumble = sin(PI * clampf(_stumble_t / STUMBLE_TIME, 0.0, 1.0))
+		if _stumble_t >= STUMBLE_TIME:
+			_stumble_t = -1.0
+			rig.stumble = 0.0
+		return
+	if not hurt or _speed < 0.1:
+		return
+	_stumble_wait -= delta
+	if _stumble_wait <= 0.0:
+		_stumble_wait = _rng.randf_range(STUMBLE_EVERY.x, STUMBLE_EVERY.y)
+		_stumble_t = 0.0
+
+
+## A wolf bit it and it lived: a start, a cry, a few feathers (or a little wool) off it.
+## From now on it limps (data.injured).
+func hurt() -> void:
+	_end_faint()
+	_stumble_t = 0.0
+	_scared = SCARE_TIME
+	Audio.animal_voice(data.species, data.adult, global_position + Vector3(0, 0.4, 0), -2.0)
+	if AnimalTable.is_poultry(data.species):
+		CoopDoor.feathers(global_position + Vector3(0, 0.35, 0))
+	_badge_key = ""
+
+
+## A wolf coming at it from `from`: it bolts the other way for a few seconds, as far as its
+## pen (or its side of the coop wall) lets it (not one sitting on a nest, hatching, ridden
+## or away).
+func scare(from: Vector3) -> void:
+	if ridden or data.away or state in [State.NEST, State.HATCH, State.AWAY, State.RIDDEN]:
+		return
+	if _scared > SCARE_TIME * 0.5:
+		return
+	_end_faint()
+	_scared = SCARE_TIME
+	var away := global_position - from
+	away.y = 0.0
+	if away.length() < 0.01:
+		away = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
+	var to := global_position + away.normalized().rotated(Vector3.UP, _rng.randf_range(-0.6, 0.6)) * SCARE_RUN
+	to = housing.constrain(to, radius(), indoors)
+	_go(to, indoors, State.WANDER)
+	if _rng.randf() < 0.6:
+		Audio.animal_voice(data.species, data.adult, global_position + Vector3(0, 0.4, 0), -6.0)
+
+
 # --- Badges -------------------------------------------------------------------------------
 
 func status_key() -> String:
+	if data.injured():
+		return "injured"
 	if data.sick:
 		return "sick"
 	if data.wet > 0.25 and not indoors and Weather.is_precipitating():
@@ -1023,7 +1108,7 @@ func pop_heart() -> void:
 # --- Interaction --------------------------------------------------------------------------
 
 func can_ride() -> bool:
-	return data.info().get("rideable", false) and data.adult and not data.sick and data.health > 25.0
+	return data.info().get("rideable", false) and data.adult and not data.sick and not data.injured() and data.health > 25.0
 
 
 func interact_prompt(_player: Node) -> String:
@@ -1060,6 +1145,9 @@ func use_prompt(player: Node, stack: ItemStack) -> String:
 ## a sheep, the pail for a cow) and there is nothing to take yet: when the fleece is
 ## grown or the milk comes, or that the young one is too small yet.
 func hint_prompt() -> String:
+	if data.injured():
+		# Hurt: how long it has left to be treated (the vet in town).
+		return tr("HINT_ANIMAL_INJURED") % maxi(1, ceili(Animals.hours_left(data.id)))
 	if _faint_t >= 0.0 or data.product_ready:
 		return ""
 	var stack := PlayerState.selected_stack()
@@ -1092,9 +1180,10 @@ func use_action(_player: Node, stack: ItemStack) -> Dictionary:
 		var by := _feeder_behind(stack)
 		return by.use_action(_player, stack) if by else {}
 	var id := stack.item.id
-	if id == &"milk_pail" and data.species == &"cow" and data.product_ready:
+	# Hurt, it gives nothing until it has been treated.
+	if id == &"milk_pail" and data.species == &"cow" and data.product_ready and not data.injured():
 		return {"id": "milk", "verb": "ACTION_MILK", "label": "PROGRESS_MILKING", "duration": 2.0}
-	if id == &"shears" and data.species == &"sheep" and data.product_ready:
+	if id == &"shears" and data.species == &"sheep" and data.product_ready and not data.injured():
 		return {"id": "shear", "verb": "ACTION_SHEAR", "label": "PROGRESS_SHEARING", "duration": 2.5, "wear": true}
 	if id == &"brush" and not data.brushed_today:
 		return {"id": "brush", "verb": "ACTION_BRUSH", "label": "PROGRESS_BRUSHING", "duration": 1.6}

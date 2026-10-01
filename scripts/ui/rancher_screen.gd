@@ -491,6 +491,14 @@ func _fill_sell() -> void:
 		var price_row := UiTheme.price(a.sale_value(), 28)
 		price_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		h.add_child(price_row)
+		if a.at_vet():
+			# Away at the vet's clinic: not here to be sold until it is back.
+			var away := UiTheme.chip(tr("VET_IN_TREATMENT"), UiTheme.GREEN, "health", 17)
+			away.custom_minimum_size = Vector2(170, 0)
+			away.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			h.add_child(away)
+			list.add_child(row)
+			continue
 		var confirm := _confirm_sell == a.id
 		var b := UiTheme.button(tr("RANCHER_CONFIRM") if confirm else tr("SHOP_SELL"), "danger" if confirm else "success",
 				Vector2(170, 50), "check" if confirm else "tag", 19)

@@ -33,6 +33,13 @@ MPFB = ("https://extensions.blender.org/download/sha256:4f0a879d64a39bf646fbf5f5
 PACK_URL = "https://files.makehumancommunity.org/asset_packs/%s/%s_cc0.zip"
 # All CC0 (see each pack's packs/<name>.json for the per-asset authors).
 PACKS = ["makehuman_system_assets", "skins01", "skins02", "shirts01", "pants01", "shoes01", "hats01", "bodyparts05"]
+# Single assets from the community site that no pack has (CC0): folder -> files. The vet's
+# lab coat ("Crude lab coat open (female)" by Joel Palmius,
+# http://www.makehumancommunity.org/clothes/crude_lab_coat_open_female.html).
+SITE = "http://www.makehumancommunity.org/sites/default/files/clothes/1/"
+SINGLES = {"crudelabcoatopen": [SITE + "1798072530/crudelabcoatopen.mhclo", SITE + "1405995134/crudelabcoatopen.obj",
+                                SITE + "1282161064/crudelabcoatopen.mhmat", SITE + "216120273/crudelabcoatopen.thumb",
+                                SITE + "1939352706/CrudeLabCoatOpenDiffuse.png"]}
 
 
 def arg(name, default=None):
@@ -71,6 +78,10 @@ def main():
         if not os.path.exists(marker):
             zipfile.ZipFile(z).extractall(data)
             open(marker, "w").close()
+    for folder, urls in SINGLES.items():
+        os.makedirs(os.path.join(data, "clothes", folder), exist_ok=True)
+        for url in urls:
+            download(url, os.path.join(data, "clothes", folder, url.rsplit("/", 1)[1]))
     env = dict(os.environ, BLENDER_USER_RESOURCES=os.path.join(cache, "bl_user"))
     home = os.path.join(cache, "bl_user", "extensions", ".user", "user_default", "mpfb")
     if not os.path.isdir(os.path.join(cache, "bl_user", "extensions", "user_default", "mpfb")):

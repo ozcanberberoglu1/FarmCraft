@@ -4,7 +4,8 @@ extends RefCounted
 ## them). Hunger falls through the day and a little overnight; eating (Eating, RMB with
 ## food in hand) fills it back up. Energy is the sleep bar: it runs down while awake
 ## (a whole day, 06:00 to 02:00, empties it) and sleeping in the bed fills it again;
-## passing out at 02:00 only restores part of it. Consequences are gentle, never fatal:
+## passing out at 02:00 only restores part of it, and a night after fainting from wounds
+## (knock_out) leaves both low. Consequences are gentle, never fatal:
 ## hungry or tired only brings a message; starving or exhausted means no running and
 ## slower work (work_factor), and starving tires the farmer faster.
 
@@ -24,6 +25,8 @@ const ENERGY_PER_HOUR := 5.0
 const STARVING_TIRE := 1.5
 ## Energy after passing out at 02:00 instead of going to bed.
 const PASSED_OUT_ENERGY := 45.0
+## Hunger and energy at most, the morning after fainting from wounds (knock_out).
+const KNOCKED_OUT_LEVEL := 25.0
 ## Thresholds: hungry / tired bring a message, starving / exhausted slow the farmer down.
 const HUNGRY := 25.0
 const STARVING := 0.5
@@ -41,6 +44,7 @@ var energy := MAX
 var frozen := false
 var _asleep := false
 var _passed_out := false
+var _knocked_out := false
 ## Warnings already given, until the need recovers past the threshold again.
 var _warned := {}
 
@@ -50,6 +54,7 @@ func reset() -> void:
 	energy = MAX
 	_asleep = false
 	_passed_out = false
+	_knocked_out = false
 	_warned.clear()
 	changed.emit()
 
@@ -88,15 +93,27 @@ func pass_out() -> void:
 	_asleep = true
 
 
+## Fainting from wounds (Events.player_knocked_out): the night only brings him round,
+## hungry and worn out (KNOCKED_OUT_LEVEL).
+func knock_out() -> void:
+	_knocked_out = true
+	_asleep = true
+
+
 ## The morning after (Events.time_skipped).
 func wake() -> void:
 	if frozen:
 		_asleep = false
 		_passed_out = false
+		_knocked_out = false
 		return
 	energy = PASSED_OUT_ENERGY if _passed_out else MAX
+	if _knocked_out:
+		energy = KNOCKED_OUT_LEVEL
+		hunger = minf(hunger, KNOCKED_OUT_LEVEL)
 	_asleep = false
 	_passed_out = false
+	_knocked_out = false
 	_rearm()
 	changed.emit()
 
@@ -177,6 +194,7 @@ func load_data(d: Dictionary) -> void:
 	energy = clampf(float(d.get("energy", MAX)), 0.0, MAX)
 	_asleep = false
 	_passed_out = false
+	_knocked_out = false
 	_warned.clear()
 	# Already low when loaded: no message about it straight away.
 	if hungry():

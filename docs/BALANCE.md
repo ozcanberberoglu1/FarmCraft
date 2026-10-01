@@ -39,7 +39,7 @@ workbench ready bundled for $55 (no wood). Grandpa's pickup comes with the farm 
 | Fish (sell; trophy 10x) | bleak, gudgeon 2; rudd, crucian, roach 3; perch 4; bream 6; crayfish 6; chub 7; carp 9; tench 10; barbel, silver carp 12; grass carp 15; rainbow trout 16; eel 16; brown trout 20; zander 22; pike 30; wels catfish 55; sturgeon 95 |
 | Tools | hoe, scythe, pickaxe, axe, brush 40; watering can, pitchfork 50; milk pail 75; shears 90; repair 0.25 a point of wear; upgrades 60 / 180 (and ore) |
 | Animals (grown / young) | hen 50 / 20, sheep 225 / 90, cow 375 / 150, horse 600 / 225 |
-| Buildings | coop kit 25, workbench kit 40 (market: 55 bundled), open barn 200, field expansion I 250, II 900, III 2,400, bigger warehouse 900, closed barn 1,350, house extension I 1,500, II 4,500 |
+| Buildings | coop kit 25, workbench kit 40 (market: 55 bundled), coop expansion I 100 (+20 wood, 10 nails), II 200 (+35 wood, 20 nails, 10 stone), open barn 200, field expansion I 250, II 900, III 2,400, bigger warehouse 900, closed barn 1,350, house extension I 1,500, II 4,500 |
 | Other | the dealership's pickup 550; the vet 10 plus 30% of the animal's value |
 
 Orders pay 1.6× the market (in steps of $5, at least $5). Sales give a point of farm
@@ -49,16 +49,28 @@ experience per $6, orders 20 plus a point per $7 (Progress).
 
 | Level | Day (sim) | Opens |
 |---|---|---|
-| 1 | 1 | wheat, carrot, potato; chickens (the coop kit); the workbench kit: knife, fishing rod, bow, campfire, bait (dough), feed, axe, pickaxe, hoe, scythe, watering can; millstone |
+| 1 | 1 | wheat, carrot, potato; chickens (the coop kit); the workbench kit: knife, fishing rod, bow and arrows, campfire, bait (dough), feed, axe, pickaxe, hoe, scythe, watering can; millstone |
 | 2 | ~3 | strawberry, tomato; field expansion I; fertilizer; pitchfork |
-| 3 | ~7 | corn; open barn, sheep; bigger warehouse; sprinkler, pickle barrel, spinning wheel, shears; tool upgrade +1 |
+| 3 | ~7 | corn; open barn, sheep; bigger warehouse; coop expansion I; sprinkler, pickle barrel, spinning wheel, shears; tool upgrade +1 |
 | 4 | ~12 | eggplant, pumpkin; cows; field expansion II; cheese press, milk pail |
-| 5 | ~20 | house extension I; jam kettle |
+| 5 | ~20 | house extension I; coop expansion II; jam kettle |
 | 6 | ~29 | horse; closed barn; tool upgrade +2 |
 | 7 | ~41 | field expansion III |
 | 8 | ~48 | house extension II |
 | 9 | ~57 | a fourth order on the board |
 | 10 | ~66 | orders pay 25% more |
+
+A coop put up from a kit holds 8 birds. The construction board's **coop expansion**
+makes one coop longer at its east end, twice: 8 → 14 → 20 birds, 3 → 5 → 7 nest boxes,
+a longer feeder and waterer (16 → 28 → 40 rations) and a second roost; a minute of play
+(or a night's sleep) while the hens live on in it. Step I ($100, 20 wood, 10 nails) opens
+at level 3, about when the first coop is full; step II ($200, 35 wood, 20 nails, 10
+stone) at level 5, with some 16 hens on the farm. A place in it costs more than one in a
+second kit ($25 and 15 wood for 8: the first day's price): what it buys is one door to
+shut against the wolves, one feeder and waterer to fill and one yard (the 11 × 10 m plot
+stays as it is), not cheaper room. Filling step I's six places with hens costs $300 more;
+at about $5.50 a hen a day in eggs (less her feed) hens and step pay for themselves in two
+weeks. (The balance sim still adds second kits.)
 
 Each crop opens in time for its season in the first year (strawberries late in
 spring, corn with summer, pumpkins before autumn). The story's chapters follow the same
@@ -109,6 +121,7 @@ $18 of ore against $40), so a worn-out tool is replaced cheaply once there is a 
 | Knife | 2 wood, 3 stone | 1 |
 | Fishing rod | 3 wood, 2 rope | 1 |
 | Bow | 4 wood, 4 nails, 2 rope | 1 |
+| Arrows | 2 wood, 1 stone | 5 (a shot takes one; picked up again where it landed, some break in a body) |
 | Campfire | 8 stone, 6 wood | 1 (burns 5 hours) |
 | Dough (bait) | 2 wheat ($4) | 4 |
 | Chicken feed | 2 wheat ($4) | 5 ($5 at the market) |

@@ -8,7 +8,8 @@ extends CanvasLayer
 ## menu screen (inventory, shops, construction, animals, pause and settings) and the
 ## conversations with townspeople. The side story (SideStory: Zeynep, the new
 ## neighbour) has a card of its own under the goal's and a dot of its own, ringed in
-## rose, beside the story's.
+## rose, beside the story's; any other side goal up at the same time (SideStory.goals:
+## the wolves, the vet) gets a card and a dot of its own in its colour too.
 
 const MAX_TOASTS := 5
 ## A prompt line starting with this is a title over the key rows (the aimed object's
@@ -18,6 +19,13 @@ const TITLE_MARK := "#"
 ## for the sale badge).
 const LEVEL_Y := 92.0
 const QUEST_Y := 150.0
+## The toasts' column: its top from the screen's middle and its height, at rest; how far
+## under the goal cards it keeps when they reach down past it, and how fast it slides
+## there (px/s).
+const TOAST_TOP := -120.0
+const TOAST_HEIGHT := 360.0
+const TOAST_GAP := 14.0
+const TOAST_SLIDE := 900.0
 
 
 ## Dot crosshair; a ring shows when something can be interacted with and a gold
@@ -57,6 +65,7 @@ var sleep_screen: SleepScreen
 var build_screen: BuildScreen
 var shop_screen: ShopScreen
 var rancher_screen: RancherScreen
+var vet_screen: VetScreen
 var animal_panel: AnimalPanel
 var pause_menu: PauseMenu
 var settings_screen: SettingsScreen
@@ -83,6 +92,8 @@ var achievement_toast: AchievementToast
 var needs_bars: NeedsBars
 ## Countdown rings over fish cooking on a campfire.
 var cook_rings: CookRings
+## The red of the farmer's wounds at the screen's edges (PlayerState.injury).
+var injury_overlay: InjuryOverlay
 
 var _root: Control
 var _money_label: Label
@@ -101,6 +112,9 @@ var _side_card: GlassPanel
 var _side_text: Label
 var _side_hint: Label
 var _side_hearts: Label
+## The other side goals' cards (SideStory.goals), between the story's and Zeynep's:
+## SideGoal -> {"card", "text", "hint", "dot"}.
+var _goal_cards := {}
 var _clock_card: GlassPanel
 var _time_label: Label
 var _day_label: Label
@@ -154,6 +168,7 @@ func _ready() -> void:
 	side_waypoint.source = SideStory
 	side_waypoint.ring_color = SideStory.ROSE
 	_root.add_child(side_waypoint)
+	SideStory.goals_changed.connect(_sync_goal_cards)
 	waypoint = WaypointMarker.new()
 	_root.add_child(waypoint)
 	cook_rings = CookRings.new()
@@ -180,6 +195,8 @@ func _ready() -> void:
 	_root.add_child(shop_screen)
 	rancher_screen = RancherScreen.new()
 	_root.add_child(rancher_screen)
+	vet_screen = VetScreen.new()
+	_root.add_child(vet_screen)
 	animal_panel = AnimalPanel.new()
 	_root.add_child(animal_panel)
 	storage_screen = StorageScreen.new()
@@ -212,6 +229,8 @@ func _ready() -> void:
 	_root.add_child(confirm_dialog)
 	sleep_screen = SleepScreen.new()
 	add_child(sleep_screen)
+	injury_overlay = InjuryOverlay.new()
+	add_child(injury_overlay)
 	Events.passed_out.connect(func() -> void: sleep_screen.start_sleep(true))
 	Weather.weather_changed.connect(func(_k: int) -> void: _refresh_weather())
 	_refresh_weather()
@@ -232,6 +251,7 @@ func _ready() -> void:
 	_on_money_changed(Economy.money, 0)
 	# The side goal of a loaded game shows once everything is up.
 	_refresh_side.call_deferred()
+	_sync_goal_cards.call_deferred()
 	# Normal launches open on the title screen; debug and test runs, and a game being
 	# loaded or started, go straight in.
 	if DebugTools.args.is_empty() and not SaveGame.loading:
@@ -259,15 +279,30 @@ func _process(_delta: float) -> void:
 		_refresh_weather()
 	if GameClock.day != _shown_day:
 		_refresh_day()
-	if _side_card.visible:
-		_place_side_card()
+	_place_side_cards()
 	# The dots riding the screen's left edge keep clear of the goal cards.
 	var cards: Array[Rect2] = []
 	for card: Control in [_quest_card, _side_card]:
 		if card.visible:
 			cards.append(Rect2(card.position, card.size))
+	for e: Dictionary in _goal_cards.values():
+		var gc: Control = e["card"]
+		if gc.visible:
+			cards.append(Rect2(gc.position, gc.size))
 	waypoint.keep_out = cards
 	side_waypoint.keep_out = cards
+	_place_toasts(cards, _delta)
+	# The other side goals' dots also keep clear of the dots on the screen's edge before them
+	# (two goals in town would put theirs on top of each other).
+	var taken := cards.duplicate()
+	for dot: WaypointMarker in [waypoint, side_waypoint]:
+		if dot.visible and not dot.on_screen:
+			taken.append(dot.screen_rect())
+	for e: Dictionary in _goal_cards.values():
+		var dot: WaypointMarker = e["dot"]
+		dot.keep_out = taken.duplicate()
+		if dot.visible and not dot.on_screen:
+			taken.append(dot.screen_rect())
 
 
 ## "DAY 3 · SPRING 3" under the time (again when the language changes).
@@ -427,15 +462,98 @@ func _refresh_side() -> void:
 		_sync_hud_visibility()
 	if _side_card.visible:
 		_side_card.reset_size()
-		_place_side_card()
+		_place_side_cards()
 
 
-## Under the story's goal card (or in its place when there is none).
-func _place_side_card() -> void:
+## Under the story's goal card (or in its place when there is none): the other side goals'
+## cards first (SideStory.goals, in order), then Zeynep's.
+func _place_side_cards() -> void:
 	var y := QUEST_Y + _sale_room
 	if _quest_card.visible:
 		y = _quest_card.position.y + _quest_card.size.y + 10.0
+	for g: SideGoal in SideStory.goals:
+		var e: Dictionary = _goal_cards.get(g, {})
+		if e.is_empty() or not (e["card"] as Control).visible:
+			continue
+		var card: Control = e["card"]
+		card.position.y = y
+		y += card.size.y + 10.0
 	_side_card.position.y = y
+
+
+## Builds a card and a dot for each side goal newly up (SideStory.goals), and drops those
+## of the ones taken down.
+func _sync_goal_cards() -> void:
+	for g: SideGoal in _goal_cards.keys():
+		if SideStory.goals.has(g):
+			continue
+		var e: Dictionary = _goal_cards[g]
+		(e["card"] as Node).queue_free()
+		(e["dot"] as Node).queue_free()
+		g.changed.disconnect(e["refresh"])
+		_goal_cards.erase(g)
+	for g: SideGoal in SideStory.goals:
+		if not _goal_cards.has(g):
+			var e := _build_goal_card(g)
+			e["refresh"] = _refresh_goal_card.bind(g)
+			g.changed.connect(e["refresh"])
+			_goal_cards[g] = e
+		_refresh_goal_card(g)
+
+
+## A side goal's card (like Zeynep's: its glyph and "TITLE · SIDE GOAL" in its colour over
+## the goal and its hint) and its dot, ringed in its colour, beside the others.
+func _build_goal_card(g: SideGoal) -> Dictionary:
+	var card := GlassPanel.new(Vector4(16, 10, 18, 12), 16.0)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.position = Vector2(28, QUEST_Y)
+	card.visible = false
+	_root.add_child(card)
+	_root.move_child(card, _side_card.get_index())
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(col)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(head)
+	head.add_child(UiTheme.icon_rect(UiTheme.glyph(g.glyph), 16, g.color))
+	var title := UiTheme.make_label("", UiTheme.heading(14, g.color, 700, 3))
+	head.add_child(title)
+	var text := UiTheme.make_label("", UiTheme.text(17, UiTheme.TEXT, 600))
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.custom_minimum_size = Vector2(300, 0)
+	col.add_child(text)
+	var hint := UiTheme.make_label("", UiTheme.text(15, UiTheme.TEXT_MUTED, 500))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size = Vector2(300, 0)
+	col.add_child(hint)
+	# Under the crosshair, the prompts and every menu, like the other dots.
+	var dot := WaypointMarker.new()
+	dot.source = g
+	dot.ring_color = g.color
+	_root.add_child(dot)
+	_root.move_child(dot, side_waypoint.get_index() + 1)
+	return {"card": card, "title": title, "text": text, "hint": hint, "dot": dot}
+
+
+func _refresh_goal_card(g: SideGoal) -> void:
+	var e: Dictionary = _goal_cards.get(g, {})
+	if e.is_empty():
+		return
+	var card: GlassPanel = e["card"]
+	card.set_meta("active", g.text != "")
+	(e["title"] as Label).text = UiTheme.caps(tr("HUD_SIDE_GOAL") % g.title)
+	(e["text"] as Label).text = g.text
+	var hint: Label = e["hint"]
+	hint.text = g.hint
+	hint.visible = g.hint != ""
+	if _crosshair != null:
+		_sync_hud_visibility()
+	if card.visible:
+		card.reset_size()
+		_place_side_cards()
 
 
 ## Grandpa's line for chapter `index` under the goal, for a while.
@@ -523,8 +641,39 @@ func _build_toasts() -> void:
 	_toasts = VBoxContainer.new()
 	_toasts.add_theme_constant_override("separation", 8)
 	_toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	UiTheme.place(_toasts, Vector2(0, 0.5), Vector2(28, -120), Vector2(560, 360))
+	UiTheme.place(_toasts, Vector2(0, 0.5), Vector2(28, TOAST_TOP), Vector2(560, TOAST_HEIGHT))
 	_root.add_child(_toasts)
+
+
+## The toasts' column keeps clear of the goal `cards` (three or more of them, say the
+## story's, the wolves', the vet's and Zeynep's, reach down past its usual top): it
+## slides down under them, and when that leaves too little room over the needs bars the
+## oldest toasts go early.
+func _place_toasts(cards: Array[Rect2], delta: float) -> void:
+	var mid := _root.size.y * 0.5
+	var top := mid + TOAST_TOP
+	for r in cards:
+		top = maxf(top, r.end.y + TOAST_GAP)
+	var want := top - mid
+	if not is_equal_approx(_toasts.offset_top, want):
+		_toasts.offset_top = move_toward(_toasts.offset_top, want, delta * TOAST_SLIDE)
+		_toasts.offset_bottom = _toasts.offset_top + TOAST_HEIGHT
+	if _toasts.get_child_count() < 2:
+		return
+	var floor_y := _root.size.y - 22.0
+	if needs_bars and needs_bars.visible:
+		floor_y = needs_bars.position.y
+	var room := floor_y - TOAST_GAP - (mid + _toasts.offset_top)
+	while _toasts.get_child_count() > 1 and _toasts_height() > room:
+		_toasts.get_child(0).free()
+
+
+## The toasts' height as they stack now.
+func _toasts_height() -> float:
+	var h := 0.0
+	for c: Control in _toasts.get_children():
+		h += c.get_combined_minimum_size().y
+	return h + 8.0 * maxf(_toasts.get_child_count() - 1, 0)
 
 
 func _refresh_weather() -> void:
@@ -554,6 +703,9 @@ func _sync_hud_visibility() -> void:
 		_quest_card.visible = not title and not menu and bool(_quest_card.get_meta("active", false))
 	if _side_card:
 		_side_card.visible = not title and not menu and bool(_side_card.get_meta("active", false))
+	for e: Dictionary in _goal_cards.values():
+		var gc: Control = e["card"]
+		gc.visible = not title and not menu and bool(gc.get_meta("active", false))
 	if title:
 		# Nothing of the last game lingers over the title (their tweens end on their own).
 		if _sale_badge:
@@ -585,6 +737,11 @@ func open_shop(shop: Dictionary) -> void:
 
 func open_rancher() -> void:
 	rancher_screen.open()
+
+
+## The vet clinic in town (its counter, Dr. Selin).
+func open_vet() -> void:
+	vet_screen.open()
 
 
 func open_animal_panel(a: AnimalData) -> void:

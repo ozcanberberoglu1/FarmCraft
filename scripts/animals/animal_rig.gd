@@ -102,6 +102,8 @@ var _ik_last: Array = []
 var _ik_parents: Array[Transform3D] = []
 var _ik_skip := 0
 const IK_NEAR := 25.0
+## The leg an injured animal favours: the right foreleg (a bird's right leg).
+const HURT_LEG := "fr"
 ## 0..1: a rooster's crowing pose (neck stretched up, head thrown back, chest out, the
 ## wings beating as he starts), set by Animal while he crows.
 var crow := 0.0
@@ -113,6 +115,12 @@ var faint := 0.0
 var tremble := 0.0
 var wobble := 0.0
 var fluff := 0.0
+## An injured animal favouring its hurt leg (HURT_LEG), set by Animal: `limp` 0..1 drops
+## the body a little and rolls it off that leg while it bears the weight (a foreleg: the
+## head comes up as it lands), its step short and barely lifted; `stumble` 0..1 lurches
+## it forward and down for a moment.
+var limp := 0.0
+var stumble := 0.0
 ## A bird standing about: how far into it (fading in and out); where its head looks (neck
 ## pitch, yaw, head tilt), where it turns to next and when; what it is doing now and then
 ## (a BirdAct), for how long, on which side (-1 left, 1 right) and the wait for the next;
@@ -307,16 +315,20 @@ func animate(delta: float, speed: float, mode: int) -> void:
 	# The body dips a little at each step walking; trotting it springs up between the beats.
 	var bob := (-(0.5 + 0.5 * cos(ph2 - 0.8)) * 0.012 * (1.0 - _trot) + (0.5 - 0.5 * cos(ph2)) * 0.025 * _trot) \
 			* hip * gamp - _crouch
+	# Favouring the hurt leg: down and off it while it bears the weight; a stumble lurches.
+	var hurt := limp_load() * clampf(gamp * 1.5, 0.0, 1.0)
+	var sag := (hurt * (0.1 if biped else 0.06) + stumble * 0.16) * hip
 	var root := _bone("root")
 	if root >= 0:
 		_pose_offset(root, Vector3(shake * 0.004, _age_raise() + bob - lie * float(cfg["lie_drop"])
-				- faint * float(cfg.get("faint_drop", hip * 0.7)), 0))
+				- faint * float(cfg.get("faint_drop", hip * 0.7)) - sag, 0))
 	if biped:
 		# Keeled over onto his breast and side (and swaying as he gets back up).
 		_rot("root", Vector3(-faint * 0.1 + stagger * 0.05, stagger * 0.08, faint * FAINT_ROLL + stagger * 0.16))
 	# Rolling a little over the foot it stands on (a bird waddles).
-	var pitch := sin(ph2) * 0.012 * _trot * gamp + lie * 0.03 + crow * 0.1 + shake * 0.06
-	var roll := sin(TAU * _phase) * gamp * (0.03 if biped else 0.012) + shake * 0.05 + ruffle * 0.2
+	var pitch := sin(ph2) * 0.012 * _trot * gamp + lie * 0.03 + crow * 0.1 + shake * 0.06 - stumble * 0.24
+	var roll := sin(TAU * _phase) * gamp * (0.03 if biped else 0.012) + shake * 0.05 + ruffle * 0.2 \
+			+ hurt * (0.2 if biped else 0.07)
 	# Standing about: breathing, the weight on one foot then the other, leaning into a
 	# scratch or a peck, turned a little toward the wing it preens.
 	pitch += (sin(_time * 2.3 + _seed) * 0.012 - rake * 0.1 - dip * 0.06) * rest
@@ -348,6 +360,8 @@ func animate(delta: float, speed: float, mode: int) -> void:
 		head = Vector3(-_head_down * float(cfg["head_down"]) + crow * 0.38 + g.x * 0.6 - dip * 0.35 - preen * 0.35 + nibble,
 				g.y * 0.4 + preen * _act_side * -0.7, shake * 0.2 + g.z + preen * _act_side * 0.3)
 	else:
+		# A sore foreleg: the head goes up as it lands, down again on the sound one.
+		nod += hurt * 0.3 - stumble * 0.25
 		_rot("neck1", Vector3(-_head_down * nd * 0.55 + nod - lie * 0.2, look_yaw * 0.6, 0))
 		_rot("neck2", Vector3(-_head_down * nd * 0.45, look_yaw * 0.4, 0))
 	_rot("head", head.lerp(FAINT_HEAD, faint))
@@ -753,6 +767,9 @@ func _update_gait(delta: float, speed: float, running: bool, rake: float) -> flo
 			leg["p"] = float(leg["p"]) + swing_rate * delta / float(leg["left"])
 			var p: float = minf(leg["p"], 1.0)
 			var ahead := (0.5 - u / duty if u < duty else 0.5) if moving else 0.0
+			var sore := limp if leg["key"] == HURT_LEG else 0.0
+			# The hurt leg is put down short (and barely lifted).
+			ahead *= 1.0 - 0.45 * sore
 			# The ground where it lands, looked up as it lifts (and again as it lands).
 			var land := n + fwd * ahead
 			land.y = leg["land_y"]
@@ -763,7 +780,7 @@ func _update_gait(delta: float, speed: float, running: bool, rake: float) -> flo
 			# A forefoot is picked up and folded back first, then reaches out.
 			tgt = from.lerp(land, smoothstep(0.08, 0.95, p) if front and not biped else smoothstep(0.0, 1.0, p))
 			var lift := float(cfg.get("lift_f" if front else "lift_h", 0.1)) * ln * (1.0 + 0.4 * _trot)
-			lift *= clampf(Vector2(land.x - from.x, land.z - from.z).length() / (ln * 0.45), 0.3, 1.0)
+			lift *= clampf(Vector2(land.x - from.x, land.z - from.z).length() / (ln * 0.45), 0.3, 1.0) * (1.0 - 0.55 * sore)
 			var arch := sin(PI * pow(p, 0.75 if front else 1.0))
 			tgt.y += lift * arch
 			psi = -arch * (0.9 if biped else ((0.8 + 0.4 * _trot) if front else 0.55)) - roll * (1.0 - p) * (1.0 - p)
@@ -810,6 +827,20 @@ func _follow_slope(xf: Transform3D, delta: float) -> void:
 	var hh := float(ground.call(xf.origin - ahead * hind * sc))
 	var want := clampf(atan2(hf - hh, (hind - front) * sc), -0.35, 0.35)
 	rotation.x = lerpf(rotation.x, want, 1.0 - exp(-delta * 6.0))
+
+
+## 0..limp: how much weight the hurt leg (HURT_LEG) bears now: most in the middle of its
+## time on the ground, none in the air. The limp's beat: Animal slows its pace on it.
+func limp_load() -> float:
+	if limp <= 0.0:
+		return 0.0
+	for leg in legs:
+		if leg["key"] != HURT_LEG:
+			continue
+		var duty := lerpf(float(cfg.get("duty", 0.62)), float(cfg.get("duty_trot", DUTY_TROT)), _trot)
+		var u := fposmod(_phase - lerpf(leg["td_walk"], leg["td_trot"], _trot), 1.0)
+		return sin(PI * u / duty) * limp if u < duty else 0.0
+	return 0.0
 
 
 ## How brisk the gait is at `v` m/s (full size): 0 standing .. 1 walking .. 1.3.

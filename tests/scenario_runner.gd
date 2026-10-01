@@ -111,12 +111,30 @@ func run(scenario: String) -> void:
 			await _scenario_noon_start()
 		"dog":
 			await _scenario_dog()
+		"wolf":
+			await _scenario_wolf()
+		"wolf_eyes":
+			await _scenario_wolf_eyes()
 		"zeynep":
 			await _scenario_zeynep()
 		"zeynep_edges":
 			await _scenario_zeynep_edges()
 		"market_crates":
 			await _market_crates()
+		"combat":
+			await _scenario_combat()
+		"raids":
+			await _scenario_raids()
+		"raids_shots":
+			await _scenario_raids_shots()
+		"vet":
+			await _scenario_vet()
+		"wolves_e2e":
+			await _scenario_wolves_e2e()
+		"wolves_edges":
+			await _scenario_wolves_edges()
+		"coop_expand":
+			await _coop_expand()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -7265,7 +7283,7 @@ func _people() -> void:
 	var people := {}
 	for p: Townsperson in tree.get_nodes_in_group(Townsperson.GROUP):
 		people[p.person] = p
-	_check(people.size() == 10, "Yeşilova has its 10 townspeople (%d)" % people.size())
+	_check(people.size() == 11, "Yeşilova has its 11 townspeople (%d)" % people.size())
 	var loaded := people.values().all(func(p: Townsperson) -> bool:
 		return p.rig != null and p.rig.body.mesh != null and p.rig.body.mesh.get_surface_count() >= 5 and p.rig.skeleton.get_bone_count() > 40)
 	_check(loaded, "every townsperson has a dressed, rigged body")
@@ -7274,7 +7292,7 @@ func _people() -> void:
 		if c is TownPoint and (c as TownPoint).prompt_key == "ACTION_DEALER":
 			dealer = c
 	var posts := [[&"shopkeeper", town.market_counter, 1.6], [&"salesman", dealer, 1.8], [&"rancher", town.market_office, 2.2],
-		[&"attendant", town.pumps[0], 1.2]]
+		[&"attendant", town.pumps[0], 1.2], [&"vet", town.vet_clinic.counter, 1.0]]
 	for post: Array in posts:
 		var who: Townsperson = people.get(post[0])
 		var at: Node3D = post[1]
@@ -11127,3 +11145,3872 @@ func _scenario_noon_start() -> void:
 	FarmState.flags.erase(FarmHouse.FIRST_DAY_FLAG)
 	Weather.forced = -1
 	Quests.skip_tutorial()
+
+
+# --- The vet clinic ----------------------------------------------------------------------
+
+## The vet clinic in town (VetClinic, VetScreen): it stands on its own lot
+## west of the filling station, its yard on the south pavement, and the farmer walks
+## from the street through its sliding door to the counter; Dr. Selin is at her counter
+## in the hours and the counter is the &"vet_counter" the story points at; E there (or at
+## her) opens the vet screen, which says all is well with no patients; the fee rule;
+## treating an injured animal takes the fee and sends it to the clinic for 2-3 hours,
+## short of money the button says what is missing; out of hours she has gone, the door
+## stays shut (and only says when the clinic opens), the counter serves nobody, a farmer
+## inside is let out. The patients are real animals hurt through the Animals API
+## (Animals.injure). With -- --vet-shots=/abs/dir it saves screenshots there (the
+## clinic from the street by day and at dusk, the counter with the vet, the screen).
+func _scenario_vet() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("vet-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var kept_minute := GameClock.minute
+	var kept_money := Economy.money
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var clinic: VetClinic = town.vet_clinic if town else null
+	_check(clinic != null and clinic.counter != null, "the town has its vet clinic and its counter")
+	if clinic == null:
+		return
+	# Its own lot, clear of the town's buildings and lots and back from the road.
+	var clear := true
+	for r: Rect2 in [Town.MARKET, Town.PARKING, Town.DEALER, Town.STATION, Town.ANIMAL_MARKET, Rect2(268, -2, 11, 10), Rect2(270, 31, 11, 10)]:
+		clear = clear and not Town.VET.grow(0.5).intersects(r)
+	_check(clear and WorldLayout.distance_to_road(Town.VET.get_center().x, Town.VET.position.y) > WorldLayout.ROAD_WIDTH * 0.5 + 3.0,
+			"the clinic's lot is clear of the town's buildings and back from the road")
+	var counter := tree.get_first_node_in_group(&"vet_counter") as Node3D
+	_check(counter == clinic.counter and counter.has_method("waypoint_point")
+			and (counter.call("waypoint_point") as Vector3).distance_to(counter.global_position + Vector3(0, 0.75, 0)) < 0.01,
+			"the counter is the story's &\"vet_counter\" with its waypoint over the work top")
+	var vet: Townsperson = null
+	for p: Townsperson in tree.get_nodes_in_group(Townsperson.GROUP):
+		if p.person == &"vet":
+			vet = p
+	_check(vet != null and vet.rig != null and vet.rig.body.mesh.get_surface_count() >= 5 and vet.service == clinic.counter,
+			"Dr. Selin is a dressed townsperson serving the counter")
+
+	# --- In the hours: from the street through the door to the counter ---
+	GameClock.set_time_of_day(10.0)
+	await _seconds(0.6)
+	_check(clinic.staffed and vet != null and vet.visible and Vector2(vet.global_position.x - clinic.vet_spot().x, vet.global_position.z - clinic.vet_spot().z).length() < 0.4,
+			"at 10:00 the clinic is open and the vet stands behind her counter")
+	var door := clinic.door_point()
+	player.global_position = Vector3(door.x, _people_floor(door.x, Town.WALK_S.get_center().y, 0.5) + 0.05, Town.WALK_S.get_center().y)
+	player.look_at_yaw_pitch(PI, 0.0)
+	await _frames(10)
+	Input.action_press("move_forward")
+	await _seconds(2.6)
+	Input.action_release("move_forward")
+	await _seconds(0.4)
+	var p := player.global_position
+	_check(clinic.has_inside(p) and p.z > Town.VET.position.y + 1.0, "the farmer walks from the pavement through the sliding door into the clinic (z=%.2f)" % p.z)
+	_check(absf(p.y - clinic.floor_y) < 0.12, "he stands on the clinic's floor (%.2f, floor %.2f)" % [p.y, clinic.floor_y])
+	Input.action_press("move_forward")
+	await _seconds(2.0)
+	Input.action_release("move_forward")
+	await _seconds(0.3)
+	_check(player.global_position.z < Town.VET.position.y + VetClinic.COUNTER_Z, "the counter stops him (z=%.2f)" % player.global_position.z)
+	# E at the counter opens the vet screen: nobody hurt, all is well.
+	var cp := counter.global_position
+	player.global_position = Vector3(cp.x + 0.6, clinic.floor_y + 0.05, cp.z - 1.3)
+	await _frames(6)
+	_look_at(player, cp + Vector3(0, 0.3, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_VET")), "the counter offers the vet clinic (%s)" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _frames(4)
+	var scr: VetScreen = Game.hud.vet_screen
+	_check(scr.visible and _vet_has_text(scr, tr("VET_EMPTY")), "E at the counter opens the vet screen: all the animals are healthy")
+	await _vet_shot(shots, "vet_screen_empty")
+	scr.close_screen()
+	await _frames(4)
+	if vet:
+		_look_at(player, vet.global_position + Vector3(0, 1.45, 0))
+		await _frames(8)
+		_check(_last_prompt.contains(tr("PERSON_VET")) and _last_prompt.contains(tr("ACTION_VET")), "the vet offers her clinic (%s)" % _last_prompt.replace("\n", " | "))
+		await _press_key(KEY_E)
+		await _frames(4)
+		_check(scr.visible and vet.is_speaking(), "E at the vet greets and opens the vet screen")
+		scr.close_screen()
+		await _frames(4)
+
+	# --- The fee rule and a treatment ---
+	_check(VetClinic.fee(&"chicken", true) == 18 and VetClinic.fee(&"chicken", false) == 10 and VetClinic.fee(&"sheep", true) == 79
+			and VetClinic.fee(&"cow", true) == 131 and VetClinic.fee(&"horse", true) == 210,
+			"the fee is 35% of the market price, at least $10 (hen 18, chick 10, sheep 79, cow 131, horse 210)")
+	var minutes: Array[float] = []
+	for sp: StringName in AnimalTable.ORDER:
+		minutes.append(VetClinic.treatment_minutes(sp))
+	_check(minutes.all(func(m: float) -> bool: return m >= 120.0 and m <= 180.0), "every treatment takes 2-3 hours %s" % [minutes])
+	var sheep := _vet_injure(&"sheep", "Pamuk")
+	var horse := _vet_injure(&"horse", "Rüzgar")
+	Economy.money = 150
+	Events.money_changed.emit(Economy.money, 0)
+	scr.open()
+	await _frames(4)
+	var sheep_btn := _vet_button(scr, Animals.by_id(sheep).name)
+	var horse_btn := _vet_button(scr, Animals.by_id(horse).name)
+	_check(sheep_btn != null and not sheep_btn.disabled and _vet_has_text(scr, tr("VET_HOURS_LEFT") % 24),
+			"the injured sheep is listed with its 24 hours left and a 'Treat' button")
+	_check(horse_btn != null and horse_btn.disabled and _vet_has_text(scr, tr("VET_SHORT") % UiTheme.money(210 - 150)),
+			"short of the horse's $210 the button is off and says $60 is missing")
+	var now := GameClock.total_minutes
+	if sheep_btn:
+		sheep_btn.pressed.emit()
+	await _frames(3)
+	var back := Animals.vet_return_at(sheep)
+	_check(Economy.money == 150 - 79 and Animals.at_vet_ids().has(sheep) and not Animals.injured_ids().has(sheep),
+			"'Treat' takes the $79 and the sheep goes to the clinic ($%d left)" % Economy.money)
+	_check(back - now >= 120.0 and back - now <= 180.0, "it comes home %.0f minutes later" % (back - now))
+	_check(_vet_has_text(scr, tr("VET_RETURNS") % VetScreen.clock_at(back)) and _vet_has_text(scr, UiTheme.caps(tr("VET_IN_TREATMENT"))),
+			"the screen lists it at the clinic with the time it comes home")
+	await _vet_shot(shots, "vet_screen")
+	scr.close_screen()
+	await _frames(4)
+	if shots != "":
+		# The counter with the vet at work, from the waiting room.
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = false
+		player.global_position = Vector3(clinic.vet_spot().x + 1.4, clinic.floor_y + 0.05, Town.VET.position.y + 1.4)
+		_look_at(player, clinic.vet_spot() + Vector3(-0.3, 1.2, 0))
+		await _seconds(2.0)
+		await _vet_shot(shots, "vet_counter")
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = true
+	for id: int in [sheep, horse]:
+		var a := Animals.by_id(id)
+		if a:
+			Animals.sell(a)
+
+	# --- Out of hours ---
+	player.global_position = Vector3(door.x, _people_floor(door.x, Town.WALK_S.get_center().y, 0.5) + 0.05, Town.WALK_S.get_center().y)
+	player.look_at_yaw_pitch(PI, 0.0)
+	GameClock.set_time_of_day(21.5)
+	await _seconds(0.8)
+	_check(not clinic.staffed and vet != null and not vet.visible, "at 21:30 the clinic is closed and the vet has gone home")
+	Input.action_press("move_forward")
+	await _seconds(2.6)
+	Input.action_release("move_forward")
+	await _seconds(0.3)
+	_check(not clinic.has_inside(player.global_position) and player.global_position.z < Town.VET.position.y + 0.2,
+			"the door stays shut to the farmer (z=%.2f)" % player.global_position.z)
+	player.global_position = Vector3(door.x, _people_floor(door.x, Town.VET.position.y - 1.5, 0.5) + 0.05, Town.VET.position.y - 1.5)
+	await _frames(4)
+	_look_at(player, door + Vector3(0, 1.2, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("VET_CLOSED_DOOR")), "the shut door says when the clinic is open (%s)" % _last_prompt.replace("\n", " | "))
+	# Inside after hours (stayed on, then the vet went home): the counter serves nobody.
+	player.global_position = Vector3(cp.x + 0.6, clinic.floor_y + 0.05, cp.z - 1.3)
+	await _frames(6)
+	_look_at(player, cp + Vector3(0, 0.3, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("VET_CLOSED")) and not _last_prompt.contains(tr("ACTION_VET")),
+			"out of hours the counter says when it opens (%s)" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _frames(4)
+	_check(not scr.visible, "E there opens nothing")
+	# The door lets him out.
+	player.global_position = Vector3(door.x, clinic.floor_y + 0.05, door.z + 1.2)
+	await _seconds(1.2)
+	_check(clinic._door_t > 0.9, "from inside the door slides open to let him out")
+	# At closing time a farmer inside is served before she goes.
+	GameClock.set_time_of_day(19.9)
+	player.global_position = Vector3(cp.x + 0.6, clinic.floor_y + 0.05, cp.z - 1.3)
+	await _seconds(0.6)
+	GameClock.set_time_of_day(20.1)
+	await _seconds(0.6)
+	_check(clinic.staffed and vet != null and vet.visible, "at 20:00 the farmer still inside is served")
+	player.global_position = Vector3(door.x, _people_floor(door.x, Town.WALK_S.get_center().y, 0.5) + 0.05, Town.WALK_S.get_center().y)
+	await _seconds(0.6)
+	_check(not clinic.staffed, "once he has left, she closes")
+	if shots != "":
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = false
+		for view: Array in [[13.0, "vet_street_day"], [19.6, "vet_street_dusk"]]:
+			GameClock.set_time_of_day(float(view[0]))
+			player.global_position = Vector3(183.0, _people_floor(183.0, 17.2, 0.5) + 0.05, 17.2)
+			_look_at(player, Vector3(185.8, 1.9, 31.0))
+			await _seconds(2.5)
+			await _vet_shot(shots, String(view[1]))
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = true
+	GameClock.minute = kept_minute
+	Economy.money = kept_money
+	Events.money_changed.emit(Economy.money, 0)
+
+
+## An injured animal of `species` for the vet tests (a grown one put straight onto the
+## farm, hurt just now through Animals.injure: a day to be treated). Returns its id.
+func _vet_injure(species: StringName, animal_name: String) -> int:
+	var a := Animals._add(species, true, animal_name, Animals.home_for(species))
+	Animals.injure(a.id)
+	return a.id
+
+
+## Any label (or button) under `root` showing `text`.
+func _vet_has_text(root: Node, text: String) -> bool:
+	for n in root.find_children("*", "", true, false):
+		if (n is Label and (n as Label).text.contains(text)) or (n is Button and (n as Button).text.contains(text)):
+			return true
+	return false
+
+
+## The "Treat" button in the row of the animal called `animal_name` on the vet screen
+## (the card holding its name and one such button).
+func _vet_button(scr: VetScreen, animal_name: String) -> Button:
+	for row in scr.find_children("*", "PanelContainer", true, false):
+		if not _vet_has_text(row, UiTheme.caps(animal_name)):
+			continue
+		var found: Array[Button] = []
+		for b in row.find_children("*", "Button", true, false):
+			if (b as Button).text == UiTheme.caps(tr("VET_TREAT")):
+				found.append(b)
+		if found.size() == 1:
+			return found[0]
+	return null
+
+
+func _vet_shot(dir: String, shot_name: String) -> void:
+	if dir == "":
+		return
+	await _idle_frames(10)
+	Game.player.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT %s/%s.png" % [dir, shot_name])
+
+
+
+# --- Wolf raids (WolfRaids, hurt and killed animals, Remains, the vet, the side goals) ---------
+
+## Wolf raids: no wolves on nights 1 and 2; night 3's lesson (howls far off from 20:30, the
+## note at 21:00, the side goal to shut the coop door once the hens are in with its dot on
+## the door, then home to sleep with the dot on the bed); slept through with every hen
+## shut in: a safe morning; with the door open: exactly one loss and the morning's line;
+## a later raid played out awake with real wolves (Wolf): out of the forest,
+## bites within the night's caps (one killed, one hurt), the pack prowling and leaving; a
+## wolf killed scatters the pack; the farmer out near them attacked, knocked out (the
+## night worked out as he lies there); an injured hen limping, laying nothing, reminded
+## and dead after a day with her remains; remains cleared with E and gone by themselves
+## unseen; the vet's lesson; an animal at the clinic off the farm, safe from dying and
+## back healed (also across a sleep and a save/load in the middle of a raid); raids
+## switched off; later raids random, never two nights running (seeded); the main chain's
+## goal untouched.
+func _scenario_raids() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var kept_raids := Settings.wolf_raids
+	var kept_money := Economy.money
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests.tutorial_changed.emit()
+	var main_goal := String(Quests.current()["id"])
+	Weather.force(Weather.Kind.SUNNY)
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	WolfRaids.testing = true
+	WolfRaids.load_data({})
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var heard := {"injured": [], "killed": [], "healed": []}
+	var on_injured := func(id: int) -> void: (heard["injured"] as Array).append(id)
+	var on_killed := func(id: int, sp: StringName, _at: Vector3) -> void: (heard["killed"] as Array).append([id, sp])
+	var on_healed := func(id: int) -> void: (heard["healed"] as Array).append(id)
+	Events.animal_injured.connect(on_injured)
+	Events.animal_killed.connect(on_killed)
+	Events.animal_healed.connect(on_healed)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built(), "a test coop stands")
+	if coop == null:
+		return
+	var h := coop.housing
+	for i in 4:
+		Animals.release(&"chicken", h)
+	await _raid_indoors(player)
+
+	# --- Nights 1 and 2: no wolves ---
+	for d: int in [1, 2]:
+		await _raid_evening(d, 18.5)
+		GameClock.advance(150.0)
+		await _idle_frames(3)
+		_check(WolfRaids.tonight.is_empty() and WolfRaids.wolves().is_empty(), "night %d: no wolves" % d)
+
+	# --- Night 3: the lesson ---
+	await _raid_evening(3, 18.5)
+	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight["lesson"]), "night 3: the lesson's raid is set for tonight")
+	var howls := WolfRaids.howls_asked
+	GameClock.advance(125.0)
+	await _idle_frames(3)
+	_check(String(WolfRaids.tonight["phase"]) == "warned" and WolfRaids.howls_asked > howls and WolfRaids.last_howl >= 0.6,
+			"from 20:30 intense howling far off (%d calls)" % (WolfRaids.howls_asked - howls))
+	var g := WolfRaids._wolf_goal
+	_check(not SideStory.goals.has(g), "no goal yet before the note")
+	notes.clear()
+	for n: Animal in h.animals:
+		n.teleport_home(false)
+	GameClock.advance(30.0)
+	await _seconds(0.4)
+	_check(notes.has(tr("MSG_WOLVES_LESSON")), "at 21:00 a note about the wolves")
+	var door_marker := coop.get_node_or_null("Waypoint_%s" % ChickenCoop.ANCHOR_DOOR)
+	_check(SideStory.goals.has(g) and g.text == tr("SIDE_GOAL_WOLF_DOOR") and door_marker != null and g.guide_point() == door_marker
+			and g.guide_label() == tr("HOUSING_COOP"), "the side goal: shut the coop door once the hens are in (the dot on the door)")
+	_check(g.hint == tr("SIDE_HINT_WOLF_WAIT") % 4, "four hens still out: wait for them ('%s')" % g.hint)
+	await _idle_frames(2)
+	var card: Dictionary = Game.hud._goal_cards.get(g, {})
+	_check(not card.is_empty() and (card["card"] as Control).visible and (card["text"] as Label).text == g.text
+			and (card["dot"] as WaypointMarker).source == g, "the HUD shows it on a card of its own with its own dot")
+	_check(String(Quests.current()["id"]) == main_goal, "the main chain's goal stays")
+	h.door.set_open(false)
+	await _seconds(0.4)
+	_check(g.text == tr("SIDE_GOAL_WOLF_DOOR") and g.hint == tr("SIDE_HINT_WOLF_OPEN") % 4,
+			"shut with the hens outside: open it and let them in ('%s')" % g.hint)
+	h.door.set_open(true)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	await _seconds(0.4)
+	_check(g.hint == tr("SIDE_HINT_WOLF_SHUT"), "all in: shut the door")
+	notes.clear()
+	h.door.set_open(false)
+	await _seconds(0.4)
+	var bed := get_first_bed()
+	_check(g.text == tr("SIDE_GOAL_WOLF_SLEEP") and g.guide_point() is Vector3 and bed != null
+			and _raid_flat((g.guide_point() as Vector3), bed.global_position) < 0.5 and notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_WOLF_DOOR")),
+			"door shut with every hen inside: done; now go home and sleep (the dot on the bed)")
+	var count := Animals.animals.size()
+	var lines := await _raid_sleep()
+	_check(WolfRaids.lesson_done and WolfRaids.tonight.is_empty() and Animals.animals.size() == count and Animals.injured_ids().is_empty(),
+			"slept through it with the coop shut: nothing lost, the lesson is done")
+	_check(lines.has(tr("REPORT_WOLVES_SAFE")) and lines.has(tr("REPORT_WOLVES_LATER")),
+			"the morning report: they came but the animals were safe (and they'll be back now and then)")
+	_check(not SideStory.goals.has(g), "the wolves' goal is gone in the morning")
+
+	# --- The lesson again with the door left open: one loss ---
+	WolfRaids.load_data({"seed": 77})
+	h.door.set_open(true)
+	await _raid_evening(3, 18.5)
+	GameClock.advance(155.0)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	await _seconds(0.4)
+	var hen_names := {}
+	for a in Animals.animals:
+		hen_names[a.id] = a.name
+	var remains_before := Animals.remains.size()
+	heard["killed"] = []
+	heard["injured"] = []
+	lines = await _raid_sleep()
+	var lost := 0
+	var lost_line := ""
+	for id: int in hen_names:
+		var a := Animals.by_id(id)
+		if a == null:
+			lost += 1
+			lost_line = tr("REPORT_WOLF_KILLED") % [hen_names[id], Animals.species_name(&"chicken")]
+		elif a.injured():
+			lost += 1
+			lost_line = tr("REPORT_WOLF_HURT") % [hen_names[id], Animals.species_name(&"chicken")]
+	_check(lost == 1 and lines.has(lost_line), "door left open and asleep: exactly one hen lost (lesson's cap), the morning says so ('%s')" % lost_line)
+	if (heard["killed"] as Array).size() == 1:
+		var rem := _raid_remains_of(String(hen_names[(heard["killed"][0] as Array)[0]]))
+		_check(Animals.remains.size() == remains_before + 1 and rem != null and bool(rem.record.get("flat", false))
+				and rem.global_position.distance_to(coop.center_point()) < 4.0, "her remains lie on the coop floor")
+	else:
+		_check(heard["injured"].size() == 1, "the hen was hurt (Events.animal_injured)")
+	# Everyone sound again for what follows.
+	for a in Animals.animals:
+		a.injured_at = -1.0
+
+	# --- A later raid, awake: the real wolves ---
+	FarmState.built[&"barn_1"] = true
+	FarmState.project_built.emit(&"barn_1")
+	await _frames(3)
+	Animals._add(&"sheep", true, "", Game.world.farm.barn)
+	var day := GameClock.day
+	WolfRaids.load_data({"lesson": true, "last": day - 6, "seed": 5})
+	await _raid_evening(day, 19.0)
+	WolfRaids.tonight = {}
+	WolfRaids._set_tonight(false)
+	WolfRaids.rolled_day = day
+	notes.clear()
+	GameClock.advance(65.0)
+	await _seconds(0.3)
+	_check(notes.has(tr("MSG_WOLVES_TONIGHT")) and SideStory.goals.has(g) and g.text == tr("SIDE_NOTE_WOLVES") and g.guide_point() == null,
+			"a later raid: howls and a short note in the evening (no goals, no dot)")
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	GameClock.advance(181.0)
+	await _seconds(0.3)
+	var pack := WolfRaids.wolves()
+	var far := true
+	for w in pack:
+		far = far and Vector2(w.global_position.x, w.global_position.z).length() > WolfRaids.EDGE - 5.0
+	_check(String(WolfRaids.tonight["phase"]) == "active" and pack.size() >= 3 and pack.size() <= 4 and pack[0] is Wolf and far,
+			"at 23:00 a pack of %d comes out of the forest's edge" % pack.size())
+	Engine.time_scale = 3.0
+	for i in 900:
+		await _seconds(0.1)
+		if int(WolfRaids.tonight["killed"]) + int(WolfRaids.tonight["hurt"]) >= 2:
+			break
+	_check(int(WolfRaids.tonight["killed"]) == 1 and int(WolfRaids.tonight["hurt"]) == 1,
+			"their bites: one animal killed, one hurt (k %d, h %d)" % [int(WolfRaids.tonight["killed"]), int(WolfRaids.tonight["hurt"])])
+	await _seconds(3.0)
+	_check(int(WolfRaids.tonight["killed"]) == 1 and int(WolfRaids.tonight["hurt"]) == 1 and (WolfRaids.tonight["victims"] as Array).size() == 2
+			and WolfRaids._target_nodes().is_empty(), "and no more: the night's caps hold")
+	var prowling := 0
+	for w in WolfRaids.wolves():
+		if (WolfRaids._orders.get(w, []) as Array).size() > 0 and WolfRaids._orders[w][0] == &"prowl":
+			prowling += 1
+	_check(prowling == WolfRaids.wolves().size(), "with nothing left to take they prowl")
+	# The pack has noticed there's nothing left (its idle clock runs) before the hour passes.
+	for i in 50:
+		if WolfRaids._idle_from >= 0.0:
+			break
+		await _seconds(0.1)
+	notes.clear()
+	GameClock.advance(WolfRaids.LINGER + 1.0)
+	await _seconds(0.5)
+	_check(String(WolfRaids.tonight["phase"]) == "done" and notes.has(tr("MSG_WOLVES_LEFT")) and WolfRaids.wolves().is_empty(),
+			"after a while they go back into the forest")
+	Engine.time_scale = 1.0
+	await _seconds(0.5)
+	for a in Animals.animals:
+		a.injured_at = -1.0
+
+	# --- A wolf killed scatters the pack ---
+	await _raid_awake_pack(day + 1, false)
+	h.door.set_open(false)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	pack = WolfRaids.wolves()
+	notes.clear()
+	(pack[0] as Wolf).take_hit(40.0, player.global_position, &"knife")
+	_check(not (pack[0] as Wolf).dead and WolfRaids.raid_pending(), "one knife cut doesn't kill a wolf")
+	(pack[0] as Wolf).take_hit(80.0, player.global_position, &"arrow")
+	await _seconds(0.2)
+	var fleeing := 0
+	for w in pack.slice(1):
+		if is_instance_valid(w) and (w as Wolf).goal == &"flee":
+			fleeing += 1
+	_check((pack[0] as Wolf).dead and String(WolfRaids.tonight["phase"]) == "done" and fleeing == pack.size() - 1
+			and notes.has(tr("MSG_WOLF_PACK_FLED")) and WolfRaids.report.has(tr("REPORT_WOLF_SLAIN")),
+			"a wolf killed: the rest of the pack flees")
+	(pack[0] as Node).queue_free()
+
+	# --- The farmer out near them: they go for him; knocked out, the night goes on ---
+	await _raid_awake_pack(day + 2, true)
+	pack = WolfRaids.wolves()
+	var spot := pack[0].global_position + Vector3(4.0, 0.0, 0.0)
+	player.global_position = Vector3(spot.x, TerrainData.height(spot.x, spot.z) + 0.1, spot.z)
+	await _seconds(1.2)
+	var at_him := 0
+	for w in WolfRaids.wolves():
+		if (WolfRaids._orders.get(w, []) as Array).size() > 0 and WolfRaids._orders[w][0] == &"attack_player":
+			at_him += 1
+	_check(at_him >= 1, "out in the open by them: %d go for the farmer" % at_him)
+	WolfRaids.report = PackedStringArray()
+	PlayerState.knock_out()
+	_check(String(WolfRaids.tonight["phase"]) == "asleep" and WolfRaids.wolves().is_empty() and bool(WolfRaids.tonight["fainted"]),
+			"knocked out: they leave him; the night goes on")
+	lines = await _raid_sleep()
+	_check((lines.has(UiTheme.caps(tr("REPORT_KNOCKED_OUT"))) or lines.has(tr("REPORT_KNOCKED_OUT"))) and WolfRaids.tonight.is_empty(),
+			"the morning report says he fainted")
+	await _raid_indoors(player)
+	for a in Animals.animals:
+		a.injured_at = -1.0
+
+	# --- A hurt hen: the limp, nothing laid, the reminders, dead after a day ---
+	GameClock.set_time_of_day(10.0)
+	var hen: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"chicken" and Animals.node_of(a):
+			hen = a
+			break
+	heard["injured"] = []
+	Animals.injure(hen.id)
+	var hn := Animals.node_of(hen)
+	_check(hen.injured() and heard["injured"] == [hen.id] and hen.health <= Animals.INJURED_HEALTH and absf(Animals.hours_left(hen.id) - 24.0) < 0.05
+			and Animals.injured_ids().has(hen.id), "Animals.injure: she's hurt (health %d, 24 h to be treated)" % hen.health)
+	h.door.set_open(true)
+	hn.teleport_home(false)
+	await _seconds(1.0)
+	_check(hn.rig.limp > 0.95 and hn.status_key() == "injured" and hn._badge.visible, "she limps, with a badge over her")
+	_check(hn.hint_prompt() == tr("HINT_ANIMAL_INJURED") % 24, "her prompt says she's hurt ('%s')" % hn.hint_prompt())
+	hn._scared = 0.0
+	var gait := await _raid_limp_sample(hn)
+	_check(gait[0] < 0.05 and gait[1] > 0.5 and gait[2] <= hn._move_speed * Animal.INJURED_PACE + 0.01,
+			"walking: the sore leg's beat (load %.2f..%.2f), slower (%.2f m/s at most)" % [gait[0], gait[1], gait[2]])
+	hen.fed_hours = 20.0
+	_check(Animals.eggs_today(hen) == 0, "she lays nothing while hurt")
+	var vet_goal := WolfRaids._vet_goal
+	var counter := tree.get_first_node_in_group(&"vet_counter")
+	_check(SideStory.goals.has(vet_goal) and vet_goal.text == tr("SIDE_GOAL_VET") and vet_goal.guide_point() is Vector3 and counter != null
+			and (vet_goal.guide_point() as Vector3).distance_to(counter.call("waypoint_point")) < 0.1 and vet_goal.hint.begins_with(hen.name),
+			"the first hurt animal brings the vet's side goal (the dot on the clinic's counter)")
+	_check(SideStory.goals.size() == 1, "one side goal up beside Zeynep's (the wolves' gone by day)")
+	notes.clear()
+	hn.teleport_home(false)
+	GameClock.advance(18.5 * 60.0)
+	await _idle_frames(2)
+	_check(notes.has(tr("MSG_INJURED_HURRY") % [hen.name, 6]), "6 hours before the end the farmer is reminded")
+	var hen_name := hen.name
+	var hen_id := hen.id
+	var pos := Animals.node_of(hen).global_position
+	heard["killed"] = []
+	Animals.report_notes.clear()
+	GameClock.advance(6.0 * 60.0)
+	await _seconds(0.4)
+	var rem := _raid_remains_of(hen_name)
+	_check(Animals.by_id(hen_id) == null and heard["killed"] == [[hen_id, &"chicken"]] and Animals.report_notes.has(tr("MSG_ANIMAL_DIED_WOUNDS") % hen_name),
+			"untreated, she dies a day after (Events.animal_killed, a line for the morning)")
+	_check(rem != null and rem.global_position.distance_to(pos) < 0.5 and rem.find_child("Stain", false, false) is Decal,
+			"her remains lie where she was (a stain, feathers)")
+	_check(not SideStory.goals.has(vet_goal), "no hurt animal left: the vet's goal goes")
+
+	# --- Remains: cleared with E, gone by themselves unseen ---
+	if rem:
+		# The hens shut in a moment: none wandering between him and the remains.
+		h.door.set_open(false)
+		for n: Animal in h.animals:
+			n.teleport_home(true)
+		var off := rem.global_position - coop.center_point()
+		off.y = 0.0
+		var stand := rem.global_position + off.normalized() * 1.4
+		player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+		_look_at(player, rem.global_position + Vector3(0, 0.05, 0))
+		await _seconds(0.4)
+		_check(_last_prompt.contains(tr("ACTION_CLEAN_REMAINS")), "E on the remains: clean up ('%s')" % _last_prompt.replace("\n", " | "))
+		var recs := Animals.remains.size()
+		await _press_key(KEY_E)
+		await _seconds(Remains.CLEAN_SECONDS + 0.6)
+		_check(not is_instance_valid(rem) and Animals.remains.size() == recs - 1, "after a short while it's cleared away")
+		h.door.set_open(true)
+	var old_rec := {"species": "sheep", "name": "Test", "adult": true, "variant": 0, "pos": [10.0, TerrainData.height(10.0, 4.0), 4.0],
+		"yaw": 0.0, "at": GameClock.total_minutes - Remains.FADE_MINUTES - 1.0, "flat": false, "seed": 3,
+		"seen": GameClock.total_minutes - Remains.FADE_MINUTES - 1.0}
+	Animals.remains.append(old_rec)
+	Animals._spawn_remains(old_rec)
+	var seen_rec := old_rec.duplicate(true)
+	seen_rec["pos"] = [14.0, TerrainData.height(14.0, 4.0), 4.0]
+	Animals.remains.append(seen_rec)
+	Animals._spawn_remains(seen_rec)
+	# Between the two: the one ahead is in view, the other behind him.
+	player.global_position = Vector3(12.0, TerrainData.height(12.0, 4.0) + 0.1, 4.0)
+	_look_at(player, Vector3(14.0, TerrainData.height(14.0, 4.0), 4.0))
+	await _seconds(2.6)
+	_check(not Animals.remains.has(old_rec) and Animals.remains.has(seen_rec), "old remains go by themselves when not looked at, not while seen")
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+	await _raid_indoors(player)
+
+	# --- The vet: off the farm, can't die there, back healed ---
+	var hen2: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"chicken" and Animals.node_of(a):
+			hen2 = a
+			break
+	Animals.injure(hen2.id)
+	var visits := []
+	var on_visit := func(id: int) -> void: visits.append(id)
+	Animals.vet_visit.connect(on_visit)
+	notes.clear()
+	Animals.send_to_vet(hen2.id, GameClock.total_minutes + 26.0 * 60.0)
+	await _idle_frames(2)
+	_check(Animals.node_of(hen2) == null and Animals.at_vet_ids() == [hen2.id] and not Animals.injured_ids().has(hen2.id)
+			and Animals.is_injured(hen2.id) and visits == [hen2.id] and Animals.count_at(h) == h.animals.size() + 1,
+			"send_to_vet: she leaves the farm for the clinic (her place in the coop kept)")
+	_check(WolfRaids.vet_lesson_done and notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_VET")) and not SideStory.goals.has(vet_goal),
+			"the vet's side goal is done")
+	GameClock.advance(25.0 * 60.0)
+	await _idle_frames(2)
+	_check(Animals.by_id(hen2.id) != null and hen2.at_vet() and Animals.node_of(hen2) == null, "past her day at the clinic: alive (it can't die there)")
+	heard["healed"] = []
+	notes.clear()
+	GameClock.advance(70.0)
+	await _idle_frames(2)
+	_check(not hen2.at_vet() and not hen2.injured() and hen2.health >= Animals.HEALED_HEALTH and Animals.node_of(hen2) != null
+			and heard["healed"] == [hen2.id] and notes.has(tr("MSG_ANIMAL_HEALED") % hen2.name), "back healed when her time is up (a toast)")
+	# Across a sleep.
+	Animals.injure(hen2.id)
+	GameClock.set_time_of_day(22.0)
+	Animals.send_to_vet(hen2.id, GameClock.total_minutes + 3.0 * 60.0)
+	Animals.report_notes.clear()
+	lines = await _raid_sleep()
+	_check(not hen2.at_vet() and not hen2.injured() and Animals.node_of(hen2) != null and lines.has(tr("MSG_ANIMAL_HEALED") % hen2.name),
+			"sent in the evening, back healed by the morning (in the report)")
+	Animals.vet_visit.disconnect(on_visit)
+
+	# --- Raids switched off ---
+	Settings.wolf_raids = Settings.Raids.OFF
+	Settings.changed.emit()
+	WolfRaids.load_data({"lesson": true, "last": GameClock.day - 10})
+	await _raid_evening(GameClock.day, 18.5)
+	GameClock.advance(300.0)
+	await _idle_frames(3)
+	_check(WolfRaids.tonight.is_empty() and WolfRaids.wolves().is_empty(), "off in the settings: no raid, however long since the last")
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	Settings.changed.emit()
+
+	# --- Later raids: random, never two nights running ---
+	var days := _raid_schedule(4242, 300)
+	var gaps := []
+	for i in range(1, days.size()):
+		gaps.append(days[i] - days[i - 1])
+	_check(days.size() >= 40 and days.size() <= 80 and gaps.min() >= 4 and gaps.max() <= 7,
+			"normal: %d raids in 300 nights, %d to %d nights apart (never two in a row)" % [days.size(), gaps.min(), gaps.max()])
+	_check(_raid_schedule(4242, 300) == days, "the same seed, the same nights")
+	Settings.wolf_raids = Settings.Raids.RARE
+	days = _raid_schedule(99, 300)
+	gaps.clear()
+	for i in range(1, days.size()):
+		gaps.append(days[i] - days[i - 1])
+	_check(gaps.min() >= 8 and gaps.max() <= 13, "rare: %d to %d nights apart" % [gaps.min(), gaps.max()])
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	var spring := 5
+	var full := 9
+	var winter := GameClock.DAYS_PER_SEASON * 3 + 4
+	_check(WolfRaids.full_moon(full) and not WolfRaids.full_moon(spring) and WolfRaids.raid_chance(5, full) > WolfRaids.raid_chance(5, spring)
+			and WolfRaids.raid_chance(5, winter) > WolfRaids.raid_chance(5, spring) and WolfRaids.raid_chance(3, full) == 0.0,
+			"likelier at full moon and in winter (%.2f / %.2f / %.2f)" % [WolfRaids.raid_chance(5, spring), WolfRaids.raid_chance(5, full), WolfRaids.raid_chance(5, winter)])
+
+	# --- A save in the middle of a raid, with a hen at the clinic ---
+	h.door.set_open(true)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	var hen3: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"chicken" and Animals.node_of(a) and a != hen2:
+			hen3 = a
+	Animals.injure(hen3.id)
+	Animals.send_to_vet(hen3.id, GameClock.total_minutes + 9.0 * 60.0)
+	await _raid_awake_pack(GameClock.day, true)
+	WolfRaids.tonight["killed"] = 1
+	(WolfRaids.tonight["victims"] as Array).append(-1)
+	var kill_rec := {"species": "chicken", "name": "Saved", "adult": true, "variant": 1, "pos": [coop.center_point().x + 3.0, 0.0, coop.center_point().z + 3.0],
+		"yaw": 0.0, "at": GameClock.total_minutes, "flat": false, "seed": 9}
+	(kill_rec["pos"] as Array)[1] = TerrainData.height(kill_rec["pos"][0], kill_rec["pos"][2])
+	Animals.remains.append(kill_rec)
+	Animals._spawn_remains(kill_rec)
+	var animals_n := Animals.animals.size()
+	GameClock.running = false
+	_check(SaveGame.save("raids_test"), "saved in the middle of a raid")
+	_check(SaveGame.load_game("raids_test"), "loading it")
+	await _until_loaded()
+	await _seconds(1.0)
+	player = Game.player
+	var h3 := Animals.by_id(hen3.id)
+	var loaded_rem := _raid_remains_of("Saved")
+	_check(WolfRaids.raid_pending() and int(WolfRaids.tonight["killed"]) == 1 and String(WolfRaids.tonight["phase"]) == "active"
+			and WolfRaids.wolves().size() >= 3, "after the load the night's losses stand and the pack comes again")
+	_check(h3 != null and h3.at_vet() and Animals.node_of(h3) == null and Animals.animals.size() == animals_n and loaded_rem != null,
+			"the hen at the clinic is still there, the remains still lie")
+	WolfRaids._end_raid()
+	GameClock.advance(5.0 * 60.0 + 10.0)
+	await _idle_frames(2)
+	_check(not h3.at_vet() and not h3.injured() and Animals.node_of(h3) != null, "and she comes back healed after the load")
+
+	# --- Tidy up ---
+	_check(String(Quests.current()["id"]) == main_goal, "the main chain's goal is untouched ('%s')" % main_goal)
+	Events.notification_requested.disconnect(on_note)
+	Events.animal_injured.disconnect(on_injured)
+	Events.animal_killed.disconnect(on_killed)
+	Events.animal_healed.disconnect(on_healed)
+	for w in tree.get_nodes_in_group(&"wolves"):
+		w.queue_free()
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	for c in (Game.world.farm as Farm).kit_coops():
+		FarmState.remove_placed(c.entry)
+		c.queue_free()
+	FarmState.built.erase(&"barn_1")
+	(Game.world.farm as Farm).barn.set_level(0)
+	WolfRaids.testing = false
+	WolfRaids.load_data({})
+	Settings.wolf_raids = kept_raids
+	Economy.money = kept_money
+	Weather.forced = -1
+	Engine.time_scale = 1.0
+	await _frames(3)
+
+
+## The farmer stands by his bed in the farmhouse (safe from the wolves).
+func _raid_indoors(player: Player) -> void:
+	var bed := get_first_bed()
+	player.global_position = bed.global_position + Vector3(-1.25, 0.05, 0.4)
+	player.velocity = Vector3.ZERO
+	await _frames(3)
+
+
+## Day `day` at `hour`; the raid director looks at it (and rolls the evening's raid).
+func _raid_evening(day: int, hour: float) -> void:
+	GameClock.day = day
+	GameClock.set_time_of_day(hour)
+	await _idle_frames(3)
+
+
+## A later raid tonight on `day`, its pack out (and, with `arrived`, gathered at the farm).
+func _raid_awake_pack(day: int, arrived: bool) -> void:
+	WolfRaids.load_data({"lesson": true, "last": day - 6, "seed": day})
+	await _raid_evening(day, 19.0)
+	WolfRaids.tonight = {}
+	WolfRaids._set_tonight(false)
+	WolfRaids.rolled_day = day
+	GameClock.advance(4.0 * 60.0 + 1.0)
+	await _seconds(0.3)
+	if arrived:
+		Engine.time_scale = 3.0
+		for i in 200:
+			await _seconds(0.1)
+			if WolfRaids._arrived:
+				break
+		Engine.time_scale = 1.0
+
+
+## Sleeps through to the morning (or waits out a faint already under way); the morning
+## report's lines (then it is closed).
+func _raid_sleep() -> PackedStringArray:
+	Game.hud.sleep_screen.start_sleep()
+	for i in 160:
+		await _seconds(0.1)
+		if Game.hud.sleep_screen._waiting:
+			break
+	var texts := PackedStringArray()
+	for l in Game.hud.sleep_screen._report.find_children("*", "Label", true, false):
+		texts.append((l as Label).text)
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	return texts
+
+
+## The remains of the animal called `who` lying on the farm (null when none).
+func _raid_remains_of(who: String) -> Remains:
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		if String((r as Remains).record.get("name", "")) == who and not r.is_queued_for_deletion():
+			return r
+	return null
+
+
+## A hurt animal walking a few metres: the least and most weight on its sore leg and its
+## fastest pace over the walk.
+func _raid_limp_sample(n: Animal) -> Array:
+	var lo := INF
+	var hi := 0.0
+	var top := 0.0
+	n._go(n.housing.random_outdoor_point(RandomNumberGenerator.new()), false, Animal.State.WANDER)
+	for i in 90:
+		await tree.process_frame
+		if n.state != Animal.State.WANDER:
+			n._go(n.housing.random_outdoor_point(RandomNumberGenerator.new()), false, Animal.State.WANDER)
+		if n._speed > 0.1:
+			var l := n.rig.limp_load()
+			lo = minf(lo, l)
+			hi = maxf(hi, l)
+		top = maxf(top, n._speed)
+	return [lo, hi, top]
+
+
+## The nights a raid comes on over `nights` from a seed (raids every few nights after the
+## lesson), as the evening's roll decides them.
+func _raid_schedule(seed_value: int, nights: int) -> Array:
+	WolfRaids.load_data({"lesson": true, "last": 10, "seed": seed_value})
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var out := []
+	for day in range(11, 11 + nights):
+		GameClock.day = day
+		GameClock.minute = 18.5 * 60.0
+		WolfRaids._schedule()
+		if WolfRaids.raid_pending():
+			out.append(day)
+			WolfRaids.last_raid_day = day
+			WolfRaids.tonight = {}
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	WolfRaids.load_data({"lesson": true})
+	return out
+
+
+func _raid_flat(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+## Screenshots of the wolf raids (-- --shotdir=/abs/dir): night 3's HUD with the wolves'
+## goal on its card and its dot on the coop door, the morning report after a raid, a hen's
+## remains in the coop yard and a sheep's in the open pen in the morning light, and a hurt
+## hen limping (her sore leg taking the weight, then in the air).
+func _scenario_raids_shots() -> void:
+	await _close_screens()
+	var dir := String(DebugTools.args.get("shotdir", OS.get_user_data_dir()))
+	var player: Player = Game.player
+	# The cut-out pictures of the scatter, to look at on their own.
+	for pic: Array in [["feather", Remains._feather_image()], ["down", Remains._down_image()], ["wool", Remains._wool_image()],
+			["hair", Remains._hair_image()]]:
+		(pic[1] as Image).save_png("%s/raid_tex_%s.png" % [dir, pic[0]])
+	Weather.force(Weather.Kind.SUNNY)
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	WolfRaids.testing = true
+	WolfRaids.load_data({"seed": 11})
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests.tutorial_changed.emit()
+	var coop: ChickenCoop = await _poultry_coop()
+	var h := coop.housing
+	for i in 4:
+		Animals.release(&"chicken", h)
+	FarmState.built[&"barn_1"] = true
+	FarmState.project_built.emit(&"barn_1")
+	await _frames(3)
+	var sheep := Animals._add(&"sheep", true, "", Game.world.farm.barn)
+	await _seconds(1.0)
+
+	# Night 3, 21:10: the note came, the hens are still out; the farmer by the coop.
+	await _raid_evening(3, 18.5)
+	GameClock.advance(160.0)
+	for n: Animal in h.animals:
+		n.teleport_home(false)
+	await _seconds(0.6)
+	var door := h.door_outside()
+	var stand := door + h.front() * 6.0 + h.frame.basis.x * 2.0
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+	_look_at(player, door + Vector3(0, 0.9, 0))
+	await _seconds(2.0)
+	await _raid_shot(dir, "raid_night3_hud")
+
+	# The door left open, everyone asleep: the morning report.
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	await _raid_indoors(player)
+	Game.hud.sleep_screen.start_sleep()
+	for i in 80:
+		await _seconds(0.1)
+		if Game.hud.sleep_screen._waiting:
+			break
+	await _seconds(0.8)
+	await _raid_shot(dir, "raid_morning_report")
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.5)
+
+	# Remains in the morning light: a hen's in the coop yard, the sheep's in the open pen.
+	GameClock.set_time_of_day(8.0)
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = false
+	var hen: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"chicken" and Animals.node_of(a) and not a.injured():
+			hen = a
+	var hn := Animals.node_of(hen)
+	var spot := h.door_outside() + h.front() * 1.8 + h.frame.basis.x * 1.2
+	spot.y = h.ground_height(spot)
+	hn.global_position = spot
+	hn.indoors = false
+	# A brown hen and a white sheep (the commonest coats).
+	hen.variant = 1
+	Animals.kill(hen.id, &"wolf")
+	var sn := Animals.node_of(sheep)
+	var sspot := Vector3(44.0, 0.0, 4.0)
+	sspot.y = TerrainData.height(sspot.x, sspot.z)
+	sn.global_position = sspot
+	sheep.variant = 0
+	Animals.kill(sheep.id, &"wolf")
+	var cam := Camera3D.new()
+	cam.fov = 50.0
+	Game.world.add_child(cam)
+	cam.make_current()
+	await _seconds(2.5)
+	var away := h.front()
+	cam.global_position = spot + away * 2.2 + h.frame.basis.x * 0.6 + Vector3(0, 1.3, 0)
+	cam.look_at(spot + Vector3(0, 0.05, 0), Vector3.UP)
+	await _raid_shot(dir, "raid_remains_hen")
+	cam.global_position = spot + away * 0.9 + Vector3(0, 0.75, 0)
+	cam.look_at(spot, Vector3.UP)
+	await _raid_shot(dir, "raid_remains_hen_close")
+	cam.global_position = sspot + Vector3(2.4, 1.5, 1.4)
+	cam.look_at(sspot + Vector3(0, 0.05, 0), Vector3.UP)
+	await _raid_shot(dir, "raid_remains_sheep")
+	cam.global_position = sspot + Vector3(1.0, 0.8, 0.6)
+	cam.look_at(sspot + Vector3(0, 0.05, 0), Vector3.UP)
+	await _raid_shot(dir, "raid_remains_sheep_close")
+	# A cow that died of her wounds (hair, not wool).
+	var cow := Animals._add(&"cow", true, "", Game.world.farm.barn)
+	var cspot := Vector3(52.0, 0.0, -4.0)
+	cspot.y = TerrainData.height(cspot.x, cspot.z)
+	Animals.node_of(cow).global_position = cspot
+	cow.variant = 2
+	Animals.kill(cow.id, &"wounds")
+	await _seconds(0.5)
+	cam.global_position = cspot + Vector3(1.6, 1.2, 1.0)
+	cam.look_at(cspot + Vector3(0, 0.05, 0), Vector3.UP)
+	await _raid_shot(dir, "raid_remains_cow")
+
+	# A hurt hen limping across the yard (10:00), nothing between her and the camera.
+	GameClock.set_time_of_day(10.0)
+	for grp: StringName in [&"rocks", &"grass_patches"]:
+		for n in tree.get_nodes_in_group(grp):
+			if (n as Node3D).global_position.distance_to(coop.global_position) < 12.0:
+				(n as Node3D).visible = false
+	var lame: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"chicken" and Animals.node_of(a):
+			lame = a
+	Animals.injure(lame.id)
+	var ln := Animals.node_of(lame)
+	ln._scared = 0.0
+	var from := h.door_outside() + h.front() * 2.5 - h.frame.basis.x * 2.5
+	from.y = h.ground_height(from)
+	ln.global_position = from
+	ln.indoors = false
+	ln.reset_physics_interpolation()
+	var to := from + h.frame.basis.x * 5.0
+	ln._go(to, false, Animal.State.WANDER)
+	await _seconds(1.6)
+	ln._stumble_t = -1.0
+	ln._stumble_wait = 99.0
+	var side := -h.front()
+	var taken := 0
+	for i in 600:
+		await tree.process_frame
+		if ln.state != Animal.State.WANDER:
+			break
+		var p := ln.global_position
+		cam.global_position = p + side * 1.3 + Vector3(0, 0.5, 0)
+		cam.look_at(p + Vector3(0, 0.25, 0), Vector3.UP)
+		var weight := ln.rig.limp_load()
+		if taken == 0 and weight > 0.85:
+			await _raid_snap(dir, "raid_limp_1_weight_on_sore_leg")
+			taken = 1
+		elif taken == 1 and weight < 0.02 and ln._speed > 0.1:
+			await _raid_snap(dir, "raid_limp_2_sore_leg_up")
+			taken = 2
+			break
+	cam.queue_free()
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = true
+	# The vet's side goal on the HUD by day, the hurt hen's panel, the setting.
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+	_look_at(player, door + Vector3(0, 0.9, 0))
+	await _seconds(1.0)
+	await _raid_shot(dir, "raid_vet_goal_hud")
+	Game.hud.open_animal_panel(lame)
+	await _raid_shot(dir, "raid_animal_panel_injured")
+	Game.hud.animal_panel.close_panel()
+	Game.hud.open_settings()
+	Game.hud.settings_screen._select("general")
+	await _raid_shot(dir, "raid_settings")
+	Game.hud.settings_screen.hide_screen()
+	WolfRaids.testing = false
+	Weather.forced = -1
+
+
+func _raid_shot(dir: String, shot_name: String) -> void:
+	await _seconds(0.8)
+	await _idle_frames(4)
+	tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT %s/%s.png" % [dir, shot_name])
+
+
+## A picture of this very moment (a pose in the middle of a step).
+func _raid_snap(dir: String, shot_name: String) -> void:
+	await _idle_frames(1)
+	tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT %s/%s.png" % [dir, shot_name])
+
+
+
+# --- Wolves end to end -----------------------------------------------------------------
+
+## The wolf raids end to end, through the farmer's own keys (E, LMB) and the real wolves:
+## night 3's lesson (howls far off, the note, the side goal: the hens go in by themselves,
+## E shuts the coop door, then E on the bed; a safe morning); arrows made at the
+## workbench; a later raid with the coop door left open while he is in the farmhouse
+## (they never go for him there) and the pack taking one hen and hurting another in the
+## yard; out among them with the knife (a stab: the wolf flinches) and the bow (drawn and
+## loosed with LMB, the arrow in the wolf), a wolf killed and the pack fleeing, its pelt
+## taken with E, the arrows picked up again; the morning's report; the hen's remains in
+## the yard cleared with E; the hurt hen limping, the vet's side goal, E at the clinic's
+## counter and "Treat": collected, back healed hours later; the pelt sold at the town
+## market; a hurt animal left untreated dying a day later; bitten until he faints and
+## waking in his bed hungry and worn out; in the pickup (E) the pack circling it and
+## giving up. The main chain's goal stays where it was.
+## With -- --e2e-shots=/abs/dir it saves screenshots there along the way.
+func _scenario_wolves_e2e() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("e2e-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var inv := PlayerState.inventory
+	var kept_raids := Settings.wolf_raids
+	var kept_money := Economy.money
+	var kept_slots := [inv.get_stack(6), inv.get_stack(7)]
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests.tutorial_changed.emit()
+	var main_goal := String(Quests.current()["id"])
+	Weather.force(Weather.Kind.SUNNY)
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	WolfRaids.testing = true
+	WolfRaids.load_data({"seed": 21})
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built(), "a coop on the farm")
+	if coop == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	var h := coop.housing
+	for i in 4:
+		Animals.release(&"chicken", h)
+	await _raid_indoors(player)
+
+	await _e2e_lesson(player, coop, notes, shots)
+	await _e2e_fight(player, coop, notes, shots)
+	await _e2e_vet(player, coop, notes, shots)
+	await _e2e_faint(player, coop, shots)
+	await _e2e_pickup(player, coop, notes, shots)
+
+	_check(String(Quests.current()["id"]) == main_goal, "the main chain's goal is untouched ('%s')" % main_goal)
+	# --- Tidy up ---
+	Engine.time_scale = 1.0
+	Events.notification_requested.disconnect(on_note)
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+	for a: Node in tree.get_nodes_in_group(&"arrows"):
+		a.queue_free()
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	for c in (Game.world.farm as Farm).kit_coops():
+		FarmState.remove_placed(c.entry)
+		c.queue_free()
+	inv.set_stack(6, kept_slots[0])
+	inv.set_stack(7, kept_slots[1])
+	PlayerState.select(0)
+	WolfRaids.testing = false
+	WolfRaids.load_data({})
+	Settings.wolf_raids = kept_raids
+	Economy.money = kept_money
+	Events.money_changed.emit(Economy.money, 0)
+	Weather.forced = -1
+	await _frames(3)
+
+
+## Night 3: howls from 20:30, the note and the side goal from 21:00 (seen at 21:30 by the
+## coop); the hens go in by themselves, E at the coop door shuts it (the goal moves on to the bed), E on the bed
+## sleeps; the morning says they came but the animals were safe.
+func _e2e_lesson(player: Player, coop: ChickenCoop, notes: Array[String], shots: String) -> void:
+	var h := coop.housing
+	await _raid_evening(3, 18.5)
+	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight["lesson"]), "night 3: the wolves' lesson is set for tonight")
+	var howls := WolfRaids.howls_asked
+	GameClock.advance(125.0)
+	await _seconds(0.6)
+	_check(WolfRaids.howls_asked > howls and WolfRaids.last_howl >= 0.6, "20:35: intense howling far off (%d calls, %.2f)" % [WolfRaids.howls_asked - howls, WolfRaids.last_howl])
+	# 21:30 (the farmer was busy: the note comes as soon as he looks up), by the coop.
+	notes.clear()
+	await _e2e_at_coop_door(player, coop)
+	GameClock.advance(55.0)
+	await _seconds(0.6)
+	var g := WolfRaids._wolf_goal
+	var door_marker := coop.get_node_or_null("Waypoint_%s" % ChickenCoop.ANCHOR_DOOR)
+	_check(notes.has(tr("MSG_WOLVES_LESSON")) and SideStory.goals.has(g) and g.text == tr("SIDE_GOAL_WOLF_DOOR")
+			and door_marker != null and g.guide_point() == door_marker, "a note about the wolves, the goal to shut the coop door (the dot on it)")
+	var card: Dictionary = Game.hud._goal_cards.get(g, {})
+	_check(not card.is_empty() and (card["card"] as Control).visible and (card["dot"] as WaypointMarker).source == g,
+			"the goal on a HUD card of its own with its own dot")
+	if shots != "":
+		await _cb_shot(shots, "e2e_night3_hud")
+	# Nightfall: the hens go in by themselves.
+	Engine.time_scale = 3.0
+	var t := 0.0
+	while t < 40.0 and WolfRaids.birds_out(coop) > 0:
+		await _seconds(0.3)
+		t += 0.3
+	Engine.time_scale = 1.0
+	_check(WolfRaids.birds_out(coop) == 0, "the hens go into the coop for the night by themselves (%d still out after %.0f s)" % [WolfRaids.birds_out(coop), t])
+	for n: Animal in h.animals:
+		if not n.indoors:
+			n.teleport_home(true)
+	await _e2e_at_coop_door(player, coop)
+	_check(_last_prompt.contains(tr("ACTION_COOP_DOOR_CLOSE")), "at the open door E shuts it ('%s')" % _last_prompt.replace("\n", " | "))
+	notes.clear()
+	await _press_key(KEY_E)
+	await _seconds(0.6)
+	var bed := get_first_bed()
+	_check(not h.door_open and g.text == tr("SIDE_GOAL_WOLF_SLEEP") and g.guide_point() is Vector3
+			and _raid_flat(g.guide_point(), bed.global_position) < 0.5 and notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_WOLF_DOOR")),
+			"door shut with every hen in: done; now home to sleep (the dot on the bed)")
+	var lines := await _e2e_sleep_in_bed(player)
+	_check(lines.has(tr("REPORT_WOLVES_SAFE")) and WolfRaids.lesson_done and Animals.injured_ids().is_empty() and Animals.animals.size() == 4,
+			"the morning: they came but the animals were safe (the lesson done)")
+
+
+## Day 4: arrows at the workbench. That night the coop door is left open and the hens are
+## out in the yard: from the farmhouse he is safe while the pack takes one hen and hurts
+## another; then out with the knife and the bow he kills a wolf (the rest flee), takes its
+## pelt, picks his arrows up and sleeps; the morning report.
+func _e2e_fight(player: Player, coop: ChickenCoop, notes: Array[String], shots: String) -> void:
+	var h := coop.housing
+	var inv := PlayerState.inventory
+	GameClock.set_time_of_day(14.0)
+	inv.remove_item(&"arrow", inv.count_item(&"arrow"))
+	var field := _rabbit_meadow()
+	await _cb_workbench_arrows(player, field)
+	_check(inv.count_item(&"arrow") == 5, "five arrows made at the workbench (%d)" % inv.count_item(&"arrow"))
+	inv.set_stack(6, ItemStack.create(&"bow"))
+	inv.set_stack(7, ItemStack.create(&"knife"))
+	# The evening: the coop door opened again (E), the hens out in the yard.
+	await _e2e_raid_tonight()
+	await _e2e_at_coop_door(player, coop)
+	_check(_last_prompt.contains(tr("ACTION_COOP_DOOR_OPEN")), "E at the shut coop door opens it ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(h.door_open, "the coop door stands open tonight")
+	GameClock.advance(3.0 * 60.0 + 50.0)
+	await _idle_frames(3)
+	for n: Animal in h.animals:
+		n.teleport_home(false)
+	await _raid_indoors(player)
+	var names := {}
+	for a in Animals.animals:
+		names[a.id] = a.name
+	var heard_killed := []
+	var on_killed := func(id: int, sp: StringName, at: Vector3) -> void: heard_killed.append([id, sp, at])
+	Events.animal_killed.connect(on_killed)
+	GameClock.advance(11.0)
+	await _seconds(0.4)
+	var pack := WolfRaids.wolves()
+	_check(String(WolfRaids.tonight.get("phase", "")) == "active" and pack.size() >= 3 and pack[0] is Wolf,
+			"23:00: a pack of %d real wolves comes out of the forest" % pack.size())
+	# He's in the farmhouse: they go for the hens in the open yard, never for him.
+	Engine.time_scale = 3.0
+	var went_for_him := false
+	var t := 0.0
+	var shot_coop := false
+	while t < 120.0 and int(WolfRaids.tonight["killed"]) + int(WolfRaids.tonight["hurt"]) < 2:
+		await _seconds(0.25)
+		t += 0.25
+		for w in WolfRaids.wolves():
+			if (WolfRaids._orders.get(w, []) as Array).size() > 0 and WolfRaids._orders[w][0] == &"attack_player":
+				went_for_him = true
+		if shots != "" and not shot_coop and WolfRaids.wolves().any(func(w: Node3D) -> bool: return _raid_flat(w.global_position, coop.center_point()) < 8.0):
+			shot_coop = true
+			Engine.time_scale = 1.0
+			await _e2e_coop_view(player, coop, shots)
+			await _raid_indoors(player)
+			Engine.time_scale = 3.0
+	Engine.time_scale = 1.0
+	_check(int(WolfRaids.tonight["killed"]) == 1 and int(WolfRaids.tonight["hurt"]) == 1,
+			"the pack takes one hen and hurts another (k %d, h %d in %.0f s)" % [int(WolfRaids.tonight["killed"]), int(WolfRaids.tonight["hurt"]), t])
+	if shots == "":
+		_check(not went_for_him, "in the farmhouse he's safe: none of them went for him")
+	var dead_id := int(heard_killed[0][0]) if heard_killed.size() == 1 else -1
+	var rem := _raid_remains_of(String(names.get(dead_id, "?")))
+	var in_yard := false
+	if rem:
+		var local := coop.global_transform.affine_inverse() * rem.global_position
+		in_yard = ChickenCoop.YARD.grow(0.5).has_point(Vector2(local.x, local.z))
+	_check(in_yard, "the hen taken: her remains lie in the coop's yard")
+	Events.animal_killed.disconnect(on_killed)
+	await _seconds(1.0)
+	var hurt_ids := Animals.injured_ids()
+	var limping := hurt_ids.size() == 1 and Animals.node_of(Animals.by_id(int(hurt_ids[0]))) != null \
+			and Animals.node_of(Animals.by_id(int(hurt_ids[0]))).rig.limp > 0.5
+	_check(limping, "the hurt hen limps")
+
+	# --- Out among them: the knife and the bow ---
+	pack = WolfRaids.wolves()
+	# The one out in the open furthest from the coop; the farmer comes at it from beyond.
+	var wolf: Wolf = null
+	for w in pack:
+		if h.is_in_building(w.global_position):
+			continue
+		if wolf == null or _raid_flat(w.global_position, coop.center_point()) > _raid_flat(wolf.global_position, coop.center_point()):
+			wolf = w as Wolf
+	if wolf == null:
+		wolf = pack[0] as Wolf
+	var out := wolf.global_position - coop.center_point()
+	out.y = 0.0
+	var near := wolf.global_position + out.normalized() * 6.0
+	player.global_position = Vector3(near.x, TerrainData.height(near.x, near.z) + 0.1, near.z)
+	player.velocity = Vector3.ZERO
+	await _seconds(1.2)
+	var at_him := 0
+	for w in WolfRaids.wolves():
+		if (WolfRaids._orders.get(w, []) as Array).size() > 0 and WolfRaids._orders[w][0] == &"attack_player":
+			at_him += 1
+	_check(at_him >= 1, "out in the open by them: %d go for him" % at_him)
+	# One wolf stands for the fight; the rest circle off a while (no bite to spoil the aim).
+	wolf.set_goal(&"idle")
+	for w in WolfRaids.wolves():
+		if w != wolf:
+			(w as Wolf).set_goal(&"prowl", player.global_position)
+	await _seconds(0.5)
+	# The knife: one stab, it flinches.
+	PlayerState.select(7)
+	await _e2e_face_wolf(player, wolf, 1.25, out)
+	await _press_mouse_use()
+	var flinched := false
+	for i in 40:
+		await _frames(1)
+		if wolf.hits > 0:
+			flinched = wolf.rig._flinch > 0.0
+			break
+	await _seconds(0.5)
+	_check(wolf.hits == 1 and is_equal_approx(wolf.health, 100.0 - Combat.KNIFE_DAMAGE) and flinched and not wolf.dead,
+			"LMB with the knife: a stab, the wolf flinches (health %.0f)" % wolf.health)
+	# The bow: drawn and loosed with LMB (from beside it if he can see it from there: its
+	# flank to him).
+	wolf.set_goal(&"idle")
+	PlayerState.select(6)
+	var flank := out.cross(Vector3.UP)
+	var bow_side := out
+	for side: Vector3 in [flank, -flank]:
+		var c := wolf.hit_center()
+		var eye := c + side.normalized() * 9.0
+		eye.y = TerrainData.height(eye.x, eye.z) + 1.62
+		if player.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(eye, c, 1)).is_empty():
+			bow_side = side
+			break
+	await _e2e_face_wolf(player, wolf, 9.0, bow_side)
+	var arrows := PlayerState.inventory.count_item(&"arrow")
+	Input.action_press("use")
+	await _seconds(1.0)
+	_check(player.combat.is_drawing() and is_equal_approx(player.combat.draw, 1.0), "LMB held: the bow at full draw")
+	if shots != "":
+		await _cb_shot(shots, "e2e_bow_full_draw")
+	Input.action_release("use")
+	await _seconds(0.8)
+	_check(wolf.hits == 2 and wolf.health < 20.0 and not wolf.dead and PlayerState.inventory.count_item(&"arrow") == arrows - 1,
+			"released: the arrow strikes the wolf (health %.0f)" % wolf.health)
+	# The knife again: it falls; the pack scatters.
+	notes.clear()
+	wolf.set_goal(&"idle")
+	PlayerState.select(7)
+	await _e2e_face_wolf(player, wolf, 1.25, out)
+	await _press_mouse_use()
+	await _seconds(0.6)
+	var fleeing := 0
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		if w != wolf and is_instance_valid(w) and (w as Wolf).goal == &"flee":
+			fleeing += 1
+	_check(wolf.dead and String(WolfRaids.tonight["phase"]) == "done" and fleeing == pack.size() - 1 and notes.has(tr("MSG_WOLF_PACK_FLED")),
+			"a second stab kills it: the rest of the pack flees (%d)" % fleeing)
+	await _seconds(2.0)
+	# The pelt (E) and the arrows.
+	player.global_position = wolf.global_position + Vector3(0, 0.1, 1.8)
+	_look_at(player, wolf.global_position + Vector3(0, 0.15, 0))
+	PlayerState.select(0)
+	await _frames(12)
+	_check(player.target == wolf and _last_prompt.contains(tr("ACTION_TAKE_PELT")), "E on the carcass: take the pelt ('%s')" % _last_prompt.replace("\n", " | "))
+	if shots != "":
+		await _cb_shot(shots, "e2e_dead_wolf_pelt")
+	var pelts := PlayerState.inventory.count_item(Wolf.PELT)
+	await _press_key(KEY_E)
+	await _frames(6)
+	_check(PlayerState.inventory.count_item(Wolf.PELT) == pelts + 1 and not is_instance_valid(wolf), "the wolf pelt is in the bag, the carcass gone")
+	await _seconds(1.2)
+	# An arrow shot into the ground, and any left lying (out of the carcass): picked up again.
+	PlayerState.select(6)
+	player.look_at_yaw_pitch(player.rotation.y, deg_to_rad(-16.0))
+	await _frames(3)
+	Input.action_press("use")
+	await _seconds(1.0)
+	Input.action_release("use")
+	await _seconds(1.2)
+	var lying := Arrow.lying()
+	_check(not lying.is_empty(), "an arrow shot into the ground sticks there (%d lying)" % lying.size())
+	arrows = PlayerState.inventory.count_item(&"arrow")
+	var picked := 0
+	for a in lying:
+		if not is_instance_valid(a):
+			continue
+		var at := a.global_transform * Vector3(0, 0, -ArrowModels.LENGTH * 0.5)
+		player.global_position = Vector3(at.x + 0.3, TerrainData.height(at.x + 0.3, at.z) + 0.05, at.z)
+		await _frames(8)
+		if not is_instance_valid(a) or a.is_queued_for_deletion():
+			picked += 1
+	_check(picked == lying.size() and PlayerState.inventory.count_item(&"arrow") == arrows + picked,
+			"walking over the arrows picks them up (%d, %d in the bag)" % [picked, PlayerState.inventory.count_item(&"arrow")])
+	PlayerState.select(0)
+	var lines := await _e2e_sleep_in_bed(player)
+	var killed_line := tr("REPORT_WOLF_KILLED") % [names.get(dead_id, "?"), Animals.species_name(&"chicken")]
+	_check(lines.has(killed_line) and lines.has(tr("REPORT_WOLF_SLAIN")), "the morning report: the hen taken, the wolf killed")
+
+
+## Day 5: the remains cleared with E; the hurt hen limping and the vet's side goal; the
+## clinic from the street and inside; E at the counter, "Treat": the fee, the hen
+## collected, back healed two hours later; the pelt sold at the town market; a hurt hen
+## left untreated dies a day later.
+func _e2e_vet(player: Player, coop: ChickenCoop, notes: Array[String], shots: String) -> void:
+	var h := coop.housing
+	GameClock.set_time_of_day(8.0)
+	await _seconds(0.5)
+	var rem: Remains = null
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		rem = r as Remains
+	_check(rem != null, "in the morning her remains still lie in the yard")
+	var hurt_ids := Animals.injured_ids()
+	var hen := Animals.by_id(int(hurt_ids[0])) if hurt_ids.size() == 1 else null
+	_check(hen != null, "the hurt hen is still alive")
+	if rem == null or hen == null:
+		return
+	var hn := Animals.node_of(hen)
+	if shots != "":
+		await _e2e_morning_shots(player, coop, rem, hn, shots)
+	# The remains: E, a short while looking at them.
+	await _e2e_face_remains(player, rem)
+	_check(_last_prompt.contains(tr("ACTION_CLEAN_REMAINS")), "E on the remains: clean up ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _seconds(Remains.CLEAN_SECONDS + 0.6)
+	_check(not is_instance_valid(rem) and Animals.remains.is_empty(), "cleared away")
+	# The hurt hen and the vet's goal.
+	_check(hn.rig.limp > 0.9 and hn.status_key() == "injured", "she limps (a 'hurt' badge over her)")
+	var vg := WolfRaids._vet_goal
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var clinic := town.vet_clinic
+	var cp := clinic.counter.global_position
+	_check(SideStory.goals.has(vg) and vg.text == tr("SIDE_GOAL_VET") and vg.guide_point() is Vector3
+			and (vg.guide_point() as Vector3).distance_to(clinic.counter.waypoint_point()) < 0.1, "the vet's side goal, its dot on the clinic's counter")
+	# Into town at 10:00: the clinic from the street, the vet at her counter.
+	GameClock.set_time_of_day(10.0)
+	if shots != "":
+		_e2e_hud(player, false)
+		player.global_position = Vector3(183.0, _people_floor(183.0, 17.2, 0.5) + 0.05, 17.2)
+		_look_at(player, Vector3(185.8, 1.9, 31.0))
+		await _seconds(2.5)
+		await _e2e_shot(shots, "e2e_vet_street")
+		player.global_position = Vector3(clinic.vet_spot().x + 1.4, clinic.floor_y + 0.05, Town.VET.position.y + 1.4)
+		_look_at(player, clinic.vet_spot() + Vector3(-0.3, 1.2, 0))
+		await _seconds(2.0)
+		await _e2e_shot(shots, "e2e_vet_inside")
+		_e2e_hud(player, true)
+	player.global_position = Vector3(cp.x + 0.6, clinic.floor_y + 0.05, cp.z - 1.3)
+	await _seconds(0.6)
+	_look_at(player, cp + Vector3(0, 0.3, 0))
+	await _frames(8)
+	_check(clinic.staffed and _last_prompt.contains(tr("ACTION_VET")), "at the counter: the vet clinic ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _frames(4)
+	var scr: VetScreen = Game.hud.vet_screen
+	var btn := _vet_button(scr, hen.name)
+	_check(scr.visible and btn != null and not btn.disabled and _vet_has_text(scr, UiTheme.caps(tr("VET_INJURED_TAG"))),
+			"E opens the vet screen: %s listed, hurt, with 'Treat'" % hen.name)
+	if shots != "":
+		await _e2e_shot(shots, "e2e_vet_screen")
+	var fee := VetClinic.fee(hen.species, hen.adult)
+	var money := Economy.money
+	notes.clear()
+	if btn:
+		btn.pressed.emit()
+	await _frames(3)
+	var back := Animals.vet_return_at(hen.id)
+	_check(Economy.money == money - fee and hen.at_vet() and Animals.node_of(hen) == null and Animals.at_vet_ids() == [hen.id],
+			"'Treat': $%d paid, the assistant collects her from the farm" % fee)
+	_check(notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_VET")) and not SideStory.goals.has(vg) and WolfRaids.vet_lesson_done,
+			"the vet's side goal is done")
+	_check(back - GameClock.total_minutes >= 119.0 and back - GameClock.total_minutes <= 180.0,
+			"she comes back %.0f minutes later" % (back - GameClock.total_minutes))
+	scr.close_screen()
+	await _frames(4)
+	# The pelt to the town market.
+	var mc := town.market_counter.global_position
+	player.global_position = Vector3(mc.x - 0.2, mc.y - 0.6 + 0.05, mc.z - 1.5)
+	await _frames(6)
+	_look_at(player, mc)
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_SHOP_MARKET")), "at the market counter ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _frames(3)
+	var shop: ShopScreen = Game.hud.shop_screen
+	shop._set_tab("sell")
+	await _frames(2)
+	var listed := false
+	for e: Dictionary in shop._entries():
+		listed = listed or e["id"] == Wolf.PELT
+	var price := Economy.sell_price(Wolf.PELT)
+	shop._sel = {"id": Wolf.PELT, "quality": 0}
+	shop._qty = 1
+	money = Economy.money
+	shop._confirm()
+	_check(shop.visible and listed and PlayerState.inventory.count_item(Wolf.PELT) == 0 and Economy.money == money + price and price >= 25 and price <= 36,
+			"the market buys the wolf pelt: +$%d" % (Economy.money - money))
+	shop.close_screen()
+	await _frames(4)
+	# Back healed after her treatment.
+	notes.clear()
+	GameClock.advance(back - GameClock.total_minutes + 1.0)
+	await _idle_frames(3)
+	_check(not hen.at_vet() and not hen.injured() and Animals.node_of(hen) != null and Animals.housing_of(hen) == h
+			and notes.has(tr("MSG_ANIMAL_HEALED") % hen.name), "two hours later she is back in the coop, healed (a toast)")
+	await _seconds(1.0)
+	_check(Animals.node_of(hen).rig.limp < 0.1, "and walks without a limp")
+	# Untreated: a day later it dies, its remains where it was.
+	var other: AnimalData = null
+	for a in Animals.animals:
+		if a != hen and Animals.node_of(a):
+			other = a
+	Animals.injure(other.id)
+	var other_name := other.name
+	var other_id := other.id
+	GameClock.advance(18.5 * 60.0)
+	await _idle_frames(3)
+	_check(notes.has(tr("MSG_INJURED_HURRY") % [other_name, 6]), "untreated: a reminder six hours before the end")
+	GameClock.advance(6.0 * 60.0)
+	await _seconds(0.5)
+	_check(Animals.by_id(other_id) == null and _raid_remains_of(other_name) != null and notes.has(tr("MSG_ANIMAL_DIED_WOUNDS") % other_name),
+			"a day after she was hurt she dies, her remains where she was")
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+
+
+## Another raid night, the hens shut in: out in the open without a weapon the pack goes for
+## him, bite after bite, until he faints; he wakes in his bed the next morning, hungry and
+## worn out, and the report says so.
+func _e2e_faint(player: Player, coop: ChickenCoop, shots: String) -> void:
+	var h := coop.housing
+	h.door.set_open(false)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	var needs := PlayerState.needs
+	var kept := needs.save_data()
+	needs.frozen = false
+	needs.hunger = 80.0
+	needs.energy = 70.0
+	# The knife in hand (he doesn't use it: the bites are what this is about).
+	PlayerState.select(7)
+	await _e2e_raid_tonight()
+	await _raid_indoors(player)
+	GameClock.advance(4.0 * 60.0 + 1.0)
+	await _e2e_until_arrived()
+	var pack := WolfRaids.wolves()
+	var stand := pack[0].global_position + (coop.center_point() - pack[0].global_position).normalized() * 5.0
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+	player.velocity = Vector3.ZERO
+	_look_at(player, pack[0].global_position + Vector3(0, 0.5, 0))
+	var day := GameClock.day
+	var bit_him := []
+	var on_hurt := func(amount: float, _from: Vector3) -> void: bit_him.append(amount)
+	PlayerState.hurt_taken.connect(on_hurt)
+	var t := 0.0
+	var snapped_lunge := false
+	var snapped_red := false
+	Engine.time_scale = 1.0 if shots != "" else 2.0
+	var t0 := Time.get_ticks_msec()
+	while t < 90.0 and not PlayerState.knocked_out:
+		if shots == "":
+			await _frames(3)
+			t += 0.05
+			continue
+		await tree.process_frame
+		t = (Time.get_ticks_msec() - t0) / 1000.0
+		for w in WolfRaids.wolves():
+			var wf := w as Wolf
+			if wf._going_in and not snapped_lunge:
+				_look_at(player, wf.global_position + Vector3(0, 0.45, 0))
+			if wf._lunge_t > 0.08 and wf._lunge_t < 0.3 and not snapped_lunge:
+				_look_at(player, wf.head_point() - Vector3(0, 0.15, 0))
+				await _cb_shot(shots, "e2e_wolf_lunge")
+				snapped_lunge = true
+		if bit_him.size() >= 3 and not snapped_red and PlayerState.injury > 50.0:
+			var closest: Node3D = null
+			for w in WolfRaids.wolves():
+				if closest == null or w.global_position.distance_to(player.global_position) < closest.global_position.distance_to(player.global_position):
+					closest = w
+			if closest:
+				_look_at(player, closest.global_position + Vector3(0, 0.4, 0))
+			await _cb_shot(shots, "e2e_injury_vignette")
+			snapped_red = true
+	Engine.time_scale = 1.0
+	PlayerState.hurt_taken.disconnect(on_hurt)
+	_check(PlayerState.knocked_out and bit_him.size() >= 4, "the wolves' bites knock him out (%d bites in %.0f s)" % [bit_him.size(), t])
+	_check(WolfRaids.wolves().is_empty() and bool(WolfRaids.tonight.get("fainted", false)), "they leave him lying")
+	for i in 200:
+		if Game.hud.sleep_screen._waiting:
+			break
+		await _seconds(0.1)
+	var bed := get_first_bed()
+	_check(GameClock.day == day + 1 and GameClock.get_hour() == 6, "he comes round the next morning (day %d, %s)" % [GameClock.day, GameClock.time_string()])
+	_check(Vector2(player.global_position.x - bed.global_position.x, player.global_position.z - bed.global_position.z).length() < 2.5,
+			"in his bed at the farmhouse")
+	_check(needs.hunger <= Needs.KNOCKED_OUT_LEVEL + 0.01 and needs.energy <= Needs.KNOCKED_OUT_LEVEL + 0.01,
+			"hungry and worn out (hunger %.0f, energy %.0f)" % [needs.hunger, needs.energy])
+	var texts := PackedStringArray()
+	for l in Game.hud.sleep_screen._report.find_children("*", "Label", true, false):
+		texts.append((l as Label).text)
+	_check(texts.has(UiTheme.caps(tr("REPORT_KNOCKED_OUT"))) and texts.has(tr("REPORT_WOLVES_SAFE")),
+			"the morning report: he fainted, the hens were safe")
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	needs.load_data(kept)
+	needs.frozen = true
+
+
+## Another raid night: the pack after him by the pickup, he gets in (E): they circle it
+## and give up after a while, off into the forest; the raid is over.
+func _e2e_pickup(player: Player, coop: ChickenCoop, notes: Array[String], shots: String) -> void:
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck
+	var home := truck.global_transform
+	truck.unlock()
+	var at := coop.door_point() + coop.housing.front() * 12.0
+	at.y = TerrainData.height(at.x, at.z) + 0.6
+	truck.teleport(Transform3D(Basis(Vector3.UP, coop.rotation.y + PI * 0.5), at))
+	await _e2e_raid_tonight()
+	await _raid_indoors(player)
+	GameClock.advance(4.0 * 60.0 + 1.0)
+	await _e2e_until_arrived()
+	var side := truck.global_transform.basis.x
+	var stand := truck.global_position - side * 2.4
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+	player.velocity = Vector3.ZERO
+	# The pack prowling round the coop finds him out there.
+	var on_foot := 0
+	var wait := 0.0
+	while wait < 20.0 and on_foot == 0:
+		await _seconds(0.5)
+		wait += 0.5
+		for w in WolfRaids.wolves():
+			if (WolfRaids._orders.get(w, []) as Array).size() > 0 and WolfRaids._orders[w][0] == &"attack_player":
+				on_foot += 1
+	await _seconds(1.5)
+	_look_at(player, truck.global_position + Vector3(0, 1.0, 0))
+	await _frames(8)
+	_check(on_foot >= 1 and _last_prompt.contains(tr("ACTION_DRIVE")), "by the pickup with the pack after him (%d): E gets in ('%s')" % [on_foot, _last_prompt.replace("\n", " | ")])
+	await _press_key(KEY_E)
+	await _frames(10)
+	_check(player.driving == truck, "in the pickup")
+	var pack := WolfRaids.wolves()
+	var gave := []
+	for w in pack:
+		(w as Wolf).gave_up.connect(func(x: Wolf) -> void: gave.append(x))
+	notes.clear()
+	# Round the pickup: each of them close by it, giving up on him only after a while.
+	var circled := {}
+	var t := 0.0
+	while t < 12.0:
+		await _seconds(0.5)
+		t += 0.5
+		for w in pack:
+			if is_instance_valid(w) and (w as Wolf)._give_up_why == &"vehicle":
+				var d := _raid_flat(w.global_position, truck.global_position)
+				if d > 3.0 and d < 10.0:
+					circled[w] = true
+		if shots != "" and is_equal_approx(t, 7.0):
+			await _cb_shot(shots, "e2e_wolves_round_pickup")
+	_check(circled.size() >= pack.size() - 1 and gave.is_empty(), "they circle the pickup (%d of %d), none giving up yet" % [circled.size(), pack.size()])
+	while t < 30.0 and WolfRaids.raid_pending():
+		await _seconds(0.5)
+		t += 0.5
+	_check(gave.size() == pack.size() and not WolfRaids.raid_pending() and notes.has(tr("MSG_WOLVES_LEFT")),
+			"after %.0f s they give up and go back into the forest; the raid is over" % t)
+	var gone_t := 0.0
+	while gone_t < 30.0 and not tree.get_nodes_in_group(Wolf.GROUP).is_empty():
+		await _seconds(0.5)
+		gone_t += 0.5
+	_check(tree.get_nodes_in_group(Wolf.GROUP).is_empty(), "gone from the farm (%.0f s later)" % gone_t)
+	player.exit_vehicle()
+	await _frames(10)
+	truck.teleport(home)
+	await _frames(5)
+
+
+## Tonight is a raid night (a later one), set at 19:00 on today's evening.
+func _e2e_raid_tonight() -> void:
+	GameClock.set_time_of_day(19.0)
+	await _idle_frames(2)
+	WolfRaids.tonight = {}
+	WolfRaids.rolled_day = GameClock.day
+	WolfRaids._set_tonight(false)
+
+
+## Waits (sped up) for the pack to gather at the farm.
+func _e2e_until_arrived() -> void:
+	Engine.time_scale = 3.0
+	for i in 400:
+		await _seconds(0.1)
+		if WolfRaids._arrived:
+			break
+	Engine.time_scale = 1.0
+	await _seconds(0.5)
+
+
+## The farmer at the coop's door, looking at it (E opens or shuts it).
+func _e2e_at_coop_door(player: Player, coop: ChickenCoop) -> void:
+	var h := coop.housing
+	PlayerState.select(0)
+	_free_hands()
+	player.global_position = h.door_outside() + h.front() * 0.8 + Vector3(0, 0.3, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(4)
+	_look_at(player, h.door_inside() + Vector3(0, 0.7, 0) - h.front() * 1.0)
+	await _frames(8)
+
+
+## The farmer a step from remains `rem`, looking at them (from whichever side he can see
+## them: they may lie in the coop's doorway or on its floor).
+func _e2e_face_remains(player: Player, rem: Remains) -> void:
+	for i in 8:
+		var a := TAU * float(i) / 8.0
+		var stand := rem.global_position + Vector3(cos(a), 0.0, sin(a)) * 1.4
+		var q := PhysicsRayQueryParameters3D.create(stand + Vector3(0, 1.0, 0), stand - Vector3(0, 2.0, 0), 1)
+		q.exclude = [player.get_rid()]
+		var hit := player.get_world_3d().direct_space_state.intersect_ray(q)
+		player.global_position = (hit["position"] as Vector3 if hit else stand) + Vector3(0, 0.05, 0)
+		player.velocity = Vector3.ZERO
+		await _frames(4)
+		_look_at(player, rem.global_position + Vector3(0, 0.05, 0))
+		await _frames(6)
+		if player.target == rem:
+			return
+
+
+## E on the bed (after dark): asleep to the morning report; its lines (then it is closed).
+func _e2e_sleep_in_bed(player: Player) -> PackedStringArray:
+	var bed := get_first_bed()
+	player.global_position = bed.global_position + Vector3(-1.25, 0.05, 0.4)
+	player.velocity = Vector3.ZERO
+	await _frames(4)
+	_look_at(player, bed.global_position + Vector3(0, 0.5, 0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_SLEEP")), "E on the bed: sleep ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	for i in 120:
+		await _seconds(0.1)
+		if Game.hud.sleep_screen._waiting:
+			break
+	var texts := PackedStringArray()
+	for l in Game.hud.sleep_screen._report.find_children("*", "Label", true, false):
+		texts.append((l as Label).text)
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	return texts
+
+
+## The farmer `dist` m from wolf `w` (on its `side`), looking at the middle of its body.
+func _e2e_face_wolf(player: Player, w: Wolf, dist: float, side: Vector3) -> void:
+	var c := w.hit_center()
+	var from := Vector3(side.x, 0.0, side.z)
+	from = from.normalized() if from.length() > 0.1 else Vector3(0, 0, 1)
+	var p := c + from * dist
+	player.global_position = Vector3(p.x, TerrainData.height(p.x, p.z) + 0.05, p.z)
+	player.velocity = Vector3.ZERO
+	await _frames(3)
+	_look_at(player, w.hit_center())
+	await _frames(3)
+
+
+## The pack at the coop (23:10): from out in front of it, the coop and the wolves at its
+## yard in view.
+func _e2e_coop_view(player: Player, coop: ChickenCoop, shots: String) -> void:
+	_e2e_hud(player, false)
+	var h := coop.housing
+	var near: Node3D = null
+	for w in WolfRaids.wolves():
+		if near == null or _raid_flat(w.global_position, coop.center_point()) < _raid_flat(near.global_position, coop.center_point()):
+			near = w
+	var side := signf(h.frame.basis.x.dot(near.global_position - coop.center_point()))
+	var p := h.door_outside() + h.front() * 6.0 - h.frame.basis.x * side * 2.0
+	player.global_position = Vector3(p.x, TerrainData.height(p.x, p.z) + 0.05, p.z)
+	_look_at(player, (coop.center_point() + near.global_position * 2.0) / 3.0 + Vector3(0, 0.4, 0))
+	await _seconds(0.5)
+	await _cb_shot(shots, "e2e_wolves_at_coop")
+	_e2e_hud(player, true)
+
+
+## The HUD and the item in hand shown or not (screenshots of the world itself).
+func _e2e_hud(player: Player, shown: bool) -> void:
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = shown
+	player.held.visible = shown
+
+
+## The morning after: the hen's remains in the coop yard and the hurt hen limping.
+func _e2e_morning_shots(player: Player, coop: ChickenCoop, rem: Remains, hn: Animal, shots: String) -> void:
+	_e2e_hud(player, false)
+	var off := rem.global_position - coop.center_point()
+	off.y = 0.0
+	var stand := rem.global_position + off.normalized() * 1.9
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.05, stand.z)
+	_look_at(player, rem.global_position)
+	await _seconds(1.5)
+	await _e2e_shot(shots, "e2e_morning_remains")
+	var h := coop.housing
+	# Nothing between her and the camera.
+	for grp: StringName in [&"rocks", &"grass_patches"]:
+		for n in tree.get_nodes_in_group(grp):
+			if (n as Node3D).global_position.distance_to(coop.global_position) < 12.0:
+				(n as Node3D).visible = false
+	hn._scared = 0.0
+	var from := h.door_outside() + h.front() * 2.5 - h.frame.basis.x * 2.5
+	from.y = h.ground_height(from)
+	hn.global_position = from
+	hn.indoors = false
+	hn.reset_physics_interpolation()
+	hn._go(from + h.frame.basis.x * 5.0, false, Animal.State.WANDER)
+	var eye := from + h.frame.basis.x * 2.5 + h.front() * 2.6
+	player.global_position = Vector3(eye.x, TerrainData.height(eye.x, eye.z) + 0.05, eye.z)
+	for i in 120:
+		await tree.process_frame
+		_look_at(player, hn.global_position + Vector3(0, 0.25, 0))
+		if i > 50 and hn.rig.limp_load() > 0.85:
+			break
+	await _cb_shot(shots, "e2e_hen_limping")
+	_e2e_hud(player, true)
+
+
+func _e2e_shot(dir: String, shot_name: String) -> void:
+	if dir == "":
+		return
+	await _seconds(0.6)
+	await _idle_frames(4)
+	tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT %s/%s.png" % [dir, shot_name])
+
+
+# --- Combat: the knife, the bow and arrows, the farmer's wounds --------------------------
+
+## The knife and the bow against a wolf-sized test target (tests/combat_dummy.gd; the real
+## wolves are fought in wolves_e2e): a stab lands at reach for its wound and wears the
+## knife, misses beyond; the bow draws (an arrow on the string, the view narrowing), looses an arrow
+## that flies, strikes for more the further it was drawn, sticks; RMB lets it down; no
+## arrows only says so; an arrow in the ground is picked up by walking over it or with E;
+## arrows made at the workbench. Wounds: PlayerState.hurt fills the meter, reddens the
+## screen's edges, knocks the view, heals after a calm; a full meter knocks him out into
+## the next morning in his bed, hungry and worn out, the report saying so.
+## -- --combat-shots=/abs/dir also saves screenshots there.
+func _scenario_combat() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	seed(4242)
+	player.combat._rng.seed = 77
+	var inv := PlayerState.inventory
+	var shots := String(DebugTools.args.get("combat-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_slot := inv.get_stack(7)
+	GameClock.set_time_of_day(13.0)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var field := _rabbit_meadow()
+	_check(field != Vector3.INF, "an open meadow to practise on")
+	for r: Node in tree.get_nodes_in_group(&"wild_rabbits"):
+		r.queue_free()
+	var dummy := CombatDummy.new()
+	Game.world.add_child(dummy)
+	player.global_position = field + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(10)
+	if DebugTools.args.has("combat-pose") and shots != "":
+		# Only the look of the bow and the arrows (-- --combat-pose).
+		await _cb_pose_shots(player, dummy, shots)
+		dummy.queue_free()
+		Events.notification_requested.disconnect(on_note)
+		return
+
+	# --- The knife ---
+	inv.set_stack(7, ItemStack.create(&"knife"))
+	PlayerState.select(7)
+	await _cb_face(player, dummy, 1.5)
+	var dur := inv.get_stack(7).durability
+	await _press_mouse_use()
+	await _seconds(0.5)
+	_check(dummy.hits.size() == 1 and dummy.hits[0]["kind"] == Combat.KNIFE and is_equal_approx(float(dummy.hits[0]["damage"]), Combat.KNIFE_DAMAGE),
+			"a stab hits the target 1.5 m away for %d (%s)" % [int(Combat.KNIFE_DAMAGE), str(dummy.hits)])
+	_check(inv.get_stack(7).durability == dur - 1, "the hit wears the knife by one (%d -> %d)" % [dur, inv.get_stack(7).durability])
+	if shots != "":
+		player.held.debug_pose(&"stab", 0.42)
+		await _cb_shot(shots, "knife_stab")
+		player.held.debug_pose(&"", -1.0)
+	dummy.reset()
+	await _cb_face(player, dummy, 3.0)
+	dur = inv.get_stack(7).durability
+	await _press_mouse_use()
+	await _seconds(0.5)
+	_check(dummy.hits.is_empty() and inv.get_stack(7).durability == dur, "a stab at 3 m reaches nothing (no wound, no wear)")
+	await _cb_face(player, dummy, 1.3)
+	for i in 3:
+		await _press_mouse_use()
+		await _seconds(0.5)
+	_check(dummy.hits.size() == 3 and dummy.health <= 0.0, "three stabs bring a wolf-sized body down (%d hits, %.0f left)" % [dummy.hits.size(), dummy.health])
+	await _press_mouse_use()
+	await _seconds(0.5)
+	_check(dummy.hits.size() == 3, "a body that is down takes no more stabs")
+
+	# --- The bow without arrows ---
+	dummy.reset()
+	inv.remove_item(&"arrow", inv.count_item(&"arrow"))
+	inv.set_stack(7, ItemStack.create(&"bow"))
+	PlayerState.select(7)
+	await _frames(3)
+	notes.clear()
+	await _press_mouse_use()
+	await _frames(3)
+	_check(tr("MSG_NO_ARROWS") in notes and not player.combat.is_drawing(), "with no arrows LMB only says so (%s)" % str(notes))
+	_check(_last_prompt.contains(tr("HINT_NO_ARROWS")), "the bow's prompt says there are no arrows")
+
+	# --- Drawing and loosing at 12 m ---
+	inv.add_item(&"arrow", 6)
+	await _cb_face(player, dummy, 12.0)
+	var bow_dur := inv.get_stack(7).durability
+	Input.action_press("use")
+	await _seconds(0.3)
+	var half := player.combat.draw
+	_check(player.combat.is_drawing() and half > 0.25 and half < 0.65, "holding LMB draws the string (%.2f after 0.3 s)" % half)
+	_check(player.held._bow != null and player.held._bow._arrow.visible, "an arrow sits on the drawn string")
+	_check(_last_prompt.contains(tr("ACTION_LET_DOWN")), "while drawing the prompt offers RMB to lower the bow")
+	await _seconds(0.7)
+	_check(is_equal_approx(player.combat.draw, 1.0) and player.camera.fov < Settings.fov - 5.0,
+			"full draw after %.1f s, the view narrowed (fov %.1f)" % [Combat.DRAW_TIME, player.camera.fov])
+	if shots != "":
+		await _cb_shot(shots, "bow_full_draw")
+	var arrows := inv.count_item(&"arrow")
+	Input.action_release("use")
+	await _frames(2)
+	var flying := _cb_flying_arrow()
+	_check(flying != null and inv.count_item(&"arrow") == arrows - 1 and inv.get_stack(7).durability == bow_dur - 1,
+			"releasing looses one arrow and wears the bow (%d arrows, %d durability)" % [inv.count_item(&"arrow"), inv.get_stack(7).durability])
+	_check(flying != null and flying.velocity.length() > 45.0, "a full draw sends it at ~50 m/s (%.0f)" % (flying.velocity.length() if flying else 0.0))
+	var start := flying.global_position if flying else Vector3.ZERO
+	await _seconds(0.12)
+	_check(flying != null and is_instance_valid(flying) and flying.global_position.distance_to(start) > 3.0,
+			"the arrow flies (%.1f m in 0.12 s)" % (flying.global_position.distance_to(start) if is_instance_valid(flying) else 0.0))
+	await _seconds(0.6)
+	_check(dummy.hits.size() == 1 and dummy.hits[0]["kind"] == Combat.ARROW and float(dummy.hits[0]["damage"]) > Combat.ARROW_DAMAGE.y - 1.0,
+			"it strikes the target 12 m off for %.0f (%s)" % [Combat.ARROW_DAMAGE.y, str(dummy.hits)])
+	if is_instance_valid(flying):
+		_check(flying.state == Arrow.State.STUCK and flying.host == dummy, "the arrow stays stuck in the body")
+		var was := flying.global_position
+		dummy.global_position += Vector3(0.6, 0, 0)
+		await _idle_frames(3)
+		_check(flying.global_position.distance_to(was + Vector3(0.6, 0, 0)) < 0.05, "and moves with it")
+		_check(not flying.can_take(), "an arrow in a body that can still be hit can't be taken")
+		dummy.global_position -= Vector3(0.6, 0, 0)
+	else:
+		_check(true, "the arrow broke in the body (it may, 30%)")
+	await _seconds(1.2)
+
+	# --- A half-drawn shot at 5 m wounds less ---
+	dummy.reset()
+	await _cb_face(player, dummy, 5.0)
+	Input.action_press("use")
+	await _seconds(0.33)
+	var drawn := player.combat.draw
+	Input.action_release("use")
+	await _seconds(0.6)
+	_check(dummy.hits.size() == 1 and float(dummy.hits[0]["damage"]) < Combat.ARROW_DAMAGE.y - 8.0 and float(dummy.hits[0]["damage"]) > Combat.ARROW_DAMAGE.x,
+			"a half-drawn arrow (%.2f) wounds less (%s)" % [drawn, str(dummy.hits)])
+	await _seconds(0.5)
+
+	# --- RMB lets the string down ---
+	arrows = inv.count_item(&"arrow")
+	Input.action_press("use")
+	await _seconds(0.3)
+	Input.action_press("secondary")
+	await _frames(3)
+	Input.action_release("secondary")
+	Input.action_release("use")
+	await _seconds(0.5)
+	_check(not player.combat.is_drawing() and inv.count_item(&"arrow") == arrows and _cb_flying_arrow() == null,
+			"RMB lowers the bow: no shot, no arrow spent")
+
+	# --- An arrow in the ground, picked up by walking over it ---
+	dummy.global_position = field + Vector3(30, 0, 0)
+	player.look_at_yaw_pitch(PI, deg_to_rad(-14.0))
+	await _frames(3)
+	Input.action_press("use")
+	await _seconds(1.0)
+	Input.action_release("use")
+	await _seconds(1.0)
+	var ground := _cb_lying_arrow()
+	_check(ground != null and ground.host == null, "an arrow shot at the ground sticks there")
+	if ground:
+		var tip := ground.global_transform * Vector3(0, 0, -ArrowModels.LENGTH)
+		_check(tip.y < TerrainData.height(tip.x, tip.z) + 0.02, "point first, driven into the soil (%.2f under)" % (TerrainData.height(tip.x, tip.z) - tip.y))
+		if shots != "":
+			var mid := ground.global_transform * Vector3(0, 0, -ArrowModels.LENGTH * 0.5)
+			player.global_position = mid + Vector3(1.6, 0.0, -1.0)
+			player.global_position.y = TerrainData.height(player.global_position.x, player.global_position.z) + 0.05
+			_look_at(player, mid + Vector3(0, 0.1, 0))
+			PlayerState.select(0)
+			await _frames(4)
+			await _cb_shot(shots, "arrow_in_ground")
+			PlayerState.select(7)
+		arrows = inv.count_item(&"arrow")
+		var at := ground.global_transform * Vector3(0, 0, -ArrowModels.LENGTH * 0.5)
+		player.global_position = Vector3(at.x + 0.3, TerrainData.height(at.x + 0.3, at.z) + 0.05, at.z)
+		await _frames(6)
+		_check(not is_instance_valid(ground) and inv.count_item(&"arrow") == arrows + 1, "walking over it puts it back in the bag (%d)" % inv.count_item(&"arrow"))
+	# --- ... and one taken with E ---
+	player.global_position = field + Vector3(0, 0.1, 0)
+	player.look_at_yaw_pitch(PI, deg_to_rad(-14.0))
+	await _frames(4)
+	Input.action_press("use")
+	await _seconds(1.0)
+	Input.action_release("use")
+	await _seconds(1.0)
+	var second := _cb_lying_arrow()
+	if second:
+		var mid := second.global_transform * Vector3(0, 0, -ArrowModels.LENGTH * 0.5)
+		player.global_position = mid + Vector3(0, 0, -1.7)
+		player.global_position.y = TerrainData.height(player.global_position.x, player.global_position.z) + 0.05
+		_look_at(player, mid)
+		await _frames(6)
+		_check(_last_prompt.contains(tr("ACTION_TAKE_ARROW")), "looking at an arrow offers to take it ('%s')" % _last_prompt)
+		arrows = inv.count_item(&"arrow")
+		await _press_key(KEY_E)
+		await _frames(3)
+		_check(not is_instance_valid(second) or second.is_queued_for_deletion(), "E takes the arrow")
+		_check(inv.count_item(&"arrow") == arrows + 1, "back in the bag (%d)" % inv.count_item(&"arrow"))
+	else:
+		_check(false, "a second arrow lies in the ground to take with E")
+
+	# --- Arrows from the workbench ---
+	await _cb_workbench_arrows(player, field)
+
+	# --- A wild rabbit struck lies there to be picked up ---
+	var rabbit := WildRabbit.new()
+	Game.world.add_child(rabbit)
+	rabbit.global_position = field + Vector3(-6.0, 0.0, 0.0)
+	await _frames(2)
+	_check(Combat.find_hittable(rabbit) == rabbit and rabbit.can_be_hit(), "a wild rabbit can be hit")
+	var caught: Array[StringName] = []
+	var on_caught := func(id: StringName) -> void: caught.append(id)
+	Events.game_caught.connect(on_caught)
+	rabbit.take_hit(Combat.ARROW_DAMAGE.y, player.global_position, Combat.ARROW)
+	await _frames(3)
+	var lies := false
+	for n: Node in tree.get_nodes_in_group(&"pickups"):
+		if n is Pickup and (n as Pickup).stack.item.id == WildRabbit.ITEM and (n as Pickup).global_position.distance_to(field + Vector3(-6.0, 0.0, 0.0)) < 1.5:
+			lies = true
+	_check(lies and caught == [WildRabbit.ITEM] and not is_instance_valid(rabbit), "an arrow takes it: a rabbit lies where it was struck")
+	Events.game_caught.disconnect(on_caught)
+
+	# --- Wounds ---
+	PlayerState.select(0)
+	dummy.queue_free()
+	await _cb_wounds(player, shots)
+	await _cb_faint(player, shots)
+
+	for a: Node in tree.get_nodes_in_group(&"arrows"):
+		a.queue_free()
+	Events.notification_requested.disconnect(on_note)
+	inv.set_stack(7, kept_slot)
+	PlayerState.select(0)
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+
+
+## The bow at rest and at full draw, an arrow in flight, one stuck in the target and
+## one in the ground, close up (-- --combat-pose with --combat-shots).
+func _cb_pose_shots(player: Player, dummy: CombatDummy, shots: String) -> void:
+	var inv := PlayerState.inventory
+	inv.set_stack(7, ItemStack.create(&"bow"))
+	inv.add_item(&"arrow", 10)
+	PlayerState.select(7)
+	await _cb_face(player, dummy, 12.0)
+	await _seconds(0.8)
+	await _cb_shot(shots, "pose_bow_rest")
+	Input.action_press("use")
+	await _seconds(0.12)
+	await _cb_shot(shots, "pose_bow_raise")
+	await _seconds(1.0)
+	await _cb_shot(shots, "pose_bow_full")
+	Input.action_release("use")
+	await _idle_frames(2)
+	await _cb_shot(shots, "pose_bow_loose")
+	await _seconds(1.5)
+	var a := Arrow.lying()
+	if not a.is_empty():
+		var mid := a[-1].global_transform * Vector3(0, 0, -ArrowModels.LENGTH * 0.5)
+		player.global_position = mid + Vector3(-1.2, 0.0, -1.0)
+		player.global_position.y = TerrainData.height(player.global_position.x, player.global_position.z) + 0.05
+		_look_at(player, mid)
+		PlayerState.select(0)
+		await _frames(4)
+		await _cb_shot(shots, "pose_arrow_target")
+		PlayerState.select(7)
+	player.global_position = dummy.global_position + Vector3(0, 0.1, -12.0)
+	player.look_at_yaw_pitch(PI, deg_to_rad(-14.0))
+	await _frames(4)
+	Input.action_press("use")
+	await _seconds(1.0)
+	Input.action_release("use")
+	await _seconds(1.2)
+	var g := _cb_lying_arrow()
+	if g:
+		var mid := g.global_transform * Vector3(0, 0, -ArrowModels.LENGTH * 0.5)
+		player.global_position = mid + Vector3(1.4, 0.0, -0.9)
+		player.global_position.y = TerrainData.height(player.global_position.x, player.global_position.z) + 0.05
+		_look_at(player, mid + Vector3(0, 0.1, 0))
+		PlayerState.select(0)
+		await _frames(4)
+		await _cb_shot(shots, "pose_arrow_ground")
+	inv.set_stack(7, ItemStack.create(&"knife"))
+	PlayerState.select(7)
+	await _cb_face(player, dummy, 1.4)
+	await _seconds(0.5)
+	await _cb_shot(shots, "pose_knife_rest")
+	player.held.debug_pose(&"stab", 0.22)
+	await _cb_shot(shots, "pose_knife_back")
+	player.held.debug_pose(&"stab", 0.42)
+	await _cb_shot(shots, "pose_knife_stab")
+	player.held.debug_pose(&"", -1.0)
+
+
+## Puts `dummy` `dist` m ahead of the farmer (north of him, on the ground) and turns him
+## to look at its middle.
+func _cb_face(player: Player, dummy: CombatDummy, dist: float) -> void:
+	var p := player.global_position
+	var at := Vector3(p.x, 0.0, p.z + dist)
+	at.y = TerrainData.height(at.x, at.z)
+	dummy.global_position = at
+	dummy.rotation = Vector3.ZERO
+	_look_at(player, dummy.hit_center())
+	await _frames(4)
+
+
+## The newest arrow still in the air, or null.
+func _cb_flying_arrow() -> Arrow:
+	var out: Arrow = null
+	for n: Node in tree.get_nodes_in_group(&"arrows"):
+		if n is Arrow and (n as Arrow).state == Arrow.State.FLYING and not n.is_queued_for_deletion():
+			out = n
+	return out
+
+
+## The newest arrow stuck in the ground (in no body), or null.
+func _cb_lying_arrow() -> Arrow:
+	var out: Arrow = null
+	for a: Arrow in Arrow.lying():
+		if a.host == null and not a.is_queued_for_deletion():
+			out = a
+	return out
+
+
+## A screenshot saved now (no waiting: the pose of this moment).
+func _cb_shot(dir: String, shot_name: String) -> void:
+	await _idle_frames(3)
+	var img := tree.root.get_viewport().get_texture().get_image()
+	img.save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT ", shot_name)
+
+
+## A workbench put down beside the farmer: E opens it, and arrows come five at a time
+## for two wood and a stone.
+func _cb_workbench_arrows(player: Player, field: Vector3) -> void:
+	var inv := PlayerState.inventory
+	var at := field + Vector3(4.0, 0.0, -3.0)
+	at.y = TerrainData.height(at.x, at.z)
+	var e := FarmState.add_placed(&"workbench", at, 0.0)
+	var bench := Game.world.farm.spawn_placed(e) as Workbench
+	await _frames(3)
+	_check(bench != null, "a workbench stands beside the meadow")
+	if bench == null:
+		return
+	inv.add_item(&"wood", 4)
+	inv.add_item(&"stone", 2)
+	var wood := inv.count_item(&"wood")
+	var stone := inv.count_item(&"stone")
+	var arrows := inv.count_item(&"arrow")
+	bench.interact(player)
+	await _frames(3)
+	var crafting: CraftingScreen = Game.hud.crafting_screen
+	_check(crafting.visible, "E at the workbench opens its list")
+	_check(RecipeTable.CRAFT_ORDER.find(&"arrow") == RecipeTable.CRAFT_ORDER.find(&"bow") + 1, "arrows are listed right after the bow")
+	_check(crafting.craft(&"arrow") and inv.count_item(&"arrow") == arrows + 5 and inv.count_item(&"wood") == wood - 2 and inv.count_item(&"stone") == stone - 1,
+			"five arrows made from two wood and a stone (%d arrows)" % inv.count_item(&"arrow"))
+	await _close_screens()
+	FarmState.remove_placed(e)
+	bench.queue_free()
+
+
+## PlayerState.hurt: the meter, the red at the edges, the knock of the view, healing.
+func _cb_wounds(player: Player, shots: String) -> void:
+	PlayerState._heal_all()
+	await _frames(2)
+	_check(Game.hud.injury_overlay.shown() == 0.0, "unhurt, nothing red on screen")
+	var from := player.global_position + player.global_basis.x * -2.0
+	PlayerState.hurt(20.0, from)
+	await _idle_frames(4)
+	var jolt := _view_jolt(player)
+	_check(is_equal_approx(PlayerState.injury, 20.0), "a bite of 20 fills the meter to %.0f" % PlayerState.injury)
+	_check(jolt > 0.4, "the view is knocked by the bite (%.1f deg)" % jolt)
+	await _seconds(0.6)
+	_check(Game.hud.injury_overlay.shown() > 0.1, "the edges of the screen go red (%.2f)" % Game.hud.injury_overlay.shown())
+	await _seconds(1.0)
+	_check(is_equal_approx(PlayerState.injury, 20.0), "it doesn't heal while the bites are fresh")
+	PlayerState._calm = PlayerState.INJURY_CALM - 0.1
+	await _seconds(1.6)
+	_check(PlayerState.injury < 20.0 and PlayerState.injury > 19.0, "after a calm it slowly heals (%.2f)" % PlayerState.injury)
+	PlayerState.hurt(22.0, player.global_position - player.global_basis.z * 1.5)
+	PlayerState.hurt(24.0, player.global_position + player.global_basis.x * 1.5)
+	await _seconds(0.9)
+	if shots != "":
+		player.look_at_yaw_pitch(player.rotation.y, deg_to_rad(-4.0))
+		await _cb_shot(shots, "injury_vignette")
+	_check(PlayerState.injury > 60.0 and not PlayerState.knocked_out, "badly hurt (%.0f) but still standing" % PlayerState.injury)
+
+
+## A full meter: he faints, the night runs, he wakes in his bed the next morning.
+func _cb_faint(player: Player, shots: String) -> void:
+	var needs := PlayerState.needs
+	var kept := needs.save_data()
+	needs.frozen = false
+	needs.hunger = 80.0
+	needs.energy = 70.0
+	GameClock.set_time_of_day(22.5)
+	var day := GameClock.day
+	var knocked: Array[bool] = []
+	var on_ko := func() -> void: knocked.append(GameClock.day == day)
+	Events.player_knocked_out.connect(on_ko)
+	PlayerState.hurt(PlayerState.INJURY_MAX, player.global_position + player.global_basis.x * 1.5)
+	await _frames(2)
+	_check(knocked == [true] and PlayerState.knocked_out, "a full meter knocks him out (Events.player_knocked_out before the night)")
+	_check(Game.is_ui_open() and Game.hud.sleep_screen.is_busy(), "he can't move while he faints")
+	await _seconds(1.1)
+	_check(player._collapse > 0.3, "the view sinks to the ground (%.2f)" % player._collapse)
+	if shots != "":
+		await _cb_shot(shots, "faint_fall")
+	PlayerState.hurt(10.0, player.global_position)
+	_check(PlayerState.knocked_out, "nothing more hurts him while he is down")
+	await _seconds(1.6)
+	var line: Label = Game.hud.sleep_screen._faint_line
+	_check(line.visible and line.text == tr("MSG_KNOCKED_OUT_WOLVES"), "a line on the black: '%s'" % line.text)
+	if shots != "":
+		await _cb_shot(shots, "faint_line")
+	for i in 120:
+		if Game.hud.sleep_screen._waiting:
+			break
+		await _seconds(0.1)
+	_check(GameClock.day == day + 1 and GameClock.get_hour() == 6, "he comes round the next morning (day %d %s)" % [GameClock.day, GameClock.time_string()])
+	var bed := get_first_bed()
+	_check(bed != null and Vector2(player.global_position.x - bed.global_position.x, player.global_position.z - bed.global_position.z).length() < 2.5,
+			"in his bed at the farmhouse")
+	_check(needs.hunger <= Needs.KNOCKED_OUT_LEVEL + 0.01 and needs.energy <= Needs.KNOCKED_OUT_LEVEL + 0.01,
+			"hungry and worn out (hunger %.0f, energy %.0f)" % [needs.hunger, needs.energy])
+	_check(PlayerState.injury == 0.0 and not PlayerState.knocked_out and player._collapse == 0.0, "his wounds are gone and he stands up")
+	_check(_cb_has_text(Game.hud.sleep_screen._report, UiTheme.caps(tr("REPORT_KNOCKED_OUT"))), "the morning report says he fainted")
+	if shots != "":
+		await _cb_shot(shots, "faint_report")
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	_check(not Game.is_ui_open(), "the morning goes on")
+	Events.player_knocked_out.disconnect(on_ko)
+	needs.load_data(kept)
+	needs.frozen = true
+
+
+## Whether a label under `node` shows `text`.
+func _cb_has_text(node: Node, text: String) -> bool:
+	if node is Label and (node as Label).text == text:
+		return true
+	for c in node.get_children():
+		if _cb_has_text(c, text):
+			return true
+	return false
+
+
+
+# --- The wolf --------------------------------------------------------------------------
+
+## The wolf (Wolf, WolfRig): its model, sounds and pelt item; each goal a raid director
+## drives it with (approach, prowl, hunt and bite, the farmer: circling and darting in,
+## round his vehicle and outside the house till it gives up, howl, flee and gone), a
+## pack keeping its spacing, its paws on the ground, hits and death, the carcass and its
+## pelt, the carcass going by itself, a burning campfire and the buildings it keeps out
+## of, what posing costs. With --wolf-shots=DIR it photographs itself.
+func _scenario_wolf() -> void:
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(11.0)
+	GameClock.running = false
+	_check(ResourceLoader.exists(WolfRig.WOLF_PATH) and WolfRig.WOLF_PATH.begins_with("res://art/models/animals/wolf/"),
+			"the wolf's model loads by its own path (%s)" % WolfRig.WOLF_PATH)
+	var spot := _wolf_spot()
+	_check(spot.is_finite(), "an open meadow on the farm to test in (%s)" % str(spot))
+	if not spot.is_finite():
+		return
+	player.global_position = spot + Vector3(0, 0.1, 12.0)
+	player.velocity = Vector3.ZERO
+	await _frames(20)
+	var wolf := Wolf.spawn(Game.world, spot)
+	await _frames(10)
+	var rig := wolf.rig
+	_check(wolf.is_in_group(&"wolves") and wolf.is_in_group(&"hittable") and wolf.has_method("take_hit")
+			and wolf.has_method("set_goal") and wolf.has_method("spawn"), "a Wolf in the wolves and hittable groups with set_goal and take_hit")
+	_check(rig != null and rig.skeleton != null and rig._b.size() == DogRig.BONES.size() and rig._legs.size() == 4 and rig.eyes != null,
+			"the rig finds all %d of the dog's bones, four legs and the eyes" % DogRig.BONES.size())
+	var layers: int = WolfRig.WOLF_FUR_LAYERS[Settings.quality]
+	_check(rig.fur != null and rig.fur.visible == (layers > 0)
+			and is_equal_approx(float(rig.fur.get_instance_shader_parameter(&"fur_layers")), layers),
+			"shell fur: %d layers on this preset" % layers)
+	var shaders := {}
+	for mi in rig.meshes:
+		var m := mi.get_surface_override_material(0) as ShaderMaterial
+		shaders[String(mi.name)] = m.shader.resource_path.get_file() if m and m.shader else ""
+	_check(shaders.get("Body", "") == "dog_coat.gdshader" and shaders.get("Fur", "") == "wolf_fur.gdshader"
+			and shaders.get("Eyes", "") == "wolf_eye.gdshader", "coat, fur and eye shaders (%s)" % str(shaders))
+	var sounds := {}
+	for set_name in ["wolf_howl", "wolf_howl_far", "wolf_growl", "wolf_snarl", "wolf_bite", "wolf_yelp", "wolf_death"]:
+		sounds[set_name] = Audio._files(set_name).size()
+	_check(sounds.values().all(func(n: int) -> bool: return n >= 1), "its howls (near and far), growls, snarls, bites, yelps and death load %s" % str(sounds))
+	var pelt := ItemDB.get_item(&"wolf_pelt")
+	_check(pelt != null and pelt.sell_price == 30 and pelt.category == "game" and Economy.sell_price(&"wolf_pelt") >= 25
+			and ResourceLoader.exists(ItemDB.ICON_DIR + "wolf_pelt.png"),
+			"a wolf pelt item that sells for about $30 ($%d today), with its icon" % (Economy.sell_price(&"wolf_pelt") if pelt else 0))
+	_check(bool(ShopStock.town_market().get("buys", false)), "the town market buys it (its SELL tab lists whatever has a price)")
+	var pm := ItemModels.mesh(&"wolf_pelt")
+	_check(pm != null and pm.get_surface_count() > 0 and pm.get_aabb().size.x > 0.25 and pm.get_aabb().size.x < 0.6,
+			"the pelt's model (%s)" % (str(pm.get_aabb().size) if pm else "none"))
+	var body := wolf.get_node_or_null("Body") as AnimatableBody3D
+	_check(body != null and body.collision_layer & 16 and (player.collision_mask & body.collision_layer) != 0,
+			"a collider on the animal layer the farmer bumps into")
+	var shots := String(DebugTools.args.get("wolf-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+		await _wolf_shots(wolf, _wolf_track(), shots)
+		wolf = _wolf_fresh(wolf, spot)
+		rig = wolf.rig
+		await _frames(10)
+	# Approach: trots to the point and waits there, its paws on the ground.
+	var stats := {"float": 0.0, "slide": 0.0, "frames": 0}
+	var to := spot + Vector3(14.0, 0, 3.0)
+	to.y = TerrainData.height(to.x, to.z)
+	wolf.set_goal(&"approach", to)
+	var usec := Wolf.anim_usec
+	var frames0 := Engine.get_process_frames()
+	await _wolf_watch([wolf], 9.0, stats, player)
+	var per_frame := float(Wolf.anim_usec - usec) / maxf(Engine.get_process_frames() - frames0, 1)
+	var d_to := _flat_dist(wolf.global_position, to)
+	_check(d_to < 1.6 and wolf._speed < 0.3, "approach: it trots there and waits (%.1f m off)" % d_to)
+	_check(stats["float"] < 0.03, "its planted paws stand on the ground (%.1f mm off at worst)" % (stats["float"] * 1000.0))
+	_check(stats["slide"] < 0.01, "a planted paw doesn't slide (%.1f mm at worst%s)" % [stats["slide"] * 1000.0, stats.get("where", "")])
+	_check(per_frame < 1500.0, "posing it on the move costs %.2f ms a frame" % (per_frame / 1000.0))
+	# Prowl: round a point at 8-15 m, going round it, stopping to sniff now and then.
+	var centre := spot
+	wolf.set_goal(&"prowl", centre)
+	var swept := 0.0
+	var last_a := atan2(wolf.global_position.z - centre.z, wolf.global_position.x - centre.x)
+	var r_min := INF
+	var r_max := 0.0
+	var paused := 0
+	var t := 0.0
+	while t < 24.0:
+		_look_at(player, wolf.global_position + Vector3(0, 0.4, 0))
+		await _frames(6)
+		t += 0.1
+		var a := atan2(wolf.global_position.z - centre.z, wolf.global_position.x - centre.x)
+		swept += absf(angle_difference(last_a, a))
+		last_a = a
+		var r := _flat_dist(wolf.global_position, centre)
+		if t > 6.0:
+			r_min = minf(r_min, r)
+			r_max = maxf(r_max, r)
+		if wolf._pause_t > 0.0:
+			paused += 1
+	_check(swept > 1.6 and r_min > 5.5 and r_max < 18.0,
+			"prowl: it circles the point (%.0f° round, %.1f-%.1f m out)" % [rad_to_deg(swept), r_min, r_max])
+	_check(paused > 5, "prowling it stops now and then to sniff or look in")
+	# Hunt: runs a (moving) stand-in animal down and bites it.
+	var prey := _wolf_prey(spot + Vector3(-12.0, 0, -6.0))
+	var bitten := []
+	wolf.bit.connect(func(n: Node3D) -> void: bitten.append(n))
+	wolf.set_goal(&"hunt", prey)
+	t = 0.0
+	var fastest := 0.0
+	while t < 14.0 and bitten.is_empty():
+		_look_at(player, wolf.global_position + Vector3(0, 0.4, 0))
+		prey.global_position += Vector3(0.9, 0, 0) * 0.1
+		prey.global_position.y = TerrainData.height(prey.global_position.x, prey.global_position.z)
+		await _frames(6)
+		t += 0.1
+		fastest = maxf(fastest, wolf._speed)
+	_check(not bitten.is_empty() and bitten[0] == prey and wolf.bites > 0,
+			"hunt: it runs the animal down (%.1f m/s at most) and bites it: bit(target) (%.1f s)" % [fastest, t])
+	_check(fastest > 5.0 and rig.gallop_amount() >= 0.0, "it gallops after it")
+	wolf.set_goal(&"idle")
+	prey.queue_free()
+	await _frames(10)
+	# A low fence between it and the animal it hunts: it leaps it; a high wall it goes round.
+	for wall_h: float in [1.0, 2.6]:
+		wolf.global_position = spot + Vector3(-7.0, 0, 0)
+		wolf._yaw = -PI * 0.5
+		wolf.reset_physics_interpolation()
+		var fence := StaticBody3D.new()
+		fence.collision_layer = 1
+		var fs := CollisionShape3D.new()
+		var fb := BoxShape3D.new()
+		fb.size = Vector3(0.12, wall_h, 3.0)
+		fs.shape = fb
+		fence.add_child(fs)
+		Game.world.add_child(fence)
+		var fat := spot + Vector3(-2.5, 0, 0)
+		fence.global_position = Vector3(fat.x, TerrainData.height(fat.x, fat.z) + wall_h * 0.5, fat.z)
+		var prey2 := _wolf_prey(spot + Vector3(1.5, 0, 0))
+		await _frames(3)
+		var got := []
+		var leapt := [false]
+		var cb := func(n: Node3D) -> void: got.append(n)
+		wolf.bit.connect(cb)
+		wolf.set_goal(&"hunt", prey2)
+		t = 0.0
+		while t < 14.0 and got.is_empty():
+			_look_at(player, wolf.global_position + Vector3(0, 0.4, 0))
+			await _frames(3)
+			t += 0.05
+			if wolf._leap_t >= 0.0:
+				leapt[0] = true
+		wolf.bit.disconnect(cb)
+		if wall_h < 1.3:
+			_check(not got.is_empty() and leapt[0], "a fence %.1f m high in the way: it leaps it and gets the animal (%.1f s)" % [wall_h, t])
+		else:
+			_check(not got.is_empty() and not leapt[0], "a wall %.1f m high: it goes round (%.1f s)" % [wall_h, t])
+		wolf.set_goal(&"idle")
+		prey2.queue_free()
+		fence.queue_free()
+		await _frames(5)
+	# Howl: sits, the head thrown up.
+	wolf.set_goal(&"howl")
+	await _seconds(4.0)
+	var withers := rig.bone_world("spine2").y
+	var head_up := rig.bone_world("nose").y - withers
+	_check(rig.sit_amount() > 0.9 and rig.howl_amount() > 0.5 and head_up > 0.25,
+			"howl: it sits and throws its head up (nose %.2f m over the withers; seated at %.0f°)" % [head_up, rad_to_deg(rig._sit_pitch)])
+	wolf.set_goal(&"idle")
+	await _seconds(1.5)
+	# A pack: three more come to one point and keep their spacing.
+	var pack: Array[Wolf] = [wolf]
+	for i in 3:
+		pack.append(Wolf.spawn(Game.world, spot + Vector3(-6.0 + 3.0 * i, 0, -10.0)))
+	var meet := spot + Vector3(2.0, 0, 2.0)
+	meet.y = TerrainData.height(meet.x, meet.z)
+	for w in pack:
+		w.set_goal(&"approach", meet)
+	await _seconds(12.0)
+	var closest := INF
+	for i in pack.size():
+		for j in range(i + 1, pack.size()):
+			closest = minf(closest, _flat_dist(pack[i].global_position, pack[j].global_position))
+	_check(closest > 1.2, "a pack sent to one point doesn't pile up (%.1f m apart at least)" % closest)
+	# The farmer: circled, one at a time darting in to bite.
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	await _frames(5)
+	var on_player := []
+	for w in pack:
+		w.bit.connect(func(n: Node3D) -> void: if n == player: on_player.append(w))
+		w.set_goal(&"attack_player", player)
+	var max_in := 0
+	var ring := {"n": 0, "ok": 0}
+	var think0 := Wolf.think_usec
+	var anim0 := Wolf.anim_usec
+	var ticks0 := Engine.get_physics_frames()
+	var frames1 := Engine.get_process_frames()
+	t = 0.0
+	while t < 22.0 and (on_player.size() < 2 or t < 10.0):
+		await _frames(6)
+		t += 0.1
+		var going := 0
+		for w in pack:
+			if w._going_in or w._lunge_t >= 0.0:
+				going += 1
+			elif t > 6.0 and w._back_off <= 0.0:
+				ring["n"] += 1
+				var d := _flat_dist(w.global_position, player.global_position)
+				if d > 2.4 and d < 7.5:
+					ring["ok"] += 1
+		max_in = maxi(max_in, going)
+	var think := float(Wolf.think_usec - think0) / maxf(Engine.get_physics_frames() - ticks0, 1)
+	var pose := float(Wolf.anim_usec - anim0) / maxf(Engine.get_process_frames() - frames1, 1)
+	_check(think + pose < 2000.0, "four wolves at the farmer cost %.2f ms a tick thinking, %.2f ms a frame posing" % [think / 1000.0, pose / 1000.0])
+	_check(on_player.size() >= 2, "attack_player: they bite the farmer: bit(player) (%d bites in %.1f s)" % [on_player.size(), t])
+	_check(max_in <= 1, "one wolf at a time darts in (at most %d at once)" % max_in)
+	_check(ring["n"] > 0 and float(ring["ok"]) / ring["n"] > 0.8, "the rest circle him 2.5-7.5 m out (%d/%d)" % [ring["ok"], ring["n"]])
+	# In the pickup: they circle it, then give up and run off.
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck if town else null
+	if truck:
+		var home := truck.global_transform
+		var at := spot + Vector3(0, TerrainData.height(spot.x, spot.z) - spot.y + 0.6, 0)
+		truck.teleport(Transform3D(Basis(Vector3.UP, 0.3), at))
+		await _frames(20)
+		player.enter_vehicle(truck)
+		await _frames(10)
+		var gave := []
+		for w in pack:
+			w.gave_up.connect(func(x: Wolf) -> void: gave.append(x))
+			w.set_goal(&"attack_player", player)
+		await _seconds(7.0)
+		var around := 0
+		for w in pack:
+			var d := _flat_dist(w.global_position, truck.global_position)
+			if d > 3.0 and d < 9.0 and w._give_up_why == &"vehicle" and w._give_up_t > 0.0:
+				around += 1
+		_check(around >= pack.size() - 1, "in the pickup: they circle it (%d of %d)" % [around, pack.size()])
+		var left := []
+		for w in pack:
+			left.append(w._give_up_t)
+		_check(left.all(func(x: float) -> bool: return x > 6.0 and x < 19.0), "giving up after 15-25 s round it (%s s left)" % str(left))
+		for w in pack:
+			w._give_up_t = 0.3
+		await _seconds(1.5)
+		var fleeing := pack.filter(func(w: Wolf) -> bool: return is_instance_valid(w) and w.goal == &"flee")
+		_check(gave.size() == pack.size() and fleeing.size() == pack.size(), "then they give up (gave_up) and run off (%d, %d)" % [gave.size(), fleeing.size()])
+		player.exit_vehicle()
+		await _frames(10)
+		truck.teleport(home)
+	for w in pack:
+		if is_instance_valid(w):
+			w.queue_free()
+	await _frames(5)
+	# In the house: they prowl round outside, never in, then give up.
+	var house := WorldLayout.house_rect(FarmState.house_level())
+	var inside := Vector3(house.get_center().x, 0, house.get_center().y)
+	player.global_position = Vector3(inside.x, FarmHouse.FLOOR_Y + 0.15, inside.z)
+	await _frames(10)
+	var hp: Array[Wolf] = []
+	for i in 2:
+		var w := Wolf.spawn(Game.world, inside + Vector3(-14.0 + 4.0 * i, 0, 16.0))
+		w.set_goal(&"attack_player", player)
+		hp.append(w)
+	var into := 0.0
+	t = 0.0
+	while t < 12.0:
+		await _frames(6)
+		t += 0.1
+		for w in hp:
+			if Wolf.in_building(w.global_position):
+				into += 0.1
+	_check(into < 0.01 and hp.all(func(w: Wolf) -> bool: return w._give_up_why == &"indoors" and w._give_up_t > 0.0),
+			"in the house he's safe: they prowl outside (%.1f s in a building), waiting to give up" % into)
+	for w in hp:
+		w._give_up_t = 0.2
+	await _seconds(1.0)
+	_check(hp.all(func(w: Wolf) -> bool: return not is_instance_valid(w) or w.goal == &"flee"), "and give up on him")
+	for w in hp:
+		if is_instance_valid(w):
+			w.queue_free()
+	player.global_position = spot + Vector3(0, 0.1, 12.0)
+	await _frames(10)
+	# Not into a building, even sent to a point inside one.
+	var bw := Wolf.spawn(Game.world, inside + Vector3(0, 0, 12.0))
+	bw.set_goal(&"approach", inside)
+	into = 0.0
+	t = 0.0
+	while t < 8.0:
+		await _frames(6)
+		t += 0.1
+		if Wolf.in_building(bw.global_position):
+			into += 0.1
+	_check(into < 0.01 and _flat_dist(bw.global_position, inside) > 3.0, "sent into the house it stops outside (%.1f m from the middle)" % _flat_dist(bw.global_position, inside))
+	bw.queue_free()
+	# A burning campfire keeps it 6 m off.
+	var fire_at := spot + Vector3(-8.0, 0, 6.0)
+	fire_at.y = TerrainData.height(fire_at.x, fire_at.z)
+	var fe := FarmState.add_placed(&"campfire", fire_at, 0.0)
+	fe["state"] = "lit"
+	fe["burn_left"] = 240.0
+	fe["char"] = 0.3
+	var fire := Game.world.farm.spawn_placed(fe) as Campfire
+	await _frames(10)
+	var fw := Wolf.spawn(Game.world, fire_at + Vector3(14.0, 0, 0))
+	fw.set_goal(&"approach", fire_at)
+	var nearest := INF
+	t = 0.0
+	while t < 10.0:
+		await _frames(6)
+		t += 0.1
+		nearest = minf(nearest, _flat_dist(fw.global_position, fire_at))
+	_check(fire != null and fire.is_burning() and nearest > Wolf.FIRE_KEEP - 0.6,
+			"a burning campfire keeps it off (%.1f m at the nearest)" % nearest)
+	fw.set_goal(&"prowl", fire_at)
+	t = 0.0
+	while t < 8.0:
+		await _frames(6)
+		t += 0.1
+		nearest = minf(nearest, _flat_dist(fw.global_position, fire_at))
+	_check(nearest > Wolf.FIRE_KEEP - 0.6, "prowling round the fire it stays out of its reach (%.1f m)" % nearest)
+	fw.queue_free()
+	FarmState.remove_placed(fe)
+	fire.queue_free()
+	# Flee: off flat out and gone.
+	var rw := Wolf.spawn(Game.world, spot + Vector3(4.0, 0, 0))
+	await _frames(5)
+	var far := Wolf.flee_point(rw.global_position)
+	rw.set_goal(&"flee", far)
+	var top := 0.0
+	t = 0.0
+	while t < 30.0 and is_instance_valid(rw):
+		await _frames(6)
+		t += 0.1
+		if is_instance_valid(rw):
+			top = maxf(top, rw._speed)
+	_check(top > 7.0 and not is_instance_valid(rw), "flee: it runs off flat out (%.1f m/s) and is gone (%.1f s)" % [top, t])
+	# Hits: a knife's cut makes it flinch; three kill it; it lies there as a carcass.
+	var kw := Wolf.spawn(Game.world, spot + Vector3(0, 0, 6.0))
+	await _frames(20)
+	var died := []
+	kw.died.connect(func(x: Wolf) -> void: died.append(x))
+	var from := player.global_position + Vector3(0, 1.0, 0)
+	kw.take_hit(34.0, from, &"knife")
+	await _frames(3)
+	_check(not kw.dead and is_equal_approx(kw.health, 66.0) and kw.rig._flinch > 0.0 and kw._stagger_t > 0.0,
+			"a cut: it flinches and staggers (health %.0f)" % kw.health)
+	await _seconds(1.0)
+	kw.take_hit(34.0, from, &"knife")
+	await _seconds(0.5)
+	kw.take_hit(34.0, from, &"knife")
+	await _seconds(2.0)
+	var floor_y := kw._ground_at(kw.global_position.x, kw.global_position.z)
+	var spine := kw.rig.bone_world("spine2").y - floor_y
+	var roll := absf(kw.rig.skeleton.get_bone_pose_rotation(kw.rig._b["root"]).get_euler().length())
+	_check(kw.dead and died.size() == 1 and not kw.is_in_group(&"hittable") and kw.rig.dead_amount() >= 1.0,
+			"three cuts kill it: died(wolf), no longer hittable")
+	_check(spine < 0.3 and spine > 0.05, "it lies on its side, its back low (%.2f m)" % spine)
+	_look_at(player, kw.global_position + Vector3(0, 0.15, 0))
+	player.global_position = kw.global_position + Vector3(0, 0.1, 1.8)
+	_look_at(player, kw.global_position + Vector3(0, 0.15, 0))
+	await _frames(12)
+	_check(player.target == kw and _last_prompt.contains(tr("ACTION_TAKE_PELT")), "E on the carcass: \"%s\" (%s)" % [tr("ACTION_TAKE_PELT"), _last_prompt.replace("\n", " | ")])
+	var had := PlayerState.inventory.count_item(&"wolf_pelt")
+	await _press_key(KEY_E)
+	await _frames(5)
+	_check(PlayerState.inventory.count_item(&"wolf_pelt") == had + 1 and not is_instance_valid(kw),
+			"taking the pelt puts it in the bag and the carcass is gone")
+	# Left alone, a carcass goes by itself six game hours on, when nobody looks at it.
+	var cw := Wolf.spawn(Game.world, spot + Vector3(-5.0, 0, 0))
+	await _frames(10)
+	cw.take_hit(200.0, from, &"arrow")
+	await _seconds(1.5)
+	GameClock.total_minutes += 60.0 * 3.0
+	await _frames(10)
+	_check(is_instance_valid(cw), "after three hours the carcass is still there")
+	GameClock.total_minutes += 60.0 * 3.5
+	_look_at(player, cw.global_position + Vector3(0, 0.15, 0))
+	await _frames(10)
+	_check(is_instance_valid(cw), "after six it stays while it is looked at")
+	_look_at(player, player.global_position + (player.global_position - cw.global_position) * 3.0 + Vector3(0, 1.6, 0))
+	await _frames(15)
+	_check(not is_instance_valid(cw), "and goes once nobody is looking")
+	Wolf.play_distant_howls(1.0)
+	_check(Audio._files("wolf_howl_far").size() > 0, "far howls for the raid's warning (Wolf.play_distant_howls)")
+	for w in tree.get_nodes_in_group(&"wolves"):
+		w.queue_free()
+	GameClock.running = true
+
+
+## Somewhere open and level on the farm, out of the yard's things: no collider in a
+## 16 m square, gentle slopes, off the tracks and the pond.
+func _wolf_spot() -> Vector3:
+	var space := Game.world.get_world_3d().direct_space_state
+	for c: Vector2 in [Vector2(-62, 34), Vector2(40, 44), Vector2(-24, 46), Vector2(62, 34), Vector2(-60, -40), Vector2(10, 60)]:
+		var ok := true
+		for dz in range(-8, 9, 2):
+			for dx in range(-8, 9, 2):
+				var x := c.x + dx
+				var z := c.y + dz
+				var h := TerrainData.height(x, z)
+				if TerrainData.normal_at(x, z).y < 0.94 or WorldLayout.distance_to_pond(x, z) < WorldLayout.POND_RADIUS + 3.0 \
+						or Wolf.in_building(Vector3(x, 0, z)):
+					ok = false
+					break
+				var q := PhysicsRayQueryParameters3D.create(Vector3(x, h + 3.0, z), Vector3(x, h + 0.15, z), 1)
+				var hit := space.intersect_ray(q)
+				if not hit.is_empty() and not ((hit["collider"] as Node).get_parent() is Terrain):
+					ok = false
+					break
+			if not ok:
+				break
+		if ok:
+			return Vector3(c.x, TerrainData.height(c.x, c.y), c.y)
+	return Vector3.INF
+
+
+func _flat_dist(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+## A spot on the farm track west of the house (open, the grass short beside it), for
+## photographs.
+func _wolf_track() -> Vector3:
+	var p := Vector3(-78.0, 0.0, 21.4)
+	p.y = TerrainData.height(p.x, p.z)
+	return p
+
+
+## A stand-in for a farm animal to hunt: a sheep-sized block on the ground.
+func _wolf_prey(at: Vector3) -> Node3D:
+	var n := Node3D.new()
+	n.name = "WolfPrey"
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.45, 0.7, 0.9)
+	mi.mesh = box
+	mi.position = Vector3(0, 0.35, 0)
+	n.add_child(mi)
+	Game.world.add_child(n)
+	n.global_position = Vector3(at.x, TerrainData.height(at.x, at.z), at.z)
+	return n
+
+
+## A new wolf at `spot` in place of `old` (after the photographs).
+func _wolf_fresh(old: Wolf, spot: Vector3) -> Wolf:
+	if is_instance_valid(old):
+		old.queue_free()
+	return Wolf.spawn(Game.world, spot)
+
+
+## A paw's knuckle's height off where it should stand on the ground (m).
+func _wolf_paw_off(w: Wolf, leg: String) -> float:
+	var p := w.rig.paw_world(leg)
+	return p.y - w._ground_at(p.x, p.z) - w.rig.paw_height(leg)
+
+
+## Watches wolves for `seconds` (looked at, so they are posed every frame): how far a
+## planted paw floats off the ground or sinks in, how far one slides.
+func _wolf_watch(wolves: Array, seconds: float, stats: Dictionary, player: Player) -> void:
+	var last := {}
+	var t := 0.0
+	while t < seconds:
+		_look_at(player, (wolves[0] as Wolf).global_position + Vector3(0, 0.4, 0))
+		await tree.process_frame
+		t += tree.root.get_process_delta_time()
+		if t < 0.3:
+			# (Just looked at: posed again from wherever it was last posed off screen.)
+			last.clear()
+			continue
+		for w: Wolf in wolves:
+			if not is_instance_valid(w) or w._leap_t >= 0.0:
+				continue
+			for leg: String in DogRig.LEGS:
+				var key := "%d%s" % [w.get_instance_id(), leg]
+				if w.rig.paw_planted(leg):
+					var p := w.rig.paw_world(leg)
+					var same: bool = last.has(key) and last[key + "_n"] == w.rig.paw_steps(leg)
+					var slide := Vector2(p.x - last[key].x, p.z - last[key].z).length() if same else 0.0
+					stats["float"] = maxf(float(stats["float"]), absf(_wolf_paw_off(w, leg)))
+					if slide > float(stats["slide"]):
+						stats["where"] = ", %s at %.1f s, %.1f m/s" % [leg, t, w._speed]
+					stats["slide"] = maxf(float(stats["slide"]), slide)
+					last[key] = p
+					last[key + "_n"] = w.rig.paw_steps(leg)
+				else:
+					last.erase(key)
+
+
+## Photographs of the wolf for judging its look: by day standing (side, three-quarter,
+## the head), trotting and galloping mid-stride, lunging, howling, snarling at the
+## farmer, dead; by night from the farmer's eyes under the moon, from the pickup with
+## its headlights on (eye-shine) and from beside a campfire.
+func _wolf_shots(wolf: Wolf, spot: Vector3, dir: String) -> void:
+	var player: Player = Game.player
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = false
+	var cam := Camera3D.new()
+	cam.fov = 45.0
+	cam.far = 500.0
+	Game.world.add_child(cam)
+	var snap := func(file: String) -> void:
+		await _idle_frames(3)
+		tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, file])
+		print("SHOT ", dir, "/", file, ".png")
+	# From the wolf's side (+1 its right), `dist` m off, at `height`, `ahead` m forward.
+	var eye := func(w: Wolf, side: float, dist: float, height: float, ahead: float) -> void:
+		var c := w.global_position + Vector3(0, 0.42, 0)
+		var at := c + w.global_transform.basis.x * dist * side - w.global_transform.basis.z * ahead
+		at.y = TerrainData.height(at.x, at.z) + height
+		cam.global_position = at
+		cam.look_at(c + Vector3(0, -0.05 if height < 1.0 else -0.15, 0), Vector3.UP)
+		cam.make_current()
+	player.global_position = spot + Vector3(0, 0.1, 25.0)
+	wolf.set_goal(&"idle")
+	wolf.global_position = spot
+	wolf._yaw = -PI * 0.5
+	wolf.reset_physics_interpolation()
+	await _seconds(2.5)
+	eye.call(wolf, 1.0, 2.8, 0.6, 0.0)
+	await snap.call("wolf_stand_side")
+	eye.call(wolf, 1.0, 2.2, 1.0, 2.0)
+	await snap.call("wolf_stand_3q")
+	var head := wolf.rig.bone_world("head")
+	cam.global_position = head + wolf.global_transform.basis.x * 0.75 - wolf.global_transform.basis.z * 0.55 + Vector3(0, 0.05, 0)
+	cam.look_at(head + Vector3(0, -0.04, 0) - wolf.global_transform.basis.z * 0.08, Vector3.UP)
+	await snap.call("wolf_head")
+	# Trotting and galloping past, mid-stride.
+	for gait: Array in [["trot", Wolf.TROT, &"approach"], ["gallop", Wolf.RUN, &"flee"]]:
+		wolf.global_position = spot + Vector3(-12.0, 0, 0)
+		wolf._yaw = -PI * 0.5
+		wolf.reset_physics_interpolation()
+		var goal_at := spot + Vector3(40.0, 0, 0)
+		goal_at.y = TerrainData.height(goal_at.x, goal_at.z)
+		wolf.set_goal(&"approach", goal_at)
+		for f in 400:
+			wolf._want_speed = gait[1]
+			await tree.physics_frame
+			if wolf.global_position.x > spot.x - 1.0 and wolf._speed > float(gait[1]) * 0.9:
+				break
+		# (The camera set ahead of it along its way, so it runs into the middle of the picture.)
+		var c0 := wolf.global_position + Vector3(0, 0.42, 0)
+		var ahead := 0.35 * float(gait[1])
+		cam.global_position = Vector3(c0.x + ahead, TerrainData.height(c0.x, c0.z + 5.0) + 0.7, c0.z + 5.0)
+		cam.look_at(c0 + Vector3(ahead, -0.08, 0), Vector3.UP)
+		cam.make_current()
+		for k in 2:
+			await _idle_frames(4 + k * 6)
+			tree.root.get_viewport().get_texture().get_image().save_png("%s/wolf_%s_%d.png" % [dir, gait[0], k])
+			print("SHOT ", dir, "/wolf_", gait[0], "_", k, ".png")
+	# A lunge, caught at its height.
+	wolf.set_goal(&"idle")
+	wolf.global_position = spot
+	wolf._yaw = -PI * 0.5
+	wolf.reset_physics_interpolation()
+	await _seconds(2.0)
+	eye.call(wolf, 1.0, 2.6, 0.7, 0.4)
+	wolf.rig.lunge()
+	await _seconds(0.17)
+	await snap.call("wolf_lunge")
+	await _seconds(1.0)
+	# Howling.
+	wolf.set_goal(&"howl")
+	await _seconds(4.5)
+	eye.call(wolf, 1.0, 2.6, 0.8, 1.2)
+	await snap.call("wolf_howl")
+	wolf.set_goal(&"idle")
+	await _seconds(2.0)
+	# Snarling at the farmer, seen from his eyes.
+	player.global_position = spot + Vector3(4.0, 0.1, 0.0)
+	wolf.global_position = spot
+	wolf._yaw = -PI * 0.5
+	wolf.reset_physics_interpolation()
+	wolf.set_goal(&"attack_player", player)
+	wolf._next_go[player.get_instance_id()] = Time.get_ticks_msec() / 1000.0 + 60.0
+	await _seconds(1.2)
+	player.camera.make_current()
+	_look_at(player, wolf.global_position + Vector3(0, 0.45, 0))
+	await snap.call("wolf_snarl_eye")
+	wolf._next_go.erase(player.get_instance_id())
+	wolf.set_goal(&"idle")
+	# Dead, on the track.
+	wolf.set_goal(&"idle")
+	wolf.global_position = spot
+	wolf._yaw = -PI * 0.5
+	wolf.reset_physics_interpolation()
+	await _seconds(1.0)
+	wolf.take_hit(200.0, wolf.global_position + wolf.global_transform.basis.x * 2.0, &"knife")
+	await _seconds(2.0)
+	eye.call(wolf, 1.0, 2.4, 1.1, 0.3)
+	await snap.call("wolf_carcass")
+	# Night: under the moon, from the farmer's eyes; the pickup's headlights on them; a
+	# campfire.
+	GameClock.set_time_of_day(22.5)
+	Weather.force(Weather.Kind.SUNNY)
+	var pack: Array[Wolf] = []
+	for i in 3:
+		var w := Wolf.spawn(Game.world, spot + Vector3(-1.5 + 1.8 * i, 0, -1.2 + 1.2 * (i % 2)))
+		w.set_goal(&"prowl", spot + Vector3(7.0, 0, 0))
+		w._pause_t = 30.0
+		w._sniff = false
+		pack.append(w)
+	player.global_position = spot + Vector3(7.0, 0.1, 0.3)
+	await _seconds(4.0)
+	player.camera.make_current()
+	_look_at(player, spot + Vector3(0, 0.5, 0))
+	await snap.call("wolf_night_moon")
+	# Close, a light held at the eye (a lantern, a torch): the eyes shine back.
+	var eyes_at := spot + Vector3(3.6, 0, 0.2)
+	eyes_at.y = TerrainData.height(eyes_at.x, eyes_at.z) + 0.9
+	var lamp := OmniLight3D.new()
+	lamp.light_energy = 2.5
+	lamp.omni_range = 12.0
+	lamp.light_color = Color(1.0, 0.85, 0.6)
+	Game.world.add_child(lamp)
+	lamp.global_position = eyes_at + Vector3(0.0, 0.05, 0.0)
+	pack[1].global_position = spot
+	pack[1].reset_physics_interpolation()
+	pack[1].set_goal(&"prowl", eyes_at)
+	pack[1]._pause_t = 30.0
+	pack[1]._sniff = false
+	cam.global_position = eyes_at
+	await _seconds(2.5)
+	cam.look_at(pack[1].head_point(), Vector3.UP)
+	cam.make_current()
+	await snap.call("wolf_night_eyes")
+	lamp.queue_free()
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck if town else null
+	if truck:
+		var home := truck.global_transform
+		var at := spot + Vector3(9.5, 0.6, 0.0)
+		at.y = TerrainData.height(at.x, at.z) + 0.6
+		# Facing the pack, west (its forward is +Z).
+		truck.teleport(Transform3D(Basis(Vector3.UP, -PI * 0.5), at))
+		await _frames(20)
+		player.enter_vehicle(truck)
+		truck.set_lights(true)
+		# Stopped in the beam, looking at the pickup.
+		for i in pack.size():
+			pack[i].global_position = spot + Vector3(-1.0, 0, -1.6 + 1.6 * i)
+			pack[i].reset_physics_interpolation()
+			pack[i].set_goal(&"prowl", at)
+			pack[i]._pause_t = 30.0
+			pack[i]._sniff = false
+		await _seconds(2.5)
+		await snap.call("wolf_night_headlights")
+		player.exit_vehicle()
+		await _frames(10)
+		truck.teleport(home)
+	var fire_at := spot + Vector3(6.5, 0, 0.6)
+	fire_at.y = TerrainData.height(fire_at.x, fire_at.z)
+	var fe := FarmState.add_placed(&"campfire", fire_at, 0.0)
+	fe["state"] = "lit"
+	fe["burn_left"] = 240.0
+	fe["char"] = 0.3
+	var fire := Game.world.farm.spawn_placed(fe) as Campfire
+	player.global_position = fire_at + Vector3(1.6, 0.1, -0.3)
+	for i in pack.size():
+		pack[i].global_position = spot + Vector3(-0.5, 0, -1.6 + 1.6 * i)
+		pack[i].reset_physics_interpolation()
+		pack[i].set_goal(&"prowl", player.global_position)
+		pack[i]._pause_t = 30.0
+		pack[i]._sniff = false
+	await _seconds(3.0)
+	player.camera.make_current()
+	_look_at(player, spot + Vector3(-1.0, 0.45, 0))
+	await snap.call("wolf_night_fire")
+	FarmState.remove_placed(fe)
+	fire.queue_free()
+	for w in pack:
+		w.queue_free()
+	GameClock.set_time_of_day(11.0)
+	Weather.force(Weather.Kind.SUNNY)
+	player.camera.make_current()
+	cam.queue_free()
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = true
+
+
+## The wolf's eye-shine at night: a light held at the eye of the one looking makes its
+## eyes shine back far brighter than its lit face; the same light from the side does
+## not; a dead wolf's eyes don't. With --wolf-shots=DIR it photographs the eyes.
+func _scenario_wolf_eyes() -> void:
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(23.0)
+	GameClock.running = false
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = false
+	var spot := _wolf_track()
+	player.global_position = spot + Vector3(0, 0.1, 30.0)
+	var eye_at := spot + Vector3(4.0, 0, 0.0)
+	eye_at.y = TerrainData.height(eye_at.x, eye_at.z) + 0.75
+	var wolf := Wolf.spawn(Game.world, spot)
+	wolf.set_goal(&"prowl", eye_at)
+	wolf._pause_t = 60.0
+	wolf._sniff = false
+	var cam := Camera3D.new()
+	cam.fov = 30.0
+	Game.world.add_child(cam)
+	cam.global_position = eye_at
+	var lamp := OmniLight3D.new()
+	lamp.light_energy = 2.0
+	lamp.omni_range = 14.0
+	lamp.light_color = Color(1.0, 0.86, 0.62)
+	Game.world.add_child(lamp)
+	await _seconds(3.0)
+	cam.look_at(wolf.head_point(), Vector3.UP)
+	cam.make_current()
+	var shots := String(DebugTools.args.get("wolf-shots", ""))
+	var grab := func(tag: String) -> Image:
+		await _idle_frames(4)
+		var img := tree.root.get_viewport().get_texture().get_image()
+		if shots != "":
+			DirAccess.make_dir_recursive_absolute(shots)
+			img.save_png("%s/eyes_%s.png" % [shots, tag])
+		return img
+	# How much brighter the eyes are with their shine than without it, the light where
+	# it is: the most any pixel round the head gains.
+	var gain := func(with: Image, without: Image) -> float:
+		var a := cam.unproject_position(wolf.rig.bone_world("head"))
+		var b := cam.unproject_position(wolf.rig.nose_world())
+		var span := maxf(a.distance_to(b), 20.0)
+		var lo := a.min(b) - Vector2(span, span)
+		var hi := a.max(b) + Vector2(span, span)
+		var best := 0.0
+		for y in range(maxi(int(lo.y), 0), mini(int(hi.y), with.get_height() - 1)):
+			for x in range(maxi(int(lo.x), 0), mini(int(hi.x), with.get_width() - 1)):
+				best = maxf(best, with.get_pixel(x, y).get_luminance() - without.get_pixel(x, y).get_luminance())
+		return best
+	var eyes := wolf.rig.eyes
+	var results := {}
+	for where: String in ["at_eye", "aside"]:
+		lamp.global_position = eye_at + (Vector3(0, 0.08, 0) if where == "at_eye" else Vector3(0, 0.3, 3.5))
+		eyes.set_instance_shader_parameter(&"shine_amount", 1.0)
+		var on: Image = await grab.call(where)
+		eyes.set_instance_shader_parameter(&"shine_amount", 0.0)
+		var off: Image = await grab.call(where + "_no_shine")
+		results[where] = gain.call(on, off)
+	eyes.set_instance_shader_parameter(&"shine_amount", 1.0)
+	print("WOLF EYES shine at the eye +%.3f, from aside +%.3f" % [results["at_eye"], results["aside"]])
+	_check(results["at_eye"] > 0.3, "a light at the eye: the eyes shine back (+%.2f brighter)" % results["at_eye"])
+	# (Two frames differ a little anyway: the fur's edges, the antialiasing.)
+	_check(results["aside"] < results["at_eye"] * 0.3, "the same light from aside: no shine to speak of (+%.2f)" % results["aside"])
+	lamp.queue_free()
+	cam.queue_free()
+	wolf.queue_free()
+	player.camera.make_current()
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = true
+	GameClock.running = true
+
+
+# --- The wolves' rough edges -------------------------------------------------------------
+
+## The wolves' rough edges: a dropped arrow walked over with the bag full stays quiet
+## (E on it says so once); going to bed on night 3 between the first howls and the note
+## doesn't spend the lesson on a loss (it comes the next night); the pause menu stops a
+## fight (no bites behind it, the pack frozen, on again after); the toasts keep clear of
+## four goal cards; the morning report keeps a hurt animal's reminder and a death from
+## wounds however many everyday notes there are; the morning's autosave doesn't carry the
+## night's wolf lines into a later report (last: it loads that save).
+## -- --edges-shots=/abs/dir also saves screenshots there.
+func _scenario_wolves_edges() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("edges-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var kept_raids := Settings.wolf_raids
+	var kept_money := Economy.money
+	var kept_side := SideStory.save_data()
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests.tutorial_changed.emit()
+	Weather.force(Weather.Kind.SUNNY)
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	WolfRaids.testing = true
+	WolfRaids.load_data({"seed": 21})
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null, "a coop on the farm")
+	if coop == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	for i in 4:
+		Animals.release(&"chicken", coop.housing)
+	await _raid_indoors(player)
+
+	await _edges_arrow_full_bag(player, coop, notes)
+	await _edges_lesson_bedtime(player, coop, notes)
+	await _edges_pause(player, coop)
+	await _edges_hud_toasts(player, coop, shots)
+	await _edges_report_notes(player, coop, shots)
+	await _edges_autosave(player, coop)
+
+	# --- Tidy up (the world was loaded from the autosave: fresh references) ---
+	Engine.time_scale = 1.0
+	Events.notification_requested.disconnect(on_note)
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+	for a: Node in tree.get_nodes_in_group(&"arrows"):
+		a.queue_free()
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	for c in (Game.world.farm as Farm).kit_coops():
+		FarmState.remove_placed(c.entry)
+		c.queue_free()
+	PlayerState.injury = 0.0
+	WolfRaids.testing = false
+	WolfRaids.load_data({})
+	SideStory.testing = false
+	SideStory.load_data(kept_side)
+	Settings.wolf_raids = kept_raids
+	Economy.money = kept_money
+	Events.money_changed.emit(Economy.money, 0)
+	Weather.forced = -1
+	await _frames(3)
+
+
+## An arrow lying in the grass, the bag full: standing on it, it stays and nothing is said
+## (it was 60 'bag full' notes and error sounds a second); E on it says so once; with room
+## again, walking over it takes it.
+func _edges_arrow_full_bag(player: Player, coop: ChickenCoop, notes: Array[String]) -> void:
+	var h := coop.housing
+	GameClock.set_time_of_day(10.0)
+	var field := coop.door_point() + h.front() * 10.0
+	field.y = TerrainData.height(field.x, field.z)
+	player.global_position = field + Vector3(4, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(4)
+	var arrow := Arrow.launch(field + Vector3(0, 1.5, 0), Vector3(0.5, -20.0, 0.0), 10.0, field, player)
+	await _seconds(0.6)
+	_check(is_instance_valid(arrow) and arrow.state == Arrow.State.STUCK, "an arrow stuck in the grass")
+	if not is_instance_valid(arrow):
+		return
+	var inv := PlayerState.inventory
+	var kept := []
+	for i in inv.slots.size():
+		kept.append(inv.get_stack(i))
+		var st := ItemStack.create(&"stone", 1)
+		st.count = st.item.max_stack
+		inv.set_stack(i, st)
+	await _seconds(1.0)
+	notes.clear()
+	var mid := arrow.global_transform * Vector3(0, 0, -ArrowModels.LENGTH * 0.5)
+	player.global_position = Vector3(mid.x + 0.2, TerrainData.height(mid.x + 0.2, mid.z) + 0.05, mid.z)
+	player.velocity = Vector3.ZERO
+	await _seconds(1.0)
+	var full := notes.count(tr("MSG_INVENTORY_FULL"))
+	_check(full == 0 and is_instance_valid(arrow) and arrow.can_take(),
+			"standing on an arrow with the bag full: it stays there, no 'bag full' notes (%d in 1 s)" % full)
+	notes.clear()
+	arrow.interact(player)
+	full = notes.count(tr("MSG_INVENTORY_FULL"))
+	_check(full == 1 and is_instance_valid(arrow) and arrow.can_take(), "E on it with the bag full: one 'bag full' note (%d)" % full)
+	for i in inv.slots.size():
+		inv.set_stack(i, kept[i])
+	var arrows := inv.count_item(&"arrow")
+	if inv.first_empty() < 0:
+		inv.set_stack(inv.size() - 1, null)
+	player.global_position = Vector3(mid.x + 0.2, TerrainData.height(mid.x + 0.2, mid.z) + 0.05, mid.z)
+	player.velocity = Vector3.ZERO
+	await _seconds(0.5)
+	_check(not is_instance_valid(arrow) or arrow.is_queued_for_deletion(), "with room in the bag, walking over it takes it")
+	if inv.count_item(&"arrow") > arrows:
+		inv.remove_item(&"arrow", inv.count_item(&"arrow") - arrows)
+	for i in inv.slots.size():
+		inv.set_stack(i, kept[i])
+	await _raid_indoors(player)
+
+
+## Night 3, the coop door open with the hens in: to bed at 20:45 (the howls begun, the
+## note not yet): no raid, nothing lost, the lesson not spent; the next night it comes
+## again, the note and the coop-door goal at 21:00.
+func _edges_lesson_bedtime(player: Player, coop: ChickenCoop, notes: Array[String]) -> void:
+	var h := coop.housing
+	await _raid_indoors(player)
+	WolfRaids.load_data({"seed": 77})
+	h.door.set_open(true)
+	await _raid_evening(3, 18.5)
+	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight.get("lesson", false)), "night 3: the lesson is set")
+	GameClock.advance(135.0)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	await _idle_frames(3)
+	_check(String(WolfRaids.tonight.get("phase", "")) == "warned" and not bool(WolfRaids.tonight.get("noted", true))
+			and not SideStory.goals.has(WolfRaids._wolf_goal),
+			"20:45 on night 3: the howls have begun, no note nor goal yet (phase %s)" % WolfRaids.tonight.get("phase", ""))
+	var count := Animals.animals.size()
+	var lines := await _raid_sleep()
+	var lost := count - Animals.animals.size() + Animals.injured_ids().size()
+	_check(lost == 0 and not WolfRaids.lesson_done and WolfRaids.tonight.is_empty(),
+			"asleep at 20:45 before the note: no raid, nothing lost, the lesson not spent (lost %d, lesson done %s)" % [lost, WolfRaids.lesson_done])
+	_check(not lines.has(tr("REPORT_WOLVES_LATER")) and not lines.has(tr("REPORT_WOLVES_SAFE")),
+			"the morning report tells of no wolves")
+	notes.clear()
+	await _raid_evening(GameClock.day, 18.5)
+	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight.get("lesson", false)), "night %d: the lesson comes again" % GameClock.day)
+	GameClock.advance(155.0)
+	await _seconds(0.6)
+	_check(bool(WolfRaids.tonight.get("noted", false)) and notes.has(tr("MSG_WOLVES_LESSON")) and SideStory.goals.has(WolfRaids._wolf_goal),
+			"at 21:00 the lesson's note and its coop-door goal")
+	WolfRaids.load_data({"lesson": true})
+	await _frames(3)
+
+
+## The pack at him, then Esc (the pause menu) for 12 s: no bite, no wound, the wolves stand
+## frozen; once the menu is closed they are at him again.
+func _edges_pause(player: Player, coop: ChickenCoop) -> void:
+	var h := coop.housing
+	await _raid_indoors(player)
+	h.door.set_open(false)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	await _raid_awake_pack(GameClock.day + 1, true)
+	var pack := WolfRaids.wolves()
+	_check(not pack.is_empty(), "a pack out at the farm")
+	if pack.is_empty():
+		return
+	var spot := pack[0].global_position + Vector3(4.0, 0.0, 0.0)
+	player.global_position = Vector3(spot.x, TerrainData.height(spot.x, spot.z) + 0.1, spot.z)
+	player.velocity = Vector3.ZERO
+	var at_him := 0
+	for i in 40:
+		await _seconds(0.25)
+		at_him = 0
+		for w in WolfRaids.wolves():
+			var o: Array = WolfRaids._orders.get(w, [])
+			if not o.is_empty() and o[0] == &"attack_player":
+				at_him += 1
+		if at_him > 0:
+			break
+	_check(at_him > 0, "the pack goes for him (%d)" % at_him)
+	await _seconds(1.0)
+	PlayerState.injury = 0.0
+	await _press_key(KEY_ESCAPE)
+	await _frames(5)
+	var paused := Game.is_paused() and Game.top_ui() == &"pause"
+	var bites := []
+	var on_hurt := func(amount: float, _from: Vector3) -> void: bites.append(amount)
+	PlayerState.hurt_taken.connect(on_hurt)
+	var where := {}
+	for w in WolfRaids.wolves():
+		where[w] = w.global_position
+	await _seconds(12.0)
+	var moved := 0.0
+	for w: Variant in where:
+		if is_instance_valid(w):
+			moved = maxf(moved, (w as Node3D).global_position.distance_to(where[w]))
+	_check(paused and bites.is_empty() and PlayerState.injury == 0.0 and not PlayerState.knocked_out,
+			"12 s in the pause menu mid-attack: no bites (%d), no wound (%.0f)" % [bites.size(), PlayerState.injury])
+	_check(paused and moved < 0.05, "the pack stands frozen behind the pause menu (moved %.2f m)" % moved)
+	await _close_screens()
+	_check(not Game.is_ui_open(), "the pause menu closed")
+	where.clear()
+	for w in WolfRaids.wolves():
+		where[w] = w.global_position
+	await _seconds(3.0)
+	PlayerState.hurt_taken.disconnect(on_hurt)
+	moved = 0.0
+	for w: Variant in where:
+		if is_instance_valid(w):
+			moved = maxf(moved, (w as Node3D).global_position.distance_to(where[w]))
+	_check(moved > 0.3, "the game running again, the pack is at him again (moved %.1f m)" % moved)
+	WolfRaids.load_data({"lesson": true})
+	PlayerState.injury = 0.0
+	await _raid_indoors(player)
+	await _frames(3)
+
+
+## Four goal cards up (the story's, the wolves' note on a later raid's evening, the vet's
+## for a hurt hen, Zeynep's): the toasts (the wolves' lines) show under them, clear of
+## every card and of the needs bars; with the cards gone again the column is back at its
+## usual place.
+func _edges_hud_toasts(player: Player, coop: ChickenCoop, shots: String) -> void:
+	var h := coop.housing
+	var hud := Game.hud as HUD
+	SideStory.testing = true
+	SideStory.load_data({})
+	var hen: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"chicken" and Animals.housing_of(a) == h:
+			hen = a
+			break
+	WolfRaids.load_data({"lesson": true, "last": 22 - 6, "seed": 3})
+	GameClock.day = 22
+	await _e2e_raid_tonight()
+	if hen:
+		Animals.injure(hen.id)
+	GameClock.advance(75.0)
+	var yard := h.door_outside() + h.front() * 6.0
+	player.global_position = Vector3(yard.x, TerrainData.height(yard.x, yard.z) + 0.05, yard.z)
+	player.velocity = Vector3.ZERO
+	_look_at(player, coop.center_point() + Vector3(0, 1.0, 0))
+	await _seconds(2.0)
+	var cards := _edges_cards(hud)
+	_check(cards.size() >= 4, "four goal cards up: the story's, the wolves', the vet's, Zeynep's (%d)" % cards.size())
+	var who := [hen.name if hen else "?", Animals.species_name(&"chicken", true)]
+	for msg: String in [tr("MSG_WOLVES_TONIGHT"), tr("REPORT_WOLF_KILLED") % who, tr("REPORT_WOLF_HURT") % who, tr("MSG_WOLF_PACK_FLED"),
+			tr("MSG_WOLVES_LEFT")]:
+		Game.notify(msg, WolfRaids.AMBER)
+	await _seconds(0.8)
+	var over := 0
+	var toasts := 0
+	var lowest := 0.0
+	for t: Control in hud._toasts.get_children():
+		var r := t.get_global_rect()
+		toasts += 1
+		lowest = maxf(lowest, r.end.y)
+		for c: Rect2 in cards:
+			if r.grow(-1.0).intersects(c):
+				over += 1
+	var bars := hud.needs_bars.get_global_rect() if hud.needs_bars.visible else Rect2(0, hud._root.size.y, 0, 0)
+	_check(toasts >= 1 and over == 0, "the toasts (%d) keep clear of the goal cards (%d overlaps)" % [toasts, over])
+	_check(lowest <= bars.position.y, "and above the needs bars (toasts end %.0f, bars from %.0f)" % [lowest, bars.position.y])
+	await _edges_shot(shots, "edges_hud_cards_toasts")
+	# The cards gone (a menu-free farm in the day, nothing hurt): back in its usual place.
+	if hen:
+		Animals.by_id(hen.id).injured_at = -1.0
+	WolfRaids.load_data({"lesson": true, "vet_lesson": true})
+	SideStory.testing = false
+	SideStory.load_data({})
+	GameClock.set_time_of_day(10.0)
+	await _seconds(1.5)
+	_check(is_equal_approx(hud._toasts.offset_top, HUD.TOAST_TOP),
+			"with fewer cards the toasts are back at their usual place (%.0f, cards %d)" % [hud._toasts.offset_top, _edges_cards(hud).size()])
+	await _raid_indoors(player)
+
+
+## The HUD's goal cards up now (their rects).
+func _edges_cards(hud: HUD) -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for card: Control in [hud._quest_card, hud._side_card]:
+		if card.visible:
+			out.append(card.get_global_rect())
+	for e: Dictionary in hud._goal_cards.values():
+		var gc: Control = e["card"]
+		if gc.visible:
+			out.append(gc.get_global_rect())
+	return out
+
+
+## Seven animals (three sheep, four hens), a sheep hurt, a hen whose wounds run out in the
+## night, and more everyday notes than the report shows: the morning report still says the
+## sheep is hurt (with the hours left) and that the hen died of her wounds.
+func _edges_report_notes(player: Player, coop: ChickenCoop, shots: String) -> void:
+	var h := coop.housing
+	WolfRaids.load_data({"seed": 9, "lesson": true, "vet_lesson": true, "last": GameClock.day})
+	FarmState.built[&"barn_1"] = true
+	FarmState.project_built.emit(&"barn_1")
+	await _frames(3)
+	var barn: AnimalHousing = Game.world.farm.barn
+	var sheep := Animals._add(&"sheep", true, "", barn)
+	Animals._add(&"sheep", true, "", barn)
+	Animals._add(&"sheep", true, "", barn)
+	await _frames(5)
+	var hen: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"chicken" and Animals.housing_of(a) == h and not a.injured():
+			hen = a
+			break
+	# A farm days old (its clock that far on: a hurt hen's day can run out tonight).
+	GameClock.total_minutes = maxf(GameClock.total_minutes, Animals.INJURY_MINUTES * 2.0)
+	GameClock.set_time_of_day(9.0)
+	Animals.injure(sheep.id)
+	await _raid_indoors(player)
+	GameClock.set_time_of_day(21.0)
+	if hen:
+		Animals.injure(hen.id)
+		# Two hours left: she dies in the night.
+		hen.injured_at = GameClock.total_minutes - Animals.INJURY_MINUTES + 120.0
+	await _idle_frames(3)
+	var hen_name := hen.name if hen else "?"
+	Animals.report_notes.clear()
+	for a in Animals.animals:
+		Animals.report_notes.append(tr("MSG_ANIMAL_HUNGRY") % a.name)
+	var lines := await _edges_sleep(shots, "edges_morning_report")
+	var reminder := false
+	for hours in range(1, 25):
+		if lines.has(tr("MSG_INJURED_MORNING") % [sheep.name, hours]):
+			reminder = true
+	var died := lines.has(tr("MSG_ANIMAL_DIED_WOUNDS") % hen_name)
+	var hungry := 0
+	for l in lines:
+		if l.ends_with(tr("MSG_ANIMAL_HUNGRY").replace("%s", "")):
+			hungry += 1
+	print("edges report lines: %s" % [lines])
+	_check(reminder, "the morning report reminds of the hurt sheep %s, with the hours left" % sheep.name)
+	_check(died and Animals.by_id(hen.id if hen else -1) == null, "and says the hen %s died of her wounds in the night" % hen_name)
+	_check(hungry >= 1 and hungry <= 5, "the everyday notes fill the room left (%d of them)" % hungry)
+	for a in Animals.animals.duplicate():
+		if a.species == &"sheep":
+			Animals.sell(a)
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+	while Animals.count_at(h) < 4:
+		Animals.release(&"chicken", h)
+	await _frames(3)
+
+
+## A raid with a loss, slept through: the morning report tells of it, the autosave written
+## then doesn't keep the lines, so a game loaded from it (Continue) doesn't tell of them
+## again the next morning after a quiet night.
+func _edges_autosave(player: Player, coop: ChickenCoop) -> void:
+	var h := coop.housing
+	WolfRaids.load_data({"seed": 9, "lesson": true, "vet_lesson": true})
+	h.door.set_open(true)
+	await _raid_indoors(player)
+	GameClock.day += 7
+	await _e2e_raid_tonight()
+	GameClock.advance(80.0)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	await _idle_frames(3)
+	var lines := await _raid_sleep()
+	var wolf_lines := PackedStringArray()
+	for l in lines:
+		if l.begins_with(tr("REPORT_WOLF_KILLED").split("%")[0]) or l.begins_with(tr("REPORT_WOLF_HURT").split("%")[0]):
+			wolf_lines.append(l)
+	_check(not wolf_lines.is_empty() and WolfRaids.report.is_empty(), "the raid's loss in the morning report (%s), the lines taken" % [wolf_lines])
+	_check(SaveGame.load_game(SaveGame.AUTO), "loading the morning's autosave")
+	await _until_loaded()
+	await _seconds(1.0)
+	_check(WolfRaids.report.is_empty(), "the autosave doesn't keep the night's wolf lines (%d)" % WolfRaids.report.size())
+	WolfRaids.testing = true
+	player = Game.player
+	await _raid_indoors(player)
+	GameClock.set_time_of_day(19.0)
+	await _idle_frames(3)
+	var lines2 := await _raid_sleep()
+	var stale := PackedStringArray()
+	for l in lines2:
+		if wolf_lines.has(l):
+			stale.append(l)
+	_check(stale.is_empty() and not lines2.has(tr("REPORT_WOLVES_SAFE")), "the next morning, no wolves came: nothing told again (%s)" % [stale])
+
+
+## Sleeps to the morning report and saves a screenshot of it (with a shot dir); its lines.
+func _edges_sleep(dir: String, shot_name: String) -> PackedStringArray:
+	Game.hud.sleep_screen.start_sleep()
+	for i in 160:
+		await _seconds(0.1)
+		if Game.hud.sleep_screen._waiting:
+			break
+	var texts := PackedStringArray()
+	for l in Game.hud.sleep_screen._report.find_children("*", "Label", true, false):
+		texts.append((l as Label).text)
+	if dir != "":
+		await _seconds(0.8)
+		await _edges_shot(dir, shot_name)
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	return texts
+
+
+func _edges_shot(dir: String, shot_name: String) -> void:
+	if dir == "":
+		return
+	await _idle_frames(4)
+	tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+	print("SHOT %s/%s.png" % [dir, shot_name])
+
+
+
+# --- The coop expansion ---------------------------------------------------------------------
+
+## The construction board's coop expansion: on the board from farm level 3, made for the
+## only coop (the panel names it: 8 → 14 birds, 3 → 5 boxes), paid in money and
+## materials; a minute's site at its east end while its hens live on in it (an egg on the
+## builders' ground put aside, the hens kept off it), then the longer coop: 14 places, 5
+## boxes, longer troughs as full as they were, the door, ramp and floor where they were, the
+## hens, the eggs in the boxes (a fertile one too) and their straw as they were; room for a
+## hen let in at the door and a chick hatching. The second step at level 5 (20, 7 boxes on
+## two benches), none past it. A wolf can't get through the longer house's walls: shut,
+## the hen at its far end is safe; open, it goes in by the door. Two coops (and one going
+## up): the board lists them, greys the largest and the site, "Show" puts the dot over one,
+## the second is picked and only it grows. Saved and loaded mid-way and after.
+func _coop_expand() -> void:
+	await _close_screens()
+	var farm: Farm = Game.world.farm
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var level := Progress.level
+	var money := Economy.money
+	GameClock.set_time_of_day(9.0)
+	Weather.force(Weather.Kind.SUNNY)
+	Quests.guide_in_tests = true
+	var started: Array = []
+	var completed: Array = []
+	var notes: Array[String] = []
+	var on_started := func(id: StringName, node: Node) -> void: started.append([id, node])
+	var on_completed := func(id: StringName, node: Node) -> void: completed.append([id, node])
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.construction_started.connect(on_started)
+	Events.building_completed.connect(on_completed)
+	Events.notification_requested.connect(on_note)
+	var tidy := func() -> void:
+		Events.construction_started.disconnect(on_started)
+		Events.building_completed.disconnect(on_completed)
+		Events.notification_requested.disconnect(on_note)
+		Quests.guide_in_tests = false
+		Progress.level = level
+		Economy.money = money
+		PlayerState.select(0)
+	var board: BuildScreen = Game.hud.build_screen
+	var far := Vector3(WorldLayout.BOARD_POS.x, 0.0, WorldLayout.BOARD_POS.z + 2.0)
+	far.y = TerrainData.height(far.x, far.z) + 0.2
+
+	# (1) On the board from level 3; never "built"; with no coop, nothing to enlarge.
+	Progress.level = 1
+	_check(BuildScreen.on_board(&"coop_expand") and not FarmState.build(&"coop_expand") and UnlockTable.project_level(&"coop_expand") == 3
+			and &"coop_expand" in UnlockTable.opened_at(3)["projects"], "the coop expansion is on the board, opened at farm level 3")
+	board.open(&"coop_expand")
+	await _frames(2)
+	var btn := _expand_button(board)
+	_check(board._status(&"coop_expand") == "locked" and btn != null and btn.disabled, "at level 1 it is locked")
+	board.close_screen()
+	Progress.level = 3
+	if farm.kit_coops().is_empty():
+		board.open(&"coop_expand")
+		await _frames(2)
+		btn = _expand_button(board)
+		_check(btn != null and btn.disabled and _board_text(board).contains(tr("BUILD_NEEDS_COOP")), "with no coop of his own there is nothing to enlarge")
+		board.close_screen()
+
+	# (2) One coop, full: 7 hens and a rooster; an egg in box 0, a fertile one in box 2, one
+	# on the ground where the new end will go; the troughs part full.
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built() and coop.expansion() == 0 and coop.housing.capacity() == 8 and coop.nest_count() == 3,
+			"a coop as it comes: 8 places, 3 nest boxes")
+	if coop == null:
+		tidy.call()
+		return
+	var h := coop.housing
+	for i in 7:
+		Animals.release(&"chicken", h)
+	Animals.release(&"rooster", h)
+	await _frames(5)
+	for n in h.animals:
+		n.teleport_home(false)
+	var hen_id := -1
+	for n in h.animals:
+		if n.data.species == &"chicken":
+			hen_id = n.data.id
+	_check(Animals.count_at(h) == 8 and h.free_space() == 0 and coop.has_rooster(), "full: 7 hens and a rooster")
+	h.feed.set_amount(10.5)
+	h.water.set_amount(7.0)
+	var plain := Pickup.spawn(ItemStack.create(&"egg", 1), coop._nest_egg_spot(0))
+	var fertile := coop._spawn_egg(coop._nest_egg_spot(2), 0, hen_id)
+	var loose_at := coop.global_transform * Vector3(3.1, 0.0, -2.2)
+	var loose := Pickup.spawn(ItemStack.create(&"egg", 1), Vector3(loose_at.x, TerrainData.height(loose_at.x, loose_at.z) + 0.15, loose_at.z))
+	await _seconds(1.2)
+	var plain_at := plain.global_position
+	var fertile_at := fertile.global_position
+	var fertile_id := int(((coop.entry.get("fertile", []) as Array).back() as Dictionary)["id"]) if not (coop.entry.get("fertile", []) as Array).is_empty() else -1
+	_check(fertile_id > 0 and coop.nest_near(fertile_at) == 2, "a fertile egg lies in box 2")
+	# And a fertile one on the ground where the new end will go.
+	var works_at := coop.global_transform * Vector3(3.4, 0.0, -2.6)
+	var works_egg := coop._spawn_egg(Vector3(works_at.x, TerrainData.height(works_at.x, works_at.z) + 0.15, works_at.z), 0, hen_id)
+	var works_id := int(((coop.entry["fertile"] as Array).back() as Dictionary)["id"])
+	var no_room := {"id": 9001, "pos": coop.nest_seat(1), "at": GameClock.total_minutes - ChickenCoop.HATCH_MINUTES, "hen": hen_id, "q": 0}
+	inv.add_item(&"chicken_crate", 1)
+	_select(&"chicken_crate")
+	_check(coop.hatch_egg(no_room) == null and not CoopDoor.release_held(h, h.door_inside()) and Animals.count_at(h) == 8,
+			"full: no chick hatches, no crated hen gets in")
+
+	# (3) The board names the only coop and what it gets; no money, no button.
+	Economy.money = 0
+	inv.remove_item(&"wood", inv.count_item(&"wood"))
+	inv.remove_item(&"nails", inv.count_item(&"nails"))
+	inv.remove_item(&"stone", inv.count_item(&"stone"))
+	player.global_position = far
+	board.open(&"coop_expand")
+	await _frames(2)
+	btn = _expand_button(board)
+	var text := _board_text(board)
+	_check(btn != null and btn.disabled and text.contains(UiTheme.caps(tr("BUILD_EXPAND_THIS"))) and text.contains(UiTheme.caps(coop.coop_name()))
+			and text.contains(tr("BUILD_EXPAND_CHANGE") % [8, 14, 3, 5]) and text.contains(tr("BUILD_EXPAND_BIRDS") % [8, 8]),
+			"one coop: the panel names it ('%s': 8/8 birds, 8 → 14, 3 → 5 boxes); short of money the button is off" % coop.coop_name())
+	board.close_screen()
+
+	# (4) Paid for: a minute's site at its east end; the hens live on in it.
+	Economy.money = 1000
+	inv.add_item(&"wood", 20)
+	inv.add_item(&"nails", 10)
+	board.open(&"coop_expand")
+	await _frames(2)
+	btn = _expand_button(board)
+	_check(btn != null and not btn.disabled, "with $%d, 20 wood and 10 nails at hand the button is on" % int(ProjectTable.coop_step(0)["cost"]))
+	var door_at := h.door.global_position
+	var out_at := h.door_outside()
+	var in_at := h.door_inside()
+	var floor_y := h.floor_height()
+	var width := _coop_mesh_width(h)
+	var seats: Array[Vector3] = []
+	for i in 3:
+		seats.append(coop.nest_seat(i))
+	# No clock tick brings the fertile egg's record up to date meanwhile.
+	var clock_ran := GameClock.running
+	GameClock.running = false
+	if btn:
+		btn.pressed.emit()
+	await _frames(3)
+	_check(not board.visible and Economy.money == 900 and inv.count_item(&"wood") == 0 and inv.count_item(&"nails") == 0,
+			"ENLARGE: $100, 20 wood and 10 nails paid, the board closes")
+	_check(coop.expanding() and coop.site != null and coop.site.extension and absf(coop.expansion_left() - ChickenCoop.EXPAND_SECONDS) < 1.0
+			and not started.is_empty() and started.back() == [ChickenCoop.EXPAND_ID, coop], "a minute's site goes up (construction_started)")
+	_check(h.capacity() == 8 and coop.expand_block() == "COOP_EXPANDING" and not coop.buy_expansion() and coop.hint_prompt().begins_with(tr("SIGN_CONSTRUCTION")),
+			"meanwhile it holds 8, can't be enlarged again and its sign counts down")
+	var on_works := func(p: Vector3) -> bool:
+		for w: Rect2 in h.works:
+			if w.has_point(h.flat(p)):
+				return true
+		return false
+	_check(is_instance_valid(loose) and not on_works.call(loose.global_position) and h.in_pen(loose.global_position),
+			"the egg on the builders' ground is put aside in the yard")
+	var works_rec := coop._record(works_id)
+	_check(is_instance_valid(works_egg) and coop.fertile_eggs().has(works_egg) and not on_works.call(works_egg.global_position)
+			and not works_rec.is_empty() and _flat_dist(works_rec["pos"], works_egg.global_position) < 0.1 and not on_works.call(works_rec["pos"]),
+			"so is the fertile one, saved where it was put (a save straight away loads it in the yard, not under the new floor)")
+	GameClock.running = clock_ran
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var kept_off := true
+	for i in 200:
+		kept_off = kept_off and not on_works.call(h.random_outdoor_point(rng))
+	var pushed := h.constrain(coop.global_transform * Vector3(3.1, 0.0, -2.6), 0.2, false)
+	_check(kept_off and not on_works.call(pushed) and not h.works.is_empty(), "the hens keep off the works")
+	await _seconds(1.0)
+	_check(coop.expansion_left() < ChickenCoop.EXPAND_SECONDS - 0.5 and absf(float(coop.entry["expand_left"]) - coop.expansion_left()) < 0.01,
+			"the site counts down in real time, saved in the coop's entry (%.1f s left)" % coop.expansion_left())
+
+	# (5) Done: the longer coop, everything in it as it was.
+	coop.entry["expand_left"] = 0.5
+	await _seconds(1.0)
+	_check(not coop.expanding() and coop.site == null and h.works.is_empty() and coop.expansion() == 1 and h.capacity() == 14 and h.free_space() == 6,
+			"a minute later it holds 14 (6 free)")
+	_check(not completed.is_empty() and completed.back() == [ChickenCoop.EXPAND_ID, coop] and notes.has(tr("MSG_COOP_EXPANDED") % [coop.coop_name(), 14])
+			and Quests.guide_label() == tr("HINT_NEW_BUILDING") % coop.coop_name(), "building_completed, a toast, and the dot shows it")
+	_check(is_equal_approx(h.building.size.x, 6.2) and _coop_mesh_width(h) > width + 1.1,
+			"the house is 1.2 m longer (model %.2f → %.2f m)" % [width, _coop_mesh_width(h)])
+	_check(h.door.global_position.distance_to(door_at) < 0.01 and h.door_outside().distance_to(out_at) < 0.01 and h.door_inside().distance_to(in_at) < 0.01
+			and absf(h.floor_height() - floor_y) < 0.001, "its door, ramp and floor are where they were")
+	var flags: Array = coop.entry["nests"]
+	var seats_kept := true
+	for i in 3:
+		seats_kept = seats_kept and coop.nest_seat(i).distance_to(seats[i]) < 0.001
+	_check(coop.nest_count() == 5 and flags == [true, true, true, false, false] and seats_kept and coop.filled_nests() == 3,
+			"5 nest boxes: the 3 it had keep their straw, 2 new bare ones")
+	_check(is_instance_valid(plain) and plain.global_position.distance_to(plain_at) < 0.1 and is_instance_valid(fertile)
+			and fertile.global_position.distance_to(fertile_at) < 0.1 and coop.fertile_eggs().has(fertile),
+			"the eggs in the boxes lie where they were (the fertile one still due to hatch)")
+	var hens_home := true
+	for a in Animals.animals:
+		if Animals.node_of(a) and Animals.node_of(a).housing == h:
+			hens_home = hens_home and Animals.housing_of(a) == h
+	_check(Animals.count_at(h) == 8 and h.animals.size() == 8 and hens_home, "its 8 birds live on in it")
+	_check(is_equal_approx(h.feed.amount, 10.5) and is_equal_approx(h.water.amount, 7.0) and h.feed.capacity == 28 and is_equal_approx(h.feed.span, 1.2)
+			and h.is_in_building(h.feed.global_position) and h.is_in_building(h.water.global_position),
+			"longer troughs (28 rations), as full as they were")
+	var fills := [0, 0]
+	var on_fed := func(c: Node) -> void: fills[0] += int(c == coop)
+	var on_watered := func(c: Node) -> void: fills[1] += int(c == coop)
+	Events.coop_fed.connect(on_fed)
+	Events.coop_watered.connect(on_watered)
+	h.feed.filled.emit()
+	h.water.filled.emit()
+	Events.coop_fed.disconnect(on_fed)
+	Events.coop_watered.disconnect(on_watered)
+	var feed_dot := h.feed.get_node_or_null(NodePath("Waypoint_%s" % ChickenCoop.ANCHOR_FEEDER))
+	var water_dot := h.water.get_node_or_null(NodePath("Waypoint_%s" % ChickenCoop.ANCHOR_WATER))
+	_check(fills == [1, 1] and feed_dot != null and feed_dot.is_in_group(WaypointMarker.ANCHOR_GROUP)
+			and water_dot != null and water_dot.is_in_group(WaypointMarker.ANCHOR_GROUP),
+			"the story hears the new troughs filled; their guide dots are over them")
+
+	# (6) Room follows the new size: a crated hen let in at the door, a chick hatching.
+	var chick_rec := {"id": 9002, "pos": coop.nest_seat(1), "at": GameClock.total_minutes - ChickenCoop.HATCH_MINUTES, "hen": hen_id, "q": 0}
+	_check(CoopDoor.release_held(h, h.door_inside()) and Animals.count_at(h) == 9, "room: a crated hen is let in at the door")
+	_check(coop.hatch_egg(chick_rec) != null and Animals.count_at(h) == 10, "room for one more: a fertile egg hatches")
+	_check(Animals.home_for(&"chicken") == h and h.free_space() == 4 and Animals.can_buy(&"chicken", true) == "", "the market's room checks read 14")
+
+	# (7) The second step waits for level 5: then 20 places and 7 boxes.
+	Economy.money = 1000
+	inv.add_item(&"wood", 35)
+	inv.add_item(&"nails", 20)
+	inv.add_item(&"stone", 10)
+	Progress.level = 4
+	board.open(&"coop_expand")
+	await _frames(2)
+	btn = _expand_button(board)
+	_check(btn != null and btn.disabled and not coop.buy_expansion() and _board_text(board).contains(tr("BUILD_EXPAND_CHANGE") % [14, 20, 5, 7]),
+			"the second step (14 → 20) waits for farm level %d" % UnlockTable.coop_step_level(1))
+	board.close_screen()
+	Progress.level = 5
+	board.open(&"coop_expand")
+	await _frames(2)
+	btn = _expand_button(board)
+	if btn and not btn.disabled:
+		btn.pressed.emit()
+	await _frames(3)
+	_check(coop.expanding() and Economy.money == 800 and inv.count_item(&"stone") == 0, "at level 5: $200, 35 wood, 20 nails and 10 stone")
+	# A night's sleep finishes it.
+	coop._on_time_skipped(8.0 * 60.0)
+	await _frames(3)
+	var bench2 := coop.get_node_or_null("Nests/Bench1")
+	var back_ok := coop.nest_count() == 7 and bench2 != null
+	for i in [5, 6]:
+		back_ok = back_ok and h.is_in_building(coop.nest_front(i)) and h.flat(coop.nest_seat(i)).x > ChickenCoop.HOUSE.end.x \
+				and coop.nest_out(i).dot(coop.global_basis.z) > 0.99
+	_check(not coop.expanding() and coop.expansion() == 2 and h.capacity() == 20 and is_equal_approx(h.building.size.x, 7.4) and back_ok,
+			"after a night's sleep: 20 places, 7.4 m long, 2 more boxes on a bench along the back of the new end")
+	_check(h.pen.encloses(h.building.grow(0.35)), "the house, roof and all, stays inside its yard")
+
+	# (8) As long as it gets.
+	board.open(&"coop_expand")
+	await _frames(2)
+	btn = _expand_button(board)
+	_check(coop.expand_block() == "COOP_LARGEST" and not coop.buy_expansion() and btn != null and btn.disabled
+			and _board_text(board).contains(UiTheme.caps(tr("COOP_LARGEST"))), "then it is as long as it gets")
+	board.close_screen()
+
+	# (9) Wolves: the hen at the far end of the shut coop is safe; open, a wolf goes in by
+	# the door.
+	await _coop_expand_wolf(coop)
+
+	# (10) Two coops and a third going up: the board lists them, "Show", the second picked.
+	var coop_b: ChickenCoop = await _poultry_coop()
+	var spot := COOP_SPOT + Vector3(14, 0, 0)
+	for off: Vector3 in [Vector3(14, 0, 0), Vector3(-14, 0, -14), Vector3(0, 0, 0), Vector3(14, 0, -14)]:
+		var clear := true
+		for c: ChickenCoop in farm.kit_coops():
+			if _flat_dist(c.global_position, COOP_SPOT + off) < 13.0:
+				clear = false
+		if clear:
+			spot = COOP_SPOT + off
+			break
+	spot.y = TerrainData.height(spot.x, spot.z)
+	var se := FarmState.add_placed(&"coop_kit", spot, 0.0)
+	se["stage"] = "site"
+	se["build_left"] = 50.0
+	var going_up := farm.spawn_placed(se) as ChickenCoop
+	await _frames(3)
+	var coops := farm.kit_coops()
+	_check(coop_b != null and coops.size() == 3 and coops[0] == coop and coops[1] == coop_b and coop_b.coop_name() == tr("COOP_NUMBER") % 2,
+			"three coops on the farm, named by when they went up")
+	if coop_b == null:
+		tidy.call()
+		return
+	for i in 3:
+		Animals.release(&"chicken", coop_b.housing)
+	Economy.money = 1000
+	inv.add_item(&"wood", 20)
+	inv.add_item(&"nails", 10)
+	board._coop_pick = ""
+	board.open(&"coop_expand")
+	await _frames(2)
+	var rows := _coop_rows(board)
+	text = _board_text(board)
+	_check(rows.size() == 3 and (rows[0] as Button).disabled and not (rows[1] as Button).disabled and (rows[2] as Button).disabled
+			and text.contains(UiTheme.caps(tr("BUILD_EXPAND_PICK"))) and text.contains(UiTheme.caps(tr("COOP_STILL_BUILDING"))),
+			"the board lists the three: the largest and the one going up can't be picked")
+	_check(board._expand_target() == coop_b and text.contains(tr("BUILD_EXPAND_BIRDS") % [3, 8]) and text.contains(tr("BUILD_EXPAND_LEVEL") % [2, 2])
+			and text.contains(tr("BUILD_EXPAND_CHANGE") % [8, 14, 3, 5]), "the second coop is the one picked (3/8 birds, 8 → 14)")
+	var show := rows[1].find_child("Show", true, false) as Button
+	if show:
+		show.pressed.emit()
+	await _frames(2)
+	var dot: Variant = Quests.guide_point()
+	_check(not board.visible and typeof(dot) == TYPE_VECTOR3 and (dot as Vector3).distance_to(coop_b.center_point() + Vector3(0, 3.4, 0)) < 0.1
+			and Quests.guide_label() == tr("HINT_NEW_BUILDING") % coop_b.coop_name(), "'Show' closes the board and puts the dot over coop 2")
+	board.open(&"coop_expand")
+	await _frames(2)
+	rows = _coop_rows(board)
+	if rows.size() > 1:
+		(rows[1] as Button).pressed.emit()
+	await _frames(2)
+	_check(board._coop_pick == coop_b.uid(), "the second coop picked")
+	btn = _expand_button(board)
+	if btn and not btn.disabled:
+		btn.pressed.emit()
+	await _frames(3)
+	_check(coop_b.expanding() and not coop.expanding() and coop.expansion() == 2 and not going_up.expanding() and going_up.expansion() == 0,
+			"only the second coop is being enlarged")
+
+	# (11) Saved mid-way, loaded; finished, saved and loaded again.
+	coop_b.entry["expand_left"] = 30.0
+	var a_uid := coop.uid()
+	var b_uid := coop_b.uid()
+	var c_uid := going_up.uid()
+	var a_birds := Animals.count_at(h)
+	var slot := "coop_expand_test"
+	_check(SaveGame.save(slot), "saved while coop 2 is being enlarged")
+	_check(SaveGame.load_game(slot), "loading it")
+	await _until_loaded()
+	farm = Game.world.farm
+	var by_uid := func(id: String) -> ChickenCoop:
+		for c in (Game.world.farm as Farm).kit_coops():
+			if c.uid() == id:
+				return c
+		return null
+	coop = by_uid.call(a_uid)
+	coop_b = by_uid.call(b_uid)
+	_check(coop != null and coop.expansion() == 2 and coop.housing.capacity() == 20 and coop.nest_count() == 7 and (coop.entry["nests"] as Array).size() == 7
+			and Animals.count_at(coop.housing) == a_birds and is_equal_approx(coop.housing.building.size.x, 7.4),
+			"loaded: coop 1 is 7.4 m long, holds 20, 7 boxes, its %d birds" % a_birds)
+	_check(coop_b != null and coop_b.expanding() and absf(coop_b.expansion_left() - 30.0) < 1.5 and coop_b.site != null and coop_b.site.extension
+			and coop_b.housing.capacity() == 8 and not coop_b.housing.works.is_empty(), "loaded: coop 2's site stands again, 30 s to go (%.1f)" % (coop_b.expansion_left() if coop_b else 0.0))
+	if coop_b:
+		coop_b.finish_expansion()
+	await _frames(3)
+	_check(SaveGame.save(slot), "saved after")
+	_check(SaveGame.load_game(slot), "loading it again")
+	await _until_loaded()
+	farm = Game.world.farm
+	coop_b = by_uid.call(b_uid)
+	_check(coop_b != null and not coop_b.expanding() and coop_b.expansion() == 1 and coop_b.housing.capacity() == 14 and coop_b.nest_count() == 5
+			and Animals.count_at(coop_b.housing) == 3, "loaded: coop 2 holds 14, its 3 hens in it")
+
+	# (12) At level 4 coop 2's next step waits for level 5; coop 3 (just up) can be enlarged
+	# now: the board goes to it, and the list's tag shows the price, coop 2 picked or not.
+	var coop_c: ChickenCoop = by_uid.call(c_uid)
+	if coop_c and not coop_c.is_built():
+		coop_c.finish()
+	await _frames(3)
+	Progress.level = 4
+	Economy.money = 1000
+	PlayerState.inventory.add_item(&"wood", 20)
+	PlayerState.inventory.add_item(&"nails", 10)
+	board = Game.hud.build_screen
+	board._coop_pick = ""
+	board.open(&"coop_expand")
+	await _frames(2)
+	btn = _expand_button(board)
+	_check(coop_c != null and coop_c.is_built() and board._expand_target() == coop_c and btn != null and not btn.disabled
+			and _board_text(board).contains(tr("BUILD_EXPAND_CHANGE") % [8, 14, 3, 5]),
+			"at level 4 the board goes to coop 3 (8 → 14, can be enlarged now), not coop 2 (waiting for level 5)")
+	var price := UiTheme.money(int(ProjectTable.coop_step(0)["cost"]))
+	var tag := _chip_text(board._expand_chip())
+	board._coop_pick = b_uid
+	var picked_tag := _chip_text(board._expand_chip())
+	_check(tag == price and board._expand_target() == coop_b and picked_tag == price,
+			"the list's tag shows %s, coop 2 picked or not ('%s', '%s')" % [price, tag, picked_tag])
+	board._coop_pick = ""
+	board.close_screen()
+	SaveGame.delete(slot)
+	tidy.call()
+
+
+## The text of a tag on the board (a price or a lock), freed after.
+func _chip_text(chip: Control) -> String:
+	var out := PackedStringArray()
+	for l in chip.find_children("*", "Label", true, false):
+		out.append((l as Label).text)
+	chip.free()
+	return " ".join(out)
+
+
+## The expansion's ENLARGE button on the board (null when it isn't shown).
+func _expand_button(board: BuildScreen) -> Button:
+	var label := UiTheme.caps(tr("BUILD_EXPAND"))
+	for b in board._detail.find_children("*", "Button", true, false):
+		if not b.is_queued_for_deletion() and (b as Button).text == label:
+			return b
+	return null
+
+
+## Every label's text on the board's detail, one per line.
+func _board_text(board: BuildScreen) -> String:
+	var out := PackedStringArray()
+	for l in board._detail.find_children("*", "Label", true, false):
+		if not l.is_queued_for_deletion() and not l.get_parent().is_queued_for_deletion():
+			out.append((l as Label).text)
+	return "\n".join(out)
+
+
+## The coops' rows in the expansion's list, in order.
+func _coop_rows(board: BuildScreen) -> Array[Control]:
+	var out: Array[Control] = []
+	for c in board._detail.find_children("Coop*", "Control", true, false):
+		if not c.is_queued_for_deletion():
+			out.append(c as Control)
+	return out
+
+
+## Width (X) of a coop's house model, roof overhangs and all.
+func _coop_mesh_width(h: AnimalHousing) -> float:
+	var mi := h.get_node_or_null("Structure/Building")
+	if mi == null:
+		return 0.0
+	for c in mi.get_children():
+		if c is MeshInstance3D and (c as MeshInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			return (c as MeshInstance3D).mesh.get_aabb().size.x
+	return 0.0
+
+
+## A wolf hunting a hen at the far end of the longer coop at night (the birds stay in):
+## kept out by the shut door and the walls; with the door open, it goes in by the door.
+func _coop_expand_wolf(coop: ChickenCoop) -> void:
+	var h := coop.housing
+	var hour := GameClock.get_hour_float()
+	var ran := GameClock.running
+	GameClock.running = false
+	GameClock.set_time_of_day(22.5)
+	var hen: Animal = null
+	for n in h.animals:
+		if n.data.species == &"chicken" and n.data.adult and not n.data.is_chick():
+			hen = n
+	if hen == null:
+		_check(false, "a hen for the wolf")
+		GameClock.set_time_of_day(hour)
+		GameClock.running = ran
+		return
+	for n in h.animals:
+		n.teleport_home(true)
+	h.door.set_open(false, false)
+	var end := h.frame * Vector3(h.building.end.x - 0.9, 0.0, h.building.get_center().y + 0.4)
+	end.y = h.floor_height()
+	hen.global_position = end
+	hen.indoors = true
+	hen.reset_physics_interpolation()
+	_check(not WolfRaids.can_reach(hen.data), "the door shut: the hen at the far end is out of the wolves' reach")
+	var wolf := Wolf.spawn(Game.world, h.door_outside() + h.front() * 12.0)
+	wolf.set_goal(&"hunt", hen)
+	Engine.time_scale = 2.0
+	var into := 0.0
+	var t := 0.0
+	while t < 12.0:
+		await _frames(6)
+		t += 0.1
+		if h.is_in_building(wolf.global_position) or Wolf.in_building(wolf.global_position, null):
+			into += 0.1
+	_check(into < 0.01 and hen.data.health > 0.0 and not hen.data.injured(), "shut, the wolf stays outside the longer house (%.1f s in it)" % into)
+	# Behind the middle of the long house, where it has the furthest way round.
+	wolf.global_position = h.world_at(h.building.get_center().x, h.building.position.y - 0.6)
+	wolf.reset_physics_interpolation()
+	await _frames(2)
+	h.door.set_open(true, false)
+	_check(WolfRaids.can_reach(hen.data), "the door open: she can be reached")
+	var by_door := false
+	var in_by_door := false
+	var through_wall := false
+	var reached := false
+	t = 0.0
+	var last := h.flat(wolf.global_position)
+	while t < 25.0 and not reached:
+		await _frames(1)
+		t += 1.0 / 60.0
+		var wp := wolf.global_position
+		var l := h.flat(wp)
+		if wp.distance_to(h.door_outside()) < 1.2:
+			by_door = true
+		if h.building.has_point(l) and not h.building.has_point(last):
+			# Came in: across the front wall in the doorway, never through a wall.
+			var front := h.building.end.y
+			if last.y > front and l.y <= front and absf(lerpf(last.x, l.x, (front - last.y) / (l.y - last.y)) - h.door_x()) < 0.8:
+				in_by_door = true
+			else:
+				through_wall = true
+		last = l
+		if h.building.has_point(l) and (not is_instance_valid(hen) or hen.data.health <= 0.0 or hen.data.injured()
+				or _flat_dist(wp, hen.global_position) < 1.3):
+			reached = true
+	Engine.time_scale = 1.0
+	GameClock.set_time_of_day(hour)
+	GameClock.running = ran
+	_check(reached and by_door and in_by_door and not through_wall,
+			"open, the wolf behind the house goes round it, in by the door and gets to her (%.1f s; by the door %s, in by it %s)"
+			% [t, by_door, in_by_door])
+	wolf.queue_free()
+	await _frames(3)

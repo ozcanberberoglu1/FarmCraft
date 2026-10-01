@@ -36,6 +36,24 @@ var away_yaw := 0.0
 var last_birth_day := -100
 ## A chick's mother hen (her id; 0 for none): it follows her until it is grown.
 var mother := 0
+## Hurt by a wolf (GameClock.total_minutes it happened; -1 for sound): it limps, gives
+## nothing and dies when Animals.INJURY_MINUTES have passed unless the vet treats it.
+var injured_at := -1.0
+## At the vet's clinic until this time (GameClock.total_minutes; -1 when on the farm): off
+## the farm, it can't die meanwhile and comes back healed (Animals.send_to_vet).
+var vet_until := -1.0
+## The farmer was told its time is running out (Animals.INJURY_REMIND).
+var injury_warned := false
+
+
+## Hurt and not yet treated (also while it is at the clinic).
+func injured() -> bool:
+	return injured_at >= 0.0
+
+
+## Away at the vet's clinic.
+func at_vet() -> bool:
+	return vet_until >= 0.0
 
 
 func info() -> Dictionary:
@@ -69,7 +87,8 @@ func to_dict() -> Dictionary:
 	var d := {}
 	for p in ["id", "name", "variant", "adult", "growth", "fullness", "hydration", "happiness", "health",
 			"affection", "petted_today", "brushed_today", "hand_fed_today", "fed_hours", "product_ready",
-			"product_progress", "wool", "sick", "wet", "exposure", "away", "away_yaw", "last_birth_day", "mother"]:
+			"product_progress", "wool", "sick", "wet", "exposure", "away", "away_yaw", "last_birth_day", "mother",
+			"injured_at", "vet_until", "injury_warned"]:
 		d[p] = get(p)
 	d["species"] = String(species)
 	d["away_pos"] = [away_pos.x, away_pos.y, away_pos.z]

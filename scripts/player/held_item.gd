@@ -6,7 +6,8 @@ extends Node3D
 ## player's action clock, so the contact pose lands on the tick the effect happens and
 ## is always drawn, even when a slow frame steps over it. The watering can pours a
 ## stream while it is tipped, from its spout onto what the player aims at; an item
-## taken from the world flies into the hand.
+## taken from the world flies into the hand. The bow is strung (HeldBow) and comes up to
+## its aim pose (HeldPoses.AIM_POSES) while Combat draws it.
 
 ## Seconds a cut-short stroke takes to ease back to rest.
 const CANCEL_BLEND := 0.16
@@ -57,6 +58,13 @@ var _flight_t := 0.0
 ## A pose frozen for screenshots (debug_pose): profile and u (-1 = off).
 var _debug_prof: StringName = &""
 var _debug_u := -1.0
+## The bow's string and the arrow on it while the bow is in hand.
+var _bow: HeldBow
+## How far the item is up in its aim pose (0 rest .. 1 aimed), that pose, and a tremor
+## of tired arms (0..1).
+var _aim := 0.0
+var _aim_base := Transform3D.IDENTITY
+var _tremor := 0.0
 
 
 func _ready() -> void:
@@ -82,12 +90,22 @@ func _refresh() -> void:
 	_item_id = id
 	_stop_stroke()
 	_apply_visibility()
+	if is_instance_valid(_bow):
+		_bow.queue_free()
+	_bow = null
+	_aim = 0.0
+	_tremor = 0.0
 	# Placeables show as the placement preview instead.
 	if id == &"" or PlaceableTable.is_placeable(id):
 		return
 	_model.mesh = ItemModels.mesh(id)
 	_grip = HeldPoses.grip_point(id, _model.mesh)
 	_base = HeldPoses.rest_pose(id, _model.mesh)
+	_aim_base = HeldPoses.aim_pose(id, _model.mesh)
+	if id == Combat.BOW:
+		_bow = HeldBow.new()
+		_bow.name = "Strung"
+		_model.add_child(_bow)
 	# Bring the new item up from below.
 	_sway.y -= 0.35
 
@@ -194,6 +212,15 @@ func _place_stream(xf: Transform3D) -> void:
 		_stream.aim(player.ray.get_collision_point())
 	else:
 		_stream.aim(Vector3.ZERO, false)
+
+
+## The bow in hand: up in its aim pose by `aim` (0..1), its string drawn `draw` (0..1)
+## with an arrow on it when `nocked`, the arms trembling by `tremor` (0..1) (Combat).
+func set_bow(draw: float, aim: float, nocked: bool, tremor := 0.0) -> void:
+	_aim = clampf(aim, 0.0, 1.0)
+	_tremor = tremor
+	if is_instance_valid(_bow):
+		_bow.set_draw(draw, nocked)
 
 
 ## Freezes the item at `u` of a profile's stroke for screenshots (u < 0 lets go).
@@ -313,15 +340,23 @@ func _process(delta: float) -> void:
 	if player and player.is_on_floor():
 		var speed := Vector2(player.velocity.x, player.velocity.z).length()
 		bob = sin(_time * 9.0) * 0.012 * clampf(speed / 4.0, 0.0, 1.5)
-	var offset := Vector3(_sway.x, _sway.y + bob + sin(_time * 1.6) * 0.004, 0)
+	# Held up and aimed, the item is steadier: less sway and bob, a slow breath (and the
+	# shake of arms held too long at full draw).
+	var steady := 1.0 - 0.7 * _aim
+	var breath := Vector3(sin(_time * 1.3) * 0.0015, sin(_time * 1.6) * 0.003, 0) * _aim
+	var shake := Vector3(sin(_time * 23.0) + sin(_time * 31.0 + 1.1), sin(_time * 27.0 + 0.4), 0) * 0.0016 * _tremor
+	var offset := Vector3(_sway.x, _sway.y + bob + sin(_time * 1.6) * 0.004, 0) * steady + breath + shake
 	_update_stroke(delta, player)
 	# The can wobbles a little in the hand while it pours.
 	_pour_w = move_toward(_pour_w, 1.0 if _pour else 0.0, delta * 6.0)
 	var wobble := Vector3(0, 0, sin(_time * TAU * 5.5) * 1.5) * _pour_w
 	var bob_pos := offset + Vector3(0, sin(_time * TAU * 3.1) * 0.006 * _pour_w, 0)
 	var rot := Quaternion.from_euler(wobble * HeldPoses.DEG) * _off_rot
-	# Turned about the hand (HeldPoses.grip_point).
-	var xf := HeldPoses.posed(_base, _grip, bob_pos + _off_pos, rot)
+	# Turned about the hand (HeldPoses.grip_point), from the rest pose up toward the aim.
+	var base := _base
+	if _aim > 0.0:
+		base = _base.interpolate_with(_aim_base, smoothstep(0.0, 1.0, _aim))
+	var xf := HeldPoses.posed(base, _grip, bob_pos + _off_pos, rot)
 	_model.transform = xf
 	if _stream:
 		_place_stream(xf)

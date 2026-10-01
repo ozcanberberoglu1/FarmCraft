@@ -41,7 +41,8 @@ Re-download with `python3 tools/fetch_textures.py`.
 The decals in `town/` (oil stains, asphalt patches, sealed cracks, kerb dirt, the zebra
 crossing, rain streaks, tyre marks, pen mud) are painted procedurally by
 `art/textures/town/make_town_textures.py` (no downloads), which also prints the
-signs, posters and flags of `town/town_print_albedo.png`.
+signs, posters and flags of `town/town_print_albedo.png` and the vet clinic's sign,
+posters and labels of `town/vet_print_albedo.png`.
 | forrest_ground_01 | https://polyhaven.com/a/forrest_ground_01 |
 | gravel_ground_01 | https://polyhaven.com/a/gravel_ground_01 |
 | dirt | https://polyhaven.com/a/dirt |

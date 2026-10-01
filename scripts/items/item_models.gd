@@ -30,10 +30,11 @@ const ICON_ROTATION := {
 	&"knife": Vector3(0, 0, -45), &"bow": Vector3(40, 90, 0), &"fishing_rod": Vector3(12, 150, -38),
 	&"rope": Vector3(28, 20, 0), &"nails": Vector3(18, 25, 0), &"worm": Vector3(32, 20, 0), &"dough": Vector3(30, 20, 0),
 	&"sapling": Vector3(0, 30, -8), &"campfire": Vector3(20, 20, 0),
-	&"rabbit": Vector3(8, 135, 0),
+	&"rabbit": Vector3(8, 135, 0), &"wolf_pelt": Vector3(30, 35, 0),
 	&"cane_rod": Vector3(12, 150, -38), &"carbon_rod": Vector3(12, 150, -38), &"carp_rod": Vector3(12, 150, -38),
 	&"maggot": Vector3(35, 20, 0), &"sweetcorn": Vector3(28, 20, 0), &"cheese_bait": Vector3(35, 20, 0),
 	&"minnow": Vector3(35, 20, 0), &"spinner": Vector3(55, 10, -20),
+	&"arrow": Vector3(10, 30, -48),
 }
 
 ## Long tools are framed on their working end: model-space focus point and view radius.
@@ -67,11 +68,17 @@ static func mesh(id: StringName) -> ArrayMesh:
 		m = FishModels.mesh(id)
 	elif CraftModels.has(id):
 		m = CraftModels.mesh(id)
+	elif ArrowModels.has(id):
+		# The bow's arrows (scripts/combat).
+		m = ArrowModels.mesh(id)
 	elif BerryModels.LOOK.has(id):
 		# Wild berries (a handful) and the caught rabbit (NATURE).
 		m = BerryModels.handful(id)
 	elif id == &"rabbit":
 		m = RabbitRig.item_mesh()
+	elif id == &"wolf_pelt":
+		# A folded wolf pelt (tools/blender/build_wolf.py).
+		m = WolfRig.pelt_mesh()
 	elif PlaceableTable.is_placeable(id):
 		m = PlaceableModels.mesh(id, "whole")
 	else:

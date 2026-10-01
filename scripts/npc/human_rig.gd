@@ -29,7 +29,7 @@ extends Node3D
 ## glass sits in the fist, not at the wrist.
 
 const DIR := "res://art/models/people/"
-const MODELS: Array[StringName] = [&"shopkeeper", &"worker", &"salesman", &"farmer", &"elder", &"villager", &"young", &"zeynep"]
+const MODELS: Array[StringName] = [&"shopkeeper", &"worker", &"salesman", &"farmer", &"elder", &"villager", &"young", &"zeynep", &"vet"]
 ## Skin, lips and cheeks a little warmer and darker than the source scans (Anatolian sun).
 const SKIN_TINT := Color(0.96, 0.87, 0.78)
 ## Bones the rig writes, by role.

@@ -15,6 +15,9 @@ const LANGUAGE_NAMES := {
 const BUS_VOLUMES := {"Music": "music_volume", "Effects": "effects_volume", "Ambience": "ambience_volume", "UI": "ui_volume"}
 ## Graphics presets (see DayNightCycle.apply_quality for what each turns on).
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
+## How often wolves come to the farm at night (WolfRaids): never, now and then, or as the
+## game means them to.
+enum Raids { OFF, RARE, NORMAL }
 ## Most pixels the 3D scene is drawn at before upscaling (2560x1440). A maximized
 ## window on a Retina or 4K screen is 8-10 million pixels; drawing GI, fog and MSAA
 ## at that size costs 3x the frame time for detail the eye can barely see.
@@ -45,6 +48,7 @@ var ambience_volume := 0.8
 var ui_volume := 0.7
 ## Real-time minutes for one in-game hour span of 06:00-02:00 (20 game hours).
 var day_length_minutes := 15.0
+var wolf_raids := Raids.NORMAL
 var show_fps := false
 var fullscreen := false
 var vsync := true
@@ -182,6 +186,7 @@ func reset_defaults() -> void:
 	ambience_volume = 0.8
 	ui_volume = 0.7
 	day_length_minutes = 15.0
+	wolf_raids = Raids.NORMAL
 	show_fps = false
 	fullscreen = false
 	vsync = true
@@ -197,6 +202,7 @@ func load_settings() -> void:
 	if language not in LANGUAGES:
 		language = ""
 	day_length_minutes = cfg.get_value("general", "day_length_minutes", day_length_minutes)
+	wolf_raids = clampi(cfg.get_value("general", "wolf_raids", wolf_raids), Raids.OFF, Raids.NORMAL) as Raids
 	mouse_sensitivity = cfg.get_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	invert_y = cfg.get_value("controls", "invert_y", invert_y)
 	fov = cfg.get_value("video", "fov", fov)
@@ -218,6 +224,7 @@ func save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("general", "language", language)
 	cfg.set_value("general", "day_length_minutes", day_length_minutes)
+	cfg.set_value("general", "wolf_raids", wolf_raids)
 	cfg.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	cfg.set_value("controls", "invert_y", invert_y)
 	cfg.set_value("video", "fov", fov)

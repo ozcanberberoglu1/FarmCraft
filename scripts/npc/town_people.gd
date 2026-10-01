@@ -7,6 +7,8 @@ extends Node3D
 ##   Murat, the attendant      on the first pump island, wiping his pump
 ##   Kemal, the car dealer     behind his desk in the showroom
 ##   Rıza, the stockman        at the Animal Market's hatch with his ledger
+##   Dr. Selin, the vet        behind the vet clinic's counter with her clipboard (in
+##                             the clinic's hours: VetClinic sends her home after them)
 ##   Ali, the shop boy         sweeping the market's forecourt (clear of the door)
 ##   Osman Dede                on the bench by the market
 ##   Nuri Hoca                 at the tea table under the market's awning
@@ -15,7 +17,7 @@ extends Node3D
 ##
 ## Places follow the town's own layout (its constants and service points), so nobody
 ## stands in a door, on a route of the player's or in a vehicle's way. Seven bodies
-## share six models (tints tell the farmers apart).
+## share six models (tints tell the farmers apart); the vet has her own.
 
 const CROSS_N := 16.05
 const CROSS_S := 23.95
@@ -49,6 +51,12 @@ func _ready() -> void:
 	_person(&"rancher", &"farmer", Townsperson.Act.WRITE, Vector3(hatch.x - 1.5, hatch.y - 1.3, hatch.z + 0.1), PI * 0.5,
 			{"service": town.market_office, "worker": true, "work_height": 1.0,
 			"tints": {"cloth_male_casualsuit05": Color(0.95, 0.8, 0.62), "cloth_jujube_newsboy_cap": Color(0.62, 0.5, 0.4)}})
+	# The vet behind her counter, writing on her clipboard, facing the waiting room.
+	if town.vet_clinic:
+		var clinic := town.vet_clinic
+		var vet := _person(&"vet", &"vet", Townsperson.Act.WRITE, clinic.vet_spot(), clinic.vet_yaw(),
+				{"service": clinic.counter, "worker": true, "work_height": VetClinic.COUNTER_H})
+		clinic.set_vet(vet)
 	# The shop boy sweeping the forecourt west of the door.
 	var fz := Town.MARKET.end.y + 2.4
 	var fy := town._y(206, 11.5) + 0.15

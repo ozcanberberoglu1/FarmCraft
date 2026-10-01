@@ -1001,10 +1001,12 @@ func _on_project_built(id: StringName) -> void:
 	_guide_to(at, tr("PROJECT_" + String(id).to_upper()))
 
 
-## A kit building finished on its site (a coop, the workbench): its door or top.
+## A kit building finished on its site (a coop, the workbench), or a coop made longer:
+## its door or top.
 func _on_building_completed(id: StringName, building: Node) -> void:
 	if building is ChickenCoop:
-		_guide_to((building as ChickenCoop).door_point() + Vector3(0, 1.4, 0), tr("HOUSING_COOP"))
+		var coop := building as ChickenCoop
+		_guide_to(coop.door_point() + Vector3(0, 1.4, 0), coop.coop_name() if id == ChickenCoop.EXPAND_ID else tr("HOUSING_COOP"))
 	elif building is Workbench:
 		_guide_to((building as Workbench).top_point(), tr("PROJECT_" + String(id).to_upper()))
 	elif building is Node3D and (building as Node3D).is_inside_tree():
@@ -1023,6 +1025,14 @@ func _guide_to(at: Variant, building_name: String) -> void:
 		return
 	_new_building = at
 	_new_building_text = tr("HINT_NEW_BUILDING") % building_name
+	_new_building_shown = 0.0
+
+
+## Shows the dot over `at` a while, as over a building just finished, with `place_name`
+## on its pill (the construction board's "Show" on one of the coops).
+func point_out(at: Vector3, place_name: String) -> void:
+	_new_building = at
+	_new_building_text = tr("HINT_NEW_BUILDING") % place_name
 	_new_building_shown = 0.0
 
 

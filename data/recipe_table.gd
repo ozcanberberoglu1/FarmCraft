@@ -22,6 +22,8 @@ const CRAFTING := {
 	&"carbon_rod": {"items": {&"wood": 4, &"rope": 3, &"nails": 6, &"iron_ore": 3}, "count": 1, "level": 2, "group": "tools"},
 	&"carp_rod": {"items": {&"wood": 6, &"rope": 4, &"nails": 10, &"iron_ore": 6}, "count": 1, "level": 3, "group": "tools"},
 	&"bow": {"items": {&"wood": 4, &"nails": 4, &"rope": 2}, "count": 1, "level": 1, "group": "tools"},
+	# Arrows are to the bow what bait is to the rod: cheap, five at a time.
+	&"arrow": {"items": {&"wood": 2, &"stone": 1}, "count": 5, "level": 1, "group": "tools"},
 	&"axe": {"items": {&"wood": 3, &"iron_ore": 3}, "count": 1, "level": 1, "group": "tools"},
 	&"pickaxe": {"items": {&"wood": 3, &"iron_ore": 4}, "count": 1, "level": 1, "group": "tools"},
 	&"hoe": {"items": {&"wood": 3, &"iron_ore": 3}, "count": 1, "level": 1, "group": "tools"},
@@ -47,7 +49,7 @@ const CRAFTING := {
 	&"jam_kettle": {"items": {&"stone": 20, &"iron_ore": 10}, "count": 1, "level": 5, "group": "machines"},
 }
 ## The workbench's list, heading by heading (GROUPS).
-const CRAFT_ORDER: Array[StringName] = [&"knife", &"cane_rod", &"fishing_rod", &"carbon_rod", &"carp_rod", &"bow", &"axe", &"pickaxe", &"hoe",
+const CRAFT_ORDER: Array[StringName] = [&"knife", &"cane_rod", &"fishing_rod", &"carbon_rod", &"carp_rod", &"bow", &"arrow", &"axe", &"pickaxe", &"hoe",
 	&"scythe", &"watering_can", &"pitchfork", &"shears", &"milk_pail", &"campfire", &"food_table", &"dough", &"feed",
 	&"fertilizer", &"sprinkler", &"quern", &"pickle_barrel", &"spinning_wheel", &"cheese_press", &"jam_kettle"]
 ## Headings of the workbench's list: group -> [translation key, icon].

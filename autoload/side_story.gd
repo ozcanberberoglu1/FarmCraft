@@ -24,9 +24,15 @@ extends Node
 ## saved, which goal is up, where its dot points and what everyone says. Automated runs
 ## (tests, screenshots) keep her away unless the run asks for her (`--zeynep`, or
 ## `testing` set by the zeynep scenario), so other checks never meet her.
+##
+## Other side goals can be up at the same time as hers (`goals`: SideGoal, each on a card
+## of its own with a dot of its own): the wolves' lesson and the vet's (WolfRaids) add and
+## take away theirs.
 
 ## The side goal, its dot or its hint changed (the HUD refreshes).
 signal changed
+## A side goal was added to `goals` or taken away (the HUD builds its cards again).
+signal goals_changed
 
 const WHO := &"zeynep"
 const DOG := &"karamel"
@@ -77,6 +83,8 @@ var announced := false
 var chat_day := 0
 ## Set by the zeynep scenario: she comes in this automated run.
 var testing := false
+## The other side goals up now, besides Zeynep's (in the order their cards show).
+var goals: Array[SideGoal] = []
 
 ## When she last opened the door to a knock with nothing to bring (GameClock.total_minutes).
 var _last_knock := -INF
@@ -296,6 +304,22 @@ func _target(g: String) -> Variant:
 	if town == null or town.market_counter == null:
 		return null
 	return town.market_counter.global_position + Vector3(0, MARKET_LIFT, 0)
+
+
+## Puts side goal `g` up beside the others (once).
+func add_goal(g: SideGoal) -> void:
+	if g == null or goals.has(g):
+		return
+	goals.append(g)
+	goals_changed.emit()
+
+
+## Takes side goal `g` down.
+func remove_goal(g: SideGoal) -> void:
+	if not goals.has(g):
+		return
+	goals.erase(g)
+	goals_changed.emit()
 
 
 # --- What happens ------------------------------------------------------------------------------

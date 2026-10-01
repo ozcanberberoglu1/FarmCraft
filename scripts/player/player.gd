@@ -14,6 +14,8 @@ extends CharacterBody3D
 ## Hold-to-use targets implement use_prompt/use_action/complete_use and optionally
 ## can_start(action, stack) and use_impact(player, stack, action, hit): the cosmetic
 ## side of each tool stroke landing (hit: "stroke", "final", "point", "normal").
+## The knife and the bow fight (Combat); a wound (PlayerState.hurt) jolts the view toward
+## the blow, and fainting from them sinks the view to the ground (collapse).
 
 signal target_changed(target: Node)
 signal footstep
@@ -62,6 +64,8 @@ var riding: Animal = null
 var driving: Vehicle = null
 ## The fishing rod's casting, bite and catch (it takes LMB while the rod is in hand).
 var angler: Angler
+## The knife's stab and the bow's draw and shot (LMB while either is in hand).
+var combat: Combat
 ## Physics frames left before collisions come back after getting out of a vehicle.
 var _exit_frames := 0
 var _ride_saved := {}
@@ -101,6 +105,10 @@ var _last_step_sign := 1.0
 var _step_ease := 0.0
 var _last_prompt := PackedStringArray()
 var _prompt_timer := 0.0
+## Fainting: how far the view has sunk to the ground (0..1), and the last grunt's time.
+var _collapse := 0.0
+var _collapse_tween: Tween
+var _last_grunt := -10.0
 
 
 func _ready() -> void:
@@ -125,6 +133,10 @@ func _ready() -> void:
 	angler = Angler.new()
 	angler.name = "Angler"
 	add_child(angler)
+	combat = Combat.new()
+	combat.name = "Combat"
+	add_child(combat)
+	PlayerState.hurt_taken.connect(_on_hurt)
 	footstep.connect(func() -> void:
 		if riding == null and driving == null:
 			Audio.footstep(self, Vector2(velocity.x, velocity.z).length() > walk_speed + 0.5))
@@ -210,8 +222,9 @@ func _physics_process(delta: float) -> void:
 			velocity.y = jump_velocity
 	# A starving or exhausted farmer can't run (a horse still can).
 	var sprinting := can_move and Input.is_action_pressed("sprint") and input.y < -0.1 \
-			and (riding != null or PlayerState.needs.can_sprint())
-	var speed := sprint_speed if sprinting else walk_speed
+			and (riding != null or PlayerState.needs.can_sprint()) and not combat.is_drawing()
+	# Drawing a bow, the farmer only steps slowly (Combat.move_factor).
+	var speed := (sprint_speed if sprinting else walk_speed) * combat.move_factor()
 	var wish := global_basis * Vector3(input.x, 0.0, input.y)
 	wish.y = 0.0
 	wish = wish.normalized() * speed * minf(input.length(), 1.0)
@@ -243,6 +256,10 @@ func _process(delta: float) -> void:
 	var eye := get_global_transform_interpolated().origin + global_basis * head.position + look * (_bob + Vector3(0, _kick.w, 0))
 	_step_ease *= exp(-delta * 11.0)
 	eye.y += _step_ease
+	if _collapse > 0.0:
+		# Fainting: the head drops and tips over onto its side, down near the ground.
+		look = look * Basis.from_euler(Vector3(-0.45, 0.15, 1.25) * _collapse)
+		eye.y -= 1.2 * _collapse
 	camera.global_transform = Transform3D(look, eye)
 
 
@@ -330,7 +347,7 @@ func _update_view_effects(delta: float) -> void:
 	if moving and signf(wave) != _last_step_sign and wave < 0.0:
 		footstep.emit()
 	_last_step_sign = signf(wave)
-	var target_fov := Settings.fov + (6.0 if _sprinting and speed > 5.0 else 0.0)
+	var target_fov := Settings.fov + (6.0 if _sprinting and speed > 5.0 else 0.0) + combat.fov_offset()
 	camera.fov = lerpf(camera.fov, target_fov, clampf(delta * 6.0, 0.0, 1.0))
 
 
@@ -435,6 +452,7 @@ func _update_prompt() -> void:
 	if eat != "":
 		lines.append(eat)
 	lines.append_array(angler.prompt_lines())
+	lines.append_array(combat.prompt_lines())
 	if lines != _last_prompt:
 		_last_prompt = lines
 		Events.interaction_prompt_changed.emit(lines)
@@ -463,6 +481,12 @@ func _update_action(delta: float) -> void:
 			_end_action(false)
 		angler.use_input(down, pressed_now)
 		return
+	if combat.holding_bow():
+		# The bow draws and looses on its own (Combat).
+		if not _action.is_empty():
+			_end_action(false)
+		combat.bow_input(down, pressed_now)
+		return
 	if not _action.is_empty():
 		# Until the final stroke lands the button must stay down on the same target with the
 		# same item; after that the follow-through always plays out.
@@ -488,6 +512,8 @@ func _update_action(delta: float) -> void:
 	if info.is_empty():
 		if pressed_now and stack and not held.busy() and stack.item.id == &"egg":
 			_throw_egg()
+		elif pressed_now and combat.holding_knife():
+			combat.stab()
 		elif pressed_now and stack and not held.busy() and stack.item.category != "animal":
 			_swing_at_nothing(stack)
 		return
@@ -675,6 +701,44 @@ func _end_action(completed: bool) -> void:
 	# A landed action already closed its progress bar.
 	if not was_committed:
 		Events.action_progress_finished.emit(completed)
+
+
+## A wound (PlayerState.hurt_taken): the view is knocked toward the blow and shaken,
+## and he grunts (not every bite of a quick run).
+func _on_hurt(amount: float, from: Vector3) -> void:
+	var to := from - global_position
+	to.y = 0.0
+	var local := global_basis.inverse() * to
+	var side := clampf(local.x / maxf(to.length(), 0.01), -1.0, 1.0)
+	var behind := clampf(local.z / maxf(to.length(), 0.01), -1.0, 1.0)
+	var k := clampf(amount / 20.0, 0.4, 1.6)
+	kick_view(Vector4((-1.6 + 1.2 * behind) * k, -2.6 * side * k, 3.2 * side * k, -0.03 * k), 0.3 * k)
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_grunt > 0.7:
+		_last_grunt = now
+		CombatSfx.play("grunt", null, -5.0, 0.05)
+
+
+## Fainting: the view sinks to the ground over `seconds` (SleepScreen's knock-out).
+func collapse(seconds: float) -> void:
+	if riding:
+		dismount()
+	if driving:
+		exit_vehicle()
+	_end_action(false)
+	combat.cancel()
+	if _collapse_tween:
+		_collapse_tween.kill()
+	_collapse_tween = create_tween()
+	_collapse_tween.tween_property(self, "_collapse", 1.0, seconds).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+
+## Back on his feet (waking in bed).
+func end_collapse() -> void:
+	if _collapse_tween:
+		_collapse_tween.kill()
+	_collapse_tween = null
+	_collapse = 0.0
 
 
 ## Wears a tool down by one use; a tool at zero durability can't be used.

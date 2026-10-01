@@ -56,6 +56,11 @@ signal food_cleaned(item_id: StringName)
 # A fertilised egg hatched into a chick, and a chick grown up
 signal chick_hatched(chick: Node)
 signal chick_grown(animal: Node)
+# Wolves (WolfRaids) hurt or killed a farm animal (Animals.injure / kill: its id, and for
+# a death its species and where its remains lie); the vet healed one (it is back home)
+signal animal_injured(id: int)
+signal animal_killed(id: int, species: StringName, at: Vector3)
+signal animal_healed(id: int)
 
 # Player feedback
 signal notification_requested(text: String, color: Color)
@@ -68,6 +73,9 @@ signal action_progress_finished(completed: bool)
 signal lightning
 signal day_ending
 signal passed_out
+# The farmer was hurt until he fainted (PlayerState.hurt): emitted as he falls, before
+# the night's skip that carries him home to bed (SleepScreen.start_sleep).
+signal player_knocked_out
 
 # UI focus (inventory, shop, menus...)
 signal ui_opened(ui_name: StringName)

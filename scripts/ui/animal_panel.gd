@@ -1,7 +1,8 @@
 class_name AnimalPanel
 extends ModalScreen
 ## Details of one animal: portrait, editable name, age, hearts, needs, condition and
-## what it needs from the player.
+## what it needs from the player (a hurt one: "Injured" and the hours left to have it
+## treated by the vet, or that it is at the clinic). Closes if the animal is gone.
 
 const STATS := [["fullness", "food"], ["hydration", "drop"], ["happiness", "smile"], ["health", "health"]]
 
@@ -88,6 +89,8 @@ func open(a: AnimalData) -> void:
 		_sub.add_child(UiTheme.chip(tr("ANIMAL_ADULT"), UiTheme.TEXT_MUTED))
 	else:
 		_sub.add_child(UiTheme.chip(tr("ANIMAL_GROWING") % [int(a.growth), int(a.info()["grow_days"])], UiTheme.BLUE))
+	if a.injured():
+		_sub.add_child(UiTheme.chip(tr("ANIMAL_INJURED"), UiTheme.RED, "health"))
 	_refresh()
 	show_screen()
 
@@ -133,6 +136,10 @@ func _make_bar(key: String, icon_name: String) -> Control:
 func _refresh() -> void:
 	if _data == null:
 		return
+	# Gone (taken by wolves, died of its wounds, sold): nothing left to show.
+	if not Animals.animals.has(_data):
+		close_panel()
+		return
 	for c in _hearts.get_children():
 		c.queue_free()
 	for i in 5:
@@ -165,6 +172,10 @@ func _status_lines() -> Array:
 	var info := UiTheme.TEXT_MUTED
 	var out := []
 	var node := Animals.node_of(_data)
+	if _data.at_vet():
+		out.append([tr("STATUS_AT_VET") % maxi(1, ceili(Animals.hours_left(_data.id))), UiTheme.BLUE])
+	elif _data.injured():
+		out.append([tr("STATUS_INJURED") % maxi(1, ceili(Animals.hours_left(_data.id))), bad])
 	if _data.sick:
 		out.append([tr("STATUS_SICK"), bad])
 	if _data.wet > 0.25:

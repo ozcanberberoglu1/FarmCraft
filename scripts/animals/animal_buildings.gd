@@ -9,7 +9,8 @@ extends RefCounted
 ## windows, tiled roofs laid in courses on rafters with fascia, barge boards and
 ## gutters.
 ## The coop leaves its door leaf out with `with_door` false (the kit-built coop hangs a
-## CoopDoor that opens and shuts there instead).
+## CoopDoor that opens and shuts there instead); a kit-built coop made longer has its
+## door off the middle (`door_x`) and its newer east end (`ext`) told by fresher boards.
 
 const PLANK := Color(0.6, 0.44, 0.4)
 const PLANK_DARK := Color(0.42, 0.34, 0.31)
@@ -201,7 +202,12 @@ static func barn(size: Vector2) -> Dictionary:
 ## Grandpa's coop (`with_door`: its door leaf hangs open, its nest boxes are bedded).
 ## A kit-built coop's model leaves out the leaf (CoopDoor) and the nest boxes: its own
 ## (ChickenCoop) are empty until the farmer beds them with straw.
-static func coop(size: Vector2, with_door := true) -> Dictionary:
+## A kit-built coop made longer (ChickenCoop's expansion): `ext` metres at its east end
+## are the newer part, under the same roof: fresher boards behind a trim board over the
+## joint, a window in its front, a roost of its own along the new end wall (the old one
+## stays where it stood); its door, ramp and floor stay where they were, `door_x` metres
+## along X from the middle of the longer house.
+static func coop(size: Vector2, with_door := true, door_x := 0.0, ext := 0.0) -> Dictionary:
 	var mb := MeshBuilder.new()
 	# Small trim, drawn without shadows (returned as straw_mesh, as the barn's).
 	var detail := MeshBuilder.new()
@@ -214,18 +220,36 @@ static func coop(size: Vector2, with_door := true) -> Dictionary:
 	var door_w := 1.0
 	var door_h := 2.05
 	var floor_y := 0.3
+	# Where the newer east end meets the house as it came (none without one), and its
+	# fresher boards.
+	var joint := w * 0.5 - ext if ext > 0.0 else INF
+	var fresh := PLANK.lightened(0.05).lerp(Color(0.72, 0.58, 0.46), 0.3)
 	# Raised floor on short posts (sunk 0.3 m, so a coop on a gentle slope never floats).
 	mb.box_at(&"floor", Vector3(0, floor_y - 0.05, 0), Vector3(w, 0.1, d), Color(0.5, 0.48, 0.46))
-	for sx: float in [-1.0, 1.0]:
+	var post_xs: Array[float] = [-(w * 0.5 - 0.1), w * 0.5 - 0.1]
+	if ext > 0.0:
+		post_xs.append(joint)
+	for px: float in post_xs:
 		for sz: float in [-1.0, 1.0]:
-			mb.box_at(&"wood_ext", Vector3(sx * (w * 0.5 - 0.1), (floor_y - 0.3) * 0.5 - 0.05, sz * (d * 0.5 - 0.1)), Vector3(0.14, floor_y + 0.3, 0.14), PLANK_DARK)
+			mb.box_at(&"wood_ext", Vector3(px, (floor_y - 0.3) * 0.5 - 0.05, sz * (d * 0.5 - 0.1)), Vector3(0.14, floor_y + 0.3, 0.14), PLANK_DARK)
 	mb.box(&"straw", Transform3D(Basis(), Vector3(0, floor_y + 0.015, 0)), Vector3(w - 0.3, 0.03, d - 0.3), Color(0.72, 0.6, 0.35))
 	cols.append([Vector3(0, floor_y * 0.5, 0), Vector3(w, floor_y, d)])
 	# Walls; the roof slopes from the front (door side) down to the back.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 23
-	var back_c := Vector3(0, floor_y + back_h * 0.5, -d * 0.5 + t * 0.5)
-	_wall(mb, cols, back_c, Vector3(w, back_h, t), PLANK.lightened(0.05), Vector3.FORWARD, detail)
+	if ext > 0.0:
+		# The house as it came and its newer end, the trim board over the joint (no batten
+		# under it).
+		var old_w := w - ext
+		_wall(mb, cols, Vector3(-w * 0.5 + old_w * 0.5, floor_y + back_h * 0.5, -d * 0.5 + t * 0.5), Vector3(old_w, back_h, t),
+				PLANK.lightened(0.05), Vector3.FORWARD, detail, [Vector2(old_w * 0.5 - 0.14, old_w)])
+		_wall(mb, cols, Vector3(joint + ext * 0.5, floor_y + back_h * 0.5, -d * 0.5 + t * 0.5), Vector3(ext, back_h, t),
+				fresh, Vector3.FORWARD, detail, [Vector2(-ext, -ext * 0.5 + 0.14)])
+		BuildingKit.plank(mb, &"paint_ext", Transform3D(Basis(), Vector3(joint, floor_y + back_h * 0.5, -d * 0.5 - 0.012)),
+				Vector3(0.14, back_h, 0.024), TRIM, Vector2(0.7, 0.2))
+	else:
+		var back_c := Vector3(0, floor_y + back_h * 0.5, -d * 0.5 + t * 0.5)
+		_wall(mb, cols, back_c, Vector3(w, back_h, t), PLANK.lightened(0.05), Vector3.FORWARD, detail)
 	for sx: float in [-1.0, 1.0]:
 		var sc := Vector3(sx * (w * 0.5 - t * 0.5), floor_y + back_h * 0.5, 0)
 		var ss := Vector3(t, back_h, d - t * 2.0)
@@ -253,10 +277,26 @@ static func coop(size: Vector2, with_door := true) -> Dictionary:
 				mb.tri(&"planks_ext", a + off, c + off, b + off, col, uv_a, uv_c, uv_b)
 			else:
 				mb.tri(&"planks_ext", a + off, b + off, c + off, col, uv_a, uv_b, uv_c)
-	var seg := (w - door_w) * 0.5
+	# The front either side of the door (the east side up to the newer end, which has a
+	# window in the middle of its own boards).
+	var door_l := door_x - door_w * 0.5
+	var door_r := door_x + door_w * 0.5
+	var east := minf(joint, w * 0.5)
+	for piece: Vector2 in [Vector2(-w * 0.5, door_l), Vector2(door_r, east)]:
+		var pw := piece.y - piece.x
+		var skips: Array[Vector2] = []
+		if piece.y == joint:
+			skips.append(Vector2(pw * 0.5 - 0.14, pw))
+		_wall(mb, cols, Vector3((piece.x + piece.y) * 0.5, floor_y + front_h * 0.5, d * 0.5 - t * 0.5), Vector3(pw, front_h, t),
+				PLANK.lightened(0.05), Vector3.BACK, detail, skips)
+	if ext > 0.0:
+		var win := Vector3(joint + ext * 0.5, floor_y + 1.45, d * 0.5)
+		_wall(mb, cols, Vector3(win.x, floor_y + front_h * 0.5, d * 0.5 - t * 0.5), Vector3(ext, front_h, t), fresh, Vector3.BACK, detail,
+				[Vector2(-ext, -ext * 0.5 + 0.14), Vector2(-0.5, 0.5)])
+		BuildingKit.plank(mb, &"paint_ext", Transform3D(Basis(), Vector3(joint, floor_y + front_h * 0.5, d * 0.5 + 0.012)),
+				Vector3(0.14, front_h, 0.024), TRIM, Vector2(0.2, 0.6))
+		_window(mb, detail, win, Vector3.BACK, 0.8, 0.6)
 	for sx: float in [-1.0, 1.0]:
-		_wall(mb, cols, Vector3(sx * (door_w * 0.5 + seg * 0.5), floor_y + front_h * 0.5, d * 0.5 - t * 0.5), Vector3(seg, front_h, t),
-				PLANK.lightened(0.05), Vector3.BACK, detail)
 		# Corner boards, the grain running up them.
 		for sz: float in [-1.0, 1.0]:
 			var ch := front_h if sz > 0.0 else back_h
@@ -264,17 +304,17 @@ static func coop(size: Vector2, with_door := true) -> Dictionary:
 					Vector3(0.024, ch, 0.12), TRIM, Vector2(0.3 + sx * 0.2 + sz * 0.45, 0.0))
 			BuildingKit.plank(mb, &"paint_ext", Transform3D(Basis(), Vector3(sx * (w * 0.5 - 0.05), floor_y + ch * 0.5, sz * (d * 0.5 + 0.012))),
 					Vector3(0.124, ch, 0.024), TRIM, Vector2(0.9 + sx * 0.2 + sz * 0.45, 0.4))
-	mb.box_at(&"planks_ext", Vector3(0, floor_y + door_h + (front_h - door_h) * 0.5, d * 0.5 - t * 0.5), Vector3(door_w, front_h - door_h, t), PLANK, Vector3.ZERO, true)
+	mb.box_at(&"planks_ext", Vector3(door_x, floor_y + door_h + (front_h - door_h) * 0.5, d * 0.5 - t * 0.5), Vector3(door_w, front_h - door_h, t), PLANK, Vector3.ZERO, true)
 	# Trim round the doorway.
 	for sx: float in [-1.0, 1.0]:
-		mb.box_at(&"paint_ext", Vector3(sx * (door_w * 0.5 + 0.045), floor_y + door_h * 0.5, d * 0.5 + 0.012), Vector3(0.09, door_h, 0.024), TRIM)
-	mb.box_at(&"paint_ext", Vector3(0, floor_y + door_h + 0.045, d * 0.5 + 0.012), Vector3(door_w + 0.18, 0.09, 0.024), TRIM, Vector3.ZERO, true)
+		mb.box_at(&"paint_ext", Vector3(door_x + sx * (door_w * 0.5 + 0.045), floor_y + door_h * 0.5, d * 0.5 + 0.012), Vector3(0.09, door_h, 0.024), TRIM)
+	mb.box_at(&"paint_ext", Vector3(door_x, floor_y + door_h + 0.045, d * 0.5 + 0.012), Vector3(door_w + 0.18, 0.09, 0.024), TRIM, Vector3.ZERO, true)
 	# Door leaf hanging open and a ramp down to the run.
 	if with_door:
-		mb.box_at(&"planks_ext", Vector3(-door_w * 0.5 - 0.5, floor_y + door_h * 0.5, d * 0.5 + 0.05), Vector3(door_w, door_h, 0.05), PLANK.darkened(0.08), Vector3.ZERO, true)
+		mb.box_at(&"planks_ext", Vector3(door_x - door_w * 0.5 - 0.5, floor_y + door_h * 0.5, d * 0.5 + 0.05), Vector3(door_w, door_h, 0.05), PLANK.darkened(0.08), Vector3.ZERO, true)
 	var ramp_len := 1.1
 	var ramp_ang := atan2(floor_y, ramp_len)
-	var ramp_c := Vector3(0, floor_y * 0.5, d * 0.5 + ramp_len * 0.5)
+	var ramp_c := Vector3(door_x, floor_y * 0.5, d * 0.5 + ramp_len * 0.5)
 	mb.box_at(&"planks_ext", ramp_c, Vector3(door_w - 0.1, 0.05, Vector2(ramp_len, floor_y).length()), PLANK_DARK, Vector3(rad_to_deg(ramp_ang), 0, 0))
 	cols.append([ramp_c - Vector3(0, 0.04, 0), Vector3(door_w - 0.1, 0.1, Vector2(ramp_len, floor_y).length()), Vector3(rad_to_deg(ramp_ang), 0, 0)])
 	for i in 5:
@@ -311,8 +351,18 @@ static func coop(size: Vector2, with_door := true) -> Dictionary:
 		# lie on the straw in the gap instead of starting inside a block.
 		cols.append([Vector3(-w * 0.5 + 0.45, floor_y + 0.185, -d * 0.5 + 1.6), Vector3(0.6, 0.37, 3.2)])
 		cols.append([Vector3(-w * 0.5 + 0.45, floor_y + 0.85, -d * 0.5 + 1.6), Vector3(0.6, 0.3, 3.2)])
-	for py: float in [0.9, 1.3]:
-		mb.cylinder_between(&"wood_in", Vector3(w * 0.5 - 0.6, floor_y + py, -d * 0.5 + 0.4), Vector3(w * 0.5 - 0.6 - (py - 0.5), floor_y + py, d * 0.5 - 0.6), 0.03, 0.03, 6, PLANK_DARK)
+	# The roost: two bars rising from the back to the front, on legs (a longer coop keeps
+	# its first one and has another along its new end wall).
+	var roosts: Array[float] = [w * 0.5]
+	if ext > 0.0:
+		roosts.push_front(joint)
+	for rx: float in roosts:
+		for py: float in [0.9, 1.3]:
+			var a := Vector3(rx - 0.6, floor_y + py, -d * 0.5 + 0.4)
+			var b := Vector3(rx - 0.6 - (py - 0.5), floor_y + py, d * 0.5 - 0.6)
+			mb.cylinder_between(&"wood_in", a, b, 0.03, 0.03, 6, PLANK_DARK)
+			for e: Vector3 in [a, b]:
+				mb.cylinder_between(&"wood_in", Vector3(e.x, floor_y, e.z), e + Vector3(0, -0.03, 0), 0.022, 0.022, 6, PLANK_DARK.darkened(0.08))
 	return {"mesh": mb.build(), "straw_mesh": detail.build(), "colliders": cols, "door_width": door_w, "door_height": door_h,
 		"floor_y": floor_y}
 
@@ -336,9 +386,9 @@ static func _window(mb: MeshBuilder, detail: MeshBuilder, c: Vector3, out: Vecto
 ## toward `face` (none when it is zero). The battens share the trim's key (the same
 ## rough_wood photo), so the small trim is one surface fewer to draw.
 static func _wall(mb: MeshBuilder, cols: Array, center: Vector3, size: Vector3, col := PLANK, face := Vector3.ZERO,
-		detail: MeshBuilder = null) -> void:
+		detail: MeshBuilder = null, skips: Array[Vector2] = []) -> void:
 	mb.box_at(&"planks_ext", center, size, col, Vector3.ZERO, true)
 	cols.append([center, size])
 	if face != Vector3.ZERO:
 		BuildingKit.battens(detail if detail else mb, &"paint_ext", Transform3D(Basis(), center), size, face,
-				Color(col.r * 0.85, col.g * 0.86, col.b * 0.86))
+				Color(col.r * 0.85, col.g * 0.86, col.b * 0.86), 2, skips)

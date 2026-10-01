@@ -6,7 +6,8 @@ which downloads MPFB2 and the asset packs and runs this):
         [--tmp <dir>] [--only farmer] [--preview <dir>]
 
 Every character is an MPFB2 human (base mesh, macro phenotype, a CC0 skin, eyes, brows,
-lashes, hair, clothes from the asset packs) on the "game_engine" rig, plus what the
+lashes, hair, clothes from the asset packs and the community site: the vet's lab coat)
+on the "game_engine" rig, plus what the
 packs don't have and a Turkish country town needs, modelled here on the body itself:
 the headscarf (yemeni) tied under the chin and the shopkeeper's apron. A person may also
 have face targets, recoloured textures and a garment cut away under another (Zeynep's
@@ -53,7 +54,8 @@ def pheno(base, **kw):
     return d
 
 
-# Age: 0.5 is 25 years, 1.0 is 90. "decimate": asset -> target vertex count.
+# Age: 0.5 is 25 years, 1.0 is 90. "decimate": asset -> target vertex count (else
+# MAX_VERTS); "subdivide": assets given one level of subdivision before that.
 PEOPLE = {
     "shopkeeper": {
         "phenotype": pheno(MALE_BASE, age=0.68, muscle=0.45, weight=0.7, height=0.45),
@@ -132,6 +134,32 @@ PEOPLE = {
                    "ponytail01": ("dark", "mul", (0.52, 0.45, 0.42)),
                    "skin": ("rose", "lips", (0.66, 0.37, 0.36))},
     },
+    # Dr. Selin, the town's vet (about 38): a white lab coat worn open over a sage T-shirt
+    # and jeans, dark-brown ankle boots, her dark hair pulled back in a braid.
+    "vet": {
+        "phenotype": pheno(FEMALE_BASE, age=0.6, muscle=0.5, weight=0.47, height=0.52, proportions=0.55),
+        # A longer, calm face: a little oval, a finer nose tip, the corners of the mouth up.
+        "targets": {"head-oval": 0.3, "nose-point-width-decr": 0.25, "mouth-angles-up": 0.25,
+                    "l-eye-height2-decr": 0.15, "r-eye-height2-decr": 0.15, "chin-width-decr": 0.2},
+        "skin": "onlytheghosts_middle_aged_eurasian_female",
+        "hair": "braid01", "eyebrows": "eyebrow007", "eyes": "brown", "eyelashes": "eyelashes02",
+        "clothes": ["female_casualsuit01", "toigo_basic_tucked_t-shirt", "crudelabcoatopen", "toigo_ankle_boots_female"],
+        "extras": [],
+        # Only the jeans of the T-shirt and jeans (as Zeynep's); the plain T-shirt over them,
+        # both kept under the coat.
+        "cut": {"female_casualsuit01": [(0.0, 0.565, 1.0, 1.0), (0.73, 0.0, 1.0, 0.425)]},
+        "tuck": [("female_casualsuit01", "toigo_basic_tucked_t-shirt"), ("toigo_basic_tucked_t-shirt", "crudelabcoatopen"),
+                 ("female_casualsuit01", "crudelabcoatopen")],
+        # The coat is one of MakeHuman's "crude" garments, modelled low for subdivision: one
+        # level of it, and kept that fine (not decimated to MAX_VERTS).
+        "subdivide": ["crudelabcoatopen"],
+        "decimate": {"crudelabcoatopen": 6000},
+        # "cotton" (see texture): the coat's plain white with a faint weave and wear in it.
+        "colors": {"crudelabcoatopen": ("white", "cotton", (0.84, 0.85, 0.84)),
+                   "toigo_basic_tucked_t-shirt": ("sage", "knit", (0.34, 0.43, 0.39)),
+                   "toigo_ankle_boots_female": ("dark", "mul", (0.3, 0.22, 0.17)),
+                   "braid01": ("brown", "mul", (0.95, 0.82, 0.74))},
+    },
 }
 # Parts heavier than the rest of the figure together: decimated to about this many vertices.
 MAX_VERTS = 2600
@@ -199,7 +227,9 @@ def texture(src, size, out_name, keep_alpha, iris=False, color=None):
     the red-brown irises of the eye texture turned a dark hazel brown. `color`: (mode,
     rgb) recolours it: "mul" multiplies, "knit" keeps the texture's light and shade (its
     luminance over the mean of what is drawn) in the new colour, "lips" turns the most
-    saturated reds of a skin (the painted lips) to that colour, as light as they were."""
+    saturated reds of a skin (the painted lips) to that colour, as light as they were,
+    "cotton" paints a plain (white-painted) garment that colour with a fine weave, soft
+    mottling and a little greying, so it reads as worn cloth, not paint."""
     os.makedirs(TMP, exist_ok=True)
     img = bpy.data.images.load(src, check_existing=False)
     if img.size[0] > size:
@@ -216,6 +246,21 @@ def texture(src, size, out_name, keep_alpha, iris=False, color=None):
             k = k * k * (3.0 - 2.0 * k) * (px[:, 0:1] >= px[:, 1:2])
             rose = rgb * (lum / float((rgb * np.array([0.3, 0.55, 0.15], dtype=np.float32)).sum()))
             px[:, :3] = px[:, :3] * (1.0 - k) + rose * k
+        elif color[0] == "cotton":
+            n = img.size[0]
+            rnd = np.random.default_rng(23)
+            y, x = np.mgrid[0:n, 0:n].astype(np.float32)
+            # Plain weave (two texels a thread), faint; broad soft blotches of wear.
+            weave = 1.0 + 0.015 * np.sign(np.sin(x * np.pi * 0.5) * np.sin(y * np.pi * 0.5))
+            cells = rnd.random((11, 11)).astype(np.float32)
+            fx, fy = x / n * 10.0, y / n * 10.0
+            ix, iy = fx.astype(np.int32), fy.astype(np.int32)
+            tx, ty = fx - ix, fy - iy
+            tx, ty = tx * tx * (3 - 2 * tx), ty * ty * (3 - 2 * ty)
+            blot = ((cells[iy, ix] * (1 - tx) + cells[iy, ix + 1] * tx) * (1 - ty)
+                    + (cells[iy + 1, ix] * (1 - tx) + cells[iy + 1, ix + 1] * tx) * ty)
+            k = (weave * (0.95 + 0.07 * blot)).reshape(-1, 1)
+            px[:, :3] = np.clip(px[:, :3], 0.0, 1.0) * rgb * k
         elif color[0] == "knit":
             lum = (px[:, :3] * np.array([0.3, 0.55, 0.15], dtype=np.float32)).sum(axis=1, keepdims=True)
             drawn = (px[:, 3] > 0.5) & (lum[:, 0] > 0.02)
@@ -1029,11 +1074,20 @@ def finish(name, spec):
     arm = next(o for o in bpy.data.objects if o.type == "ARMATURE")
     body = assign_materials(name, spec)
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    # Garments made for subdivision get a level of it first (applied with the masks).
+    for part in spec.get("subdivide", []):
+        o = next(x for x in meshes if x.name.split(".", 1)[-1] == part)
+        sub = o.modifiers.new("subdiv", "SUBSURF")
+        sub.levels = 1
+        sub.render_levels = 1
+        activate(o)
+        bpy.ops.object.modifier_move_to_index(modifier="subdiv", index=0)
     for o in meshes:
         bake_and_mask(o)
+    caps = spec.get("decimate", {})
     for o in meshes:
         if o is not body:
-            decimate(o, MAX_VERTS)
+            decimate(o, caps.get(o.name.split(".", 1)[-1], MAX_VERTS))
     for part, rects in spec.get("cut", {}).items():
         parts = {o.name.split(".", 1)[-1]: o for o in bpy.data.objects if o.type == "MESH"}
         cut_away(parts[part], rects)

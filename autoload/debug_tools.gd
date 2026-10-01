@@ -207,6 +207,19 @@ func _next_shot() -> void:
 				e["quality"] = 0
 				e["ready_at"] = GameClock.total_minutes + (-1.0 if state == "done" else 240.0)
 			Game.world.farm.spawn_placed(e)
+	if shot.has("coop_expand"):
+		# [[kit coop index, expansion steps, "site"]]: made that much longer (the last step
+		# still going up, its site half done, with "site").
+		var coops: Array[ChickenCoop] = Game.world.farm.kit_coops()
+		for ce: Array in shot["coop_expand"]:
+			var coop := coops[int(ce[0])]
+			var site := ce.size() > 2 and String(ce[2]) == "site"
+			if coop.expanding():
+				coop.finish_expansion()
+			while coop.expansion() < int(ce[1]) - (1 if site else 0) and coop.start_expansion():
+				coop.finish_expansion()
+			if site and coop.start_expansion():
+				coop.entry["expand_left"] = ChickenCoop.EXPAND_SECONDS * 0.4
 	if shot.get("sprinkle", false):
 		for n in get_tree().get_nodes_in_group(&"placed"):
 			if n is Sprinkler:

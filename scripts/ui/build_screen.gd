@@ -4,12 +4,17 @@ extends ModalScreen
 ## the left with their status, the selected one's requirements and costs on the
 ## right, and the build button. Kit projects (the chicken coop) are cut and bundled
 ## here and go into the bag; the player puts them up wherever they like.
+## The coop expansion is made on one of the farm's kit-built coops: with one coop it is
+## that one; with more, the detail lists them (birds, size, how far from the house, a
+## "Show" that puts the dot over it) and the player picks one first.
 
 const GROUP_ICONS := {"field": "wheat", "animals": "paw", "house": "home", "storage": "warehouse", "workshop": "hammer"}
 
 var _list: VBoxContainer
 var _detail: VBoxContainer
 var _selected: StringName = &""
+## The coop picked for the expansion (its uid; "" for the first that can be made longer).
+var _coop_pick := ""
 
 
 func _ready() -> void:
@@ -94,6 +99,8 @@ func _refresh() -> void:
 
 
 func _status(id: StringName) -> String:
+	if ProjectTable.is_per_coop(id):
+		return "locked" if Progress.level < UnlockTable.project_level(id) else "available"
 	if FarmState.is_built(id):
 		return "built"
 	if not FarmState.can_build(id):
@@ -141,7 +148,9 @@ func _make_card(id: StringName) -> Button:
 			chip = UiTheme.chip(tr("UI_LEVEL_SHORT") % need if Progress.level < need else tr("BUILD_LOCKED"), UiTheme.TEXT_DIM, "lock", 15)
 		_:
 			var kit := ProjectTable.kit_of(id)
-			if kit != &"" and PlayerState.inventory.count_item(kit) > 0:
+			if ProjectTable.is_per_coop(id):
+				chip = _expand_chip()
+			elif kit != &"" and PlayerState.inventory.count_item(kit) > 0:
 				chip = UiTheme.chip(tr("BUILD_IN_BAG"), UiTheme.GOLD, "backpack", 15)
 			else:
 				chip = UiTheme.price(int(ProjectTable.get_project(id)["cost"]), 21)
@@ -168,6 +177,9 @@ func _show_detail(id: StringName) -> void:
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
 	_detail.add_child(UiTheme.paragraph(tr("PROJECT_%s_DESC" % String(id).to_upper()), 19, UiTheme.TEXT_MUTED, 510))
+	if ProjectTable.is_per_coop(id):
+		_show_expand_detail(id, status)
+		return
 	if status == "built":
 		_detail.add_child(UiTheme.spacer(12))
 		var done := UiTheme.chip(tr("BUILD_DONE"), UiTheme.GREEN, "check", 22)
@@ -253,6 +265,9 @@ func _cost_row(tex: Texture2D, label: String, have: int, need: int, dollars := f
 
 
 func _build(id: StringName) -> void:
+	if ProjectTable.is_per_coop(id):
+		_expand()
+		return
 	if not FarmState.build(id):
 		return
 	var kit := ProjectTable.kit_of(id)
@@ -275,4 +290,202 @@ func _build(id: StringName) -> void:
 		if at >= 0:
 			PlayerState.select(at)
 		Game.notify(tr("MSG_KIT_READY") % ItemDB.get_item(kit).display_name(), UiTheme.GREEN)
+	close_screen()
+
+
+# --- Coop expansion -------------------------------------------------------------------------
+
+## The farm's kit-built coops, sites included, in the order they were put up.
+static func _coops() -> Array[ChickenCoop]:
+	var none: Array[ChickenCoop] = []
+	var farm := Game.world.get("farm") as Farm if Game.world else null
+	return farm.kit_coops() if farm else none
+
+
+## The coop the expansion is for: the one picked, else the first that can be made longer
+## now (the farm at its next step's level), else the first that could be at a higher
+## level, else the first (null without a coop).
+func _expand_target() -> ChickenCoop:
+	var coops := _coops()
+	for c in coops:
+		if c.uid() == _coop_pick and c.expand_block() == "":
+			return c
+	for c in coops:
+		if _can_expand_now(c):
+			return c
+	for c in coops:
+		if c.expand_block() == "":
+			return c
+	return coops[0] if not coops.is_empty() else null
+
+
+## Whether coop `c` can be made longer now: nothing in the way and the farm at the level
+## its next step needs.
+static func _can_expand_now(c: ChickenCoop) -> bool:
+	return c.expand_block() == "" and Progress.level >= UnlockTable.coop_step_level(c.expansion())
+
+
+## The expansion's tag in the list: its next step's price (a coop picked that waits on the
+## farm level makes way for one that can be made longer now), else why not.
+func _expand_chip() -> Control:
+	var coop := _expand_target()
+	if coop and not _can_expand_now(coop):
+		for c in _coops():
+			if _can_expand_now(c):
+				coop = c
+				break
+	if coop == null or coop.expand_block() != "":
+		var why := tr(coop.expand_block()) if coop else tr("BUILD_LOCKED")
+		return UiTheme.chip(why, UiTheme.TEXT_DIM, "lock", 15)
+	var need := UnlockTable.coop_step_level(coop.expansion())
+	if Progress.level < need:
+		return UiTheme.chip(tr("UI_LEVEL_SHORT") % need, UiTheme.TEXT_DIM, "lock", 15)
+	return UiTheme.price(int(coop.next_step()["cost"]), 21)
+
+
+## The expansion's detail: the coop it is for (or the list to pick one from), what it
+## gets, the farm level, the time, the cost and the button.
+func _show_expand_detail(id: StringName, status: String) -> void:
+	var coops := _coops()
+	var coop := _expand_target()
+	var block := coop.expand_block() if coop else "BUILD_NEEDS_COOP"
+	if coop == null:
+		var r := UiTheme.icon_row(UiTheme.glyph("close"), tr("BUILD_NEEDS_COOP"), UiTheme.RED, 20, 20)
+		(r.get_child(0) as TextureRect).modulate = UiTheme.RED
+		_detail.add_child(r)
+	else:
+		var box := VBoxContainer.new()
+		box.add_theme_constant_override("separation", 6)
+		box.add_child(UiTheme.section(tr("BUILD_EXPAND_PICK" if coops.size() > 1 else "BUILD_EXPAND_THIS"), "home"))
+		var rows := VBoxContainer.new()
+		rows.add_theme_constant_override("separation", 6)
+		if coops.size() > 1:
+			# A long list scrolls (two and a half rows show).
+			var scroll := ScrollContainer.new()
+			scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+			scroll.custom_minimum_size = Vector2(510, mini(coops.size(), 3) * 64 - (24 if coops.size() > 3 else 6))
+			rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			scroll.add_child(rows)
+			box.add_child(scroll)
+		else:
+			box.add_child(rows)
+		for c in coops:
+			rows.add_child(_coop_row(c, coops.size() > 1, c == coop and block == ""))
+		_detail.add_child(box)
+	var step := coop.expansion() if coop and block == "" else 0
+	var cost: Dictionary = ProjectTable.coop_step(step)
+	var need := UnlockTable.coop_step_level(step)
+	var level_ok := Progress.level >= need
+	if block == "":
+		var info := VBoxContainer.new()
+		info.add_theme_constant_override("separation", 4)
+		info.add_child(UiTheme.icon_row(UiTheme.glyph("paw"), tr("BUILD_EXPAND_CHANGE") % [ChickenCoop.capacity_at(step),
+				ChickenCoop.capacity_at(step + 1), ChickenCoop.NESTS_BY_SIZE[step], ChickenCoop.NESTS_BY_SIZE[step + 1]], UiTheme.GOLD_SOFT, 19, 20))
+		var r := UiTheme.icon_row(UiTheme.glyph("check" if level_ok else "close"), tr("HUD_FARM_LEVEL") % need,
+				UiTheme.GREEN if level_ok else UiTheme.RED, 19, 20)
+		(r.get_child(0) as TextureRect).modulate = UiTheme.GREEN if level_ok else UiTheme.RED
+		info.add_child(r)
+		info.add_child(UiTheme.icon_row(UiTheme.glyph("clock"), tr("BUILD_TIME_MIN") % ceili(ChickenCoop.EXPAND_SECONDS / 60.0), UiTheme.TEXT, 19, 20))
+		_detail.add_child(info)
+	elif coop:
+		var why := UiTheme.chip(tr(block), UiTheme.TEXT_DIM, "lock", 18)
+		why.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		_detail.add_child(why)
+	# The price of the step to come (the first one's before there is a coop).
+	if block == "" or coop == null:
+		_detail.add_child(UiTheme.section(tr("BUILD_COST"), "tag"))
+		_detail.add_child(_cost_row(null, tr("UI_GOLD").capitalize(), Economy.money, int(cost["cost"]), true))
+		for item_id: StringName in cost["items"]:
+			var item := ItemDB.get_item(item_id)
+			_detail.add_child(_cost_row(item.icon, item.display_name(), PlayerState.inventory.count_item(item_id), int(cost["items"][item_id])))
+	_detail.add_child(UiTheme.expand())
+	var missing := FarmState.missing_cost(int(cost["cost"]), cost["items"])
+	if missing != "" and block == "" and status == "available":
+		_detail.add_child(UiTheme.paragraph(tr("BUILD_MISSING") % missing, 16, UiTheme.RED, 510))
+	var button := UiTheme.button(tr("BUILD_EXPAND"), "primary", Vector2(510, 60), "hammer", 24)
+	button.disabled = status != "available" or block != "" or not level_ok or missing != ""
+	button.pressed.connect(_build.bind(id))
+	_detail.add_child(button)
+
+
+## A coop in the expansion's list: its name, birds and room, how often it was made longer
+## and how far from the house it stands, why it can't be picked (as long as it gets,
+## going up), and "Show". `pickable`: a button that picks it; `active`: the one picked.
+func _coop_row(coop: ChickenCoop, pickable: bool, active: bool) -> Control:
+	var row: Control
+	var block := coop.expand_block()
+	if pickable:
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.disabled = block != ""
+		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if block == "" else Control.CURSOR_ARROW
+		var normal := UiTheme.box(UiTheme.CARD_ACTIVE if active else UiTheme.CARD, 10, 1,
+				Color(UiTheme.GOLD, 0.7) if active else Color(1, 1, 1, 0.07))
+		if active:
+			normal.border_width_left = 4
+		var hover := normal.duplicate() as StyleBoxFlat
+		hover.bg_color = normal.bg_color.lightened(0.06) if active else UiTheme.CARD_HOVER
+		for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+			b.add_theme_stylebox_override(state, hover if state.begins_with("hover") or state == "pressed" else normal)
+		b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		b.pressed.connect(func() -> void:
+			_coop_pick = coop.uid()
+			_refresh())
+		row = b
+	else:
+		var p := PanelContainer.new()
+		p.add_theme_stylebox_override("panel", UiTheme.box(UiTheme.CARD, 10, 1, Color(1, 1, 1, 0.07)))
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row = p
+	row.custom_minimum_size = Vector2(500, 58)
+	row.name = "Coop%d" % coop.number()
+	var line := HBoxContainer.new()
+	line.set_anchors_preset(Control.PRESET_FULL_RECT)
+	line.offset_left = 14
+	line.offset_right = -10
+	line.add_theme_constant_override("separation", 10)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(line)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(col)
+	var dim := block != "" and pickable
+	col.add_child(UiTheme.make_label(UiTheme.caps(coop.coop_name()), UiTheme.heading(19, UiTheme.TEXT_DIM if dim else UiTheme.TEXT, 700, 1)))
+	var birds := Animals.count_at(coop.housing) if coop.housing else 0
+	var room := coop.housing.capacity() if coop.housing else ChickenCoop.capacity_at(0)
+	var door := Vector2(WorldLayout.HOUSE_DOOR_X, WorldLayout.HOUSE_FRONT_Z)
+	var c := coop.center_point()
+	var facts := PackedStringArray([tr("BUILD_EXPAND_BIRDS") % [birds, room],
+		tr("BUILD_EXPAND_LEVEL") % [coop.expansion(), ChickenCoop.MAX_EXPANSION],
+		tr("BUILD_EXPAND_DISTANCE") % roundi(door.distance_to(Vector2(c.x, c.z)))])
+	col.add_child(UiTheme.make_label(" · ".join(facts), UiTheme.text(15, UiTheme.TEXT_DIM if dim else UiTheme.TEXT_MUTED, 600)))
+	if block != "":
+		var why := UiTheme.chip(tr(block), UiTheme.TEXT_DIM, "", 13)
+		why.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		line.add_child(why)
+	var show := UiTheme.button(tr("BUILD_SHOW"), "secondary", Vector2(0, 38), "cursor", 16)
+	show.name = "Show"
+	show.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	show.pressed.connect(_show_coop.bind(coop))
+	line.add_child(show)
+	return row
+
+
+## "Show": the board closes and the dot floats over the coop a while.
+func _show_coop(coop: ChickenCoop) -> void:
+	if not is_instance_valid(coop):
+		return
+	Quests.point_out(coop.center_point() + Vector3(0, 3.4, 0), coop.coop_name())
+	close_screen()
+
+
+## Pays for the next step on the coop picked and starts it.
+func _expand() -> void:
+	var coop := _expand_target()
+	if coop == null or not coop.buy_expansion():
+		return
+	Game.notify(tr("MSG_COOP_EXPANDING") % coop.coop_name(), UiTheme.GREEN)
 	close_screen()

@@ -20,6 +20,8 @@ var capacity := 8
 var amount := 0.0
 var outdoors := true
 var long := true
+## Its length in metres when set (a longer coop's feeder and waterer); else as `long` says.
+var span := 0.0
 
 var _fill: MeshInstance3D
 var _fill_top := 0.0
@@ -42,7 +44,7 @@ func _build() -> void:
 	for c in get_children():
 		c.queue_free()
 	var mb := MeshBuilder.new()
-	var length := 2.0 if long else 0.9
+	var length := span if span > 0.0 else (2.0 if long else 0.9)
 	var width := 0.55 if long else 0.42
 	var height := 0.55 if long else 0.3
 	var wall := 0.06
@@ -140,6 +142,11 @@ func take(rations: float) -> float:
 
 func is_empty() -> bool:
 	return amount < 0.05
+
+
+## How far either side of its middle an animal may stand along it to eat or drink.
+func reach() -> float:
+	return 0.7 if long else maxf(0.15, _length * 0.5 - 0.3)
 
 
 func _refresh() -> void:

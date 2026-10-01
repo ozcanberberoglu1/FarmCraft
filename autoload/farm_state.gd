@@ -75,27 +75,40 @@ func can_build(id: StringName) -> bool:
 ## Returns "" when affordable, else a message describing what is missing.
 func missing_for(id: StringName) -> String:
 	var p := ProjectTable.get_project(id)
+	return missing_cost(int(p["cost"]), p["items"])
+
+
+## "" when `cost` dollars and the materials `items` (id -> count, from the bag) are at
+## hand, else what is missing.
+func missing_cost(cost: int, items: Dictionary) -> String:
 	var missing := PackedStringArray()
-	if Economy.money < int(p["cost"]):
-		missing.append(tr("MSG_NEED_GOLD") % UiTheme.money(int(p["cost"]) - Economy.money))
-	for item_id: StringName in p["items"]:
+	if Economy.money < cost:
+		missing.append(tr("MSG_NEED_GOLD") % UiTheme.money(cost - Economy.money))
+	for item_id: StringName in items:
 		var have := PlayerState.inventory.count_item(item_id)
-		var need: int = p["items"][item_id]
+		var need: int = items[item_id]
 		if have < need:
 			missing.append("%s ×%d" % [ItemDB.get_item(item_id).display_name(), need - have])
 	return UiTheme.join_list(missing)
 
 
+## Pays `cost` dollars for construction and takes `items` from the bag (check
+## missing_cost first).
+func pay(cost: int, items: Dictionary) -> void:
+	Economy.spend(cost, "REPORT_CONSTRUCTION")
+	for item_id: StringName in items:
+		PlayerState.inventory.remove_item(item_id, items[item_id])
+
+
 ## Pays for and builds a project. Returns false if it can't be built or afforded.
 ## A kit project (ProjectTable "kit") is cut and bundled instead: the kit goes into the
-## bag (at the player's feet when the bag is full) and the project stays open.
+## bag (at the player's feet when the bag is full) and the project stays open. A coop's
+## expansion is bought for one coop (ChickenCoop.buy_expansion), never here.
 func build(id: StringName) -> bool:
-	if not can_build(id) or missing_for(id) != "":
+	if ProjectTable.is_per_coop(id) or not can_build(id) or missing_for(id) != "":
 		return false
 	var p := ProjectTable.get_project(id)
-	Economy.spend(int(p["cost"]), "REPORT_CONSTRUCTION")
-	for item_id: StringName in p["items"]:
-		PlayerState.inventory.remove_item(item_id, p["items"][item_id])
+	pay(int(p["cost"]), p["items"])
 	var kit := ProjectTable.kit_of(id)
 	if kit != &"":
 		if PlayerState.give(kit, 1) > 0 and Game.player:

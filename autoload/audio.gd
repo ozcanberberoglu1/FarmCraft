@@ -46,6 +46,13 @@ const SETS := {
 	# eating from his bowl.
 	"dog_bark": "sfx/animals/dog_bark_%d.ogg", "dog_pant": "sfx/animals/dog_pant_%d.ogg",
 	"dog_whine": "sfx/animals/dog_whine_%d.ogg", "dog_eat": "sfx/animals/dog_eat_%d.ogg",
+	# The wolves of a night raid (Wolf; tools/build_wolf_audio.py): a howl close by, a far
+	# chorus in the forest (the raid's warning), growling, a snarl as one goes in, a bite,
+	# a yelp when hit, its last cry.
+	"wolf_howl": "sfx/animals/wolf_howl_%d.ogg", "wolf_howl_far": "sfx/animals/wolf_howl_far_%d.ogg",
+	"wolf_growl": "sfx/animals/wolf_growl_%d.ogg", "wolf_snarl": "sfx/animals/wolf_snarl_%d.ogg",
+	"wolf_bite": "sfx/animals/wolf_bite_%d.ogg", "wolf_yelp": "sfx/animals/wolf_yelp_%d.ogg",
+	"wolf_death": "sfx/animals/wolf_death_%d.ogg",
 	"engine_start": ["sfx/vehicle/engine_start.mp3"], "car_door": ["sfx/vehicle/door_slam.mp3"],
 	"click": ["sfx/ui/click.ogg"], "hover": ["sfx/ui/hover.ogg"], "open": ["sfx/ui/open.ogg"], "close": ["sfx/ui/close.ogg"],
 	"confirm": ["sfx/ui/confirm.ogg"], "error": ["sfx/ui/error.ogg"], "toggle": ["sfx/ui/toggle.ogg"],

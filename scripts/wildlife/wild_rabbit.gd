@@ -9,7 +9,9 @@ extends Area3D
 ## when the bag is full), Events.game_caught(&"rabbit").
 ## It keeps to open wild ground: out of water, the farm's yard and plots, the town and
 ## buildings, and turns away from anything solid ahead (trees, rocks, fences, walls).
-## No physics body: it follows the terrain; the Area3D is only for the E ray.
+## No physics body: it follows the terrain; the Area3D is only for the E ray (and for
+## arrows: a knife or an arrow takes it too, Combat's take_hit, and it lies where it was
+## struck as the same "rabbit" item).
 
 signal caught
 
@@ -52,6 +54,8 @@ var _probe := 0.0
 var _blocked := false
 var _rng := RandomNumberGenerator.new()
 var _caught := false
+## Its body's reach for the knife (Combat).
+var hit_radius := 0.15
 var _run_sfx := 0.0
 var _anim_wait := 0.0
 
@@ -63,6 +67,7 @@ func _ready() -> void:
 	monitorable = true
 	add_to_group(&"interactable")
 	add_to_group(&"wild_rabbits")
+	add_to_group(&"hittable")
 	_rng.randomize()
 	var cs := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
@@ -128,6 +133,29 @@ func catch(player: Node = null) -> void:
 	Events.game_caught.emit(ITEM)
 	caught.emit()
 	queue_free()
+
+
+## Struck by the knife or an arrow (Combat): it drops where it was, a "rabbit" to pick up
+## as one caught by hand.
+func take_hit(_damage: float, _from: Vector3, _kind: StringName) -> void:
+	if _caught:
+		return
+	_caught = true
+	collision_layer = 0
+	var at := global_position + Vector3(0, 0.15, 0)
+	WildSfx.play("squeak", at, -8.0)
+	Pickup.spawn(ItemStack.create(ITEM, 1), at)
+	Events.game_caught.emit(ITEM)
+	caught.emit()
+	queue_free()
+
+
+func can_be_hit() -> bool:
+	return not _caught
+
+
+func hit_center() -> Vector3:
+	return global_position + Vector3(0, 0.15, 0)
 
 
 func _physics_process(delta: float) -> void:

@@ -2,15 +2,26 @@ extends Node
 ## The player's persistent state: inventory (first 8 slots = hotbar), the selected
 ## hotbar slot, whether the hotbar and inventory have opened yet, and the farmer's
 ## hunger and energy (needs; scripts/camp/needs.gd): they run down with the game clock,
-## eating and sleeping fill them, and a need running low brings a message.
+## eating and sleeping fill them, and a need running low brings a message. Wounds (a
+## wolf's bites: hurt) fill the injury meter, which heals slowly once nothing has hurt
+## him for a while; a full meter knocks him out until the next morning.
 
 signal selected_changed(slot: int)
 ## The first item came into the bag of a new farm: the hotbar and inventory open (the
 ## HUD plays the reveal).
 signal hotbar_revealed
+## A wound landed (hurt): `amount` of injury, from a blow at `from` (the HUD's red
+## vignette and splash, the player's flinch and grunt).
+signal hurt_taken(amount: float, from: Vector3)
 
 const INVENTORY_SIZE := 36
 const HOTBAR_SIZE := 8
+## The injury meter's top: he faints there.
+const INJURY_MAX := 100.0
+## Seconds without a wound before the meter starts to go down, and how fast it goes then
+## (points per second: ten a minute).
+const INJURY_CALM := 10.0
+const INJURY_HEAL := 10.0 / 60.0
 
 var inventory := Inventory.new(INVENTORY_SIZE)
 var selected := 0
@@ -22,6 +33,13 @@ var hotbar_unlocked := true
 var needs := Needs.new()
 ## Fish landed since the last trophy (Angler; FishTable.pity owes a giant after a long run).
 var fish_since_trophy := 0
+## Wounds, 0..INJURY_MAX: a full meter knocks the farmer out (knock_out). Not saved: a
+## loaded game starts unhurt.
+var injury := 0.0
+## Fainted from his wounds, until the next morning.
+var knocked_out := false
+## Seconds since the last wound (healing starts after INJURY_CALM).
+var _calm := 0.0
 
 
 func _ready() -> void:
@@ -29,7 +47,10 @@ func _ready() -> void:
 	Events.clock_tick.connect(func(_total: float, minutes: float) -> void: needs.tick(minutes))
 	Events.day_ending.connect(needs.fall_asleep)
 	Events.passed_out.connect(needs.pass_out)
-	Events.time_skipped.connect(func(_minutes: float) -> void: needs.wake())
+	Events.time_skipped.connect(func(_minutes: float) -> void:
+		needs.wake()
+		_heal_all())
+	Events.player_knocked_out.connect(needs.knock_out)
 	needs.warned.connect(_on_need_warned)
 	new_game()
 	# Tests and screenshot runs skip the story: they start with Grandpa's kit in the bag
@@ -51,6 +72,7 @@ func new_game() -> void:
 	select(0)
 	needs.reset()
 	fish_since_trophy = 0
+	_heal_all()
 
 
 ## Grandpa's old kit straight into the bag, in hotbar order (automated runs; in the
@@ -106,6 +128,55 @@ func give(item_id: StringName, amount := 1, notify := true) -> int:
 	return left
 
 
+# --- Wounds --------------------------------------------------------------------------
+
+## A wound of `amount` (0..INJURY_MAX) from a blow at `from` (a wolf's bite): the meter
+## fills, the screen and the view react (hurt_taken), and a full meter knocks him out.
+## Nothing hurts him once he is down, asleep, on the title screen or while the game is
+## paused (the pause menu, the settings).
+func hurt(amount: float, from: Vector3) -> void:
+	if knocked_out or amount <= 0.0 or Game.is_paused() or Game.player == null or not is_instance_valid(Game.player):
+		return
+	var hud := Game.hud as HUD
+	if hud == null or hud.sleep_screen.is_busy() or hud.title_screen.visible:
+		return
+	injury = minf(injury + amount, INJURY_MAX)
+	_calm = 0.0
+	hurt_taken.emit(amount, from)
+	if injury >= INJURY_MAX:
+		knock_out()
+
+
+## He faints: Events.player_knocked_out, then the night runs as if he slept, and he wakes
+## in his bed the next morning, hungry and worn out (SleepScreen.start_sleep).
+func knock_out() -> void:
+	if knocked_out:
+		return
+	knocked_out = true
+	injury = INJURY_MAX
+	Events.player_knocked_out.emit()
+	var hud := Game.hud as HUD
+	if hud:
+		hud.sleep_screen.start_sleep(false, true)
+
+
+## The meter heals once nothing has hurt him for INJURY_CALM seconds (paused while the
+## game is).
+func _process(delta: float) -> void:
+	if injury <= 0.0 or knocked_out or Game.is_paused():
+		return
+	_calm += delta
+	if _calm >= INJURY_CALM:
+		injury = maxf(injury - INJURY_HEAL * delta, 0.0)
+
+
+## Every wound gone (a new morning, a new or loaded game).
+func _heal_all() -> void:
+	injury = 0.0
+	knocked_out = false
+	_calm = 0.0
+
+
 ## A need ran low: a word about it (the farmer yawns when tired).
 func _on_need_warned(kind: StringName) -> void:
 	var msg: String = {&"hungry": "MSG_HUNGRY", &"starving": "MSG_STARVING", &"tired": "MSG_TIRED",
@@ -131,3 +202,4 @@ func load_data(data: Dictionary) -> void:
 	select(int(data.get("selected", 0)))
 	needs.load_data(data.get("needs", {}))
 	fish_since_trophy = int(data.get("fish_dry", 0))
+	_heal_all()

@@ -38,6 +38,7 @@ Audio="*res://autoload/audio.gd"
 Carnival="*res://autoload/carnival.gd"
 Relations="*res://autoload/relations.gd"
 SideStory="*res://autoload/side_story.gd"
+WolfRaids="*res://autoload/wolf_raids.gd"
 
 [debug]
 

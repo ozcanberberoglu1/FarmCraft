@@ -16,8 +16,11 @@ const ANIMALS := {&"chicken": 1, &"sheep": 3, &"cow": 4, &"horse": 6}
 ## The repairs (house_1, warehouse_1) and the coop kit are open from the start.
 const PROJECTS := {
 	&"house_1": 1, &"warehouse_1": 1, &"field_1": 2, &"coop_1": 2, &"barn_1": 3, &"warehouse_2": 3,
-	&"field_2": 4, &"coop_2": 5, &"house_2": 5, &"barn_2": 6, &"field_3": 7, &"house_3": 8,
+	&"field_2": 4, &"coop_2": 5, &"house_2": 5, &"barn_2": 6, &"field_3": 7, &"house_3": 8, &"coop_expand": 3,
 }
+## Farm level for each step of a coop's expansion (ProjectTable.COOP_STEPS): the first
+## about when the first coop is full (8 hens), the second about when a farm keeps 16.
+const COOP_EXPANSION: Array[int] = [3, 5]
 ## Farm level each tool upgrade (+1, +2) needs.
 const TOOL_UPGRADES: Array[int] = [0, 3, 6]
 ## From this level the order board holds one more order.
@@ -37,6 +40,11 @@ static func animal_level(species: StringName) -> int:
 
 static func project_level(id: StringName) -> int:
 	return int(PROJECTS.get(id, 1))
+
+
+## Farm level a coop's expansion step `step` (0: the first) needs.
+static func coop_step_level(step: int) -> int:
+	return COOP_EXPANSION[clampi(step, 0, COOP_EXPANSION.size() - 1)]
 
 
 ## Level an item needs to be bought (seeds follow their crop).

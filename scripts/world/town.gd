@@ -5,8 +5,8 @@ extends Node3D
 ## car dealership (Yeşilova Oto Galeri: used pickups, vans, a truck, an estate, a 4x4 and
 ## a tractor on the lot and in the showroom), the Animal Market (a small farm yard
 ## with animals of every kind on show: buy them there, hens in crates loaded into the
-## pickup parked in the street), a couple of houses, pavements, street lamps and signs.
-## Built from BuildingKit pieces.
+## pickup parked in the street), the vet clinic (Yeşilova Veteriner Kliniği, VetClinic), a
+## couple of houses, pavements, street lamps and signs. Built from BuildingKit pieces.
 ## Also spawns Grandpa's old pickup at the farm: the town keeps every vehicle.
 ##
 ## Lived-in detail: interlocking pavers, kerbs with a gutter and drains (bevelled at the
@@ -69,6 +69,9 @@ const MARKET_PENS := {&"horse": HORSE_PADDOCK, &"cow": COW_PADDOCK, &"sheep": SH
 ## The general market's side yard, between its east wall and the dealership (where its
 ## poultry stall stood before the Animal Market took the hens).
 const MARKET_SIDE_YARD := Rect2(216.6, 7.4, 7.6, 5.9)
+## The vet clinic (VetClinic): its building behind the south pavement's west end, between
+## the town sign and the filling station, its paved yard in front.
+const VET := Rect2(180.6, 29.8, 10.0, 9.0)
 ## The market's paved forecourt runs from x to x between its front wall and the pavement.
 const FORECOURT_X := Vector2(196.0, 216.0)
 ## Fuel price per litre, in dollars.
@@ -161,6 +164,8 @@ var market_pens := {}
 ## The pickup spot inside the gate where the crates bought here wait (LiveCrates).
 var market_crates: MarketCrates
 var herd: MarketHerd
+## The vet clinic, its counter and its vet.
+var vet_clinic: VetClinic
 var market_avoid := {}
 var pumps: Array[Node3D] = []
 ## The dealer's pickup on the lot (the Lightbody '90), and everything the dealership
@@ -218,6 +223,9 @@ func _ready() -> void:
 	_station(mb, cols)
 	_animal_market(cols)
 	_houses(mb, cols)
+	vet_clinic = VetClinic.new()
+	add_child(vet_clinic)
+	vet_clinic.build(self, mb, cols)
 	_lamps_and_signs(mb, cols)
 	_power_line(mb, cols)
 	_street_furniture(mb, cols)
@@ -242,7 +250,8 @@ func _ready() -> void:
 			# The garden paths from the gates to the door steps, the bales by the market office.
 			Rect2(272.6, 8.0, 1.8, 4.0), Rect2(274.6, 27.0, 1.8, 4.0),
 			# Karamel's doghouse and bowls in Zeynep's garden (ZeynepHome).
-			Rect2(267.9, 8.6, 2.2, 1.9), Rect2(RANCH_OFFICE.position.x - 1.1, RANCH_OFFICE.position.y + 2.0, 0.9, 5.6)]:
+			Rect2(267.9, 8.6, 2.2, 1.9), Rect2(RANCH_OFFICE.position.x - 1.1, RANCH_OFFICE.position.y + 2.0, 0.9, 5.6),
+			VET.grow(0.4), vet_clinic.yard_rect()]:
 		Game.world.block_grass(r)
 	_spawn_dealer_stock()
 	_spawn_farm_truck()
@@ -2974,8 +2983,9 @@ func _cable(a: Vector3, b: Vector3, sag: float, radius: float, color := CABLE) -
 
 ## The overhead line behind the south pavement: wooden poles with cross-arms and
 ## insulators, a transformer on the pole by the crossing, three conductors and a
-## telephone cable from pole to pole, guy wires at both ends, and service drops over
-## the street to the market, the dealership, the livestock office and the houses.
+## telephone cable from pole to pole, guy wires at both ends (the west one over a stub
+## pole), and service drops to the market, the dealership, the livestock office, the vet
+## clinic and the houses.
 func _power_line(mb: MeshBuilder, cols: Array) -> void:
 	var tops: Array[Array] = []
 	for p in POLES:
@@ -3004,12 +3014,22 @@ func _power_line(mb: MeshBuilder, cols: Array) -> void:
 		var span := POLES[i].distance_to(POLES[i + 1])
 		for k in 4:
 			_cable(tops[i][k], tops[i + 1][k], span * span * (0.0005 if k < 3 else 0.0008), 0.011 if k < 3 else 0.016)
-	# Guy wires at both ends, anchored in the ground beyond the last poles.
-	for end: Array in [[0, -1.0], [POLES.size() - 1, 1.0]]:
-		var p := POLES[end[0]]
+	# Guy wires at both ends, anchored in the ground beyond the last poles. The west one
+	# would come down across the vet clinic's front: there a span guy runs high over its
+	# yard to a stub pole past the clinic's corner, which is guyed to the ground in turn.
+	var stub := Vector3(VET.position.x - 1.0, 0.0, POLES[0].y)
+	stub.y = _y(stub.x, stub.z) - 0.4
+	mb.cylinder(&"wood", Transform3D(Basis(), stub), 0.12, 0.09, 6.5, 8, POLE_WOOD.darkened(0.05))
+	mb.cylinder(&"metal", Transform3D(Basis(), stub + Vector3(0, 6.5, 0)), 0.1, 0.02, 0.08, 8, Color(0.2, 0.2, 0.2))
+	cols.append([Vector3(stub.x, stub.y + 2.4, stub.z), Vector3(0.24, 4.0, 0.24), 0.0])
+	var stub_top := stub + Vector3(0, 6.2, 0)
+	mb.box_at(&"metal", stub_top + Vector3(0.1, 0, 0), Vector3(0.06, 0.12, 0.12), IRON)
+	_cable(Vector3(POLES[0].x, POLE_H - 1.0, POLES[0].y), stub_top, 0.05, 0.008, Color(0.35, 0.35, 0.36))
+	var last := POLES[POLES.size() - 1]
+	for end: Array in [[stub_top, -1.0], [Vector3(last.x, POLE_H - 1.0, last.y), 1.0]]:
+		var wire_top: Vector3 = end[0]
 		var dir := float(end[1])
-		var anchor := Vector3(p.x + dir * 3.2, _y(p.x + dir * 3.2, p.y), p.y)
-		var wire_top := Vector3(p.x, POLE_H - 1.0, p.y)
+		var anchor := Vector3(wire_top.x + dir * 3.2, _y(wire_top.x + dir * 3.2, wire_top.z), wire_top.z)
 		_cable(wire_top, anchor + Vector3(0, 0.3, 0), 0.0, 0.008, Color(0.35, 0.35, 0.36))
 		mb.cylinder(&"concrete", Transform3D(Basis(), anchor), 0.12, 0.1, 0.3, 8, Color(0.45, 0.45, 0.44))
 		# The yellow guard sleeved round the wire's lowest two metres.
@@ -3031,7 +3051,8 @@ func _power_line(mb: MeshBuilder, cols: Array) -> void:
 	var drops: Array = [
 		[0, Vector3(MARKET.position.x - 0.1, mk_y + 5.0, MARKET.end.y - 1.0)],
 		[1, Vector3(DEALER.position.x + 0.4, dl_y + 5.2, DEALER.end.y + 0.25)],
-		[2, Vector3(RANCH_OFFICE.end.x - 0.3, _y(245, 35) + 3.3, RANCH_OFFICE.position.y - 0.1)]]
+		[2, Vector3(RANCH_OFFICE.end.x - 0.3, _y(245, 35) + 3.3, RANCH_OFFICE.position.y - 0.1)],
+		[0, Vector3(VET.end.x - 0.15, vet_clinic.floor_y + 3.62, VET.position.y - 0.1)]]
 	for d: Array in drops:
 		mb.box_at(&"metal", d[1], Vector3(0.12, 0.08, 0.12), IRON)
 	for h in _house_drops:
@@ -3104,7 +3125,7 @@ func _street_furniture(mb: MeshBuilder, cols: Array) -> void:
 	_prop("trashbag", bin + Vector3(0.85, 0.0, -0.45), 3.9, 0.8)
 	_decal("dirt", bin + Vector3(0.2, 0.0, 0.0), Vector2(2.6, 1.8), PI * 0.5, Color(0.6, 0.6, 0.6, 0.9), 0.4)
 	# Electricity cabinets.
-	for p: Array in [[Vector3(225.6, _y(225.6, 12.95) + 0.06, 12.95), PI], [Vector3(191.0, _y(191, 27.25), 27.25), 0.0]]:
+	for p: Array in [[Vector3(225.6, _y(225.6, 12.95) + 0.06, 12.95), PI], [Vector3(193.0, _y(193, 27.25), 27.25), 0.0]]:
 		var at: Vector3 = p[0]
 		_prop("utility_box_02", at, p[1])
 		mb.box_at(&"concrete", at + Vector3(0, -0.02, 0), Vector3(1.05, 0.12, 0.56), Color(0.46, 0.46, 0.45))
@@ -3171,7 +3192,7 @@ func _trees() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4711
 	for p: Vector2 in [Vector2(182, 8), Vector2(222, 6), Vector2(226, -8), Vector2(266, 14.8), Vector2(284, 6),
-			Vector2(286, 34), Vector2(232, 44), Vector2(190, 40), Vector2(185, -14), Vector2(214, -12), Vector2(262, -16)]:
+			Vector2(286, 34), Vector2(232, 44), Vector2(187, 43.4), Vector2(185, -14), Vector2(214, -12), Vector2(262, -16)]:
 		var mi := MeshInstance3D.new()
 		mi.mesh = NatureModels.oak(rng.randi_range(1, 3), true) if rng.randf() < 0.7 else NatureModels.pine(rng.randi_range(1, 3), true)
 		mi.position = TerrainData.point_on_ground(p.x, p.y, -0.1)

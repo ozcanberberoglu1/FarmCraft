@@ -7,7 +7,10 @@ extends Node3D
 ## rects. A coop put up from a kit (ChickenCoop) is a level-2 house in its own frame
 ## (`frame`: where it stands and how it is turned; its rects are in that frame) with a
 ## free-range yard around it instead of a fence, and a door that opens and shuts
-## (`door_open`): shut, no hen goes in or out.
+## (`door_open`): shut, no hen goes in or out. Made longer at its east end (`expansion`
+## steps, `added` metres of house), its door stays where it was (`door_shift` off the
+## house's middle) and so does its floor; while the new part goes up its builders' ground
+## (`works`) is kept clear of the hens.
 
 signal changed
 
@@ -30,6 +33,14 @@ var frame := Transform3D.IDENTITY
 ## The coop door stands open (always, for housing without a door).
 var door_open := true
 var door: CoopDoor
+## A kit-built coop's expansion steps (its places: ProjectTable.KIT_COOP_CAPACITY), the
+## metres of house they added at its east end, and the door's offset along X from the
+## house's middle (the door stays at the middle of the house as it came).
+var expansion := 0
+var added := 0.0
+var door_shift := 0.0
+## Ground the hens keep off (rects of the frame): an expansion going up.
+var works: Array[Rect2] = []
 
 ## Half the width of the straight way through a coop or barn door (plan_route).
 const DOOR_LANE := 0.3
@@ -84,6 +95,8 @@ func setup_placed(at: Transform3D, yard: Rect2, house: Rect2, open: bool, id: St
 
 
 func capacity() -> int:
+	if placed and level >= 2:
+		return ProjectTable.KIT_COOP_CAPACITY[clampi(expansion, 0, ProjectTable.KIT_COOP_CAPACITY.size() - 1)]
 	var table := ProjectTable.BARN_CAPACITY if kind == "barn" else ProjectTable.COOP_CAPACITY
 	return table[clampi(level, 0, table.size() - 1)]
 
@@ -125,10 +138,30 @@ func animals_outside() -> Array[Animal]:
 func set_level(new_level: int, animate := false) -> void:
 	if new_level == level:
 		return
+	level = new_level
+	_rebuild(animate)
+
+
+## A kit-built coop's house `house` after `step` expansion steps that added `length`
+## metres at its east end (the door and the floor stay where they were). Call before
+## set_level(2) builds it; on a coop that stands, it goes up again at once (the troughs'
+## contents and the door kept, the animals where they are).
+func set_extension(house: Rect2, step: int, length: float) -> void:
+	building = house
+	expansion = step
+	added = length
+	door_shift = -length * 0.5
+	if level > 0:
+		_rebuild(false)
+
+
+## Puts up the structure for the level it is at (the troughs keep what was in them).
+func _rebuild(animate: bool) -> void:
 	var feed_amount := feed.amount if feed else 0.0
 	var water_amount := water.amount if water else 0.0
-	level = new_level
 	if _structure:
+		# Gone at the frame's end: its name is the new one's at once.
+		_structure.name = "StructureOld"
 		_structure.queue_free()
 		_structure = null
 	feed = null
@@ -198,12 +231,15 @@ func _build_pen() -> void:
 
 
 func _build_building() -> void:
-	var data := AnimalBuildings.barn(building.size) if kind == "barn" else AnimalBuildings.coop(building.size, not placed)
+	var data := AnimalBuildings.barn(building.size) if kind == "barn" \
+			else AnimalBuildings.coop(building.size, not placed, door_shift, added)
 	_floor_y = float(data.get("floor_y", 0.0))
 	_building_node = Node3D.new()
 	_building_node.name = "Building"
 	var c := building.get_center()
-	var wc := frame * Vector3(c.x, 0.0, c.y)
+	# Level with the ground under the door's middle (the house's as it came: a longer
+	# coop's floor stays at the height it had).
+	var wc := frame * Vector3(door_x(), 0.0, c.y)
 	# The frame has no height: the building's local y is the world height.
 	var ground := TerrainData.height(wc.x, wc.z)
 	_building_node.position = Vector3(c.x, ground, c.y)
@@ -235,7 +271,7 @@ func _build_building() -> void:
 	var lamp := OmniLight3D.new()
 	lamp.position = Vector3(0, 2.4 if kind == "barn" else 1.8, 0)
 	lamp.light_color = Color(1.0, 0.8, 0.55)
-	lamp.omni_range = 7.0 if kind == "barn" else 4.0
+	lamp.omni_range = 7.0 if kind == "barn" else 4.0 + added * 0.5
 	lamp.light_energy = 0.6
 	_building_node.add_child(lamp)
 	if placed:
@@ -245,7 +281,7 @@ func _build_building() -> void:
 		door.housing = self
 		door.width = float(data["door_width"])
 		door.height = float(data["door_height"])
-		door.position = Vector3(-door.width * 0.5, _floor_y, building.size.y * 0.5 + 0.03)
+		door.position = Vector3(door_shift - door.width * 0.5, _floor_y, building.size.y * 0.5 + 0.03)
 		_building_node.add_child(door)
 	_structure.add_child(_building_node)
 	# The ramp too (it runs out 1.1 m in front of the door).
@@ -272,8 +308,14 @@ func _build_troughs() -> void:
 		feed.long = false
 		water.long = false
 		if level >= 2:
-			feed.position = Vector3(building.get_center().x - 0.9, 0, building.get_center().y - 0.9)
-			water.position = Vector3(building.get_center().x + 1.2, 0, building.get_center().y - 0.9)
+			# Either side of the way in from the door; a longer coop's are longer, each
+			# growing away from the door's west side (the nest boxes stand there).
+			var span := 0.9 + 0.3 * expansion
+			if placed:
+				feed.span = span
+				water.span = span
+			feed.position = Vector3(door_x() - 1.35 + span * 0.5, 0, building.get_center().y - 0.9)
+			water.position = Vector3(door_x() + 0.75 + span * 0.5, 0, building.get_center().y - 0.9)
 		else:
 			feed.position = Vector3(pen.position.x + 1.6, 0, pen.position.y + 1.4)
 			water.position = Vector3(pen.end.x - 1.6, 0, pen.position.y + 1.4)
@@ -326,10 +368,20 @@ func front() -> Vector3:
 	return frame.basis.z
 
 
+## Where the middle of the building's door is along the frame's X.
+func door_x() -> float:
+	return building.get_center().x + door_shift
+
+
 ## The middle of the building (or of the pen before there is one), on the ground.
 func center() -> Vector3:
 	var c := building.get_center() if level >= 2 else pen.get_center()
 	return world_at(c.x, c.y)
+
+
+## World height of a kit-built coop's floor (it stands level).
+func floor_height() -> float:
+	return _floor_top
 
 
 func _floor_at(ground: float) -> float:
@@ -350,7 +402,7 @@ func ground_height(p: Vector3) -> float:
 		if building.has_point(l):
 			return _floor_at(h)
 		var dz := l.y - building.end.y
-		if absf(l.x - building.get_center().x) < 0.6 and dz >= 0.0 and dz < RAMP_LEN:
+		if absf(l.x - door_x()) < 0.6 and dz >= 0.0 and dz < RAMP_LEN:
 			# On the ramp's boards (easing on at both ends), stepping over its cleats: a
 			# chick's feet are only a few centimetres long.
 			var on := smoothstep(0.0, 0.08, dz) * smoothstep(RAMP_LEN, RAMP_LEN - 0.08, dz)
@@ -369,11 +421,12 @@ func clamp_to_pen(p: Vector3, r: float) -> Vector3:
 	return frame * l
 
 
-## Keeps an animal inside the pen and on its side of the building walls.
+## Keeps an animal inside the pen and on its side of the building walls (and off the
+## builders' ground of an expansion going up).
 func constrain(p: Vector3, r: float, inside: bool) -> Vector3:
 	p = clamp_to_pen(p, r)
 	if level < 2:
-		return p
+		return p if inside else _off_works(p, r)
 	var l := _inv * p
 	if inside:
 		var bi := building.grow(-(r + 0.25))
@@ -398,8 +451,34 @@ func constrain(p: Vector3, r: float, inside: bool) -> Vector3:
 			l.z = bo.position.y
 		else:
 			l.z = bo.end.y
-		return frame * l
-	return p
+		return _off_works(frame * l, r)
+	return _off_works(p, r)
+
+
+## Out of the works' rects (each pushed out through its nearest side within the yard and
+## clear of the building).
+func _off_works(p: Vector3, r: float) -> Vector3:
+	if works.is_empty():
+		return p
+	var l := _inv * p
+	var inner := pen.grow(-(r + 0.35))
+	var walls := building.grow(r + 0.15) if level >= 2 else Rect2()
+	for w: Rect2 in works:
+		var g := w.grow(r + 0.1)
+		if not g.has_point(Vector2(l.x, l.z)):
+			continue
+		var best := INF
+		var to := Vector2(l.x, l.z)
+		for c: Vector2 in [Vector2(g.position.x, l.z), Vector2(g.end.x, l.z), Vector2(l.x, g.position.y), Vector2(l.x, g.end.y)]:
+			if not inner.has_point(c) or walls.has_point(c):
+				continue
+			var d := c.distance_to(Vector2(l.x, l.z))
+			if d < best:
+				best = d
+				to = c
+		l.x = to.x
+		l.z = to.y
+	return frame * l
 
 
 ## Route as [[point, inside], ...]: through the door when entering or leaving the
@@ -437,7 +516,7 @@ func _in_door_lane(p: Vector3) -> bool:
 	var l := flat(p)
 	var back := building.end.y - 1.4
 	var front := building.end.y + (1.6 if kind == "barn" else 1.5)
-	return absf(l.x - building.get_center().x) < DOOR_LANE and l.y > back and l.y < front
+	return absf(l.x - door_x()) < DOOR_LANE and l.y > back and l.y < front
 
 
 func _outside_route(a: Vector3, b: Vector3) -> Array:
@@ -464,6 +543,8 @@ func random_outdoor_point(rng: RandomNumberGenerator) -> Vector3:
 		var p := Vector2(rng.randf_range(inner.position.x, inner.end.x), rng.randf_range(inner.position.y, inner.end.y))
 		if level >= 2 and building.grow(0.8).has_point(p):
 			continue
+		if _on_works(p, 0.8):
+			continue
 		# Not in the kit-built coop's chopping log.
 		if placed and p.distance_to(Vector2(ChickenCoop.LOG_AT.x, ChickenCoop.LOG_AT.z)) < 0.7:
 			continue
@@ -483,12 +564,59 @@ func random_indoor_point(rng: RandomNumberGenerator) -> Vector3:
 	return w
 
 
+## Waypoints round the building from `from` (outside it) to just outside its door: past
+## its nearer end and along its front when the building stands in the way (none when it
+## doesn't). A wolf going in by the door follows them (behind a long coop it would
+## otherwise turn this way and that against the back wall).
+func way_round_to_door(from: Vector3) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	if level < 2:
+		return out
+	var a := flat(from)
+	var door := flat(door_outside())
+	var walls := building.grow(0.5)
+	var steps := int(a.distance_to(door) / 0.25) + 1
+	var blocked := false
+	for i in steps + 1:
+		blocked = blocked or walls.has_point(a.lerp(door, float(i) / steps))
+	if not blocked:
+		return out
+	var r := building.grow(1.0)
+	var best: Array[Vector2] = []
+	var best_len := INF
+	for x: float in [r.position.x, r.end.x]:
+		var pts: Array[Vector2] = []
+		if a.y < r.position.y:
+			pts.append(Vector2(x, r.position.y))
+		pts.append(Vector2(x, r.end.y))
+		var length := 0.0
+		var at := a
+		for p: Vector2 in pts:
+			length += at.distance_to(p)
+			at = p
+		length += at.distance_to(door)
+		if length < best_len:
+			best_len = length
+			best = pts
+	for p: Vector2 in best:
+		out.append(world_at(p.x, p.y))
+	return out
+
+
+## Whether `p` (the frame's x, z) is on the works' ground, `margin` metres grown.
+func _on_works(p: Vector2, margin: float) -> bool:
+	for w: Rect2 in works:
+		if w.grow(margin).has_point(p):
+			return true
+	return false
+
+
 func door_outside() -> Vector3:
-	return world_at(building.get_center().x, building.end.y + (1.6 if kind == "barn" else 1.5))
+	return world_at(door_x(), building.end.y + (1.6 if kind == "barn" else 1.5))
 
 
 func door_inside() -> Vector3:
-	var w := frame * Vector3(building.get_center().x, 0.0, building.end.y - 1.4)
+	var w := frame * Vector3(door_x(), 0.0, building.end.y - 1.4)
 	w.y = _floor_at(TerrainData.height(w.x, w.z))
 	return w
 
