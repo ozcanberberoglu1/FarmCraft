@@ -240,3 +240,12 @@ free for commercial use in games, no attribution required).
 | sfx/contest/horn.ogg | Warfare horn | 2289 |
 | sfx/contest/applause.ogg | Medium size crowd applause | 485 |
 | sfx/contest/fanfare.ogg | Successful horns fanfare | 722 |
+
+The contest's crowd round the pond, made by `tools/build_contest_crowd_audio.py` from recordings already listed here
+(nothing new downloaded):
+
+| File | Made from | Licence |
+|---|---|---|
+| ambience/carnival_crowd.ogg (also the contest's murmur loop, `contest_crowd`) | kyles' park crowd, https://freesound.org/people/kyles/sounds/629887/ | CC0 |
+| sfx/contest/crowd_call_1..5.ogg | voices speaking up in that same crowd recording, cut and high-passed | CC0 |
+| sfx/contest/cheer_1..2.ogg | Mixkit applause (485) breaking out, with a few of those voices raised over it | Mixkit free licence + CC0 |

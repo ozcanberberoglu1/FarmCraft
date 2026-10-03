@@ -675,8 +675,10 @@ func _move_pet(delta: float) -> void:
 	if _speed > 0.001:
 		var fwd := Vector3(-sin(_yaw), 0.0, -cos(_yaw))
 		var step := fwd * _speed * delta
-		if _clear(fwd, 0.3 * size + 0.12 + step.length()):
-			global_position += step
+		# Never into a vehicle (its body would shove it): along its side, or stopped.
+		var next := Vehicle.keep_out(global_position, global_position + step, CAR_KEEP * size)
+		if _clear(fwd, 0.3 * size + 0.12 + step.length()) and _flat(next - global_position).length() > step.length() * 0.05:
+			global_position = next
 			_stuck_t = maxf(_stuck_t - delta, 0.0)
 		else:
 			_speed = 0.0

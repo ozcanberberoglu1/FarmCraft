@@ -9,6 +9,9 @@
 	"scene":0,
 	"scenes":[
 		{
+			"extras":{
+				"revision":2
+			},
 			"name":"Scene",
 			"nodes":[
 				0

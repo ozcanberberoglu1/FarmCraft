@@ -16,6 +16,8 @@ extends CharacterBody3D
 ## side of each tool stroke landing (hit: "stroke", "final", "point", "normal").
 ## The knife and the bow fight (Combat); a wound (PlayerState.hurt) jolts the view toward
 ## the blow, and fainting from them sinks the view to the ground (collapse).
+## G takes hold of one of his animals (AnimalHandler): a bird picked up into the arms, a
+## sheep, cow or horse led on a halter; LMB or E sets it down or lets it go.
 
 signal target_changed(target: Node)
 signal footstep
@@ -66,6 +68,8 @@ var driving: Vehicle = null
 var angler: Angler
 ## The knife's stab and the bow's draw and shot (LMB while either is in hand).
 var combat: Combat
+## A bird in the arms or an animal on the halter (G).
+var handler: AnimalHandler
 ## Physics frames left before collisions come back after getting out of a vehicle.
 var _exit_frames := 0
 var _ride_saved := {}
@@ -136,6 +140,9 @@ func _ready() -> void:
 	combat = Combat.new()
 	combat.name = "Combat"
 	add_child(combat)
+	handler = AnimalHandler.new()
+	handler.name = "AnimalHandler"
+	add_child(handler)
 	PlayerState.hurt_taken.connect(_on_hurt)
 	footstep.connect(func() -> void:
 		if riding == null and driving == null:
@@ -169,6 +176,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		# which would read it as getting straight out again.
 		get_viewport().set_input_as_handled()
 		_interact()
+	elif event.is_action_pressed("handle") and riding == null:
+		handler.handle_pressed(target if is_instance_valid(target) else null)
+		_refresh_prompt()
 	elif event.is_action_pressed("animal_info"):
 		if target is Animal and not riding:
 			Game.hud.open_animal_panel((target as Animal).data)
@@ -187,7 +197,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("whistle") and riding == null:
 		# A whistle for the farmer's own dog (Pet).
 		Pet.whistle()
-	elif event.is_action_pressed("secondary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and Eating.try_eat(self):
+	elif event.is_action_pressed("secondary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not handler.busy() \
+			and Eating.try_eat(self):
 		# RMB with food in hand eats it (scripts/camp/eating.gd).
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.is_pressed() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -213,7 +224,12 @@ func _physics_process(delta: float) -> void:
 		if _exit_frames == 0:
 			($CollisionShape3D as CollisionShape3D).disabled = false
 		return
-	placer.update(self)
+	if handler.busy():
+		# Hands full: nothing is placed.
+		placer.active = false
+		placer.visible = false
+	else:
+		placer.update(self)
 	var on_floor := is_on_floor()
 	if not on_floor:
 		velocity.y -= gravity * delta
@@ -228,6 +244,8 @@ func _physics_process(delta: float) -> void:
 			and (riding != null or PlayerState.needs.can_sprint()) and not combat.is_drawing()
 	# Drawing a bow, the farmer only steps slowly (Combat.move_factor).
 	var speed := (sprint_speed if sprinting else walk_speed) * combat.move_factor()
+	# Leading an animal on the halter, at its pace.
+	speed = minf(speed, handler.pace_cap(sprinting))
 	var wish := global_basis * Vector3(input.x, 0.0, input.y)
 	wish.y = 0.0
 	wish = wish.normalized() * speed * minf(input.length(), 1.0)
@@ -419,6 +437,9 @@ func _update_prompt() -> void:
 			_last_prompt = lines
 			Events.interaction_prompt_changed.emit(lines)
 		return
+	if handler.busy():
+		_busy_prompt()
+		return
 	var stack := PlayerState.selected_stack()
 	var can_use := false
 	if target and is_instance_valid(target) and target.has_method("use_prompt"):
@@ -437,6 +458,9 @@ func _update_prompt() -> void:
 		var verb: String = target.interact_prompt(self)
 		if verb != "":
 			lines.append("%s (%s)" % [tr("KEY_E"), verb])
+	var take := handler.offer_line(target if is_instance_valid(target) else null)
+	if take != "":
+		lines.append(take)
 	if target and is_instance_valid(target) and target.has_method("drop_prompt"):
 		var drop: String = target.drop_prompt()
 		if drop != "":
@@ -461,6 +485,26 @@ func _update_prompt() -> void:
 		Events.interaction_prompt_changed.emit(lines)
 
 
+## The prompt while the hands are full (AnimalHandler): what E does on the target (a door,
+## a gate) and how to set the bird down or let the animal go.
+func _busy_prompt() -> void:
+	var lines := PackedStringArray()
+	var verb := _e_verb()
+	if verb != "":
+		lines.append("%s (%s)" % [tr("KEY_E"), verb])
+	lines.append_array(handler.busy_lines(verb == ""))
+	if lines != _last_prompt:
+		_last_prompt = lines
+		Events.interaction_prompt_changed.emit(lines)
+
+
+## What E does on the target now ("" for nothing).
+func _e_verb() -> String:
+	if target and is_instance_valid(target) and target.has_method("interact_prompt"):
+		return target.interact_prompt(self)
+	return ""
+
+
 # --- Hold-to-use actions ----------------------------------------------------------------
 
 ## Hold LMB on a target to run its action. The action plays as one ToolAnim timeline on
@@ -471,6 +515,14 @@ func _update_action(delta: float) -> void:
 	var down := Input.is_action_pressed("use") and not Game.is_ui_open() and riding == null
 	var pressed_now := down and not _use_was_down
 	_use_was_down = down
+	if handler.busy():
+		# Hands full: no tool; LMB sets the bird down.
+		if not _action.is_empty():
+			_end_action(false)
+		if pressed_now and handler.carried:
+			handler.let_go()
+			_refresh_prompt()
+		return
 	if placer.active:
 		if not _action.is_empty():
 			_end_action(_committed)
@@ -508,6 +560,12 @@ func _update_action(delta: float) -> void:
 			_end_action(true)
 		return
 	if not down:
+		return
+	# The axe at a wolf (any hittable) in its reach: a blow (Combat), whatever the aim is on;
+	# nothing else starts until the swing is over.
+	if combat.holding_axe() and (combat.swinging() or (pressed_now and not held.busy() and combat.axe_target() != null)):
+		if pressed_now:
+			combat.axe_swing()
 		return
 	var info: Dictionary = {}
 	if target and is_instance_valid(target) and target.has_method("use_action") and stack:
@@ -744,6 +802,7 @@ func _on_hurt(amount: float, from: Vector3) -> void:
 
 ## Fainting: the view sinks to the ground over `seconds` (SleepScreen's knock-out).
 func collapse(seconds: float) -> void:
+	handler.let_go()
 	if riding:
 		dismount()
 	if driving:
@@ -802,6 +861,8 @@ func drop_stack(stack: ItemStack) -> void:
 func mount(horse: Animal) -> void:
 	if riding or horse.ridden:
 		return
+	# Hands free for the reins.
+	handler.let_go()
 	riding = horse
 	horse.set_ridden(true)
 	global_position = horse.global_position + Vector3(0, 0.05, 0)
@@ -856,6 +917,8 @@ func _update_riding(delta: float) -> void:
 func enter_vehicle(v: Vehicle) -> void:
 	if driving or riding or v.driver:
 		return
+	# A bird set down, an animal let go before getting in.
+	handler.let_go()
 	driving = v
 	_end_action(false)
 	velocity = Vector3.ZERO
@@ -904,6 +967,11 @@ func show_take(item_id: StringName, from: Transform3D) -> void:
 func _interact() -> void:
 	if riding:
 		dismount()
+		return
+	if handler.busy() and _e_verb() == "":
+		# Nothing else to use E on: down goes the bird, off comes the halter.
+		handler.let_go()
+		_refresh_prompt()
 		return
 	if target and is_instance_valid(target) and target.has_method("interact"):
 		target.interact(self)

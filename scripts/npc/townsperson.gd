@@ -13,7 +13,13 @@ extends AnimatableBody3D
 ## stroking its back, the other hand on her knee) and DOORWAY (standing in an open
 ## doorway, a hand on the door's edge), FISH (at the water with a rod, the float out at
 ## fish_spot; show_catch() lands a fish and holds it up) and CLAP (applauding; clap()
-## claps for a while in any act).
+## claps for a while in any act; cheer() throws both arms up for a while).
+##
+## His own things: the shop boy's broom is always in his hands (sweeping; carried in his
+## left fist when he walks anywhere, stood beside him when he stops), laid on the ground
+## where he stands while his hands are busy with something else (a rod, clapping) and
+## picked up again when he walks on; Nuri Hoca's tea glass shows only at his tea (he
+## leaves it on the table when he goes anywhere).
 ##
 ## Scripted by the story (Zeynep): walk_to() walks a path and calls back, receive()
 ## takes a thing in both hands and holds it (drop_held() lets it go), talk() gestures
@@ -29,6 +35,8 @@ enum Act { STAND, TALK, TILL, WIPE, WRITE, SWEEP, BENCH, TEA, WALK, PET, DOORWAY
 
 const GROUP := &"townspeople"
 const ANIMATE_RANGE := 60.0
+## How far his body keeps off a vehicle's (m, Vehicle.keep_out).
+const CAR_KEEP := 0.3
 const NEAR_RANGE := 25.0
 ## Drawn up to (by graphics preset, LOW..ULTRA).
 const SHOW_RANGE: Array[float] = [70.0, 90.0, 120.0, 140.0]
@@ -54,6 +62,9 @@ var rig: HumanRig
 var service: Node
 var pumps: Array = []
 var worker := false
+## Gone to a town event (EventCrowd): his service stays open without him (an honesty
+## box: TownPeople's sign), E on him at the event is a greeting only.
+var away := false
 ## Heights above the floor: the work surface (counter) and the seat.
 var work_height := 1.0
 var seat_height := 0.45
@@ -79,6 +90,10 @@ var pet_hand := ""
 var door_hand := Vector3.INF
 
 var _floor_y := 0.0
+## The ground's normal under him at the last look (world) and its slope as his legs
+## have it (rise a metre to his left, forward).
+var _floor_n := Vector3.UP
+var _slope := Vector2.ZERO
 var _yaw := 0.0
 var _speed := 0.0
 var _wp := 1
@@ -111,6 +126,19 @@ var _clock := 0.0
 var _broom_hold := 0.0
 var _broom_lift := 0.0
 var _broom_two_hands := true
+## His own thing (_prop): "broom" or "glass" ("": none); whether it may show at all
+## (show_own_props).
+var _prop_kind := ""
+var _props_on := true
+## The broom laid on the ground (world) while his hands do something else; null: in his
+## hands.
+var _broom_down: Variant = null
+## Carrying the broom: 0 stood beside him .. 1 carried along at a walk; the handle's way
+## (body frame, bristles to top) as posed.
+var _carry_w := 0.0
+var _carry_axis := Vector3.UP
+## Carried along, the fist holds the handle this far up from the bristles' ends (metres).
+const CARRY_GRIP := 0.85
 ## The tea glass: in his hand, or on the table at _glass_spot (body frame).
 var _glass_in_hand := true
 var _glass_spot := Vector3(-0.16, 0.73, 0.46)
@@ -181,8 +209,9 @@ var _catch_t := -1.0
 var _catch_mi: MeshInstance3D
 var _catch_len := 0.3
 var _nibble_t := 0.0
-## clap(): seconds of applause left.
+## clap(): seconds of applause left; cheer(): of arms up.
 var _clap_t := 0.0
+var _cheer_t := 0.0
 
 
 func setup(model: StringName, tints: Dictionary = {}) -> void:
@@ -224,12 +253,15 @@ func _ready() -> void:
 	add_child(_bubble)
 	_yaw = rotation.y
 	_floor_y = global_position.y
+	_gait_style()
 	if act == Act.SWEEP:
 		_sweep_s = (_flat(position) - _flat(sweep_from)).dot((_flat(sweep_to) - _flat(sweep_from)).normalized())
 		_prop = _broom()
+		_prop_kind = "broom"
 		rig.add_child(_prop)
 	elif act == Act.TEA:
 		_prop = _tea_glass()
+		_prop_kind = "glass"
 		rig.add_child(_prop)
 		if tea_table.is_finite():
 			# On the near side of the table, clear of the glasses standing on it.
@@ -269,7 +301,46 @@ func _ground(x: float, z: float, near_y: float) -> float:
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(Vector3(x, near_y + 1.2, z), Vector3(x, near_y - 2.0, z), 1)
 	var hit := space.intersect_ray(q)
-	return (hit["position"] as Vector3).y if not hit.is_empty() else near_y
+	if hit.is_empty():
+		return near_y
+	# (a kerb's face or a wall's foot is no slope to walk on)
+	var n: Vector3 = hit["normal"]
+	_floor_n = n if n.y > 0.85 else Vector3.UP
+	return (hit["position"] as Vector3).y
+
+
+## How he walks (HumanRig's gait_*): everyone a little his own; Ayşe Teyze's short,
+## careful steps with a little stoop and her arms hardly swinging, Halil's unhurried
+## old man's walk, Emre's long springy stride, Zeynep's light quick step.
+func _gait_style() -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = hash(String(person))
+	rig.gait_stride = r.randf_range(0.95, 1.05)
+	rig.gait_arms = r.randf_range(0.85, 1.15)
+	rig.gait_bounce = r.randf_range(0.9, 1.1)
+	rig.gait_roll = r.randf_range(0.9, 1.05)
+	match person:
+		&"villager":
+			rig.gait_stride = 0.88
+			rig.gait_arms = 0.55
+			rig.gait_bounce = 0.7
+			rig.gait_roll = 0.7
+			rig.gait_stoop = 0.1
+		&"farmer":
+			rig.gait_stride = 0.95
+			rig.gait_bounce = 0.8
+			rig.gait_roll = 0.8
+			rig.gait_stoop = 0.05
+		&"young":
+			rig.gait_stride = 1.05
+			rig.gait_arms = 1.15
+			rig.gait_bounce = 1.15
+			rig.gait_roll = 1.1
+		&"zeynep":
+			rig.gait_stride = 0.94
+			rig.gait_arms = 0.95
+			rig.gait_bounce = 1.15
+			rig.gait_roll = 1.1
 
 
 # --- Interaction -----------------------------------------------------------------------------
@@ -313,6 +384,8 @@ func befriend() -> void:
 ## The service E on this person opens now: his counter or desk, or the pump the
 ## player's vehicle stands at (the attendant); null: a greeting only.
 func service_now() -> Node:
+	if away:
+		return null
 	if service != null and is_instance_valid(service):
 		return service
 	for p: Node3D in pumps:
@@ -455,7 +528,7 @@ func _process(delta: float) -> void:
 	_update_story(delta)
 	if not is_visible_in_tree():
 		return
-	if worker and dist < WELCOME_RANGE and _clock - _welcomed_at > WELCOME_COOLDOWN and Game.player and (Game.player as Player).driving == null:
+	if worker and not away and dist < WELCOME_RANGE and _clock - _welcomed_at > WELCOME_COOLDOWN and Game.player and (Game.player as Player).driving == null:
 		greet(0)
 	# Past ANIMATE_RANGE only someone on the move keeps moving his legs (a few times a
 	# second, as far as he is drawn): a frozen stride sliding along would show.
@@ -483,6 +556,7 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	_stop_t = maxf(_stop_t - delta, 0.0)
 	_clap_t = maxf(_clap_t - delta, 0.0)
+	_cheer_t = maxf(_cheer_t - delta, 0.0)
 	if act == Act.FISH:
 		_fish_tick(delta)
 	if not _path.is_empty():
@@ -573,7 +647,8 @@ func _walk_route(delta: float) -> void:
 			_probe_t = 0.15
 			_floor_y = _ground(p.x, p.z, _floor_y)
 		p.y = lerpf(here.y, _floor_y, clampf(delta * 10.0, 0.0, 1.0))
-		global_position = p
+		# Never into a vehicle parked in his way (his body would shove it): along its side.
+		global_position = Vehicle.keep_out(here, p, CAR_KEEP)
 	if to.length() < 0.35 and _stop_t <= 0.0:
 		_wait = float(target.get("wait", 0.0))
 		_crossing = false
@@ -625,7 +700,8 @@ func _walk_path(delta: float) -> void:
 			_probe_t = 0.15
 			_floor_y = _ground(p.x, p.z, _floor_y)
 		p.y = lerpf(here.y, _floor_y, clampf(delta * 10.0, 0.0, 1.0))
-		global_position = p
+		# Never into a vehicle parked in his way (his body would shove it): along its side.
+		global_position = Vehicle.keep_out(here, p, CAR_KEEP)
 
 
 func _arrive() -> void:
@@ -747,6 +823,7 @@ func _animate(delta: float, cam: Vector3) -> void:
 		else:
 			g = sin(clampf(_greet_t / GREET_SECONDS, 0.0, 1.0) * PI)
 			hand = smoothstep(0.0, 0.45, _greet_t) * (1.0 - smoothstep(GREET_SECONDS - 0.5, GREET_SECONDS, _greet_t))
+	_update_broom()
 	if _kneel > 0.0 or act == Act.PET:
 		_legs_pet()
 	else:
@@ -789,7 +866,9 @@ func _legs(delta: float, greeting: bool) -> void:
 			rig.sit(seat_height, 0.1, false)
 		Act.WALK:
 			if _speed > 0.05:
-				rig.walk(delta, _speed, 0.85 if hands_behind else 1.0, not hands_behind and not greeting and held() == null)
+				var n := global_basis.inverse() * _floor_n
+				_slope = _slope.lerp(Vector2(-n.x, -n.z) / maxf(n.y, 0.5), clampf(delta * 5.0, 0.0, 1.0))
+				rig.walk(delta, _speed, 0.92 if hands_behind else 1.0, not hands_behind and not greeting and held() == null, _slope)
 			else:
 				rig.stance(0.0, false)
 		Act.SWEEP:
@@ -839,8 +918,12 @@ func _arms(delta: float, greeting: bool) -> void:
 			_arms_fish(delta)
 		Act.CLAP:
 			_arms_clap()
-	if _clap_t > 0.0 and act != Act.FISH:
+	if _carrying():
+		_arms_carry(delta)
+	if _clap_t > 0.0 and act != Act.FISH and not _carrying():
 		_arms_clap()
+	if _cheer_t > 0.0 and act in [Act.STAND, Act.WALK] and not _carrying():
+		_arms_cheer()
 	# Zeynep's: the hands to the dog, the door, the words, what she is given.
 	if _kneel > 0.0:
 		_arms_pet()
@@ -1370,9 +1453,16 @@ func _arms_greet(amount: float) -> void:
 		_broom_two_hands = false
 
 
-## Held things go where the hands holding them are now (the pose just made).
+## Held things go where the hands holding them are now (the pose just made); the broom
+## on the ground where he laid it, the tea glass away from his tea.
 func _place_props() -> void:
 	if _prop == null:
+		return
+	if _prop_kind == "glass":
+		_prop.visible = _props_on and act == Act.TEA
+	elif _prop_kind == "broom":
+		_prop.visible = _props_on
+	if not _prop.visible:
 		return
 	match act:
 		Act.SWEEP:
@@ -1396,6 +1486,69 @@ func _place_props() -> void:
 				_prop.transform = Transform3D(Basis(x, up, x.cross(up)), rig.grip_point("_r") - up * 0.042)
 			else:
 				_prop.transform = Transform3D(Basis(), _glass_spot)
+		_:
+			if _prop_kind != "broom":
+				return
+			if _broom_down != null:
+				_prop.transform = rig.global_transform.affine_inverse() * (_broom_down as Transform3D)
+				return
+			# Carried: the handle through the left fist; stood beside him the bristles are on
+			# the ground, carried along they are off it behind him.
+			var gl := rig.grip_point("_l")
+			var axis := _carry_axis
+			var w := smoothstep(0.0, 1.0, _carry_w)
+			var along := lerpf(minf(gl.y / maxf(axis.y, 0.3), 1.44), CARRY_GRIP, w)
+			var z := (Vector3.RIGHT - axis * axis.x).normalized()
+			_prop.transform = Transform3D(Basis(axis.cross(z), axis, z), gl - axis * along)
+
+
+## The broom: in his hands sweeping and walking (picked up again as he walks on), laid
+## down where he stands when his hands are wanted for something else (a rod, clapping,
+## cheering, sitting).
+func _update_broom() -> void:
+	if _prop_kind != "broom":
+		return
+	if act == Act.SWEEP or (act == Act.WALK and (is_walking_to() or _speed > 0.05)):
+		_broom_down = null
+	elif _broom_down == null and (not (act in [Act.WALK, Act.STAND]) or _clap_t > 0.0 or _cheer_t > 0.0):
+		_broom_down = _broom_on_ground()
+
+
+## Carrying his broom (walking or standing, not laid down).
+func _carrying() -> bool:
+	return _prop_kind == "broom" and _props_on and _broom_down == null and act in [Act.WALK, Act.STAND]
+
+
+## Where the broom lies when he puts it down (world): on the grass just behind him, along
+## his shoulders (level with where he stands), the bristles flat.
+func _broom_on_ground() -> Transform3D:
+	var a := to_global(Vector3(-0.35, 0.0, -0.6))
+	var b := to_global(Vector3(1.15, 0.0, -0.6))
+	a.y = _ground(a.x, a.z, global_position.y) + 0.015
+	b.y = _ground(b.x, b.z, global_position.y) + 0.015
+	var axis := (b - a).normalized()
+	var up := (Vector3.UP - axis * axis.y).normalized()
+	return Transform3D(Basis(axis.cross(up), axis, up), a)
+
+
+## The broom carried (left hand): standing, stood upright beside him, the bristles on the
+## ground (as when he stops sweeping to greet); walking, carried at his side in the
+## hanging fist, the handle sloping forward and up, the bristles off the ground behind
+## him, the arm swinging a little with his stride.
+func _arms_carry(delta: float) -> void:
+	_carry_w = move_toward(_carry_w, 1.0 if _speed > 0.05 else 0.0, delta * 2.5)
+	var w := smoothstep(0.0, 1.0, _carry_w)
+	var y0 := rig.pelvis_y
+	var top := Vector3(0.25, y0 + 0.08, 0.2)
+	var axis_s := (top - Vector3(0.36, 0.0, 0.3)).normalized()
+	var swing := -cos(TAU * rig.gait_phase) * 0.2 * w
+	var rel: Array = rig.relaxed_pose("_l", swing)
+	var fist := (rel[0] as Vector3) + Vector3(-0.01, -0.07, 0.03)
+	var axis_w := Vector3(0.0, 0.55, 0.835).normalized().rotated(Vector3.RIGHT, -swing * 0.4)
+	var a: Array = rig.hold_pose("_l", top, axis_s, Vector3(-1, 0.1, 0.1))
+	var b: Array = rig.hold_pose("_l", fist, axis_w, Vector3(-1, -0.3, 0.0))
+	rig.pose_between("_l", a, b, w, _pole("_l"), 0.85, 0.85)
+	_carry_axis = axis_s.slerp(axis_w, w).normalized()
 
 
 # --- Props -----------------------------------------------------------------------------------
@@ -1444,14 +1597,13 @@ func place_at(at: Vector3, yaw: float) -> void:
 
 
 ## Fishes with rod `rod` (a FishModels rod id), the float out at `spot` (world, on the
-## water); his own things (a broom, a glass) are put away meanwhile.
+## water); his own things are put down meanwhile (the broom on the grass beside him).
 func start_fishing(spot: Vector3, rod := &"cane_rod") -> void:
 	fish_spot = Vector3(spot.x, WorldLayout.WATER_LEVEL, spot.z)
 	rod_model = rod
 	act = Act.FISH
 	_catch_t = -1.0
 	_rod_lift = 0.0
-	show_own_props(false)
 	if _rod == null:
 		_rod = Node3D.new()
 		_rod.name = "Rod"
@@ -1494,10 +1646,12 @@ func stop_fishing() -> void:
 	show_own_props(true)
 
 
-## His broom or tea glass shown (false: put away while he is at the contest).
+## His broom or tea glass may show (false: put away altogether); where it is and whether
+## it shows now follows what he does (_place_props).
 func show_own_props(on: bool) -> void:
-	if _prop:
-		_prop.visible = on
+	_props_on = on
+	if _prop and not on:
+		_prop.visible = false
 
 
 ## FISH: a fish (FishTable.catch_of) bites and comes out: the rod swept up, the fish
@@ -1533,6 +1687,16 @@ func clap(seconds: float) -> void:
 
 func is_clapping() -> bool:
 	return _clap_t > 0.0 or act == Act.CLAP
+
+
+## Cheers for `seconds` (a new biggest fish at the contest): both arms thrown up, fists
+## shaking (standing; anyone sitting or busy claps instead: the caller's choice).
+func cheer(seconds: float) -> void:
+	_cheer_t = maxf(_cheer_t, seconds)
+
+
+func is_cheering() -> bool:
+	return _cheer_t > 0.0
 
 
 ## FISH, every physics frame: the float bobbing (a nibble now and then), the catch's
@@ -1619,3 +1783,16 @@ func _arms_clap() -> void:
 	rig.reach("_r", c + Vector3(-gap, 0.01, 0.0), _pole("_r"))
 	rig.orient_hand("_r", Vector3(0.2, 0.7, 1.0), Vector3(1.0, 0.0, 0.1))
 	rig.curl("_r", 0.15, 0.2)
+
+
+## Cheering: both fists up over his head, shaking with joy.
+func _arms_cheer() -> void:
+	var t := (rig.time + rig.seed_phase) * 9.0
+	var head := rig.eye_point()
+	for side: String in ["_l", "_r"]:
+		var sgn := 1.0 if side == "_l" else -1.0
+		var shake := sin(t + sgn * 1.3) * 0.035
+		var at := Vector3(sgn * 0.3, head.y + 0.28 + shake, head.z + 0.1)
+		rig.reach(side, at, Vector3(sgn * 1.0, -0.4, -0.2))
+		rig.orient_hand(side, Vector3(sgn * 0.15, 1.0, 0.1), Vector3(0.0, 0.0, 1.0))
+		rig.curl(side, 0.75, 0.55)

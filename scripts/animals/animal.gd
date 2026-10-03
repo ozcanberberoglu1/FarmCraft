@@ -9,12 +9,17 @@ extends AnimatableBody3D
 ## (pecking about by her side, running with fluttering wings to catch up, through the
 ## coop door after her) and sleep huddled under her at night, cheeping as they go; the
 ## body changes from the downy chick to a pullet half way through growing up. A grown
-## rooster crows a few times at first light, neck stretched and wings beating; now and
-## then he holds a crow far too long, trembles and faints dead away for a while.
+## rooster crows a few times at first light, neck stretched and wings beating, and once or
+## twice every hour or two through the day; now and then (twice a day at most) he holds a
+## crow far too long, trembles and faints dead away for a while.
 ## One hurt by a wolf (AnimalData.injured) limps along slower on a sore leg, now and then
 ## stumbling, with a badge over it; one a wolf comes at (scare) bolts away from it.
+## The farmer's own birds can be picked up and carried in his arms (HELD), his sheep, cows
+## and horses led on a halter (LED; AnimalHandler does both). Set down or let go outside its
+## pen, an animal walks back home round the fence and in at the gate (RETURN).
 
-enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN, GO_NEST, NEST, HATCH, BROOD }
+enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN, GO_NEST, NEST, HATCH, BROOD,
+	HELD, LED, RETURN }
 
 const BADGES := {
 	"sick": preload("res://art/icons/ui/badge_sick.svg"), "wet": preload("res://art/icons/ui/badge_rain.svg"),
@@ -51,10 +56,18 @@ const CROW_HOURS := Vector2(5.3, 7.8)
 const CROWS := 3
 const CROW_TIME := 2.4
 const CROW_GAP := Vector2(8.0, 22.0)
-## FAINT_CHANCE of his crows go on far too long: CROW_LONG seconds of it, FAINT_TREMBLE of
-## trembling, FAINT_FALL keeling over, FAINT_OUT lying out cold, FAINT_RISE shaking himself
-## and getting up (unsteadily), FAINT_FLUFF fluffing his feathers.
+## Then through the day until DAY_CROW_END (game hour) he crows again every DAY_CROW_EVERY
+## game hours (from the end of the last bout), DAY_CROWS times each (never at night).
+const DAY_CROW_END := 19.0
+const DAY_CROW_EVERY := Vector2(1.0, 2.0)
+const DAY_CROWS := Vector2i(1, 2)
+## FAINT_CHANCE of his crows go on far too long, at most FAINTS_A_DAY a day and
+## FAINT_SPACING game minutes apart: CROW_LONG seconds of it, FAINT_TREMBLE of trembling,
+## FAINT_FALL keeling over, FAINT_OUT lying out cold, FAINT_RISE shaking himself and
+## getting up (unsteadily), FAINT_FLUFF fluffing his feathers.
 const FAINT_CHANCE := 0.6
+const FAINTS_A_DAY := 2
+const FAINT_SPACING := 240.0
 const CROW_LONG := 3.6
 const FAINT_TREMBLE := 0.8
 const FAINT_FALL := 0.45
@@ -75,6 +88,9 @@ const STUMBLE_TIME := 0.75
 const SCARE_TIME := 3.0
 const SCARE_PACE := 1.9
 const SCARE_RUN := 4.5
+## Set down or let go outside its pen within this many metres of home, an animal walks
+## back (RETURN); farther off it stays where it was left until the morning (data.away).
+const RETURN_RANGE := 60.0
 
 var data: AnimalData
 var housing: AnimalHousing
@@ -82,6 +98,10 @@ var rig: AnimalRig
 var state := State.IDLE
 var indoors := false
 var ridden := false
+## In the farmer's arms (a bird; `ridden` too, so it is out of the world's goings-on like a
+## horse being ridden) or on his halter (AnimalHandler).
+var carried := false
+var led := false
 
 var _path: Array[Vector3] = []
 var _path_inside: Array[bool] = []
@@ -113,12 +133,18 @@ var _cheep := 0.0
 var _hatch_from := Vector3.ZERO
 var _hatch_to := Vector3.ZERO
 var _hatch_shown := false
-## A rooster's crowing: seconds into the crow (-1: not crowing), crows still to come this
-## morning and the wait before the next, and the day he last greeted.
+## A rooster's crowing: seconds into the crow (-1: not crowing), crows still to come in
+## this bout and the wait before the next, the day he last greeted, and when (game
+## minutes, GameClock.total_minutes) his next daytime bout is due (-1: not yet planned).
 var _crow_t := -1.0
 var _crows_left := 0
 var _crow_wait := 0.0
 var _crow_day := -1
+var _day_crow_at := -1.0
+## His faints today: the day, how many, and when the last one was (game minutes).
+var _faint_day := -1
+var _faints := 0
+var _last_faint := -INF
 ## Seconds into a crow held too long and the faint after it (-1: none), the label over
 ## him and the wait before the next look whether the farmer sees him.
 var _faint_t := -1.0
@@ -129,6 +155,8 @@ var _faint_look := 0.0
 var _stumble_t := -1.0
 var _stumble_wait := 0.0
 var _scared := 0.0
+## Its meshes' shadow settings while it is held (shadows are off in the arms).
+var _shadow_was := {}
 
 ## Crows end in a faint only in play: automated runs keep to what they check (the
 ## rooster scenario switches it on).
@@ -146,6 +174,9 @@ func _enter_tree() -> void:
 
 func _exit_tree() -> void:
 	housing.animals.erase(self)
+	# Sold, gone to the vet or taken while in the farmer's hands: he holds nothing now.
+	if carried or led:
+		AnimalHandler.lost(self, true)
 
 
 func _ready() -> void:
@@ -223,6 +254,8 @@ func _place_initial() -> void:
 
 
 func teleport_home(inside: bool) -> void:
+	if carried or led:
+		AnimalHandler.lost(self)
 	var p := housing.random_indoor_point(_rng) if inside and housing.has_shelter() else housing.random_outdoor_point(_rng)
 	indoors = inside and housing.has_shelter()
 	global_position = p
@@ -274,6 +307,16 @@ func door_shut() -> void:
 
 func radius() -> float:
 	return _radius
+
+
+## Its body's box (metres: width, height, length), as it is now.
+func body_size() -> Vector3:
+	return (_shape.shape as BoxShape3D).size
+
+
+## In the middle of a crow held too long and the faint after it (up to back on his feet).
+func in_faint() -> bool:
+	return _faint_t >= 0.0
 
 
 # --- Chicks -------------------------------------------------------------------------------
@@ -461,7 +504,8 @@ func _update_cheep(delta: float) -> void:
 
 # --- The rooster's crow -------------------------------------------------------------------
 
-## At first light a grown rooster crows a few times (not while he sits on anything).
+## At first light a grown rooster crows a few times, then once or twice every hour or two
+## until evening (not while he sits on anything).
 func _update_crow(delta: float) -> void:
 	if _faint_t >= 0.0:
 		_update_faint(delta)
@@ -474,32 +518,59 @@ func _update_crow(delta: float) -> void:
 			rig.crow = 0.0
 		return
 	var hour := GameClock.get_hour_float()
-	if _crow_day != GameClock.day and hour >= CROW_HOURS.x and hour < CROW_HOURS.y:
+	var dawn := hour >= CROW_HOURS.x and hour < CROW_HOURS.y
+	var daytime := hour >= CROW_HOURS.y and hour < DAY_CROW_END
+	if _day_crow_at < 0.0:
+		_plan_day_crow()
+	if _crow_day != GameClock.day and dawn:
 		_crow_day = GameClock.day
 		_crows_left = CROWS
 		_crow_wait = _rng.randf_range(0.5, 3.0)
+	elif _crows_left <= 0 and daytime and GameClock.total_minutes >= _day_crow_at:
+		_crows_left = _rng.randi_range(DAY_CROWS.x, DAY_CROWS.y)
+		_crow_wait = _rng.randf_range(0.5, 3.0)
 	if _crows_left <= 0:
 		return
-	if hour >= CROW_HOURS.y or hour < CROW_HOURS.x:
+	if not dawn and not daytime:
 		_crows_left = 0
 		return
 	_crow_wait -= delta
 	if _crow_wait <= 0.0 and state != State.AWAY and not ridden:
 		_crows_left -= 1
 		_crow_wait = _rng.randf_range(CROW_GAP.x, CROW_GAP.y)
+		if _crows_left == 0:
+			_plan_day_crow()
 		crow()
+
+
+## The next daytime bout: an hour or two (game time) from now.
+func _plan_day_crow() -> void:
+	_day_crow_at = GameClock.total_minutes + _rng.randf_range(DAY_CROW_EVERY.x, DAY_CROW_EVERY.y) * 60.0
 
 
 ## Throws his head back and crows (the wings beat first). Now and then (or with `faint`)
 ## the crow goes on far too long and ends in a faint (_update_faint).
 func crow(faint := false) -> void:
-	if faint or _rolls_faint():
+	if faint or (_may_faint() and _rolls_faint()):
+		if _faint_day != GameClock.day:
+			_faint_day = GameClock.day
+			_faints = 0
+		_faints += 1
+		_last_faint = GameClock.total_minutes
 		_crow_t = -1.0
 		_faint_t = 0.0
 		Audio.long_crow(global_position + Vector3(0, 0.5, 0), CROW_LONG)
 		return
 	_crow_t = 0.0
 	Audio.play("rooster", global_position + Vector3(0, 0.5, 0), 0.0, 0.03, &"Effects", 10.0)
+
+
+## Whether he may faint today still: not more than FAINTS_A_DAY times, nor within
+## FAINT_SPACING game minutes of the last one.
+func _may_faint() -> bool:
+	if GameClock.total_minutes - _last_faint < FAINT_SPACING:
+		return false
+	return _faint_day != GameClock.day or _faints < FAINTS_A_DAY
 
 
 ## Whether this crow is held too long: FAINT_CHANCE of them, not in his sleep, on a nest,
@@ -626,6 +697,8 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if ridden:
+		if carried:
+			_carried_tick(delta)
 		return
 	_state_time += delta
 	_attention = maxf(_attention - delta, 0.0)
@@ -647,11 +720,14 @@ func _physics_process(delta: float) -> void:
 		return
 	if state == State.NEST:
 		_sit_nest()
+	elif state == State.LED:
+		# Walked by the farmer's halter (lead_step), nothing else.
+		pass
 	elif (_attention > 0.0 or _crow_t >= 0.0 or _faint_t >= 0.0) and state != State.SLEEP:
 		_speed = move_toward(_speed, 0.0, delta * 3.0)
 	else:
 		match state:
-			State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST, State.BROOD:
+			State.WANDER, State.GO_EAT, State.GO_DRINK, State.SHELTER, State.FOLLOW, State.GO_NEST, State.BROOD, State.RETURN:
 				_move(delta)
 			_:
 				_speed = move_toward(_speed, 0.0, delta * 2.0)
@@ -709,6 +785,9 @@ func _decide() -> void:
 	# On a nest: nothing else until she has laid and hopped down; out of the egg, in the
 	# middle of a crow or in a faint, nothing either.
 	if state == State.NEST or state == State.HATCH or _crow_t >= 0.0 or _faint_t >= 0.0:
+		return
+	# On the halter, or on its way back home from where it was left: nothing else.
+	if state == State.LED or (state == State.RETURN and not _path.is_empty()):
 		return
 	if data.is_chick() and _decide_chick():
 		return
@@ -836,6 +915,12 @@ func _go(target: Vector3, target_inside: bool, new_state: int) -> void:
 
 
 func _move(delta: float) -> void:
+	if state == State.RETURN and housing.in_pen(global_position, -radius() - 0.2):
+		# Back in its pen: home.
+		_path.clear()
+		_path_inside.clear()
+		_set_state(State.IDLE, _rng.randf_range(1.0, 3.0))
+		return
 	if _path.is_empty():
 		_arrived()
 		return
@@ -866,9 +951,12 @@ func _move(delta: float) -> void:
 			target_speed = 0.0
 	_speed = move_toward(_speed, minf(target_speed, dist * 2.0 + 0.2), delta * (3.0 if state == State.BROOD else 1.6))
 	var p := pos + facing * _speed * delta + _separation() * delta
-	var transit := _path_inside[0] != indoors
+	# Outside its pen on the way home it is not kept in the pen.
+	var transit := _path_inside[0] != indoors or state == State.RETURN
 	if not transit:
 		p = housing.constrain(p, radius(), indoors)
+	# Never into a vehicle (its body would shove it): along its side.
+	p = Vehicle.keep_out(pos, p, radius())
 	p.y = housing.ground_height(p)
 	global_position = p
 
@@ -1038,7 +1126,7 @@ func hurt() -> void:
 ## pen (or its side of the coop wall) lets it (not one sitting on a nest, hatching, ridden
 ## or away).
 func scare(from: Vector3) -> void:
-	if ridden or data.away or state in [State.NEST, State.HATCH, State.AWAY, State.RIDDEN]:
+	if ridden or led or data.away or state in [State.NEST, State.HATCH, State.AWAY, State.RIDDEN]:
 		return
 	if _scared > SCARE_TIME * 0.5:
 		return
@@ -1114,7 +1202,8 @@ func can_ride() -> bool:
 
 
 func interact_prompt(_player: Node) -> String:
-	if _faint_t >= 0.0:
+	# On the halter: E lets it go (AnimalHandler's line).
+	if _faint_t >= 0.0 or led:
 		return ""
 	if can_ride():
 		return tr("ACTION_RIDE")
@@ -1126,7 +1215,7 @@ func info_prompt() -> String:
 
 
 func interact(player: Node) -> void:
-	if _faint_t >= 0.0:
+	if _faint_t >= 0.0 or led:
 		return
 	if can_ride():
 		(player as Player).mount(self)
@@ -1269,3 +1358,223 @@ func set_ridden(on: bool) -> void:
 		data.away_yaw = rotation.y
 		indoors = in_pen and housing.is_in_building(global_position)
 		_set_state(State.AWAY if data.away else State.IDLE, 2.0)
+
+
+# --- Carried and led (AnimalHandler) -----------------------------------------------------
+
+## One of the farmer's own animals (not a stranger's: they never leave its keeping).
+func owned() -> bool:
+	return data != null and Animals.animals.has(data) and Animals.node_of(data) == self
+
+
+## A bird he can pick up: his own hen, rooster or chick, out of its egg (one out cold
+## after a crow too: he hangs limp in the arms till he comes round).
+func can_carry() -> bool:
+	return AnimalTable.is_poultry(data.species) and owned() and not ridden and not carried and not led \
+			and state != State.HATCH and visible
+
+
+## One he can put a halter on: his own sheep, cow or horse, not being ridden.
+func can_lead() -> bool:
+	return not AnimalTable.is_poultry(data.species) and owned() and not ridden and not carried and not led \
+			and state != State.HATCH
+
+
+## Picked up: out of the world's goings-on (no AI, no body to bump into or aim at, out of
+## the wolves' and the other birds' way, like a horse being ridden) until put down; the
+## handler moves and poses it in the arms every frame.
+func pick_up() -> void:
+	carried = true
+	ridden = true
+	_path.clear()
+	_path_inside.clear()
+	_set_state(State.HELD, 1e9)
+	_speed = 0.0
+	_attention = 0.0
+	_mode = AnimalRig.Mode.IDLE
+	_stumble_t = -1.0
+	rig.stumble = 0.0
+	_shape.set_deferred("disabled", true)
+	remove_from_group(&"interactable")
+	_badge.visible = false
+	_badge_key = ""
+	indoors = false
+	data.away = false
+	# Moved per rendered frame with the view.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	_set_shadows(false)
+
+
+## Set down at `p` facing `yaw`: back into the world where it stands (see _settle_where_left).
+func put_down(p: Vector3, yaw: float) -> void:
+	carried = false
+	ridden = false
+	rig.held = 0.0
+	rig.flutter = 0.0
+	_shape.set_deferred("disabled", false)
+	add_to_group(&"interactable")
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	global_transform = Transform3D(Basis(Vector3.UP, yaw), p)
+	reset_physics_interpolation()
+	_set_shadows(true)
+	_settle_where_left()
+	# A shake of the feathers on landing.
+	rig.fluff = 0.0
+	var tw := create_tween()
+	tw.tween_method(func(v: float) -> void: rig.fluff = sin(PI * v), 0.0, 1.0, 0.6)
+
+
+## In the arms: a fainted rooster comes round there all the same; wet feathers dry
+## or soak as on the ground.
+func _carried_tick(delta: float) -> void:
+	if _faint_t >= 0.0:
+		_update_faint(delta)
+	if data.wet != _wet_shown:
+		_wet_shown = data.wet
+		rig.set_wet(_wet_shown)
+
+
+## A halter on: it stops whatever it was doing and walks where the farmer leads
+## (lead_step) until let go.
+func begin_lead() -> void:
+	led = true
+	_end_faint()
+	_path.clear()
+	_path_inside.clear()
+	_scared = 0.0
+	_attention = 0.0
+	data.away = false
+	_set_state(State.LED, 1e9)
+
+
+## One tick on the halter: it stands at `p` going `speed` m/s, turned toward where it goes.
+func lead_step(p: Vector3, speed: float, delta: float) -> void:
+	# Never pulled into a vehicle (its body would shove it): along its side.
+	var kept := Vehicle.keep_out(global_position, p, radius())
+	p = Vector3(kept.x, p.y, kept.z)
+	var d := p - global_position
+	if Vector2(d.x, d.z).length() > 0.002:
+		rotation.y = lerp_angle(rotation.y, atan2(-d.x, -d.z), clampf(delta * 4.0, 0.0, 1.0))
+	global_position = p
+	_speed = speed
+	indoors = housing.is_in_building(p)
+
+
+## The halter off where it stands: home in its pen, else on its way back (_settle_where_left).
+func end_lead() -> void:
+	led = false
+	_speed = 0.0
+	_settle_where_left()
+
+
+## Left at its spot (set down, let go): in its pen it carries on as usual; outside it within
+## RETURN_RANGE of home it walks back; farther off it stays there (data.away) until the
+## morning, as a horse its rider got off.
+func _settle_where_left() -> void:
+	_path.clear()
+	_path_inside.clear()
+	var p := global_position
+	if housing.in_pen(p, -radius() * 0.5):
+		data.away = false
+		indoors = housing.is_in_building(p)
+		_set_state(State.IDLE, _rng.randf_range(1.0, 2.5))
+		return
+	indoors = false
+	var home := housing.center()
+	if Vector2(home.x - p.x, home.z - p.z).length() < RETURN_RANGE:
+		data.away = false
+		_go_back_home()
+		return
+	data.away = true
+	data.away_pos = p
+	data.away_yaw = rotation.y
+	_set_state(State.AWAY, 1e9)
+
+
+## Off back into its pen from outside it: round the fence and in at the gate (a kit-built
+## coop's yard has no fence: straight in), then about the pen as usual (_move ends it once
+## it is inside).
+func _go_back_home() -> void:
+	var pts: Array[Vector3] = []
+	var r := radius()
+	if housing.gate.is_empty():
+		pts.append(housing.constrain(global_position, r, false))
+	else:
+		# Grandpa's barn and run stand at the world origin: their rects are world rects.
+		var out := WorldLayout.gate_point(housing.pen, housing.gate, 1.4)
+		pts.append_array(_round_pen(global_position, out))
+		pts.append(out)
+		pts.append(WorldLayout.gate_point(housing.pen, housing.gate, -1.2))
+	for p in pts:
+		p.y = housing.ground_height(p)
+		_path.append(p)
+		_path_inside.append(false)
+	_set_state(State.RETURN, 1e9)
+
+
+## Corners to walk past from `a` to `b` (both outside the fence) when the fence stands
+## between them: along the pen's sides the shorter way round, a little off them.
+func _round_pen(a: Vector3, b: Vector3) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	var rect := housing.pen.grow(1.3)
+	var fa := Vector2(a.x, a.z)
+	var fb := Vector2(b.x, b.z)
+	var blocked := false
+	var steps := int(fa.distance_to(fb) / 0.4) + 1
+	for i in steps + 1:
+		if housing.pen.grow(0.4).has_point(fa.lerp(fb, float(i) / steps)):
+			blocked = true
+			break
+	if not blocked:
+		return out
+	var corners: Array[Vector2] = [rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]
+	var perim := 2.0 * (rect.size.x + rect.size.y)
+	var sa := _perimeter_at(rect, fa)
+	var sb := _perimeter_at(rect, fb)
+	var fwd := fposmod(sb - sa, perim)
+	# Corners passed going round one way (clockwise in the rect's order) or the other.
+	var way := 1.0 if fwd <= perim * 0.5 else -1.0
+	var corner_s: Array[float] = [0.0, rect.size.x, rect.size.x + rect.size.y, 2.0 * rect.size.x + rect.size.y]
+	var picked: Array = []
+	for i in 4:
+		var d := fposmod((corner_s[i] - sa) * way, perim)
+		if d > 0.01 and d < (fwd if way > 0.0 else perim - fwd):
+			picked.append([d, i])
+	picked.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+	for c: Array in picked:
+		var v: Vector2 = corners[int(c[1])]
+		out.append(Vector3(v.x, 0.0, v.y))
+	return out
+
+
+## Where `p` is along `rect`'s edge (metres round from its first corner, the way the
+## corners go), taken at the edge point nearest it.
+static func _perimeter_at(rect: Rect2, p: Vector2) -> float:
+	var q := Vector2(clampf(p.x, rect.position.x, rect.end.x), clampf(p.y, rect.position.y, rect.end.y))
+	var dl := absf(q.x - rect.position.x)
+	var dr := absf(rect.end.x - q.x)
+	var dt := absf(q.y - rect.position.y)
+	var db := absf(rect.end.y - q.y)
+	var m := minf(minf(dl, dr), minf(dt, db))
+	if m == dt:
+		return q.x - rect.position.x
+	if m == dr:
+		return rect.size.x + (q.y - rect.position.y)
+	if m == db:
+		return rect.size.x + rect.size.y + (rect.end.x - q.x)
+	return 2.0 * rect.size.x + rect.size.y + (rect.end.y - q.y)
+
+
+## Its shadow off while it is held up in front of the view (as the items in hand), back
+## on when it is set down (meshes that never cast one stay that way).
+func _set_shadows(on: bool) -> void:
+	for g in rig.find_children("*", "GeometryInstance3D", true, false):
+		var gi := g as GeometryInstance3D
+		if on:
+			if _shadow_was.has(gi):
+				gi.cast_shadow = _shadow_was[gi]
+		else:
+			_shadow_was[gi] = gi.cast_shadow
+			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if on:
+		_shadow_was.clear()

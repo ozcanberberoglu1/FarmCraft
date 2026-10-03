@@ -6,12 +6,13 @@ extends Node
 ## has just been made; the first night after it with animals on the farm): from HOWL_MINUTE intense howling far off, at NOTE_MINUTE
 ## a note and a side goal (SideStory.goals): shut the coop door once every bird is in,
 ## then go home and sleep (the dot on the coop door, then on the bed). The pack comes at
-## ARRIVE_MINUTE. Later raids come on random nights, roughly every 4 to 7 (RARE_GAP when
-## Settings.wolf_raids is RARE, none when it is OFF), never two in a row, likelier with a
-## bigger herd, in winter and at full moon (raid_chance); howls and a short note warn of
-## them earlier in the evening (EARLY_HOWL, EARLY_NOTE). A night whose note never came
-## (the farmer was asleep by then, even with the howls begun) has no raid: the lesson
-## waits for the next night.
+## ARRIVE_MINUTE (22:00). Later raids come about every other night: on the second night
+## after the last one often, on the third for certain (NORMAL_GAP; RARE_GAP's longer
+## spells when Settings.wolf_raids is RARE, none when it is OFF), never two in a row, the
+## second night likelier with a bigger herd, in winter and at full moon (raid_chance);
+## howls and a short note warn of them earlier in the evening (EARLY_HOWL, EARLY_NOTE).
+## A night whose note never came (the farmer was asleep by then, even with the howls
+## begun) has no raid: the lesson waits for the next night (a later raid too).
 ##
 ## They take what they can get to (can_reach): animals out in the night, in an open pen
 ## (a fence keeps no wolf out), in a coop whose door stands open; not one in a closed
@@ -20,8 +21,9 @@ extends Node
 ## killed, a sheep often only hurt, a cow or a horse only ever hurt.
 ##
 ## Awake, the raid plays out: PACK wolves (Wolf.spawn) from the forest edge nearest the
-## animals, sent by set_goal at the animals they can reach and at the farmer when he is
-## out near them; a bite (bit) on an animal kills it or hurts it (Animals.kill / injure). A wolf killed scatters the rest; a farmer in a vehicle they
+## animals, sent by set_goal at the animals they can reach; the farmer out of the farmhouse
+## with one of them near him (PLAYER_RANGE) has the whole pack at him (those within
+## CHASE_RANGE) until he is in, down or well away; a bite (bit) on an animal kills it or hurts it (Animals.kill / injure). A wolf killed scatters the rest; a farmer in a vehicle they
 ## give up on; with nothing left to take they prowl a while (LINGER) and go. Asleep (or
 ## knocked out, Events.player_knocked_out) the rest of the night is worked out the same
 ## way as the time is skipped. The morning report says what happened (take_report).
@@ -31,19 +33,21 @@ extends Node
 
 ## The lesson's night, and the hours of the evening (game minutes from midnight):
 ## tonight's raid is decided from ROLL_MINUTE; distant howls from HOWL_MINUTE, the note at
-## NOTE_MINUTE (later raids an hour earlier: EARLY_*), the pack at ARRIVE_MINUTE. They
-## have gone by LEAVE_MINUTE (04:00; nobody stays up past 02:00 anyway).
+## NOTE_MINUTE (later raids an hour earlier: EARLY_*), the pack at ARRIVE_MINUTE (22:00).
+## They have gone by LEAVE_MINUTE (04:00; nobody stays up past 02:00 anyway).
 const LESSON_NIGHT := 2
-const ROLL_MINUTE := 18 * 60
-const HOWL_MINUTE := 20 * 60 + 30
-const NOTE_MINUTE := 21 * 60
-const EARLY_HOWL := 19 * 60 + 30
-const EARLY_NOTE := 20 * 60
-const ARRIVE_MINUTE := 23 * 60
+const ROLL_MINUTE := 17 * 60
+const HOWL_MINUTE := 19 * 60 + 30
+const NOTE_MINUTE := 20 * 60
+const EARLY_HOWL := 18 * 60 + 30
+const EARLY_NOTE := 19 * 60
+const ARRIVE_MINUTE := 22 * 60
 const LEAVE_MINUTE := 28 * 60
 ## Nights from one raid to the next: none before the first number, certain by the second
-## (each night between likelier than the last).
-const NORMAL_GAP := Vector2i(4, 7)
+## (each night between likelier than the last). Normal: the second night after a raid
+## about half the time (more with a big herd, in winter, at full moon), else the third,
+## so about every other night; rare: every 8 to 13.
+const NORMAL_GAP := Vector2i(2, 3)
 const RARE_GAP := Vector2i(8, 13)
 ## A herd this big (or bigger) makes a raid likelier by the factor beside it; so do
 ## winter and the full moon.
@@ -61,9 +65,11 @@ const PREY_WEIGHT := {&"chicken": 3.0, &"rooster": 3.0, &"sheep": 2.0, &"cow": 1
 ## Wolves in a pack (the lesson's is the smaller).
 const PACK := Vector2i(3, 4)
 ## Metres: a burning campfire keeps them this far off; the farmer this close to one of them
-## (out in the open) is attacked; animals this close to one bolt.
+## (out of the farmhouse) brings the pack at him, those this far off and nearer (and they
+## keep after him to there); animals this close to one bolt.
 const FIRE_SAFE := 6.0
 const PLAYER_RANGE := 25.0
+const CHASE_RANGE := 45.0
 const SPOOK_RADIUS := 7.0
 ## Where they come out of the forest (metres from the valley's middle), how far short of
 ## the animals they gather first, and when they count as there.
@@ -355,14 +361,12 @@ func _drive_pack(delta: float) -> void:
 		_arrived = true
 	var targets := _target_nodes()
 	var player := _exposed_player(live)
-	var hunting := 0
 	for w in live:
 		Animals.spook(w.global_position, SPOOK_RADIUS)
-		if not targets.is_empty() and (hunting < 2 or player == null):
-			_order(w, &"hunt", _nearest(targets, w.global_position))
-			hunting += 1
-		elif player != null:
+		if player != null and (_flat(w.global_position, player.global_position) < CHASE_RANGE or targets.is_empty()):
 			_order(w, &"attack_player", player)
+		elif not targets.is_empty():
+			_order(w, &"hunt", _nearest(targets, w.global_position))
 		else:
 			_order(w, &"prowl", _area)
 	# Nothing (more) to take and nobody to go for: a while longer, then they go.
@@ -671,7 +675,8 @@ func _nearest(nodes: Array[Node3D], from: Vector3) -> Node3D:
 	return best
 
 
-## The farmer when he is out in the open near the pack (not in the farmhouse, not down).
+## The farmer when the pack goes for him: out of the farmhouse (not down) with one of
+## them within PLAYER_RANGE (one already after him: within CHASE_RANGE).
 func _exposed_player(live: Array[Node3D]) -> Node3D:
 	var p := Game.player as Node3D
 	if p == null or not is_instance_valid(p) or in_house(p.global_position):
@@ -679,7 +684,8 @@ func _exposed_player(live: Array[Node3D]) -> Node3D:
 	if PlayerState.knocked_out:
 		return null
 	for w in live:
-		if _flat(w.global_position, p.global_position) < PLAYER_RANGE:
+		var after: bool = (_orders.get(w, []) as Array).size() > 0 and _orders[w][0] == &"attack_player"
+		if _flat(w.global_position, p.global_position) < (CHASE_RANGE if after else PLAYER_RANGE):
 			return p
 	return null
 

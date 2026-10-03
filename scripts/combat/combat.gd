@@ -1,20 +1,28 @@
 class_name Combat
 extends Node
-## The farmer's knife and bow (a child of the Player, which hands it the LMB while either
-## is in hand).
+## The farmer's knife, axe and bow as weapons (a child of the Player, which hands it the
+## LMB while the knife or the bow is in hand, and the axe's when a target is in its reach).
 ##
 ## What can be hit is in the "hittable" group (itself, or a parent of the collider an
 ## arrow strikes, up to 4 levels) and implements
-##   take_hit(damage: float, from: Vector3, kind: StringName)   kind &"knife" or &"arrow"
+##   take_hit(damage: float, from: Vector3, kind: StringName)   kind &"knife", &"axe" or &"arrow"
 ## where `from` is where the blow came from (the farmer). Optionally can_be_hit() -> bool
 ## (false: a carcass), hit_center() -> Vector3 and a `hit_radius` property (m) for the
-## knife's reach (a wolf-sized body otherwise).
+## knife's and the axe's reach (a wolf-sized body otherwise), evasion() -> float (0..1:
+## how much harder it is to hit on the move) and dodge(from: Vector3) (a blow missed it).
 ##
 ## KNIFE: LMB stabs (ToolAnim "stab", a swoosh). On the stroke's contact the nearest
 ## hittable in front of the farmer within KNIFE_REACH of his body (not behind a wall)
 ## takes KNIFE_DAMAGE, with a thud, a few drops of blood and a punch of the view, and the
 ## knife wears by one; a stab at nothing only swooshes. The knife's other uses (cleaning a
 ## catch at the food table) are left as they are.
+## AXE: LMB with a hittable in front within AXE_REACH (Player._update_action; else the axe
+## chops or swings at nothing as before): the axe's own swing (ToolAnim "axe"), landing
+## on its contact like the stab for AXE_DAMAGE (three blows kill a wolf), with a heavier
+## knock of the view; it wears by one.
+## A blow can miss (KNIFE_MISS, AXE_MISS; more often at a target on the move, MOVING_MISS
+## times its evasion()): only the swoosh, no wound and no wear, and the target jumps aside
+## (dodge).
 ## BOW: hold LMB to draw (DRAW_TIME to full draw): the bow comes up to the aim pose, an
 ## arrow from the bag is nocked and the string comes back with it, the view narrows a
 ## little (DRAW_ZOOM) and the farmer walks slower. Releasing looses the arrow (Arrow),
@@ -34,6 +42,17 @@ const KNIFE_REACH := 1.8
 const KNIFE_DAMAGE := 34.0
 const STAB_TIME := 0.42
 const KNIFE_CONE := 40.0
+## The axe as a weapon: reach (m, as the knife's), the wound, the swing's length (s) and
+## half the angle in front it finds a target in (degrees).
+const AXE := &"axe"
+const AXE_REACH := 1.9
+const AXE_DAMAGE := 40.0
+const AXE_CONE := 45.0
+## The chance a blow misses: the knife's, the axe's, and what is added at a target on the
+## move (times its evasion(), 0..1).
+const KNIFE_MISS := 0.15
+const AXE_MISS := 0.25
+const MOVING_MISS := 0.15
 ## A target without hit_center / hit_radius: a wolf-sized body.
 const HIT_HEIGHT := 0.45
 const HIT_RADIUS := 0.35
@@ -55,11 +74,17 @@ const SPREAD := 2.5
 
 var player: Player
 var bow_state := Bow.IDLE
+## Blows can miss (tests that need every blow to land switch it off).
+var misses := true
+## Knife and axe blows at a target, and those that missed it (tests).
+var blows := 0
+var missed := 0
 ## How far the string is drawn (0..1) and how far the bow is up in the aim pose (0..1).
 var draw := 0.0
 var aim := 0.0
-## Seconds left of a stab, and of a shot's follow-through.
+## Seconds left of a stab, of an axe's swing, and of a shot's follow-through.
 var _stab_left := 0.0
+var _swing_left := 0.0
 var _loose_left := 0.0
 ## Seconds the string has been held at full draw (the arms start to tire after a while).
 var _held := 0.0
@@ -79,6 +104,17 @@ func _ready() -> void:
 func holding_knife() -> bool:
 	var s := PlayerState.selected_stack()
 	return s != null and (s.item.id == KNIFE or s.item.tool_type == KNIFE)
+
+
+## The axe is the item in hand.
+func holding_axe() -> bool:
+	var s := PlayerState.selected_stack()
+	return s != null and s.item.tool_type == AXE
+
+
+## An axe's swing at something is under way (the Player starts nothing else meanwhile).
+func swinging() -> bool:
+	return _swing_left > 0.0
 
 
 ## The bow is the item in hand.
@@ -133,27 +169,92 @@ func stab() -> void:
 	get_tree().create_timer(impact, false, true).timeout.connect(_land_stab.bind(stack))
 
 
-## The stab's contact: the target in reach takes the wound.
+## The stab's contact: the target in reach takes the wound (or it misses).
 func _land_stab(stack: ItemStack) -> void:
 	if not is_instance_valid(player) or PlayerState.selected_stack() != stack or player.riding or player.driving:
 		return
 	var t := knife_target()
 	if t == null:
 		return
+	if _misses(t, KNIFE_MISS):
+		return
+	_strike(t, KNIFE_DAMAGE, KNIFE, stack)
+	player.kick_view(Vector4(-0.7, 0.35, 0.6, -0.008), 0.1)
+
+
+## LMB with the axe in hand at a target in its reach (Player._update_action): the axe's
+## swing, landing on its contact (_land_axe).
+func axe_swing() -> void:
+	var stack := PlayerState.selected_stack()
+	if _swing_left > 0.0 or stack == null:
+		return
+	if stack.item.has_durability() and stack.durability <= 0:
+		Game.notify(tr("MSG_TOOL_BROKEN") % stack.item.display_name(), Color(1.0, 0.45, 0.35))
+		return
+	var length: float = ToolAnim.AIR.get(AXE, 0.7)
+	_swing_left = length
+	player.held.play(&"axe", length, 1, false)
+	var impact := ToolAnim.impact_u(&"axe") * length
+	get_tree().create_timer(maxf(impact - ToolAnim.WHOOSH_LEAD, 0.0), false, true).timeout.connect(func() -> void:
+		if is_instance_valid(player):
+			Audio.swing(AXE, player.camera.global_position - player.camera.global_basis.z * 0.6))
+	get_tree().create_timer(impact, false, true).timeout.connect(_land_axe.bind(stack))
+
+
+## The axe's contact: the target in reach takes the blow (or it misses).
+func _land_axe(stack: ItemStack) -> void:
+	if not is_instance_valid(player) or PlayerState.selected_stack() != stack or player.riding or player.driving:
+		return
+	var t := axe_target()
+	if t == null:
+		return
+	if _misses(t, AXE_MISS):
+		return
+	_strike(t, AXE_DAMAGE, AXE, stack)
+	player.kick_view(Vector4(-1.4, 0.5, -0.9, -0.02), 0.3)
+	CombatSfx.play("arrow_flesh", hit_center(t), -4.0, 0.1)
+
+
+## Whether a blow at `t` misses (`chance`, more at a target on the move): then only the
+## swoosh, and it jumps aside.
+func _misses(t: Node3D, chance: float) -> bool:
+	blows += 1
+	if not misses:
+		return false
+	var moving := clampf(float(t.call("evasion")), 0.0, 1.0) if t.has_method("evasion") else 0.0
+	if _rng.randf() >= chance + MOVING_MISS * moving:
+		return false
+	missed += 1
+	if t.has_method("dodge"):
+		t.call("dodge", player.global_position)
+	return true
+
+
+## A blow lands on `t`: the wound, the tool worn by one, a thud and a few drops of blood.
+func _strike(t: Node3D, damage: float, kind: StringName, stack: ItemStack) -> void:
 	var at := hit_center(t)
 	var toward := (at - player.camera.global_position).normalized()
 	at -= toward * hit_radius(t) * 0.6
-	t.take_hit(KNIFE_DAMAGE, player.global_position, KNIFE)
+	t.take_hit(damage, player.global_position, kind)
 	player.wear_tool(stack)
-	player.kick_view(Vector4(-0.7, 0.35, 0.6, -0.008), 0.1)
-	CombatSfx.play("knife_hit", at, -2.0, 0.08)
+	CombatSfx.play("knife_hit", at, -2.0 if kind == KNIFE else 1.0, 0.08)
 	Fx.blood_drops(at, -toward)
 
 
-## The hittable the knife reaches now: the nearest one in front of the farmer within
-## KNIFE_REACH of his body (their hit_radius counted off), inside KNIFE_CONE of where he
-## looks, with nothing solid between; null when there is none.
+## The hittable the knife reaches now (melee_target).
 func knife_target() -> Node3D:
+	return melee_target(KNIFE_REACH, KNIFE_CONE)
+
+
+## The hittable the axe reaches now (melee_target).
+func axe_target() -> Node3D:
+	return melee_target(AXE_REACH, AXE_CONE)
+
+
+## The hittable a blow reaches now: the nearest one in front of the farmer within `reach`
+## of his body (their hit_radius counted off), inside `cone` degrees of where he looks,
+## with nothing solid between; null when there is none.
+func melee_target(reach: float, cone: float) -> Node3D:
 	var eye := player.camera.global_position
 	var fwd := -player.camera.global_basis.z
 	var flat_fwd := Vector3(fwd.x, 0.0, fwd.z)
@@ -174,9 +275,9 @@ func knife_target() -> Node3D:
 			continue
 		var flat := Vector3(c.x - feet.x, 0.0, c.z - feet.z)
 		var d := flat.length() - hit_radius(t)
-		if d > KNIFE_REACH or d >= best_d:
+		if d > reach or d >= best_d:
 			continue
-		if flat.length() > hit_radius(t) and rad_to_deg(flat_fwd.angle_to(flat.normalized())) > KNIFE_CONE:
+		if flat.length() > hit_radius(t) and rad_to_deg(flat_fwd.angle_to(flat.normalized())) > cone:
 			continue
 		if not _in_sight(eye, c, t):
 			continue
@@ -291,6 +392,7 @@ func _check_hand() -> void:
 func _process(delta: float) -> void:
 	_no_arrows_note = maxf(_no_arrows_note - delta, 0.0)
 	_stab_left = maxf(_stab_left - delta, 0.0)
+	_swing_left = maxf(_swing_left - delta, 0.0)
 	if not holding_bow():
 		return
 	match bow_state:

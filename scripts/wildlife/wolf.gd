@@ -11,21 +11,30 @@ extends Node3D
 ##                     (`bit`), again and again until told otherwise. An animal in a
 ##                     building it reaches only through an open door; behind a shut one
 ##                     it prowls round the building instead. Low fences it leaps.
-##   &"attack_player"  goes for the farmer (`target`): the pack circles him snarling, one
-##                     wolf at a time darting in to bite (`bit`, PlayerState.hurt). In a
-##                     vehicle it circles the vehicle VEHICLE_TIME, then gives up
-##                     (`gave_up`) and runs off; in a building it prowls round outside a
-##                     while, then gives up too.
+##   &"attack_player"  goes for the farmer (`target`) and keeps at him: a short stalk,
+##                     low and growling, then bite after bite. Up to PRESSERS wolves press
+##                     him at once, each from its own side: in close, a crouch and a snarl
+##                     (WINDUP_TIME: his moment to step back or aside), a lunge and a bite
+##                     (`bit`, PlayerState.hurt), a step back and round, and in again; the
+##                     rest of the pack circles close by, snarling, and takes a turn. Into
+##                     a coop or barn whose door stands open it follows him by the door and
+##                     goes on inside. In a vehicle it circles the vehicle VEHICLE_TIME,
+##                     then gives up (`gave_up`) and runs off; in the farmhouse, the
+##                     warehouse or behind a shut door it prowls round outside a while,
+##                     then gives up too.
 ##   &"howl"           stops, sits and howls, now and then, until told otherwise.
 ##   &"flee"           runs flat out, tail tucked, to `target` (a Vector3 far off) and is
 ##                     gone (freed) when there or out of sight far away.
-## It never goes into a building (save a hunted animal's open coop), keeps FIRE_KEEP off
+## It never goes into a building (save the open coop or barn of a hunted animal or of the
+## farmer), keeps FIRE_KEEP off
 ## a burning campfire, out of the pond and out of town. It steers round what is in its
-## way by short rays (fences, walls, trees, rocks) and keeps its distance from the rest
-## of the pack.
+## way by short rays (fences, walls, trees, rocks), round a vehicle by its corners, and
+## keeps its distance from the rest of the pack. It never steps into a vehicle (its body
+## would shove it, Vehicle.keep_out).
 ##
 ## It can be hit (group &"hittable", take_hit): it flinches and yelps, staggers off and
-## backs away a moment; at no health left it falls dead (`died`) and lies there as a
+## backs away a moment (a blow that misses it, dodge, it only jumps aside from; on the
+## move it is harder to hit, evasion); at no health left it falls dead (`died`) and lies there as a
 ## carcass: E "take the pelt" puts a wolf pelt in the bag and the carcass is gone; left
 ## alone it goes by itself CARCASS_HOURS later (a night slept through not counted: it is
 ## still there in the morning), when nobody is looking at it.
@@ -57,14 +66,33 @@ const TURN_RATE := 4.0
 const TURN_GRIP := 11.0
 ## Prowling round something: how far out (m).
 const PROWL_RADIUS := Vector2(8.0, 15.0)
-## Round the farmer: how far out it circles, how close a bite reaches, how long one
-## wolf's dart in may take, and the pause before the next wolf's go.
-const RING_RADIUS := Vector2(3.4, 5.0)
+## Round the farmer: how far out the wolves not pressing him circle (m), how close a
+## bite reaches (an animal's too), the least time (s) between one wolf's bites.
+const RING_RADIUS := Vector2(2.8, 4.0)
 const BITE_REACH := 1.4
 const ANIMAL_REACH := 0.95
 const BITE_COOLDOWN := 1.4
-const DART_TIME := 3.5
-const PACK_PAUSE := Vector2(1.3, 2.8)
+## Pressing him: how many wolves at once, how many lunges each before it may leave its
+## place to one circling, and how long it may try to get at him before it does anyway.
+const PRESSERS := 2
+const PRESS_BITES := 2
+const PRESS_TIME := 7.0
+## The lunge at him: how near (m) it winds up, the wind-up (s; crouched and snarling, the
+## aim fixed for its last part: his moment to step back or aside), the spring's top
+## speed (m/s), how far round (rad/s) it can still turn in the air, how near his feet its
+## body stops (m), and the least time between any two lunges at him (s).
+const WINDUP_RANGE := 2.1
+const WINDUP_TIME := 0.4
+const WINDUP_AIM := 0.6
+const LUNGE_SPEED := 7.5
+const LUNGE_TURN := 1.5
+const LUNGE_STOP := 0.85
+const LUNGE_GAP := 0.75
+## Before the first bite a short stalk (s, counted within STALK_NEAR m of him); after
+## each lunge a step back and round (s).
+const STALK_TIME := Vector2(0.8, 1.6)
+const STALK_NEAR := 8.0
+const RECOVER_TIME := Vector2(0.45, 0.85)
 ## What a bite on the farmer does (PlayerState.hurt: about five bites knock him out).
 const BITE_HURT := 20.0
 ## Round a vehicle the farmer has shut himself in: how far out (m) and how long (s)
@@ -80,6 +108,12 @@ const FIRE_KEEP := 6.0
 ## How far from other wolves it keeps (m), and its body's reach for walls.
 const SPACING := 2.2
 const BODY_REACH := 0.75
+## A vehicle: how far its body keeps off one (m from the vehicle's body: half its own
+## length, so turning it never swings into it), and how much wider it goes round one in
+## its way (Vehicle.way_round; its probes alone took a car for a low fence to leap, and
+## looked no further than the farmer standing beside it).
+const VEHICLE_KEEP := 0.66
+const VEHICLE_BERTH := 0.9
 ## A fence or wall up to this high (m) it leaps when it has to (hunting, fleeing,
 ## going for the farmer).
 const LEAP_HEIGHT := 1.3
@@ -95,10 +129,13 @@ const LAND_RADIUS := 115.0
 ## gauges for tests).
 static var anim_usec := 0
 static var think_usec := 0
-## Whose turn it is to dart in at each target (instance id -> wolf) and when the next
-## wolf may (game seconds, by the engine's clock).
+## The wolves pressing each target (instance id -> Array of wolves) and when the next
+## lunge at it may come (game seconds by _clock).
 static var _turns := {}
 static var _next_go := {}
+## Game seconds (time-scaled, paused with the wolves), advanced once a physics tick.
+static var _clock := 0.0
+static var _clock_tick := -1
 
 var goal: StringName = &"idle"
 var target: Variant = null
@@ -132,10 +169,16 @@ var _ring_dir := 1.0
 var _pause_t := 0.0
 var _pause_wait := 6.0
 var _sniff := false
-## Darting in at the farmer: going in, the lunge's clock (-1: none), backing off (s).
+## At the farmer: pressing him (one of PRESSERS), for how long, its lunges since; the
+## stalk left (s); the wind-up's clock (-1: none) and the lunge's (-1: none), the heading
+## a lunge at him keeps; backing off (s); the time to its next bite.
 var _going_in := false
 var _dart_t := 0.0
+var _press_bites := 0
+var _stalk_t := 0.0
+var _windup_t := -1.0
 var _lunge_t := -1.0
+var _lunge_yaw := 0.0
 var _back_off := 0.0
 var _bite_cd := 0.0
 ## Giving up on the farmer: seconds left (-1: not counting), and why.
@@ -153,8 +196,11 @@ var _died_at := -1.0
 var _laid_out := false
 ## Waypoints to go through first (into a coop by its door).
 var _path: Array[Vector3] = []
-## The housing whose building it may go into (a hunted animal's, door open).
+## The housing whose building it may go into (a hunted animal's or the farmer's, door
+## open).
 var _inside_ok: AnimalHousing = null
+## The building its waypoints lead into or out of (after the farmer).
+var _path_for: AnimalHousing = null
 
 
 func _init() -> void:
@@ -232,15 +278,20 @@ func set_goal(new_goal: StringName, new_target: Variant = null) -> void:
 		_pause_t = 0.0
 		_pause_wait = _rng.randf_range(3.0, 8.0)
 		_path.clear()
+		_path_for = null
 		_inside_ok = null
 		_release_turn()
 		_going_in = false
 		_back_off = 0.0
+		_windup_t = -1.0
+		_lunge_t = -1.0
 		_detour = INF
 		if new_goal == &"prowl":
 			_ring_r = _rng.randf_range(PROWL_RADIUS.x, PROWL_RADIUS.y)
 		elif new_goal == &"attack_player":
 			_ring_r = _rng.randf_range(RING_RADIUS.x, RING_RADIUS.y)
+			_stalk_t = _rng.randf_range(STALK_TIME.x, STALK_TIME.y)
+			_press_bites = 0
 	goal = new_goal
 	target = new_target
 	if goal == &"howl":
@@ -265,12 +316,33 @@ func take_hit(damage: float, from: Vector3, kind: StringName) -> void:
 		return
 	rig.flinch(side)
 	_sound("wolf_yelp", 0.0)
-	_stagger = away * (2.4 if kind == &"knife" else 1.6)
+	_stagger = away * (2.8 if kind == &"axe" else (2.4 if kind == &"knife" else 1.6))
 	_stagger_t = 0.3
 	_back_off = maxf(_back_off, _rng.randf_range(0.8, 1.4))
 	_release_turn()
 	_going_in = false
+	_windup_t = -1.0
 	_lunge_t = -1.0
+
+
+## A blow at it from `from` that missed: it jumps aside (no wound; a lunge goes on).
+func dodge(from: Vector3) -> void:
+	if dead or _lunge_t >= 0.0:
+		return
+	var away := _flat(global_position - from)
+	away = away.normalized() if away.length() > 0.01 else global_transform.basis.z
+	var side := away.cross(Vector3.UP) * (1.0 if _rng.randf() < 0.5 else -1.0)
+	_stagger = (side * 0.8 + away * 0.6).normalized() * 2.6
+	_stagger_t = 0.2
+
+
+## How hard it is to hit now (0 standing .. 1): on the move, and most of all lunging.
+func evasion() -> float:
+	if dead:
+		return 0.0
+	if _lunge_t >= 0.0:
+		return 1.0
+	return clampf((_speed - 1.5) / 5.0, 0.0, 1.0)
 
 
 func is_dead() -> bool:
@@ -388,6 +460,9 @@ func _physics_process(delta: float) -> void:
 	if dead or frozen():
 		return
 	var t0 := Time.get_ticks_usec()
+	if _clock_tick != Engine.get_physics_frames():
+		_clock_tick = Engine.get_physics_frames()
+		_clock += delta
 	_goal_t += delta
 	_bite_cd = maxf(_bite_cd - delta, 0.0)
 	_sound_t -= delta
@@ -464,7 +539,12 @@ func _mood() -> void:
 			if _give_up_why == &"" or _give_up_why == &"vehicle":
 				rig.snarl = 1.0
 				rig.tail_mood = 0.8
-				rig.crouch = 0.3 if not _going_in and _back_off <= 0.0 else 0.0
+				if _windup_t >= 0.0:
+					# Gathered for the spring: low on its haunches, ears flat.
+					rig.crouch = 1.0
+					rig.ears_back = 1.0
+				elif _back_off <= 0.0 and _speed < 4.0:
+					rig.crouch = 0.55 if _stalk_t > 0.0 else 0.3
 			else:
 				rig.nose_down = 0.6 if _sniff and _pause_t > 0.0 else 0.0
 			if _back_off > 0.0:
@@ -579,8 +659,10 @@ func _hunt(delta: float) -> void:
 		_start_lunge()
 
 
-## After the farmer: circles him snarling, darting in one at a time to bite; round his
-## vehicle or outside the building he's in until it gives up.
+## After the farmer: a short stalk, then bite after bite, PRESSERS of the pack at him at
+## once from their own sides while the rest circle close and take their turn; after him
+## into the coop or barn he is in by its open door; round his vehicle, or outside the
+## building it can't get into, until it gives up.
 func _attack_player(delta: float) -> void:
 	var p := _target_node()
 	if p == null or not is_instance_valid(p):
@@ -594,6 +676,7 @@ func _attack_player(delta: float) -> void:
 			_give_up_t = _rng.randf_range(VEHICLE_TIME.x, VEHICLE_TIME.y)
 			_release_turn()
 			_going_in = false
+			_windup_t = -1.0
 		_count_down(delta)
 		_prowl(delta, v.global_position, VEHICLE_RING + float(get_instance_id() % 3) * 0.6, TROT)
 		_growl_now_and_then(0.5)
@@ -605,7 +688,9 @@ func _attack_player(delta: float) -> void:
 			_give_up_t = _rng.randf_range(INDOORS_TIME.x, INDOORS_TIME.y)
 			_release_turn()
 			_going_in = false
+			_windup_t = -1.0
 			_ring_r = _rng.randf_range(8.0, 12.0)
+		_inside_ok = _housing_at(global_position)
 		_count_down(delta)
 		_prowl(delta, at, _ring_r, WALK * 1.3)
 		return
@@ -616,56 +701,173 @@ func _attack_player(delta: float) -> void:
 	_update_lunge(delta, p, BITE_REACH)
 	if _lunge_t >= 0.0:
 		return
+	# Into (or out of) the coop he is in, by its door.
+	if _through_door(delta, at):
+		return
 	var d := _flat(at - global_position).length()
+	var inside := _inside_ok != null and _inside_ok.is_in_building(global_position)
 	if _back_off > 0.0:
-		# Back out to the ring after a bite or a blow.
-		var away := _flat(global_position - at).normalized()
-		_steer_to(at + away * (_ring_r + 1.0), TROT, delta)
+		# A step back and round after a bite or a blow, to come in again from a new side.
+		var away := _flat(global_position - at)
+		away = away.normalized() if away.length() > 0.05 else global_transform.basis.z
+		var back := 1.6 if inside else 3.0
+		_steer_to(at + away.rotated(Vector3.UP, _ring_dir * 0.5) * back, TROT if inside else LOPE, delta)
+		return
+	if _windup_t >= 0.0:
+		_windup(delta, p, d)
+		return
+	if _stalk_t > 0.0:
+		# Coming at him low, growling, before the first spring.
+		if d < STALK_NEAR:
+			_stalk_t -= delta
+			if _sound_t <= 0.0:
+				_sound_t = _rng.randf_range(1.5, 3.0)
+				_sound("wolf_growl", -2.0)
+		if d > STALK_NEAR:
+			_steer_to(at, RUN if d > 14.0 else LOPE, delta, true)
+		elif d > WINDUP_RANGE + 0.6:
+			_steer_to(at, minf(WALK * 1.6, TROT), delta, true)
+		else:
+			_want_speed = 0.0
+			_turn_to(at, delta)
 		return
 	var key := p.get_instance_id()
-	var now := Time.get_ticks_msec() / 1000.0
-	if not _going_in and not _turns.has(key) and now >= float(_next_go.get(key, 0.0)) and _goal_t > 2.0 \
-			and not _fire_near(at) and _wants_turn(p):
-		_turns[key] = self
-		_going_in = true
-		_dart_t = 0.0
-		_sound("wolf_snarl", -2.0)
+	if not _going_in and _bite_cd <= 0.0 and not _fire_near(at) and _turns_at(key).size() < PRESSERS:
+		_take_turn(key)
 	if _going_in:
 		_dart_t += delta
-		if _dart_t > DART_TIME:
+		if _dart_t > PRESS_TIME and _turns_at(key).size() >= PRESSERS:
+			# Too long without getting at him: its place to one of the others.
 			_release_turn()
 			_going_in = false
-			_back_off = 0.8
+		else:
+			_press(delta, at, d, key, inside)
 			return
-		_steer_to(at, RUN if d > 3.0 else LOPE, delta, true)
-		if d < BITE_REACH + 1.0 and _bite_cd <= 0.0:
-			_start_lunge()
-		return
-	# Circling: its own place round him, facing him, edging round.
+	# Circling close: its own place round him, facing him, snarling, edging round.
 	var from := _flat(global_position - at)
 	var a := atan2(from.z, from.x) if from.length() > 0.1 else _rng.randf() * TAU
 	var aim := a + _ring_dir * 0.35
-	var spot := at + Vector3(cos(aim), 0.0, sin(aim)) * _ring_r
+	var r := minf(_ring_r, 1.6) if inside else _ring_r
+	var spot := at + Vector3(cos(aim), 0.0, sin(aim)) * r
 	if _forbidden(spot):
 		_ring_dir = -_ring_dir
-	if absf(d - _ring_r) > 0.8 or _goal_t < 1.5:
-		_steer_to(spot, LOPE if d > _ring_r + 6.0 else TROT, delta)
+	if absf(d - r) > 0.8:
+		_steer_to(spot, LOPE if d > r + 6.0 else TROT, delta, true)
 	else:
 		_steer_to(spot, WALK, delta)
 		if _speed < 1.3:
 			_turn_to(at, delta * 0.6)
-	_growl_now_and_then(0.35)
+	_growl_now_and_then(0.5)
 
 
-## Whether it takes the next go at the farmer: the one behind him first; anyone after a
-## while.
-func _wants_turn(p: Node3D) -> bool:
-	var look := -p.global_transform.basis.z
-	if p is Player:
-		look = -(p as Player).camera.global_transform.basis.z
-	var to := _flat(global_position - p.global_position).normalized()
-	var behind := _flat(look).normalized().dot(to) < 0.2
-	return behind or (_goal_t > 6.0 and _rng.randf() < 0.02)
+## Pressing him: in from its own side (away from the other wolf pressing him), and once
+## near enough and facing him, the wind-up for a lunge (when none came at him just now).
+func _press(delta: float, at: Vector3, d: float, key: int, inside: bool) -> void:
+	if d > WINDUP_RANGE:
+		var side := _press_side(at, key)
+		var spot := at + side * BITE_REACH if d > 3.5 else at
+		var speed := RUN if d > 6.0 else (LOPE if d > 3.5 else TROT)
+		_steer_to(spot, minf(speed, TROT) if inside else speed, delta, true)
+		return
+	_want_speed = 0.0
+	_turn_to(at, delta * 1.6)
+	if _facing(at, 0.5) and _clock >= float(_next_go.get(key, 0.0)):
+		_windup_t = 0.0
+		_next_go[key] = _clock + WINDUP_TIME + LUNGE_GAP
+		_sound("wolf_snarl", -1.0)
+
+
+## Where it comes at him from (a flat unit vector out from him): its own side, at least
+## a third of the way round from the other wolf pressing him.
+func _press_side(at: Vector3, key: int) -> Vector3:
+	var mine := _flat(global_position - at)
+	mine = mine.normalized() if mine.length() > 0.05 else global_transform.basis.z
+	for w: Wolf in _turns_at(key):
+		if w == self or not is_instance_valid(w):
+			continue
+		var o := _flat(w.global_position - at)
+		if o.length() < 0.05:
+			continue
+		o = o.normalized()
+		if mine.dot(o) > -0.4:
+			var s := signf(o.cross(mine).y)
+			mine = o.rotated(Vector3.UP, (s if s != 0.0 else _ring_dir) * deg_to_rad(125.0))
+	return mine
+
+
+## The wind-up: crouched and snarling, turned to him (its aim fixed for the last part),
+## then the spring; he got well away meanwhile: after him again.
+func _windup(delta: float, p: Node3D, d: float) -> void:
+	_windup_t += delta
+	_want_speed = 0.0
+	if _windup_t < WINDUP_TIME * WINDUP_AIM:
+		_turn_to(p.global_position, delta * 2.0)
+	if d > WINDUP_RANGE + 2.2:
+		_windup_t = -1.0
+		return
+	if _windup_t >= WINDUP_TIME:
+		_windup_t = -1.0
+		_lunge_yaw = _yaw
+		_start_lunge()
+
+
+## The wolves pressing the target with instance id `key` (the dead and gone left out).
+static func _turns_at(key: int) -> Array:
+	var out: Array = _turns.get(key, [])
+	out = out.filter(func(w: Variant) -> bool: return is_instance_valid(w) and not (w as Wolf).dead)
+	_turns[key] = out
+	return out
+
+
+func _take_turn(key: int) -> void:
+	var list := _turns_at(key)
+	if not list.has(self):
+		list.append(self)
+	_going_in = true
+	_dart_t = 0.0
+	_press_bites = 0
+
+
+## The building (a coop's or a barn's) it can go into after the farmer at `at`: his, door
+## open; and the way in by its door, or out by it when he has left it (true while it
+## follows those waypoints).
+func _through_door(delta: float, at: Vector3) -> bool:
+	var his := _housing_at(at)
+	var mine := _housing_at(global_position)
+	_inside_ok = his if his else mine
+	if mine and mine != his:
+		# Out by the door first.
+		if _path_for != mine or _path.is_empty():
+			_path_for = mine
+			_path.assign([mine.door_inside(), mine.door_outside()])
+	elif his and mine != his:
+		if _path_for != his or _path.is_empty():
+			_path_for = his
+			_path = his.way_round_to_door(global_position)
+			_path.append_array([his.door_outside(), his.door_inside()])
+	else:
+		_path.clear()
+		_path_for = null
+	while not _path.is_empty() and _flat(_path[0] - global_position).length() < 0.6:
+		_path.pop_front()
+	if _path.is_empty():
+		_path_for = null
+		return false
+	_windup_t = -1.0
+	_steer_to(_path[0], TROT if _path.size() < 3 else LOPE, delta)
+	_growl_now_and_then(0.4)
+	return true
+
+
+## The farm building (a coop, a barn) `p` is in, or null.
+static func _housing_at(p: Vector3) -> AnimalHousing:
+	var farm := Game.world.get("farm") as Farm if Game.world else null
+	if farm == null:
+		return null
+	for h in farm.housings():
+		if h.level >= 2 and h.is_in_building(p):
+			return h
+	return null
 
 
 func _count_down(delta: float) -> void:
@@ -752,30 +954,48 @@ func _start_lunge() -> void:
 
 
 ## The lunge: a spring at `n` (forward, fast); at its peak the jaws close: a bite if it
-## is in reach. Then it backs off (the farmer) or worries on (an animal).
+## is in reach. At the farmer it springs along the heading it gathered itself on, turning
+## only a little after him (he can step out of it), stops short of his feet and then
+## steps back and round; at an animal it follows it and worries on.
 func _update_lunge(delta: float, n: Node3D, reach: float) -> void:
 	if _lunge_t < 0.0:
 		return
 	_lunge_t += delta
 	var to := _flat(n.global_position - global_position)
+	var at_him := goal == &"attack_player"
 	if _lunge_t < 0.22:
-		_turn_to(n.global_position, delta * 2.0)
-		_want_speed = clampf(to.length() * 6.0, 0.0, 6.0)
-		_speed = maxf(_speed, _want_speed * 0.8)
+		if at_him:
+			var want := atan2(-to.x, -to.z)
+			_yaw += clampf(angle_difference(_yaw, want), -LUNGE_TURN * delta, LUNGE_TURN * delta)
+			var ahead := to.dot(Vector3(-sin(_yaw), 0.0, -cos(_yaw)))
+			_want_speed = clampf((ahead - LUNGE_STOP) * 9.0, 0.0, LUNGE_SPEED)
+			_speed = _want_speed
+		else:
+			_turn_to(n.global_position, delta * 2.0)
+			_want_speed = clampf(to.length() * 6.0, 0.0, 6.0)
+			_speed = maxf(_speed, _want_speed * 0.8)
 	else:
 		_want_speed = 0.0
+		if at_him:
+			_speed = move_toward(_speed, 0.0, 20.0 * delta)
 	if _lunge_t >= 0.22 and _lunge_t - delta < 0.22:
-		if to.length() < reach + 0.35:
+		var hit := to.length() < reach + 0.35
+		if at_him:
+			hit = hit and _facing(n.global_position, 0.75)
+		if hit:
 			_bite(n)
 		else:
 			_sound("wolf_bite", -12.0)
 	if _lunge_t >= WolfRig.LUNGE_TIME:
 		_lunge_t = -1.0
 		_bite_cd = BITE_COOLDOWN
-		if n is Player or goal == &"attack_player":
-			_release_turn()
-			_going_in = false
-			_back_off = _rng.randf_range(0.9, 1.4)
+		if at_him:
+			_press_bites += 1
+			if _press_bites >= PRESS_BITES:
+				# Its spell done: the place to one of the others (or back to it).
+				_release_turn()
+				_going_in = false
+			_back_off = _rng.randf_range(RECOVER_TIME.x, RECOVER_TIME.y)
 
 
 func _bite(n: Node3D) -> void:
@@ -788,9 +1008,8 @@ func _bite(n: Node3D) -> void:
 
 func _release_turn() -> void:
 	for key in _turns.keys():
-		if _turns[key] == self:
-			_turns.erase(key)
-			_next_go[key] = Time.get_ticks_msec() / 1000.0 + randf_range(PACK_PAUSE.x, PACK_PAUSE.y)
+		var list: Array = _turns[key]
+		list.erase(self)
 
 
 # --- Moving -----------------------------------------------------------------------------------
@@ -836,7 +1055,12 @@ func _steer_to(p: Vector3, speed: float, delta: float, leap := false) -> void:
 	if dist < 0.05:
 		_want_speed = 0.0
 		return
-	var dir := to / dist
+	# A vehicle in the way: round it by its corners (beside it, when `p` is in it).
+	var via := _flat(Vehicle.way_round(global_position, p, VEHICLE_KEEP, VEHICLE_BERTH) - global_position)
+	if via.length() < 0.05:
+		_want_speed = 0.0
+		return
+	var dir := via.normalized()
 	# Out of a forbidden place first (a fire's reach, a building it shouldn't be in).
 	var out := _escape()
 	if out != Vector3.ZERO:
@@ -846,7 +1070,8 @@ func _steer_to(p: Vector3, speed: float, delta: float, leap := false) -> void:
 	_probe_t -= delta
 	if _probe_t <= 0.0:
 		_probe_t = 0.1
-		var reach := clampf(_speed * 0.6 + BODY_REACH, BODY_REACH + 0.3, 4.5)
+		# (Not past where it is going: a wall behind the farmer in a coop is no obstacle.)
+		var reach := minf(clampf(_speed * 0.6 + BODY_REACH, BODY_REACH + 0.3, 4.5), maxf(via.length(), BODY_REACH + 0.3))
 		var clear := _clear(want, reach, leap)
 		if clear:
 			_detour = INF
@@ -909,6 +1134,11 @@ func _move(delta: float) -> void:
 			blocked = true
 		elif _leap_t < 0.0 and _wall_ahead(step):
 			blocked = true
+		if not blocked:
+			# Never into a vehicle (its body would shove it): along its side, or stopped.
+			var kept := Vehicle.keep_out(global_position, next, VEHICLE_KEEP)
+			blocked = _flat(kept - global_position).length() < step.length() * 0.05
+			next = Vector3(kept.x, next.y, kept.z)
 		if blocked:
 			_speed *= 0.3
 			_detour = INF
@@ -936,8 +1166,8 @@ func _wall_ahead(step: Vector3) -> bool:
 
 
 ## Whether heading `h` is open for `reach` m: nothing solid in the way at chest height
-## (or only a low fence it may leap: it starts the leap when the fence is close), and
-## not into a forbidden place.
+## (or only a low fence it may leap, never a vehicle: it starts the leap when the fence
+## is close), and not into a forbidden place.
 func _clear(h: float, reach: float, leap: bool) -> bool:
 	var dir := Vector3(-sin(h), 0.0, -cos(h))
 	var end := global_position + dir * reach
@@ -947,7 +1177,8 @@ func _clear(h: float, reach: float, leap: bool) -> bool:
 	var hit := _ray(a, a + dir * reach)
 	if hit.is_empty():
 		return true
-	if leap and _leap_t < 0.0:
+	# Never up onto (or over) a vehicle: as low as a fence, but its body would land on it.
+	if leap and _leap_t < 0.0 and not hit["collider"] is Vehicle:
 		var b := global_position + Vector3(0, LEAP_HEIGHT + 0.1, 0)
 		if _ray(b, b + dir * reach).is_empty():
 			var d := (hit["position"] as Vector3).distance_to(a)
@@ -1009,9 +1240,14 @@ static func in_building(p: Vector3, except: AnimalHousing = null) -> bool:
 	return false
 
 
-## The farmer is somewhere it can't get at him (in a building).
+## The farmer is somewhere it can't get at him: in the farmhouse or the warehouse, or in
+## a coop or barn whose door is shut (one whose door stands open it goes into after him).
 func _unreachable(p: Vector3) -> bool:
-	return Placer.indoors(p) or in_building(p, null)
+	var pt := Vector2(p.x, p.z)
+	if WorldLayout.house_rect(FarmState.house_level()).grow(0.3).has_point(pt) or WorldLayout.WAREHOUSE_RECT.grow(0.3).has_point(pt):
+		return true
+	var h := _housing_at(p)
+	return h != null and not h.can_pass()
 
 
 ## Out of a forbidden place it stands in: the way out (zero when it isn't in one).

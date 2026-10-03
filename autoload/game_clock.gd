@@ -7,9 +7,9 @@ enum Season { SPRING, SUMMER, AUTUMN, WINTER }
 const MINUTES_PER_DAY := 1440
 ## Every morning starts here: the player wakes at 06:00 (see sleep_to_next_morning).
 const DAY_START_MINUTE := 6 * 60
-## A new game's first day starts at noon: the player arrives at Grandpa's farm with the
+## A new game's first day starts at 13:00: the player arrives at Grandpa's farm with the
 ## afternoon ahead (Quests paces the first day's story to fit it into the daylight).
-const FIRST_DAY_START_MINUTE := 12 * 60
+const FIRST_DAY_START_MINUTE := 13 * 60
 const PASS_OUT_MINUTE := 26 * 60
 const DAYS_PER_SEASON := 10
 const TICK_MINUTES := 10.0
@@ -21,6 +21,8 @@ var minute := float(FIRST_DAY_START_MINUTE)
 var total_minutes := 0.0
 var running := true
 var time_scale := 1.0
+## The test shortcuts' fast-forward (TestKeys: F6 held), on top of time_scale.
+var fast_forward := 1.0
 
 var _tick_accum := 0.0
 
@@ -33,7 +35,7 @@ func _process(delta: float) -> void:
 	# Time stands still while a menu is open.
 	if not running or Game.is_ui_open():
 		return
-	advance(delta * Settings.game_minutes_per_second() * time_scale)
+	advance(delta * Settings.game_minutes_per_second() * time_scale * fast_forward)
 	if minute >= PASS_OUT_MINUTE:
 		running = false
 		Events.passed_out.emit()
@@ -123,6 +125,6 @@ func save_data() -> Dictionary:
 
 func load_data(data: Dictionary) -> void:
 	day = int(data.get("day", 1))
-	# A saved game keeps its time; a new one (no data) starts at noon on day 1.
+	# A saved game keeps its time; a new one (no data) starts at 13:00 on day 1.
 	minute = float(data.get("minute", FIRST_DAY_START_MINUTE if day == 1 else DAY_START_MINUTE))
 	total_minutes = float(data.get("total_minutes", 0.0))

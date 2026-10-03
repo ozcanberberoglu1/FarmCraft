@@ -257,7 +257,7 @@ func _ready() -> void:
 	_spawn_farm_truck()
 	# The townspeople (scripts/npc): at the counters, the pumps, the dealer's, on the pavements.
 	add_child(TownPeople.new())
-	# The fishing contest's pond, pier and board (FishingContest), and its crowd.
+	# The fishing contest's pond and board (FishingContest), and its crowd.
 	add_child(ContestVenue.new())
 	# Carnival nights (Carnival): the town's dressing, built only on those evenings.
 	add_child(TownCarnival.new())
@@ -1662,6 +1662,7 @@ func _refuel(pump: Vector3) -> void:
 	if Economy.spend(cost, "REPORT_FUEL"):
 		v.fuel += litres
 		Game.notify(tr("MSG_REFUELED") % [roundi(litres), UiTheme.money(cost)], UiTheme.GREEN)
+		SideStory.town_goals.note_refuel()
 
 
 static func _nearest_owned_vehicle(p: Vector3, max_dist: float) -> Vehicle:

@@ -79,7 +79,9 @@ const CHAIN := 8
 ## the walk round the land, each once: EXPLORE_SPOTS), "forage" (wild berries picked:
 ## ItemTable category "forage"), "purchased" (bought at a shop, by item category:
 ## "seed"), "sapling" (saplings planted); and the checks "nobush" (no wild bush in the
-## valley has berries on it now) and "nosapling" (no sapling in the bag).
+## valley has berries on it now), "nosapling" (no sapling in the bag), "bedsready" (three
+## tilled beds stand empty, or no untilled ground is left), "nofield" (no bed free to sow
+## and none left to till) and "nodry" (no sown bed is dry).
 ## "ever": the goal also counts what was done before it came up (see `tally`), so work
 ## done early is never asked for twice and the chain can't stall on it.
 ## "past": a check that shows the player is beyond this goal already (done out of order,
@@ -153,10 +155,13 @@ const TUTORIAL := [
 	{"chapter": 9, "id": "seeds", "kind": "purchased", "arg": "seed", "count": 3, "xp": 3, "ever": true, "at": "seeds"},
 	# The field grows: three more beds tilled, sown (any seed: the new ones or Grandpa's
 	# potatoes) and watered, counted from when each goal comes up; then a sapling from the
-	# felled trees planted (passed when the bag has none: not every tree drops one).
-	{"chapter": 10, "id": "till2", "kind": "action", "arg": "hoe", "count": 3, "xp": 3, "at": "plot:untilled"},
-	{"chapter": 10, "id": "sow", "kind": "action", "arg": "plant", "count": 3, "xp": 3, "at": "plot:empty"},
-	{"chapter": 10, "id": "water2", "kind": "action", "arg": "water", "count": 3, "xp": 3, "at": "plot:dry"},
+	# felled trees planted (passed when the bag has none: not every tree drops one). None of
+	# them can stall on a field that is already done: three tilled beds ready to sow (or no
+	# ground left to till) pass the tilling, a field with no bed free passes the sowing, and
+	# no dry bed passes the watering.
+	{"chapter": 10, "id": "till2", "kind": "action", "arg": "hoe", "count": 3, "xp": 3, "at": "plot:untilled", "past": "bedsready"},
+	{"chapter": 10, "id": "sow", "kind": "action", "arg": "plant", "count": 3, "xp": 3, "at": "plot:empty", "past": "nofield"},
+	{"chapter": 10, "id": "water2", "kind": "action", "arg": "water", "count": 3, "xp": 3, "at": "plot:dry", "past": "nodry"},
 	{"chapter": 10, "id": "sapling", "kind": "sapling", "arg": "", "count": 1, "xp": 4, "ever": true, "at": "sapling", "past": "nosapling"},
 	# The workshop before nightfall: the workbench kit from the construction board (bought,
 	# like everything), put up near the house with a minute's work like the coop, then a
@@ -176,7 +181,7 @@ const TUTORIAL := [
 	# wants water every day; counted from when the goal comes up).
 	{"chapter": 12, "id": "rooster_buy", "kind": "check", "arg": "owned:rooster", "count": 1, "xp": 4, "at": "rooster_market", "past": "animals:rooster"},
 	{"chapter": 12, "id": "rooster_in", "kind": "check", "arg": "animals:rooster", "count": 1, "xp": 8, "at": "hens"},
-	{"chapter": 12, "id": "water3", "kind": "action", "arg": "water", "count": 3, "xp": 3, "at": "plot:dry"},
+	{"chapter": 12, "id": "water3", "kind": "action", "arg": "water", "count": 3, "xp": 3, "at": "plot:dry", "past": "nodry"},
 	{"chapter": 12, "id": "fishing_wait", "kind": "check", "arg": "day:4", "count": 1},
 	# Day four, a day at the pond: rope from the town market for a rod (RecipeTable: 2) and
 	# bait on the same trip, the rod made at the bench, a fish from the pond by the house, a
@@ -317,16 +322,17 @@ const EXPLORE_SPOTS := {
 ## land and the berries still come in daylight); once the day's story is done the clock
 ## runs as usual, and the evening is the player's own. Multiplies GameClock.time_scale;
 ## the day length setting still applies.
-## The day starts at noon (GameClock.FIRST_DAY_START_MINUTE): at the default 15-minute
-## day (Settings: 80 game minutes a real minute) noon to 16:30 (270 game minutes at 9.6
-## a real minute) takes 28 real minutes and the linger to sundown (about 19:15: 165 at
-## 7.2) 23 more, about 51 in all, and to nightfall (20:00) 57: the whole first day's
-## story (about 25 minutes to the first egg, then the mending, the walk and the berries)
-## fits in daylight for a player who takes his time. The first egg (ChickenCoop
-## FIRST_EGG_MINUTES, game time) comes under three real minutes after the hens go in.
-const FIRST_DAY_PACE := 0.12
-const LINGER_HOUR := 16.5
-const LINGER_PACE := 0.09
+## The day starts at 13:00 (GameClock.FIRST_DAY_START_MINUTE): at the default 15-minute
+## day (Settings: 80 game minutes a real minute) 13:00 to 17:00 (240 game minutes at 11.2
+## a real minute) takes 21 real minutes and the linger to sundown (about 19:15: 135 at
+## 8.8) 15 more, about 37 in all, and to nightfall (20:00) 42: the first day's story
+## (about 25 minutes to the first egg, then the mending, the walk and the berries) fits
+## in daylight for a brisk player; what isn't done by night simply carries on the next
+## morning. The first egg (ChickenCoop FIRST_EGG_MINUTES, game time) comes about half a
+## real minute after the hens go in.
+const FIRST_DAY_PACE := 0.14
+const LINGER_HOUR := 17.0
+const LINGER_PACE := 0.11
 ## The second day's farm work (the market, the new beds, the workbench and the knife)
 ## gets a gentler clock too while its goals are up: 06:00 to sundown (about 795 game
 ## minutes at 32 a real minute) is about 25 real minutes instead of 10, so the knife is
@@ -341,7 +347,7 @@ const SECOND_DAY_UNTIL := 19.5
 const GRANDPA_BEDS := 3
 const GRANDPA_CROP := &"carrot"
 const BEDS_FLAG := "grandpa_beds"
-## The first day starts at noon, so wheat sown that afternoon or evening would not have
+## The first day starts at 13:00, so wheat sown that afternoon or evening would not have
 ## its 20 wet hours by the second morning, when the story asks for its harvest
 ## (harvest2). The first night makes up for the morning the day didn't have: a crop sown
 ## and watered on a new farm's first day wakes with at least this many hours of growth
@@ -863,6 +869,29 @@ func _check_progress(arg: String, count := 1) -> int:
 		"nosapling":
 			# Not every felled tree drops a sapling: none in the bag, none asked for.
 			return 1 if PlayerState.inventory.count_item(SaplingGrove.ITEM) == 0 else 0
+		"bedsready", "nofield", "nodry":
+			# The field as it stands: a farmer who tilled, sowed or watered everything
+			# already is never asked for more than there is.
+			var ready := 0
+			var untilled := 0
+			var dry := 0
+			for n in get_tree().get_nodes_in_group(&"farm_plots"):
+				var plot := n as FarmPlot
+				if plot == null:
+					continue
+				if plot.soil == FarmPlot.Soil.UNTILLED:
+					untilled += 1
+				elif plot.crop == &"":
+					ready += 1
+				elif not plot.withered and not plot.is_wet():
+					dry += 1
+			match arg:
+				"bedsready":
+					return 1 if ready >= 3 or untilled == 0 else 0
+				"nofield":
+					return 1 if ready == 0 and untilled == 0 else 0
+				_:
+					return 1 if dry == 0 else 0
 	return 0
 
 
@@ -1175,7 +1204,7 @@ func _paces_day() -> bool:
 			and int(current()["chapter"]) >= DAY_TWO_CHAPTER and step < index_of("rooster_wait")
 
 
-## The first day's time scale at `hour` (from 12.0, past 24 after midnight) while its
+## The first day's time scale at `hour` (from 13.0, past 24 after midnight) while its
 ## story runs (tests check it).
 func pace_for(hour: float) -> float:
 	return FIRST_DAY_PACE if hour < LINGER_HOUR else LINGER_PACE

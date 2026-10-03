@@ -16,6 +16,8 @@ func interact_title() -> String:
 
 
 func interact_prompt(_player: Node) -> String:
+	if home != null and home.at_event():
+		return tr("ACTION_GREET") if home.at_event_spot() else ""
 	if home == null or not home.can_talk():
 		return ""
 	if not SideStory.met:
@@ -30,7 +32,9 @@ func interact_prompt(_player: Node) -> String:
 
 
 func interact(_player: Node) -> void:
-	if home != null:
+	if home != null and home.at_event():
+		home.event_hello()
+	elif home != null:
 		home.talk()
 
 

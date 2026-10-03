@@ -37,7 +37,7 @@ const PELT_PATH := "res://art/models/animals/wolf/wolf_pelt.gltf"
 ## Strand tiles per UV unit (1.34 m of surface per UV unit; coarse hair, in locks).
 const WOLF_STRAND_SCALE := 15.0
 ## Longest fur (m): the model's UV2.y is the fur length over this.
-const FUR_MAX := 0.07
+const FUR_MAX := 0.09
 ## Shell fur layers by graphics preset (LOW..ULTRA).
 const WOLF_FUR_LAYERS: Array[int] = [0, 6, 10, 14]
 ## The gallop: when each paw is set down (share of the cycle: the hind pair, then the

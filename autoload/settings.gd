@@ -52,6 +52,10 @@ var wolf_raids := Raids.NORMAL
 ## Big cartoon eyes on the poultry and the fish, and a few silly moments (ComicFx); off,
 ## the animals look as real as they can.
 var comic_animals := true
+## Test shortcuts (TestKeys: F6 held runs time ×30, F7 skips to the next morning, F8 is
+## an hour on). On for now, while the game is being tested; to be turned off (and the
+## option taken out) before release.
+var test_shortcuts := true
 var show_fps := false
 var fullscreen := false
 var vsync := true
@@ -191,6 +195,7 @@ func reset_defaults() -> void:
 	day_length_minutes = 15.0
 	wolf_raids = Raids.NORMAL
 	comic_animals = true
+	test_shortcuts = true
 	show_fps = false
 	fullscreen = false
 	vsync = true
@@ -208,6 +213,7 @@ func load_settings() -> void:
 	day_length_minutes = cfg.get_value("general", "day_length_minutes", day_length_minutes)
 	wolf_raids = clampi(cfg.get_value("general", "wolf_raids", wolf_raids), Raids.OFF, Raids.NORMAL) as Raids
 	comic_animals = bool(cfg.get_value("general", "comic_animals", comic_animals))
+	test_shortcuts = bool(cfg.get_value("general", "test_shortcuts", test_shortcuts))
 	mouse_sensitivity = cfg.get_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	invert_y = cfg.get_value("controls", "invert_y", invert_y)
 	fov = cfg.get_value("video", "fov", fov)
@@ -231,6 +237,7 @@ func save_settings() -> void:
 	cfg.set_value("general", "day_length_minutes", day_length_minutes)
 	cfg.set_value("general", "wolf_raids", wolf_raids)
 	cfg.set_value("general", "comic_animals", comic_animals)
+	cfg.set_value("general", "test_shortcuts", test_shortcuts)
 	cfg.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	cfg.set_value("controls", "invert_y", invert_y)
 	cfg.set_value("video", "fov", fov)

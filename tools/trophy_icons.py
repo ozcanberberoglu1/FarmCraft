@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Makes the trophy fish icons (art/icons/items/fish_<species>_trophy.png): the species'
-own icon (tools/icon_studio.gd) with a gold rosette in its top right corner, so a giant
-reads apart from an ordinary catch in the bag. Run from the project root after the icon
+"""Makes the trophy fish icons (art/icons/items/fish_<species>_trophy.png, and the grilled
+giant's fish_<species>_trophy_cooked.png): the species' own icon, raw or grilled
+(tools/icon_studio.gd), with a gold rosette in its top right corner, so a giant reads
+apart from an ordinary catch in the bag. Run from the project root after the icon
 studio:  python3 tools/trophy_icons.py   (needs Pillow; reruns give the same files)
 """
 import math
@@ -51,16 +52,20 @@ def badge(size):
 
 
 def main():
+    # The giant raw (from the species' icon) and the giant grilled on a mangal (from the
+    # grilled fish's icon, fish_<species>_cooked): the same rosette on both.
     for sp in SPECIES:
-        src = os.path.join(DIR, f"fish_{sp}.png")
-        if not os.path.exists(src):
-            continue
-        icon = Image.open(src).convert("RGBA")
-        w = icon.width
-        b = badge(int(w * 0.36))
-        icon.alpha_composite(b, (w - b.width - int(w * 0.02), int(w * 0.02)))
-        icon.save(os.path.join(DIR, f"fish_{sp}_trophy.png"))
-        print("trophy icon", sp)
+        for src_name, out_name in ((f"fish_{sp}.png", f"fish_{sp}_trophy.png"),
+                (f"fish_{sp}_cooked.png", f"fish_{sp}_trophy_cooked.png")):
+            src = os.path.join(DIR, src_name)
+            if not os.path.exists(src):
+                continue
+            icon = Image.open(src).convert("RGBA")
+            w = icon.width
+            b = badge(int(w * 0.36))
+            icon.alpha_composite(b, (w - b.width - int(w * 0.02), int(w * 0.02)))
+            icon.save(os.path.join(DIR, out_name))
+            print("trophy icon", out_name)
 
 
 if __name__ == "__main__":

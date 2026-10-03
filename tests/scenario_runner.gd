@@ -103,6 +103,8 @@ func run(scenario: String) -> void:
 			await _carnival()
 		"contest":
 			await _contest()
+		"contest17":
+			await _contest17()
 		"coop2":
 			await _coop2()
 		"game9":
@@ -115,18 +117,28 @@ func run(scenario: String) -> void:
 			await _scenario_turntable()
 		"noon_start":
 			await _scenario_noon_start()
+		"debugkeys":
+			await _scenario_debugkeys()
+		"fields17":
+			await _scenario_fields17()
 		"dog":
 			await _scenario_dog()
 		"wolf":
 			await _scenario_wolf()
 		"wolf_eyes":
 			await _scenario_wolf_eyes()
+		"wolf17":
+			await _scenario_wolf17()
+		"carwolves":
+			await _scenario_carwolves()
 		"zeynep":
 			await _scenario_zeynep()
 		"zeynep_edges":
 			await _scenario_zeynep_edges()
 		"social13":
 			await _scenario_social13()
+		"town16":
+			await _scenario_town16()
 		"market_crates":
 			await _market_crates()
 		"combat":
@@ -149,6 +161,10 @@ func run(scenario: String) -> void:
 			await _scenario_pet()
 		"comic":
 			await _comic()
+		"handle":
+			await _scenario_handle()
+		"fix16":
+			await _scenario_fix16()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -3810,7 +3826,7 @@ func _tutorial14() -> void:
 			and Quests.index_of("barn") > Quests.index_of("eat"),
 			"the mending and the walk are the first day's (each with a dot); the new beds have their chapter; the barn and its sheep wait for after the pond")
 	# The first day's pace: the whole story in daylight at the default 15-minute day (80
-	# game minutes a real minute), about 50 real minutes from noon to sundown (19:15).
+	# game minutes a real minute), about 37 real minutes from 13:00 to sundown (19:15).
 	var per_second := (20.0 * 60.0) / (15.0 * 60.0)
 	var to_sundown := 0.0
 	var to_night := 0.0
@@ -3822,7 +3838,7 @@ func _tutorial14() -> void:
 			to_sundown += real
 		m += 1.0
 	var egg_real := ChickenCoop.FIRST_EGG_MINUTES / (per_second * Quests.FIRST_DAY_PACE) / 60.0
-	_check(to_sundown > 46.0 and to_sundown < 56.0 and to_night > 52.0 and to_night < 62.0 and egg_real < 4.0
+	_check(to_sundown > 34.0 and to_sundown < 40.5 and to_night > 39.0 and to_night < 46.0 and egg_real < 1.0
 			and Quests.LINGER_PACE < Quests.FIRST_DAY_PACE,
 			"the first day's story has %.1f real minutes to sundown, %.1f to nightfall; the first egg comes %.1f minutes after the hens go in"
 			% [to_sundown, to_night, egg_real])
@@ -3882,9 +3898,9 @@ func _tutorial14() -> void:
 	for a in Animals.animals.duplicate():
 		Animals.sell(a)
 	var lone := Animals.release(&"chicken", h)
-	await _raid_evening(1, 18.5)
+	await _raid_evening(1, 17.5)
 	var first_night := WolfRaids.tonight.is_empty()
-	await _raid_evening(2, 18.5)
+	await _raid_evening(2, 17.5)
 	_check(first_night and WolfRaids.raid_pending() and bool(WolfRaids.tonight.get("lesson", false)),
 			"no wolves on the first night; the lesson's raid is set for the second")
 	WolfRaids.tonight = {}
@@ -9414,7 +9430,7 @@ func _hens_sheet(n: Animal, h: AnimalHousing, file: String, acts: Array[Callable
 
 # --- Carnival nights -------------------------------------------------------------------------
 
-## Carnival nights (Carnival, TownCarnival): day 5 and then every seventh day; Beyza's
+## Carnival nights (Carnival, TownCarnival): day 5 and then every fourth day; Beyza's
 ## letter on those mornings only (never twice, remembered through a save, dropped once
 ## the night is over); double pay for what is sold in town from 20:00 to 23:00 only (the
 ## counter's price, a quote, a sale, an order; the shipping bin's courier pays as ever)
@@ -9445,13 +9461,13 @@ func _carnival() -> void:
 	for d in range(1, 30):
 		if Carnival.is_carnival_day(d):
 			days.append(d)
-	_check(days == [5, 12, 19, 26] and Carnival.next_carnival_day(6) == 12, "a carnival on day 5, then every week (%s)" % str(days))
+	_check(days == [5, 9, 13, 17, 21, 25, 29] and Carnival.next_carnival_day(6) == 9, "a carnival on day 5, then every fourth day (%s)" % str(days))
 
-	# --- Beyza's letter: on the mornings of day 5 and day 12 only ---
+	# --- Beyza's letter: on the mornings of day 5 and day 9 only ---
 	Carnival.letter_day = 0
 	var letters: Array[int] = []
 	var shown := false
-	for d: int in [4, 5, 6, 11, 12, 13]:
+	for d: int in [4, 5, 6, 8, 9, 10]:
 		GameClock.day = d
 		GameClock.minute = float(GameClock.DAY_START_MINUTE)
 		Events.day_started.emit(d)
@@ -9467,12 +9483,12 @@ func _carnival() -> void:
 			shown = screen.visible and all.contains("20:00") and all.contains("23:00") and all.contains(tr("LETTER_CARNIVAL_SIGN"))
 			screen.hide_screen()
 			await _idle_frames(1)
-	_check(letters == [5, 12], "Beyza's letter comes on the carnival mornings only (%s)" % str(letters))
+	_check(letters == [5, 9], "Beyza's letter comes on the carnival mornings only (%s)" % str(letters))
 	_check(shown, "the letter tells the hours (20:00 to 23:00) and is signed by Beyza")
 	_check(not Game.is_ui_open(), "the letter closes")
 	# Read once: a load of the same morning brings it no more; an unread one waits, but
 	# not past the night.
-	GameClock.day = 12
+	GameClock.day = 9
 	GameClock.minute = 8.0 * 60.0
 	Carnival.load_data(Carnival.save_data())
 	var after_read := Carnival.letter_pending
@@ -9483,21 +9499,21 @@ func _carnival() -> void:
 	var too_late := Carnival.letter_pending
 	_check(not after_read and unread and not too_late,
 			"no letter twice after a load (read %s, unread %s, after 23:00 %s)" % [after_read, unread, too_late])
-	Carnival.load_data({"letter_day": 12})
+	Carnival.load_data({"letter_day": 9})
 	# In play it opens by itself once the player is free: not over another window.
 	Carnival.testing_letter = true
 	var cues: Array[String] = []
 	var on_cue := func(text: String, _c: Color) -> void: cues.append(text)
 	Events.notification_requested.connect(on_cue)
-	GameClock.day = 19
+	GameClock.day = 13
 	GameClock.minute = float(GameClock.DAY_START_MINUTE)
 	Game.hud.pause_menu.show_screen()
-	Events.day_started.emit(19)
+	Events.day_started.emit(13)
 	await _seconds(3.0)
 	var waited: bool = not Game.hud.letter_screen.visible and Carnival.letter_pending
 	Game.hud.pause_menu.hide_screen()
 	await _seconds(3.2)
-	var opened: bool = Game.hud.letter_screen.visible and not Carnival.letter_pending and Carnival.letter_day == 19
+	var opened: bool = Game.hud.letter_screen.visible and not Carnival.letter_pending and Carnival.letter_day == 13
 	_check(waited and opened and cues.has(tr("MSG_CARNIVAL_LETTER")),
 			"the letter waits while a window is open, then a note and the letter come (waited %s, opened %s)" % [waited, opened])
 	Events.notification_requested.disconnect(on_cue)
@@ -9506,7 +9522,7 @@ func _carnival() -> void:
 	await _idle_frames(2)
 
 	# --- Double pay in town, 20:00 to 23:00 of a carnival day only ---
-	GameClock.day = 12
+	GameClock.day = 9
 	GameClock.set_time_of_day(19.9)
 	var price_before := Economy.sell_price(&"pumpkin")
 	var quote_before := Economy.quote(&"pumpkin", 5)
@@ -9552,7 +9568,7 @@ func _carnival() -> void:
 	player.look_at_yaw_pitch(0.0, 0.0)
 	await _idle_frames(3)
 	var other_night := dressing.root == null
-	GameClock.day = 12
+	GameClock.day = 9
 	GameClock.set_time_of_day(19.2)
 	await _idle_frames(3)
 	var before_dusk := dressing.root == null
@@ -9617,15 +9633,15 @@ func _carnival() -> void:
 	_check(notes.has(tr("MSG_CARNIVAL_OVER")), "at 23:00 a note says the carnival is over")
 	_check(dressing.root == null or not is_instance_valid(dressing.root), "after 23:00 the dressing is taken down")
 	Events.notification_requested.disconnect(on_note)
-	GameClock.day = 19
+	GameClock.day = 13
 	GameClock.set_time_of_day(21.0)
 	await _idle_frames(3)
-	_check(dressing.root != null, "the next carnival (day 19) dresses the town again")
+	_check(dressing.root != null, "the next carnival (day 13) dresses the town again")
 	for i in 30:
 		if not dressing.building:
 			break
 		await _idle_frames(1)
-	GameClock.day = 20
+	GameClock.day = 14
 	await _idle_frames(3)
 	_check(dressing.root == null, "and the night after is ordinary again")
 
@@ -12142,10 +12158,172 @@ func _turntable_shot(path: String) -> void:
 	Game.player.camera.make_current()
 
 
-# --- A new game at noon ---------------------------------------------------------------------
+# --- Test shortcuts (F6, F7, F8) ------------------------------------------------------------
 
-## A new game starts on day 1 at 12:00 and every later morning at 06:00 (a saved game keeps
-## its time); the first afternoon is paced so the whole first day's story (about 50 real
+## The test shortcuts (TestKeys, Settings.test_shortcuts): F6 held runs the clock 30 times
+## faster with a small pill on screen, and back to normal on release; F8 an hour on (a
+## note); F7 to the next morning through the sleep (the night's signals, 06:00 of the next
+## day, the morning report); nothing over a window, nothing at all with the option off;
+## the option in the settings' developer group and the keys in its list. With
+## -- --shotdir=/abs/dir it saves the pill and the two settings pages.
+func _scenario_debugkeys() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var kept_option := Settings.test_shortcuts
+	var kept_running := GameClock.running
+	var dir := String(DebugTools.args.get("shotdir", ""))
+	Settings.test_shortcuts = true
+	GameClock.time_scale = 1.0
+	GameClock.set_time_of_day(10.0)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var keys := DebugTools.get_children().filter(func(c: Node) -> bool: return c is TestKeys)
+	_check(keys.size() == 1 and InputMap.has_action(&"test_time_fast") and InputMap.has_action(&"test_skip_night")
+			and InputMap.has_action(&"test_plus_hour"), "the test shortcuts are there (F6, F7, F8)")
+	if keys.is_empty():
+		return
+	var tk := keys[0] as TestKeys
+
+	# --- F6 held: the clock ×30 and a pill on screen; released: as before ---
+	GameClock.running = true
+	var m0 := GameClock.minute
+	await _seconds(0.6)
+	var normal := GameClock.minute - m0
+	var down := InputEventKey.new()
+	down.physical_keycode = KEY_F6
+	down.pressed = true
+	Input.parse_input_event(down)
+	await _idle_frames(2)
+	var m1 := GameClock.minute
+	await _seconds(0.6)
+	var fast := GameClock.minute - m1
+	var pill := tk._hint.visible and tk._hint_text.text == tr("TEST_FAST_HINT") % 30
+	_check(GameClock.fast_forward == TestKeys.FAST and pill and fast > normal * 15.0,
+			"F6 held: time runs 30 times faster (%.1f game minutes in 0.6 s, %.1f without) with '%s' on screen"
+			% [fast, normal, tk._hint_text.text])
+	if dir != "":
+		await _raid_snap(dir, "debugkeys_hint")
+	var up := down.duplicate() as InputEventKey
+	up.pressed = false
+	Input.parse_input_event(up)
+	await _idle_frames(2)
+	var m2 := GameClock.minute
+	await _seconds(0.6)
+	var after := GameClock.minute - m2
+	_check(GameClock.fast_forward == 1.0 and not tk._hint.visible and after < normal * 2.0 + 0.5,
+			"released: back to the usual pace (%.1f game minutes in 0.6 s), the pill gone" % after)
+	GameClock.running = false
+
+	# --- F8: an hour on ---
+	GameClock.set_time_of_day(10.0)
+	notes.clear()
+	await _press_key(KEY_F8)
+	_check(absf(GameClock.minute - 11.0 * 60.0) < 0.5 and notes.has(tr("MSG_TEST_HOUR") % "11:00"),
+			"F8: the clock an hour on (%s) and a note says so" % GameClock.time_string())
+
+	# --- Over a window nothing happens ---
+	Game.hud.pause_menu.show_screen()
+	await _idle_frames(2)
+	await _press_key(KEY_F8)
+	await _press_key(KEY_F7)
+	_check(GameClock.get_hour() == 11 and not Game.hud.sleep_screen.is_busy(), "over the pause menu F7 and F8 do nothing")
+	Game.hud.pause_menu.hide_screen()
+	await _idle_frames(3)
+
+	# --- F7: to the next morning the way sleeping goes ---
+	GameClock.set_time_of_day(20.0)
+	var day := GameClock.day
+	var heard := {"ending": 0, "skipped": 0.0, "started": 0}
+	var on_ending := func() -> void: heard["ending"] = int(heard["ending"]) + 1
+	var on_skipped := func(mins: float) -> void: heard["skipped"] = mins
+	var on_started := func(d: int) -> void: heard["started"] = d
+	Events.day_ending.connect(on_ending)
+	Events.time_skipped.connect(on_skipped)
+	Events.day_started.connect(on_started)
+	await _press_key(KEY_F7)
+	for i in 80:
+		await _seconds(0.1)
+		if Game.hud.sleep_screen._waiting:
+			break
+	var waiting: bool = Game.hud.sleep_screen._waiting
+	_check(waiting and GameClock.day == day + 1 and GameClock.time_string() == "06:00" and int(heard["ending"]) == 1
+			and absf(float(heard["skipped"]) - 10.0 * 60.0) < 1.0 and int(heard["started"]) == day + 1,
+			"F7 at 20:00: the night slept through (day %d, %s, %.0f minutes skipped) and the morning report up"
+			% [GameClock.day, GameClock.time_string(), float(heard["skipped"])])
+	Game.hud.sleep_screen.confirm()
+	await _seconds(1.2)
+	Events.day_ending.disconnect(on_ending)
+	Events.time_skipped.disconnect(on_skipped)
+	Events.day_started.disconnect(on_started)
+	_check(not Game.hud.sleep_screen.is_busy() and not Game.is_ui_open(), "and the morning goes on as after any night")
+
+	# --- Off in the settings: none of them ---
+	Settings.test_shortcuts = false
+	GameClock.running = true
+	GameClock.set_time_of_day(10.0)
+	Input.parse_input_event(down)
+	await _idle_frames(3)
+	var off_fast := GameClock.fast_forward
+	var off_pill := tk._hint.visible
+	Input.parse_input_event(up)
+	GameClock.running = false
+	await _idle_frames(2)
+	GameClock.set_time_of_day(10.0)
+	day = GameClock.day
+	await _press_key(KEY_F8)
+	await _press_key(KEY_F7)
+	await _seconds(0.3)
+	_check(off_fast == 1.0 and not off_pill and GameClock.get_hour() == 10 and GameClock.day == day
+			and not Game.hud.sleep_screen.is_busy(), "with the option off F6, F7 and F8 do nothing")
+	Settings.test_shortcuts = true
+
+	# --- The settings: the option in the developer group, the keys in the list ---
+	Game.hud.open_settings()
+	Game.hud.settings_screen._select("general")
+	await _idle_frames(3)
+	var general := _debugkeys_texts(Game.hud.settings_screen)
+	_check(general.has(UiTheme.caps(tr("SETTINGS_DEVELOPER"))) and general.has(UiTheme.caps(tr("SETTINGS_TEST_KEYS"))),
+			"the general page has a developer group with the test shortcuts' switch")
+	if dir != "":
+		await _raid_shot(dir, "debugkeys_settings")
+	Game.hud.settings_screen._select("controls")
+	await _idle_frames(3)
+	var controls := _debugkeys_texts(Game.hud.settings_screen)
+	_check(controls.has(UiTheme.caps(tr("BIND_TEST_FAST"))) and controls.has(UiTheme.caps(tr("BIND_TEST_MORNING")))
+			and controls.has(UiTheme.caps(tr("BIND_TEST_HOUR"))) and controls.has("F6") and controls.has("F7") and controls.has("F8"),
+			"the key list shows F6, F7 and F8 while they are on")
+	if dir != "":
+		await _raid_shot(dir, "debugkeys_controls")
+	Settings.test_shortcuts = false
+	Game.hud.settings_screen._select("controls")
+	await _idle_frames(3)
+	_check(not _debugkeys_texts(Game.hud.settings_screen).has("F6"), "and not while they are off")
+	Game.hud.settings_screen.hide_screen()
+	await _idle_frames(2)
+
+	Events.notification_requested.disconnect(on_note)
+	Settings.test_shortcuts = kept_option
+	GameClock.running = kept_running
+	GameClock.fast_forward = 1.0
+
+
+## Every label's text under `root` (the settings' rows, the key caps).
+func _debugkeys_texts(root: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	for l in root.find_children("*", "Label", true, false):
+		if (l as Label).is_visible_in_tree() and not l.is_queued_for_deletion():
+			out.append((l as Label).text)
+	return out
+
+
+# --- A new game at 13:00 --------------------------------------------------------------------
+
+## A new game starts on day 1 at 13:00 and every later morning at 06:00 (a saved game keeps
+## its time); the first afternoon is paced so the first day's story (about 37 real
 ## minutes) fits in daylight; wheat sown and watered at 19:00 on a new farm's first day is ripe on the second
 ## morning and reaped (the story's harvest2), while a bed left dry is not, and a slower
 ## crop is only a day along.
@@ -12160,8 +12338,8 @@ func _scenario_noon_start() -> void:
 	player = Game.player
 	# (A new game sets the clock running: a few minutes may have gone by while it loaded.)
 	var minute := GameClock.minute - float(GameClock.FIRST_DAY_START_MINUTE)
-	_check(GameClock.day == 1 and GameClock.FIRST_DAY_START_MINUTE == 12 * 60 and minute >= 0.0 and minute < 5.0,
-			"a new game starts on day 1 at noon (%s)" % GameClock.time_string())
+	_check(GameClock.day == 1 and GameClock.FIRST_DAY_START_MINUTE == 13 * 60 and minute >= 0.0 and minute < 5.0,
+			"a new game starts on day 1 at 13:00 (%s)" % GameClock.time_string())
 	# Real minutes of the first afternoon at the default 15-minute day, with the story's pace.
 	var per_second := (20.0 * 60.0) / (15.0 * 60.0)
 	var to_sundown := 0.0
@@ -12173,8 +12351,8 @@ func _scenario_noon_start() -> void:
 		if m < 19.25 * 60.0:
 			to_sundown += real
 		m += 1.0
-	_check(to_sundown > 46.0 and to_sundown < 56.0 and to_night > 52.0 and to_night < 62.0,
-			"from noon the story has %.1f real minutes to sundown and %.1f to nightfall" % [to_sundown, to_night])
+	_check(to_sundown > 34.0 and to_sundown < 40.5 and to_night > 39.0 and to_night < 46.0,
+			"from 13:00 the story has %.1f real minutes to sundown and %.1f to nightfall" % [to_sundown, to_night])
 	# A saved game keeps its time; a saved day without one starts at 06:00.
 	var clock := GameClock.save_data()
 	GameClock.load_data({"day": 1, "minute": 7.5 * 60.0, "total_minutes": 90.0})
@@ -12182,7 +12360,7 @@ func _scenario_noon_start() -> void:
 	GameClock.load_data({"day": 4})
 	var morning := GameClock.time_string()
 	GameClock.load_data(clock)
-	_check(kept == "07:30" and morning == "06:00" and GameClock.get_hour() == 12,
+	_check(kept == "07:30" and morning == "06:00" and GameClock.get_hour() == 13,
 			"a loaded game keeps its saved time (%s, a later day without one %s)" % [kept, morning])
 	# A new farm as in play (automated runs skip the first day's farm unless asked), and no
 	# rain in the night to water the dry bed.
@@ -12490,8 +12668,8 @@ func _vet_shot(dir: String, shot_name: String) -> void:
 
 # --- Wolf raids (WolfRaids, hurt and killed animals, Remains, the vet, the side goals) ---------
 
-## Wolf raids: no wolves on the first night; the second night's lesson (howls far off from 20:30, the
-## note at 21:00, the side goal to shut the coop door once the hens are in with its dot on
+## Wolf raids: no wolves on the first night; the second night's lesson (howls far off from 19:30, the
+## note at 20:00, the side goal to shut the coop door once the hens are in with its dot on
 ## the door, then home to sleep with the dot on the bed); slept through with every hen
 ## shut in: a safe morning; with the door open: exactly one loss and the morning's line;
 ## a later raid played out awake with real wolves (Wolf): out of the forest,
@@ -12501,7 +12679,7 @@ func _vet_shot(dir: String, shot_name: String) -> void:
 ## and dead after a day with her remains; remains cleared with E and gone by themselves
 ## unseen; the vet's lesson; an animal at the clinic off the farm, safe from dying and
 ## back healed (also across a sleep and a save/load in the middle of a raid); raids
-## switched off; later raids random, never two nights running (seeded); the main chain's
+## switched off; later raids about every other night, never two running (seeded); the main chain's
 ## goal untouched.
 func _scenario_raids() -> void:
 	await _close_screens()
@@ -12540,19 +12718,19 @@ func _scenario_raids() -> void:
 
 	# --- The nights before the lesson's (the first): no wolves ---
 	for d: int in range(1, WolfRaids.LESSON_NIGHT):
-		await _raid_evening(d, 18.5)
+		await _raid_evening(d, 17.5)
 		GameClock.advance(150.0)
 		await _idle_frames(3)
 		_check(WolfRaids.tonight.is_empty() and WolfRaids.wolves().is_empty(), "night %d: no wolves" % d)
 
 	# --- The lesson's night (the second, after the story's knife) ---
-	await _raid_evening(WolfRaids.LESSON_NIGHT, 18.5)
+	await _raid_evening(WolfRaids.LESSON_NIGHT, 17.5)
 	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight["lesson"]), "the lesson's night (%d): its raid is set for tonight" % WolfRaids.LESSON_NIGHT)
 	var howls := WolfRaids.howls_asked
 	GameClock.advance(125.0)
 	await _idle_frames(3)
 	_check(String(WolfRaids.tonight["phase"]) == "warned" and WolfRaids.howls_asked > howls and WolfRaids.last_howl >= 0.6,
-			"from 20:30 intense howling far off (%d calls)" % (WolfRaids.howls_asked - howls))
+"from 19:30 intense howling far off (%d calls)" % (WolfRaids.howls_asked - howls))
 	var g := WolfRaids._wolf_goal
 	_check(not SideStory.goals.has(g), "no goal yet before the note")
 	notes.clear()
@@ -12560,7 +12738,7 @@ func _scenario_raids() -> void:
 		n.teleport_home(false)
 	GameClock.advance(30.0)
 	await _seconds(0.4)
-	_check(notes.has(tr("MSG_WOLVES_LESSON")), "at 21:00 a note about the wolves")
+	_check(notes.has(tr("MSG_WOLVES_LESSON")), "at 20:00 a note about the wolves")
 	var door_marker := coop.get_node_or_null("Waypoint_%s" % ChickenCoop.ANCHOR_DOOR)
 	_check(SideStory.goals.has(g) and g.text == tr("SIDE_GOAL_WOLF_DOOR") and door_marker != null and g.guide_point() == door_marker
 			and g.guide_label() == tr("HOUSING_COOP"), "the side goal: shut the coop door once the hens are in (the dot on the door)")
@@ -12597,7 +12775,7 @@ func _scenario_raids() -> void:
 	# --- The lesson again with the door left open: one loss ---
 	WolfRaids.load_data({"seed": 77})
 	h.door.set_open(true)
-	await _raid_evening(WolfRaids.LESSON_NIGHT, 18.5)
+	await _raid_evening(WolfRaids.LESSON_NIGHT, 17.5)
 	GameClock.advance(155.0)
 	for n: Animal in h.animals:
 		n.teleport_home(true)
@@ -12637,7 +12815,7 @@ func _scenario_raids() -> void:
 	Animals._add(&"sheep", true, "", Game.world.farm.barn)
 	var day := GameClock.day
 	WolfRaids.load_data({"lesson": true, "last": day - 6, "seed": 5})
-	await _raid_evening(day, 19.0)
+	await _raid_evening(day, 18.0)
 	WolfRaids.tonight = {}
 	WolfRaids._set_tonight(false)
 	WolfRaids.rolled_day = day
@@ -12655,7 +12833,7 @@ func _scenario_raids() -> void:
 	for w in pack:
 		far = far and Vector2(w.global_position.x, w.global_position.z).length() > WolfRaids.EDGE - 5.0
 	_check(String(WolfRaids.tonight["phase"]) == "active" and pack.size() >= 3 and pack.size() <= 4 and pack[0] is Wolf and far,
-			"at 23:00 a pack of %d comes out of the forest's edge" % pack.size())
+			"at 22:00 a pack of %d comes out of the forest's edge" % pack.size())
 	Engine.time_scale = 3.0
 	for i in 900:
 		await _seconds(0.1)
@@ -12853,20 +13031,20 @@ func _scenario_raids() -> void:
 	Settings.wolf_raids = Settings.Raids.OFF
 	Settings.changed.emit()
 	WolfRaids.load_data({"lesson": true, "last": GameClock.day - 10})
-	await _raid_evening(GameClock.day, 18.5)
+	await _raid_evening(GameClock.day, 17.5)
 	GameClock.advance(300.0)
 	await _idle_frames(3)
 	_check(WolfRaids.tonight.is_empty() and WolfRaids.wolves().is_empty(), "off in the settings: no raid, however long since the last")
 	Settings.wolf_raids = Settings.Raids.NORMAL
 	Settings.changed.emit()
 
-	# --- Later raids: random, never two nights running ---
+	# --- Later raids: about every other night, never two nights running ---
 	var days := _raid_schedule(4242, 300)
 	var gaps := []
 	for i in range(1, days.size()):
 		gaps.append(days[i] - days[i - 1])
-	_check(days.size() >= 40 and days.size() <= 80 and gaps.min() >= 4 and gaps.max() <= 7,
-			"normal: %d raids in 300 nights, %d to %d nights apart (never two in a row)" % [days.size(), gaps.min(), gaps.max()])
+	_check(days.size() >= 100 and days.size() <= 150 and gaps.min() == 2 and gaps.max() == 3,
+			"normal: %d raids in 300 nights, %d to %d nights apart (about every other night, never two in a row)" % [days.size(), gaps.min(), gaps.max()])
 	_check(_raid_schedule(4242, 300) == days, "the same seed, the same nights")
 	Settings.wolf_raids = Settings.Raids.RARE
 	days = _raid_schedule(99, 300)
@@ -12878,9 +13056,10 @@ func _scenario_raids() -> void:
 	var spring := 5
 	var full := 9
 	var winter := GameClock.DAYS_PER_SEASON * 3 + 4
-	_check(WolfRaids.full_moon(full) and not WolfRaids.full_moon(spring) and WolfRaids.raid_chance(5, full) > WolfRaids.raid_chance(5, spring)
-			and WolfRaids.raid_chance(5, winter) > WolfRaids.raid_chance(5, spring) and WolfRaids.raid_chance(3, full) == 0.0,
-			"likelier at full moon and in winter (%.2f / %.2f / %.2f)" % [WolfRaids.raid_chance(5, spring), WolfRaids.raid_chance(5, full), WolfRaids.raid_chance(5, winter)])
+	_check(WolfRaids.full_moon(full) and not WolfRaids.full_moon(spring) and WolfRaids.raid_chance(2, full) > WolfRaids.raid_chance(2, spring)
+			and WolfRaids.raid_chance(2, winter) > WolfRaids.raid_chance(2, spring) and WolfRaids.raid_chance(1, full) == 0.0
+			and WolfRaids.raid_chance(3, spring) == 1.0,
+			"the second night likelier at full moon and in winter (%.2f / %.2f / %.2f), the third certain" % [WolfRaids.raid_chance(2, spring), WolfRaids.raid_chance(2, full), WolfRaids.raid_chance(2, winter)])
 
 	# --- A save in the middle of a raid, with a hen at the clinic ---
 	h.door.set_open(true)
@@ -12962,7 +13141,7 @@ func _raid_evening(day: int, hour: float) -> void:
 ## A later raid tonight on `day`, its pack out (and, with `arrived`, gathered at the farm).
 func _raid_awake_pack(day: int, arrived: bool) -> void:
 	WolfRaids.load_data({"lesson": true, "last": day - 6, "seed": day})
-	await _raid_evening(day, 19.0)
+	await _raid_evening(day, 18.0)
 	WolfRaids.tonight = {}
 	WolfRaids._set_tonight(false)
 	WolfRaids.rolled_day = day
@@ -13020,8 +13199,8 @@ func _raid_limp_sample(n: Animal) -> Array:
 	return [lo, hi, top]
 
 
-## The nights a raid comes on over `nights` from a seed (raids every few nights after the
-## lesson), as the evening's roll decides them.
+## The nights a raid comes on over `nights` from a seed (raids about every other night
+## after the lesson), as the evening's roll decides them.
 func _raid_schedule(seed_value: int, nights: int) -> Array:
 	WolfRaids.load_data({"lesson": true, "last": 10, "seed": seed_value})
 	var kept_day := GameClock.day
@@ -13029,7 +13208,7 @@ func _raid_schedule(seed_value: int, nights: int) -> Array:
 	var out := []
 	for day in range(11, 11 + nights):
 		GameClock.day = day
-		GameClock.minute = 18.5 * 60.0
+		GameClock.minute = 17.5 * 60.0
 		WolfRaids._schedule()
 		if WolfRaids.raid_pending():
 			out.append(day)
@@ -13074,8 +13253,8 @@ func _scenario_raids_shots() -> void:
 	var sheep := Animals._add(&"sheep", true, "", Game.world.farm.barn)
 	await _seconds(1.0)
 
-	# The lesson night, 21:10: the note came, the hens are still out; the farmer by the coop.
-	await _raid_evening(WolfRaids.LESSON_NIGHT, 18.5)
+	# The lesson night, 20:10: the note came, the hens are still out; the farmer by the coop.
+	await _raid_evening(WolfRaids.LESSON_NIGHT, 17.5)
 	GameClock.advance(160.0)
 	for n: Animal in h.animals:
 		n.teleport_home(false)
@@ -13312,18 +13491,18 @@ func _scenario_wolves_e2e() -> void:
 	await _frames(3)
 
 
-## The lesson night (the second): howls from 20:30, the note and the side goal from 21:00 (seen at 21:30 by the
+## The lesson night (the second): howls from 19:30, the note and the side goal from 20:00 (seen at 20:30 by the
 ## coop); the hens go in by themselves, E at the coop door shuts it (the goal moves on to the bed), E on the bed
 ## sleeps; the morning says they came but the animals were safe.
 func _e2e_lesson(player: Player, coop: ChickenCoop, notes: Array[String], shots: String) -> void:
 	var h := coop.housing
-	await _raid_evening(WolfRaids.LESSON_NIGHT, 18.5)
+	await _raid_evening(WolfRaids.LESSON_NIGHT, 17.5)
 	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight["lesson"]), "the lesson's night (%d): the wolves' lesson is set for tonight" % WolfRaids.LESSON_NIGHT)
 	var howls := WolfRaids.howls_asked
 	GameClock.advance(125.0)
 	await _seconds(0.6)
-	_check(WolfRaids.howls_asked > howls and WolfRaids.last_howl >= 0.6, "20:35: intense howling far off (%d calls, %.2f)" % [WolfRaids.howls_asked - howls, WolfRaids.last_howl])
-	# 21:30 (the farmer was busy: the note comes as soon as he looks up), by the coop.
+	_check(WolfRaids.howls_asked > howls and WolfRaids.last_howl >= 0.6, "19:35: intense howling far off (%d calls, %.2f)" % [WolfRaids.howls_asked - howls, WolfRaids.last_howl])
+	# 20:30 (the farmer was busy: the note comes as soon as he looks up), by the coop.
 	notes.clear()
 	await _e2e_at_coop_door(player, coop)
 	GameClock.advance(55.0)
@@ -13398,7 +13577,7 @@ func _e2e_fight(player: Player, coop: ChickenCoop, notes: Array[String], shots: 
 	await _seconds(0.4)
 	var pack := WolfRaids.wolves()
 	_check(String(WolfRaids.tonight.get("phase", "")) == "active" and pack.size() >= 3 and pack[0] is Wolf,
-			"23:00: a pack of %d real wolves comes out of the forest" % pack.size())
+			"22:00: a pack of %d real wolves comes out of the forest" % pack.size())
 	# He's in the farmhouse: they go for the hens in the open yard, never for him.
 	Engine.time_scale = 3.0
 	var went_for_him := false
@@ -13463,7 +13642,8 @@ func _e2e_fight(player: Player, coop: ChickenCoop, notes: Array[String], shots: 
 		if w != wolf:
 			(w as Wolf).set_goal(&"prowl", player.global_position)
 	await _seconds(0.5)
-	# The knife: one stab, it flinches.
+	# The knife: one stab, it flinches (every blow lands here: the misses are wolf17's).
+	player.combat.misses = false
 	PlayerState.select(7)
 	await _e2e_face_wolf(player, wolf, 1.25, out)
 	await _press_mouse_use()
@@ -13511,6 +13691,7 @@ func _e2e_fight(player: Player, coop: ChickenCoop, notes: Array[String], shots: 
 	for w in tree.get_nodes_in_group(Wolf.GROUP):
 		if w != wolf and is_instance_valid(w) and (w as Wolf).goal == &"flee":
 			fleeing += 1
+	player.combat.misses = true
 	_check(wolf.dead and String(WolfRaids.tonight["phase"]) == "done" and fleeing == pack.size() - 1 and notes.has(tr("MSG_WOLF_PACK_FLED")),
 			"a second stab kills it: the rest of the pack flees (%d)" % fleeing)
 	await _seconds(2.0)
@@ -13834,7 +14015,7 @@ func _e2e_pickup(player: Player, coop: ChickenCoop, notes: Array[String], shots:
 
 ## Tonight is a raid night (a later one), set at 19:00 on today's evening.
 func _e2e_raid_tonight() -> void:
-	GameClock.set_time_of_day(19.0)
+	GameClock.set_time_of_day(18.0)
 	await _idle_frames(2)
 	WolfRaids.tonight = {}
 	WolfRaids.rolled_day = GameClock.day
@@ -14004,6 +14185,8 @@ func _scenario_combat() -> void:
 		await _frames(5)
 	seed(4242)
 	player.combat._rng.seed = 77
+	# Every stab lands here (the misses are checked in wolf17).
+	player.combat.misses = false
 	var inv := PlayerState.inventory
 	var shots := String(DebugTools.args.get("combat-shots", ""))
 	if shots != "":
@@ -14220,6 +14403,7 @@ func _scenario_combat() -> void:
 	Events.notification_requested.disconnect(on_note)
 	inv.set_stack(7, kept_slot)
 	PlayerState.select(0)
+	player.combat.misses = true
 	GameClock.day = kept_day
 	GameClock.minute = kept_minute
 
@@ -14619,7 +14803,8 @@ func _scenario_wolf() -> void:
 		for j in range(i + 1, pack.size()):
 			closest = minf(closest, _flat_dist(pack[i].global_position, pack[j].global_position))
 	_check(closest > 1.2, "a pack sent to one point doesn't pile up (%.1f m apart at least)" % closest)
-	# The farmer: circled, one at a time darting in to bite.
+	# The farmer: two of them pressing him at once, the rest circling close (his wounds healed
+	# as it goes: no faint).
 	player.global_position = spot + Vector3(0, 0.1, 0)
 	await _frames(5)
 	var on_player := []
@@ -14633,25 +14818,27 @@ func _scenario_wolf() -> void:
 	var ticks0 := Engine.get_physics_frames()
 	var frames1 := Engine.get_process_frames()
 	t = 0.0
-	while t < 22.0 and (on_player.size() < 2 or t < 10.0):
+	while t < 12.0:
+		PlayerState._heal_all()
 		await _frames(6)
 		t += 0.1
 		var going := 0
 		for w in pack:
-			if w._going_in or w._lunge_t >= 0.0:
+			if w._going_in:
 				going += 1
-			elif t > 6.0 and w._back_off <= 0.0:
+			elif t > 6.0 and w._back_off <= 0.0 and w._lunge_t < 0.0:
 				ring["n"] += 1
 				var d := _flat_dist(w.global_position, player.global_position)
-				if d > 2.4 and d < 7.5:
+				if d > 1.5 and d < 6.0:
 					ring["ok"] += 1
 		max_in = maxi(max_in, going)
+	PlayerState._heal_all()
 	var think := float(Wolf.think_usec - think0) / maxf(Engine.get_physics_frames() - ticks0, 1)
 	var pose := float(Wolf.anim_usec - anim0) / maxf(Engine.get_process_frames() - frames1, 1)
 	_check(think + pose < 2000.0, "four wolves at the farmer cost %.2f ms a tick thinking, %.2f ms a frame posing" % [think / 1000.0, pose / 1000.0])
-	_check(on_player.size() >= 2, "attack_player: they bite the farmer: bit(player) (%d bites in %.1f s)" % [on_player.size(), t])
-	_check(max_in <= 1, "one wolf at a time darts in (at most %d at once)" % max_in)
-	_check(ring["n"] > 0 and float(ring["ok"]) / ring["n"] > 0.8, "the rest circle him 2.5-7.5 m out (%d/%d)" % [ring["ok"], ring["n"]])
+	_check(on_player.size() >= 5, "attack_player: they keep biting the farmer: bit(player) (%d bites in %.1f s)" % [on_player.size(), t])
+	_check(max_in == Wolf.PRESSERS, "%d of them press him at once (at most %d)" % [Wolf.PRESSERS, max_in])
+	_check(ring["n"] > 0 and float(ring["ok"]) / ring["n"] > 0.8, "the rest circle him close, 1.5-6 m out (%d/%d)" % [ring["ok"], ring["n"]])
 	# In the pickup: they circle it, then give up and run off.
 	var town := tree.get_first_node_in_group(&"town") as Town
 	var truck := town.farm_truck if town else null
@@ -14825,8 +15012,661 @@ func _scenario_wolf() -> void:
 	GameClock.running = true
 
 
+## Round 17: wolves that mean it, the axe as a weapon. A lone wolf stalks a moment, then
+## bites at a steady rate, crouched and snarling in a wind-up before each lunge (stepped
+## back from, the lunge misses); a pack has two at him at once from their own sides and
+## every wolf takes its turn; one follows him into a coop by its open door and bites him
+## in there (the door shut, it can't get in); the farmhouse is still safe. The axe: LMB at
+## a wolf in reach swings and lands for 40 (a flinch; three kill it), wearing the axe by
+## one a hit, and misses now and then (seeded; no wound, no wear), more often at a wolf
+## on the move; the knife misses a little less often; chopping a tree is as it was. His
+## wounds are healed as it goes (no faint). -- --wolf17-shots=/abs/dir saves a wolf
+## lunging at him in the coop.
+func _scenario_wolf17() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(11.0)
+	GameClock.running = false
+	var shots := String(DebugTools.args.get("wolf17-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var inv := PlayerState.inventory
+	var kept_slot := inv.get_stack(7)
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	var spot := _wolf_spot()
+	_check(spot.is_finite(), "an open meadow on the farm to test in (%s)" % str(spot))
+	if not spot.is_finite():
+		return
+	PlayerState._heal_all()
+	inv.set_stack(7, null)
+	PlayerState.select(7)
+	await _w17_lone(player, spot)
+	await _w17_pack(player, spot)
+	await _w17_coop(player, shots)
+	await _w17_house(player)
+	await _w17_axe(player, spot)
+	await _w17_misses(player, spot)
+	await _w17_chop(player)
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	PlayerState._heal_all()
+	inv.set_stack(7, kept_slot)
+	PlayerState.select(0)
+	GameClock.running = true
+	Weather.forced = -1
+	await _frames(3)
+
+
+## A lone wolf from 14 m: a short stalk, then bite after bite at a steady rate, a crouched,
+## snarling wind-up before each lunge, never hanging back; then the farmer steps back
+## out of a wind-up: the lunge misses him.
+func _w17_lone(player: Player, spot: Vector3) -> void:
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(5)
+	var wolf := Wolf.spawn(Game.world, spot + Vector3(-14.0, 0, 4.0))
+	await _frames(5)
+	var clock: Array[float] = [0.0]
+	var bites: Array[float] = []
+	wolf.bit.connect(func(n: Node3D) -> void:
+		if n == player:
+			bites.append(clock[0]))
+	wolf.set_goal(&"attack_player", player)
+	var windups := 0
+	var lunges := 0
+	var unwound := 0
+	var crouched := 0.0
+	var was_winding := false
+	var was_lunging := false
+	var away := 0
+	var after := 0
+	while clock[0] < 20.0:
+		PlayerState._heal_all()
+		_look_at(player, wolf.global_position + Vector3(0, 0.45, 0))
+		await _frames(3)
+		clock[0] += 0.05
+		var winding := wolf._windup_t >= 0.0
+		var lunging := wolf._lunge_t >= 0.0
+		if winding:
+			crouched = maxf(crouched, wolf.rig.crouch)
+		if winding and not was_winding:
+			windups += 1
+		if lunging and not was_lunging:
+			lunges += 1
+			if not was_winding:
+				unwound += 1
+		was_winding = winding
+		was_lunging = lunging
+		if not bites.is_empty():
+			after += 1
+			if _flat_dist(wolf.global_position, player.global_position) > 4.5:
+				away += 1
+	PlayerState._heal_all()
+	var gaps: Array[float] = []
+	for i in range(1, bites.size()):
+		gaps.append(bites[i] - bites[i - 1])
+	var widest := 0.0
+	for g in gaps:
+		widest = maxf(widest, g)
+	var first := bites[0] if not bites.is_empty() else INF
+	var mean := (bites[-1] - bites[0]) / float(gaps.size()) if gaps.size() > 0 else INF
+	_check(first < 8.0, "a lone wolf from 14 m: a short stalk, the first bite %.1f s in" % first)
+	_check(bites.size() >= 6 and mean > 1.4 and mean < 3.0 and widest < 4.5,
+			"then bite after bite: %d in 20 s, one every %.1f s (the longest gap %.1f s)" % [bites.size(), mean, widest])
+	_check(lunges >= bites.size() and windups >= lunges and unwound == 0 and crouched > 0.99,
+			"a crouched, snarling wind-up before every lunge (%d wind-ups, %d lunges)" % [windups, lunges])
+	_check(after > 0 and float(away) / after < 0.12, "it keeps at him: no hanging back (%.0f%% of the time over 4.5 m off)" % (100.0 * away / maxf(after, 1)))
+	# Stepping back out of a wind-up: the lunge misses.
+	var dodged := false
+	var tries := 0
+	while tries < 3 and not dodged:
+		tries += 1
+		var t := 0.0
+		while t < 6.0 and not (wolf._windup_t >= 0.0 and wolf._windup_t < 0.1):
+			PlayerState._heal_all()
+			_look_at(player, wolf.global_position + Vector3(0, 0.45, 0))
+			await _frames(1)
+			t += 1.0 / 60.0
+		var n := bites.size()
+		Input.action_press("move_back")
+		var sprang := false
+		t = 0.0
+		while t < 1.0:
+			await _frames(1)
+			t += 1.0 / 60.0
+			sprang = sprang or wolf._lunge_t >= 0.0
+		Input.action_release("move_back")
+		dodged = sprang and bites.size() == n
+		await _seconds(0.3)
+	_check(dodged, "stepping back out of its wind-up, the lunge misses him (try %d)" % tries)
+	PlayerState._heal_all()
+	wolf.queue_free()
+	await _frames(3)
+
+
+## A pack of four: two press him at once from their own sides, the others close round
+## taking their turns; bites at a steady rate from more than one of them.
+func _w17_pack(player: Player, spot: Vector3) -> void:
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(5)
+	var pack: Array[Wolf] = []
+	for i in 4:
+		var a := TAU * float(i) / 4.0 + 0.4
+		pack.append(Wolf.spawn(Game.world, spot + Vector3(cos(a), 0.0, sin(a)) * 12.0))
+	await _frames(5)
+	var clock: Array[float] = [0.0]
+	var bites: Array = []
+	for w in pack:
+		w.bit.connect(func(n: Node3D) -> void:
+			if n == player:
+				bites.append(w))
+		w.set_goal(&"attack_player", player)
+	var lunged := {}
+	var max_press := 0
+	var apart := 0.0
+	while clock[0] < 18.0:
+		PlayerState._heal_all()
+		_look_at(player, pack[int(clock[0] / 1.5) % pack.size()].global_position + Vector3(0, 0.45, 0))
+		await _frames(3)
+		clock[0] += 0.05
+		var pressing: Array[Wolf] = []
+		for w in pack:
+			if w._lunge_t >= 0.0:
+				lunged[w] = true
+			if w._going_in:
+				pressing.append(w)
+		max_press = maxi(max_press, pressing.size())
+		if pressing.size() == 2:
+			var a0 := pressing[0].global_position - player.global_position
+			var a1 := pressing[1].global_position - player.global_position
+			a0.y = 0.0
+			a1.y = 0.0
+			if a0.length() < 3.0 and a1.length() < 3.0:
+				apart = maxf(apart, rad_to_deg(a0.angle_to(a1)))
+	PlayerState._heal_all()
+	var biters := {}
+	for w: Variant in bites:
+		biters[w] = true
+	_check(bites.size() >= 8, "a pack of four: bite after bite (%d in 18 s)" % bites.size())
+	_check(biters.size() >= 2, "from more than one of them (%d wolves bit him)" % biters.size())
+	_check(max_press == Wolf.PRESSERS, "two of them press him at once, never more (%d)" % max_press)
+	_check(apart > 90.0, "from their own sides (%.0f° apart round him at most)" % apart)
+	_check(lunged.size() == pack.size(), "every wolf of the pack takes its turn at him (%d of %d lunged)" % [lunged.size(), pack.size()])
+	for w in pack:
+		w.queue_free()
+	await _frames(3)
+
+
+## The coop: he goes into its little house by the open door; a wolf after him follows him
+## in by the door and bites him in there. The door shut, it can't get at him.
+func _w17_coop(player: Player, shots: String) -> void:
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built(), "a coop on the farm")
+	if coop == null:
+		return
+	var h := coop.housing
+	h.door.set_open(true, false)
+	await _frames(3)
+	var c := h.building.get_center()
+	var inside := h.world_at(c.x, c.y)
+	inside.y = h.floor_height()
+	player.global_position = inside + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(10)
+	_check(h.is_in_building(player.global_position), "he stands in the coop's house")
+	var wolf := Wolf.spawn(Game.world, h.door_outside() + h.front() * 10.0)
+	var bit_in := []
+	wolf.bit.connect(func(n: Node3D) -> void:
+		if n == player and h.is_in_building(wolf.global_position):
+			bit_in.append(n))
+	wolf.set_goal(&"attack_player", player)
+	var t := 0.0
+	var came_in := false
+	var snapped := false
+	while t < 30.0 and bit_in.size() < 2:
+		PlayerState._heal_all()
+		_look_at(player, wolf.global_position + Vector3(0, 0.45, 0))
+		await _frames(3)
+		t += 0.05
+		came_in = came_in or h.is_in_building(wolf.global_position)
+		if shots != "" and not snapped and wolf._lunge_t >= 0.0 and h.is_in_building(wolf.global_position):
+			# The spring just begun, time all but stopped for the picture.
+			Engine.time_scale = 0.03
+			_e2e_hud(player, false)
+			_look_at(player, wolf.global_position + Vector3(0, 0.15, 0))
+			await _cb_shot(shots, "wolf17_coop_lunge")
+			_e2e_hud(player, true)
+			Engine.time_scale = 1.0
+			snapped = true
+	PlayerState._heal_all()
+	_check(came_in and bit_in.size() >= 2,
+			"a wolf after him follows him into the coop by its door and bites him in there (%d bites in %.1f s)" % [bit_in.size(), t])
+	# The door shut (the wolf put back outside): it can't get in at him.
+	wolf.set_goal(&"idle")
+	wolf.global_position = h.door_outside() + h.front() * 6.0
+	wolf.reset_physics_interpolation()
+	h.door.set_open(false, false)
+	await _frames(3)
+	var bites := wolf.bites
+	wolf.set_goal(&"attack_player", player)
+	var into := 0.0
+	t = 0.0
+	while t < 8.0:
+		PlayerState._heal_all()
+		await _frames(6)
+		t += 0.1
+		if h.is_in_building(wolf.global_position):
+			into += 0.1
+	_check(into < 0.01 and wolf.bites == bites and wolf._give_up_why == &"indoors",
+			"the door shut, it stays outside (%.1f s in), no bite, waiting to give up" % into)
+	wolf.queue_free()
+	FarmState.remove_placed(coop.entry)
+	coop.queue_free()
+	await _frames(3)
+
+
+## In the farmhouse he is still safe: a wolf after him stays outside and never bites.
+func _w17_house(player: Player) -> void:
+	var house := WorldLayout.house_rect(FarmState.house_level())
+	var inside := Vector3(house.get_center().x, 0, house.get_center().y)
+	player.global_position = Vector3(inside.x, FarmHouse.FLOOR_Y + 0.15, inside.z)
+	player.velocity = Vector3.ZERO
+	await _frames(10)
+	var wolf := Wolf.spawn(Game.world, inside + Vector3(-6.0, 0, 14.0))
+	wolf.set_goal(&"attack_player", player)
+	var into := 0.0
+	var t := 0.0
+	while t < 10.0:
+		await _frames(6)
+		t += 0.1
+		if Wolf.in_building(wolf.global_position):
+			into += 0.1
+	_check(into < 0.01 and wolf.bites == 0 and wolf._give_up_why == &"indoors",
+			"in the farmhouse he is still safe: it prowls outside (%.1f s in a building, %d bites)" % [into, wolf.bites])
+	wolf.queue_free()
+	await _frames(3)
+
+
+## The axe at a wolf in reach: LMB swings and the blow lands for 40 (a flinch), the axe worn
+## by one a hit; three hits kill it; seeded, now and then a swing misses (no wound, no wear).
+func _w17_axe(player: Player, spot: Vector3) -> void:
+	var inv := PlayerState.inventory
+	inv.set_stack(7, ItemStack.create(&"axe"))
+	PlayerState.select(7)
+	var c := player.combat
+	c._rng.seed = 1717
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	await _frames(5)
+	var dur := inv.get_stack(7).durability
+	var missed := c.missed
+	var swings := 0
+	var hits_each: Array[int] = []
+	var wounds: Array[float] = []
+	var flinched := true
+	var swung := true
+	for k in 2:
+		var wolf := Wolf.spawn(Game.world, spot + Vector3(0, 0, -1.7))
+		await _frames(5)
+		while not wolf.dead and swings < 30:
+			var at := player.global_position + Vector3(0, 0, -1.7)
+			wolf.global_position = Vector3(at.x, TerrainData.height(at.x, at.z), at.z)
+			wolf._stagger = Vector3.ZERO
+			wolf._speed = 0.0
+			wolf.reset_physics_interpolation()
+			await _frames(2)
+			_look_at(player, wolf.hit_center())
+			await _frames(2)
+			var hp := wolf.health
+			var hits := wolf.hits
+			await _press_mouse_use()
+			swings += 1
+			swung = swung and c.swinging() and player.held.busy()
+			var waited := 0
+			while wolf.hits == hits and c.swinging() and waited < 60:
+				await _frames(1)
+				waited += 1
+			if wolf.hits > hits:
+				wounds.append(hp - wolf.health if not wolf.dead else Combat.AXE_DAMAGE)
+				flinched = flinched and (wolf.dead or wolf.rig._flinch > 0.0)
+			while c.swinging():
+				await _frames(1)
+		hits_each.append(wolf.hits)
+		wolf.queue_free()
+		await _frames(3)
+	var worn := dur - inv.get_stack(7).durability
+	var misses := c.missed - missed
+	_check(swung, "LMB with the axe at a wolf in reach: the axe's swing")
+	_check(hits_each == [3, 3] and wounds.all(func(w: float) -> bool: return is_equal_approx(w, Combat.AXE_DAMAGE)) and flinched,
+			"each blow lands for %d and it flinches; three kill it (%s hits)" % [int(Combat.AXE_DAMAGE), str(hits_each)])
+	_check(misses >= 1 and swings == 6 + misses, "now and then a swing misses (%d of %d)" % [misses, swings])
+	_check(worn == 6, "the axe wears by one a hit, not on a miss (%d)" % worn)
+
+
+## The odds over many blows (seeded): the axe misses about a quarter at a wolf standing,
+## more at one on the move; the knife about one in seven; and real stabs miss now and then.
+func _w17_misses(player: Player, spot: Vector3) -> void:
+	var c := player.combat
+	c._rng.seed = 99
+	var wolf := Wolf.spawn(Game.world, spot + Vector3(6.0, 0, 0))
+	await _frames(5)
+	var rate := func(chance: float) -> float:
+		var m := 0
+		for i in 800:
+			if c._misses(wolf, chance):
+				m += 1
+		return float(m) / 800.0
+	var axe_still: float = rate.call(Combat.AXE_MISS)
+	var knife_still: float = rate.call(Combat.KNIFE_MISS)
+	wolf._speed = Wolf.RUN
+	var axe_moving: float = rate.call(Combat.AXE_MISS)
+	wolf._speed = 0.0
+	_check(axe_still > 0.2 and axe_still < 0.3 and axe_moving > axe_still + 0.08,
+			"the axe misses %.0f%% of its blows at a wolf standing, %.0f%% at one running" % [axe_still * 100.0, axe_moving * 100.0])
+	_check(knife_still > 0.1 and knife_still < 0.2, "the knife misses %.0f%% (less often)" % (knife_still * 100.0))
+	wolf.queue_free()
+	await _frames(3)
+	# Real stabs at a wolf in reach: most land, now and then one misses.
+	var inv := PlayerState.inventory
+	inv.set_stack(7, ItemStack.create(&"knife"))
+	PlayerState.select(7)
+	c._rng.seed = 7
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	var kw := Wolf.spawn(Game.world, spot + Vector3(0, 0, -1.4))
+	await _frames(5)
+	var missed := c.missed
+	var stabs := 0
+	for i in 14:
+		var at := player.global_position + Vector3(0, 0, -1.4)
+		kw.global_position = Vector3(at.x, TerrainData.height(at.x, at.z), at.z)
+		kw.health = Wolf.MAX_HEALTH
+		kw._stagger = Vector3.ZERO
+		kw._speed = 0.0
+		kw.reset_physics_interpolation()
+		await _frames(2)
+		_look_at(player, kw.hit_center())
+		await _frames(2)
+		await _press_mouse_use()
+		stabs += 1
+		await _seconds(0.5)
+	var knife_misses := c.missed - missed
+	_check(knife_misses >= 1 and kw.hits == stabs - knife_misses and kw.hits >= 9,
+			"LMB with the knife: %d of %d stabs land, %d miss" % [kw.hits, stabs, knife_misses])
+	kw.queue_free()
+	await _frames(3)
+
+
+## Chopping with the axe is as it was (no wolf about): one blow on a tree.
+func _w17_chop(player: Player) -> void:
+	PlayerState.inventory.set_stack(7, ItemStack.create(&"axe"))
+	PlayerState.select(7)
+	var tree_node: ChoppableTree = null
+	var best := INF
+	for t: ChoppableTree in tree.get_nodes_in_group(&"trees"):
+		var d := t.global_position.distance_to(player.global_position)
+		if not t.felled and t.hp >= 3 and d < best:
+			best = d
+			tree_node = t
+	if tree_node == null:
+		_check(false, "a tree to chop")
+		return
+	player.global_position = tree_node.global_position + Vector3(0, 0.2, 1.6)
+	player.velocity = Vector3.ZERO
+	_look_at(player, tree_node.global_position + Vector3(0, 1.2, 0))
+	await _frames(6)
+	var hp := tree_node.hp
+	var dur := PlayerState.inventory.get_stack(7).durability
+	Input.action_press("use")
+	await _frames(60)
+	Input.action_release("use")
+	await _frames(30)
+	_check(tree_node.hp == hp - 1 and not player.combat.swinging(),
+			"the axe still chops a tree (hp %d -> %d, durability %d -> %d)" % [hp, tree_node.hp, dur, PlayerState.inventory.get_stack(7).durability])
+
+
 ## Somewhere open and level on the farm, out of the yard's things: no collider in a
 ## 16 m square, gentle slopes, off the tracks and the pond.
+## Wolves and a parked car (Grandpa's pickup was walked into by the pack and pushed into
+## the ground): the farmer in the pickup with the pack round it, then out on one side with
+## the pack on the other: they come round the car to him, none ever in its body, and the
+## car stays where it stood; a wolf told to walk straight through it is stopped at its
+## side; a car sunk 0.6 m into the ground is lifted back onto its wheels when it settles,
+## when he gets in and when it is loaded so (one standing as it should is left as it is).
+## -- --carwolves-shots=/abs/dir saves the pack coming round the car to him.
+func _scenario_carwolves() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(11.0)
+	GameClock.running = false
+	var shots := String(DebugTools.args.get("carwolves-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	var spot := _wolf_spot()
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck if town else null
+	_check(spot.is_finite() and truck != null, "an open meadow and Grandpa's pickup to test with (%s)" % str(spot))
+	if not spot.is_finite() or truck == null:
+		return
+	var home := truck.global_transform
+	truck.unlock()
+	truck.teleport(Transform3D(Basis(Vector3.UP, 0.3), spot + Vector3(0, 0.6, 0)))
+	var settled := await _cw_settle(truck)
+	var rest := truck.global_transform
+	var sunk := truck._burial(rest)
+	print("carwolves: the pickup's body box bottom %.2f m over the ground (a wolf's probes run at 0.45 m, its body 0.32-0.72 m)" % (truck._box_y.x + rest.origin.y - TerrainData.height(rest.origin.x, rest.origin.z)))
+	_check(settled and absf(sunk.x) < 0.08 and sunk.y < 0.12, "the pickup settles on its wheels on the meadow (held: %s; wheels %.2f m in the ground, the deepest %.2f)" % [settled, sunk.x, sunk.y])
+	player.global_position = truck.exit_point()
+	player.velocity = Vector3.ZERO
+	PlayerState._heal_all()
+	player.enter_vehicle(truck)
+	# On the handbrake (the meadow slopes: let off, it rolls).
+	Input.action_press("jump")
+	await _frames(10)
+	var seated := truck.global_transform
+	# In the pickup with the pack round it: they circle it, none in its body.
+	var pack: Array[Wolf] = []
+	for k in 4:
+		var a := k * TAU / 4.0 + 0.4
+		pack.append(Wolf.spawn(Game.world, spot + Vector3(cos(a), 0.0, sin(a)) * 9.0))
+	await _frames(3)
+	var bites: Array[int] = [0]
+	for w in pack:
+		w.set_goal(&"attack_player", player)
+		w.bit.connect(func(n: Node3D) -> void:
+			if n == player:
+				bites[0] += 1)
+	var worst := {"in": 0.0, "moved": 0.0, "turned": 0.0}
+	var t := 0.0
+	while t < 7.0:
+		PlayerState._heal_all()
+		await tree.physics_frame
+		t += tree.root.get_physics_process_delta_time()
+		_cw_watch(pack, truck, seated, worst)
+	var around := 0
+	for w in pack:
+		var d := _flat_dist(w.global_position, truck.global_position)
+		if d > 3.0 and d < 9.0 and w._give_up_why == &"vehicle":
+			around += 1
+	_check(around >= 3 and float(worst["in"]) <= 0.01 and float(worst["moved"]) < 0.15,
+			"in the pickup: they circle it (%d of 4), none in its body (the deepest %.2f m; on the handbrake on the slope it crept %.3f m)" % [around, worst["in"], worst["moved"]])
+	# Out on one side, the pack right by the other.
+	var side := signf(truck.to_local(truck.exit_point()).x)
+	var hw := truck.half_width()
+	for i in pack.size():
+		var p := truck.to_global(Vector3(-side * (hw + 1.4), 0.0, -2.0 + 1.3 * i))
+		p.y = TerrainData.height(p.x, p.z)
+		var w := pack[i]
+		w.global_position = p
+		w._floor_y = p.y
+		var to := truck.global_position - p
+		w._yaw = atan2(-to.x, -to.z)
+		w.rotation.y = w._yaw
+		w.reset_physics_interpolation()
+	await tree.physics_frame
+	var parked := truck.global_transform
+	Input.action_release("jump")
+	player.exit_vehicle()
+	var stand := player.global_position
+	var reached := {}
+	var shot_cam: Camera3D = null
+	worst = {"in": 0.0, "moved": 0.0, "turned": 0.0}
+	t = 0.0
+	while t < 12.0:
+		PlayerState._heal_all()
+		player.velocity = Vector3.ZERO
+		await tree.physics_frame
+		t += tree.root.get_physics_process_delta_time()
+		_cw_watch(pack, truck, parked, worst)
+		for w in pack:
+			if _flat_dist(w.global_position, player.global_position) < 2.3:
+				reached[w] = true
+		if shots != "" and shot_cam == null and t > 1.6:
+			# Behind and above him: the car before him, the pack coming round its ends.
+			shot_cam = Camera3D.new()
+			shot_cam.fov = 62.0
+			Game.world.add_child(shot_cam)
+			var out := stand - truck.global_position
+			out = Vector3(out.x, 0.0, out.z).normalized()
+			shot_cam.global_position = stand + out * 4.2 + Vector3(0, 2.6, 0)
+			shot_cam.look_at(truck.global_position + Vector3(0, 0.4, 0) - out * 0.6)
+			shot_cam.make_current()
+			await _cb_shot(shots, "carwolves_round_the_car")
+			player.camera.make_current()
+	if shot_cam:
+		shot_cam.queue_free()
+	_check(reached.size() >= 3 and bites[0] >= 1,
+			"out on his side, the pack on the other: they come round the car to him (%d of 4 at him, %d bites in 12 s)" % [reached.size(), bites[0]])
+	_check(float(worst["in"]) <= 0.01, "none of them ever in the car's body (the deepest %.3f m)" % worst["in"])
+	_check(float(worst["moved"]) < 0.04 and float(worst["turned"]) < 1.0,
+			"the car stays where it stood (moved %.3f m at most, turned %.2f deg)" % [worst["moved"], worst["turned"]])
+	for w in pack:
+		if is_instance_valid(w):
+			w.queue_free()
+	await _frames(3)
+	# A wolf told to walk straight through it: stopped at its side.
+	var from := truck.to_global(Vector3(-side * (hw + 3.0), 0.0, 0.3))
+	var lone := Wolf.spawn(Game.world, from)
+	await _frames(3)
+	lone.set_physics_process(false)
+	var through := truck.to_global(Vector3(side * (hw + 4.0), 0.0, 0.3))
+	var heading := through - lone.global_position
+	heading.y = 0.0
+	worst = {"in": 0.0, "moved": 0.0, "turned": 0.0}
+	parked = truck.global_transform
+	t = 0.0
+	while t < 4.0:
+		await tree.physics_frame
+		var dt := tree.root.get_physics_process_delta_time()
+		t += dt
+		lone._yaw = atan2(-heading.x, -heading.z)
+		lone._want_speed = Wolf.TROT
+		lone._move(dt)
+		lone._place_collider()
+		_cw_watch([lone], truck, parked, worst)
+	var at := truck.to_local(lone.global_position)
+	_check(signf(at.x) == -side and absf(at.x) > hw + 0.3 and float(worst["in"]) <= 0.01 and float(worst["moved"]) < 0.02,
+			"a wolf walked straight at it stops at its side (%.2f m out from its middle, %.3f m in its body; the car moved %.3f m)" % [absf(at.x), worst["in"], worst["moved"]])
+	lone.queue_free()
+	await _frames(3)
+	# Sunk 0.6 m into the ground (and 0.9 m, as deep as his): back on its wheels.
+	var deep := rest.translated(Vector3(0, -0.6, 0))
+	for depth: float in [0.6, 0.9]:
+		truck.teleport(rest.translated(Vector3(0, -depth, 0)))
+		truck.freeze = false
+		truck._settle_t = 0.0
+		truck._lifts = 0
+		await _frames(2)
+		settled = await _cw_settle(truck)
+		_check(settled and absf(truck._burial(truck.global_transform).x) < 0.08 and absf(truck.global_position.y - rest.origin.y) < 0.1,
+				"sunk %.1f m and let settle: back on its wheels (%.2f m off its height, lifted %d times)" % [depth, truck.global_position.y - rest.origin.y, truck._lifts])
+	truck.teleport(deep)
+	await _frames(2)
+	player.enter_vehicle(truck)
+	await _frames(2)
+	var lift := truck.global_position.y - rest.origin.y
+	player.exit_vehicle()
+	settled = await _cw_settle(truck)
+	_check(absf(lift) < 0.1 and settled and absf(truck.global_position.y - rest.origin.y) < 0.1,
+			"sunk 0.6 m, he gets in: lifted out at once (%.2f m off its height), settled again when he gets out" % lift)
+	var saved := truck.save_data()
+	saved["xform"] = deep
+	truck.load_data(saved)
+	lift = truck.global_position.y - rest.origin.y
+	settled = await _cw_settle(truck)
+	_check(absf(lift) < 0.1 and settled and absf(truck.global_position.y - rest.origin.y) < 0.1,
+			"a save with it sunk 0.6 m: loaded on its wheels (%.2f m off its height)" % lift)
+	var fine := truck.global_transform
+	truck.load_data(truck.save_data())
+	player.enter_vehicle(truck)
+	await _frames(2)
+	var jump := truck.global_position.distance_to(fine.origin)
+	player.exit_vehicle()
+	await _frames(5)
+	_check(jump < 0.02, "standing as it should it is left as it is on loading and getting in (moved %.3f m)" % jump)
+	truck.teleport(home)
+	await _frames(5)
+	GameClock.running = true
+	Weather.forced = -1
+	PlayerState._heal_all()
+	await _frames(3)
+
+
+## Waits (up to `limit` s) till the parked vehicle has settled and is held still.
+func _cw_settle(v: Vehicle, limit := 10.0) -> bool:
+	var t := 0.0
+	while t < limit and not v.freeze:
+		await tree.physics_frame
+		t += tree.root.get_physics_process_delta_time()
+	return v.freeze
+
+
+## The deepest any of `wolves`' bodies went into the vehicle's collision boxes, and how far
+## the vehicle moved and turned from `xf` (in `worst`).
+func _cw_watch(wolves: Array, v: Vehicle, xf: Transform3D, worst: Dictionary) -> void:
+	for w: Wolf in wolves:
+		if is_instance_valid(w):
+			worst["in"] = maxf(float(worst["in"]), _cw_depth(w, v))
+	worst["moved"] = maxf(float(worst["moved"]), v.global_position.distance_to(xf.origin))
+	var turned := rad_to_deg(v.global_basis.get_rotation_quaternion().angle_to(xf.basis.get_rotation_quaternion()))
+	worst["turned"] = maxf(float(worst["turned"]), turned)
+
+
+## How deep (m) a wolf's body (its capsule) is in the vehicle's collision boxes (0: clear).
+func _cw_depth(w: Wolf, v: Vehicle) -> float:
+	var cap := w._shape.shape as CapsuleShape3D
+	var xf := w._shape.global_transform
+	var half := cap.height * 0.5 - cap.radius
+	var deepest := 0.0
+	for n in v.get_children():
+		var c := n as CollisionShape3D
+		if c == null or not (c.shape is BoxShape3D):
+			continue
+		var ext := (c.shape as BoxShape3D).size * 0.5
+		var inv := c.global_transform.affine_inverse()
+		for k in 9:
+			var p := inv * (xf * Vector3(0, lerpf(-half, half, k / 8.0), 0))
+			var q := p.clamp(-ext, ext)
+			var d := (p - q).length()
+			if d <= 0.0:
+				var inside := ext - p.abs()
+				d = -minf(inside.x, minf(inside.y, inside.z))
+			deepest = maxf(deepest, cap.radius - d)
+	return deepest
+
+
 func _wolf_spot() -> Vector3:
 	var space := Game.world.get_world_3d().direct_space_state
 	for c: Vector2 in [Vector2(-62, 34), Vector2(40, 44), Vector2(-24, 46), Vector2(62, 34), Vector2(-60, -40), Vector2(10, 60)]:
@@ -15009,7 +15849,7 @@ func _wolf_shots(wolf: Wolf, spot: Vector3, dir: String) -> void:
 	wolf._yaw = -PI * 0.5
 	wolf.reset_physics_interpolation()
 	wolf.set_goal(&"attack_player", player)
-	wolf._next_go[player.get_instance_id()] = Time.get_ticks_msec() / 1000.0 + 60.0
+	wolf._next_go[player.get_instance_id()] = Wolf._clock + 60.0
 	await _seconds(1.2)
 	player.camera.make_current()
 	_look_at(player, wolf.global_position + Vector3(0, 0.45, 0))
@@ -15148,6 +15988,9 @@ func _scenario_wolf_eyes() -> void:
 	await _seconds(3.0)
 	cam.look_at(wolf.head_point(), Vector3.UP)
 	cam.make_current()
+	# Held still for the measurement: the shine is compared between two frames of the
+	# same pose (a wolf that shifts between them would read as shine or its lack).
+	wolf.process_mode = Node.PROCESS_MODE_DISABLED
 	var shots := String(DebugTools.args.get("wolf-shots", ""))
 	var grab := func(tag: String) -> Image:
 		await _idle_frames(4)
@@ -15320,15 +16163,15 @@ func _edges_arrow_full_bag(player: Player, coop: ChickenCoop, notes: Array[Strin
 	await _raid_indoors(player)
 
 
-## The lesson night, the coop door open with the hens in: to bed at 20:45 (the howls begun, the
+## The lesson night, the coop door open with the hens in: to bed at 19:45 (the howls begun, the
 ## note not yet): no raid, nothing lost, the lesson not spent; the next night it comes
-## again, the note and the coop-door goal at 21:00.
+## again, the note and the coop-door goal at 20:00.
 func _edges_lesson_bedtime(player: Player, coop: ChickenCoop, notes: Array[String]) -> void:
 	var h := coop.housing
 	await _raid_indoors(player)
 	WolfRaids.load_data({"seed": 77})
 	h.door.set_open(true)
-	await _raid_evening(WolfRaids.LESSON_NIGHT, 18.5)
+	await _raid_evening(WolfRaids.LESSON_NIGHT, 17.5)
 	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight.get("lesson", false)), "the lesson's night: the lesson is set")
 	GameClock.advance(135.0)
 	for n: Animal in h.animals:
@@ -15336,21 +16179,21 @@ func _edges_lesson_bedtime(player: Player, coop: ChickenCoop, notes: Array[Strin
 	await _idle_frames(3)
 	_check(String(WolfRaids.tonight.get("phase", "")) == "warned" and not bool(WolfRaids.tonight.get("noted", true))
 			and not SideStory.goals.has(WolfRaids._wolf_goal),
-			"20:45 on the lesson's night: the howls have begun, no note nor goal yet (phase %s)" % WolfRaids.tonight.get("phase", ""))
+			"19:45 on the lesson's night: the howls have begun, no note nor goal yet (phase %s)" % WolfRaids.tonight.get("phase", ""))
 	var count := Animals.animals.size()
 	var lines := await _raid_sleep()
 	var lost := count - Animals.animals.size() + Animals.injured_ids().size()
 	_check(lost == 0 and not WolfRaids.lesson_done and WolfRaids.tonight.is_empty(),
-			"asleep at 20:45 before the note: no raid, nothing lost, the lesson not spent (lost %d, lesson done %s)" % [lost, WolfRaids.lesson_done])
+			"asleep at 19:45 before the note: no raid, nothing lost, the lesson not spent (lost %d, lesson done %s)" % [lost, WolfRaids.lesson_done])
 	_check(not lines.has(tr("REPORT_WOLVES_LATER")) and not lines.has(tr("REPORT_WOLVES_SAFE")),
 			"the morning report tells of no wolves")
 	notes.clear()
-	await _raid_evening(GameClock.day, 18.5)
+	await _raid_evening(GameClock.day, 17.5)
 	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight.get("lesson", false)), "night %d: the lesson comes again" % GameClock.day)
 	GameClock.advance(155.0)
 	await _seconds(0.6)
 	_check(bool(WolfRaids.tonight.get("noted", false)) and notes.has(tr("MSG_WOLVES_LESSON")) and SideStory.goals.has(WolfRaids._wolf_goal),
-			"at 21:00 the lesson's note and its coop-door goal")
+			"at 20:00 the lesson's note and its coop-door goal")
 	WolfRaids.load_data({"lesson": true})
 	await _frames(3)
 
@@ -16123,8 +16966,8 @@ func _coop_expand_wolf(coop: ChickenCoop) -> void:
 
 # --- The fishing contest ---------------------------------------------------------------------
 
-## The fishing contest (FishingContest, ContestVenue, ContestCrowd): its days (moved off a
-## carnival), Nuri Hoca's letter the day before, the anglers and the crowd at the town pond
+## The fishing contest (FishingContest, ContestVenue, ContestCrowd): its days (every fourth,
+## two days off each carnival), Nuri Hoca's letter the day before, the anglers and the crowd at the town pond
 ## during it and back home after, the player's fish weighed there (not at the farm pond),
 ## the board kept over a save and load, the ceremony, the prize when he wins and none when
 ## a rival does. With -- --contest-shots=/abs/dir it saves the venue, the board and the
@@ -16141,15 +16984,18 @@ func _contest() -> void:
 	var far := Vector3(-14.0, 0.2, -9.0)
 	FishingContest.testing = true
 	FishingContest.ceremony_speed = 4.0
-	_check(venue != null and crowd != null, "the town has its contest venue (pond, pier, board) and crowd")
+	_check(venue != null and crowd != null, "the town has its contest venue (pond, board, benches) and crowd")
 	if venue == null or crowd == null:
 		return
 	var days: Array[int] = []
 	for d in range(1, 50):
 		if FishingContest.is_contest_day(d):
 			days.append(d)
-	_check(days == [9, 17, 25, 34, 41, 49] and Carnival.is_carnival_day(33),
-			"a contest on day 9, then every 8 days; day 33's is moved off the carnival to 34 (%s)" % str(days))
+	var off_carnival := true
+	for d: int in days:
+		off_carnival = off_carnival and not Carnival.is_carnival_day(d) and Carnival.is_carnival_day(d - 2)
+	_check(days == [7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47] and off_carnival,
+			"a contest on day 7, then every 4 days, always two days after a carnival (%s)" % str(days))
 	var c := WorldLayout.TOWN_POND_CENTER
 	_check(Pond.is_fishable(Vector3(c.x, 0.0, c.y)) and Pond.is_fishable(Vector3(c.x - 5.0, 0.0, c.y))
 			and not Pond.is_fishable(Vector3(c.x, 0.0, c.y - 12.0)), "the town pond is deep enough to fish in, its bank is dry")
@@ -16160,7 +17006,7 @@ func _contest() -> void:
 	FishingContest.letter_day = 0
 	var letters: Array[int] = []
 	var shown := false
-	for d: int in [7, 8, 9, 15, 16]:
+	for d: int in [5, 6, 7, 9, 10]:
 		GameClock.day = d
 		GameClock.minute = float(GameClock.DAY_START_MINUTE)
 		Events.day_started.emit(d)
@@ -16176,10 +17022,10 @@ func _contest() -> void:
 			shown = screen.visible and all.contains("09:00") and all.contains("17:00") and all.contains("$100")
 			screen.hide_screen()
 			await _idle_frames(1)
-	_check(letters == [8, 16], "the letter comes the morning before a contest (%s)" % str(letters))
+	_check(letters == [6, 10], "the letter comes the morning before a contest (%s)" % str(letters))
 	_check(shown, "it tells the hours (09:00 to 17:00) and the $100 prize")
 
-	# --- Day 9: the town goes to the pond ---
+	# --- Day 7: the town goes to the pond ---
 	var ids: Array[StringName] = [&"young", &"farmer", &"villager", &"sweeper", &"elder", &"teacher"]
 	var home := {}
 	var acts := {}
@@ -16188,9 +17034,9 @@ func _contest() -> void:
 		home[id] = p.global_position
 		acts[id] = p.act
 	player.global_position = far
-	GameClock.day = 9
+	GameClock.day = 7
 	GameClock.minute = 8.0 * 60.0 + 50.0
-	Events.day_started.emit(9)
+	Events.day_started.emit(7)
 	await _seconds(0.8)
 	_check(not FishingContest.is_on() and not crowd.is_gathered(), "before 09:00 nobody is at the pond")
 	GameClock.minute = 9.0 * 60.0 + 1.0
@@ -16201,14 +17047,16 @@ func _contest() -> void:
 		var d := Vector2(p.global_position.x, p.global_position.z).distance_to(c) if p else INF
 		if p == null or p.act != Townsperson.Act.FISH or d > WorldLayout.TOWN_POND_RADIUS + 3.0:
 			anglers_ok = false
-	_check(FishingContest.is_on() and crowd.is_gathered() and anglers_ok, "at 09:00 five anglers fish at the pond (on the pier and the shore)")
+	_check(FishingContest.is_on() and crowd.is_gathered() and anglers_ok, "at 09:00 five anglers fish at the pond (round its shore)")
 	var seated_ok := true
 	for id: StringName in [&"elder", &"teacher"]:
 		var p := crowd.person(id)
 		if p.act != Townsperson.Act.BENCH or Vector2(p.global_position.x, p.global_position.z).distance_to(c) > WorldLayout.TOWN_POND_RADIUS + 6.0:
 			seated_ok = false
-	_check(seated_ok and crowd.people().size() == 9, "Osman Dede and Nuri Hoca watch from the benches, the visitors stand by (%d there)" % crowd.people().size())
-	_check(crowd.person(&"shopkeeper").act == Townsperson.Act.TILL, "Hasan stays at his till")
+	_check(seated_ok and crowd.people().size() == 9 + EventCrowd.WORKERS.size(),
+			"Osman Dede and Nuri Hoca watch from the benches, the visitors and the workers stand by (%d there)" % crowd.people().size())
+	_check(crowd.person(&"shopkeeper").away and (town.market_counter as TownPoint).hint_prompt() == tr("HINT_SERVICE_AWAY"),
+			"Hasan comes too; his counter still opens (the honesty box)")
 	# The rivals land fish as the hours pass.
 	for i in 18:
 		GameClock.minute += 10.0
@@ -16274,10 +17122,10 @@ func _contest() -> void:
 	_check(back and not crowd.is_gathered() and town.get_node_or_null("TownPeople/Person_fisher") == null,
 			"then everyone goes back to what they were doing, the visitors leave")
 
-	# --- Day 17: the player wins ---
-	GameClock.day = 17
+	# --- Day 11: the player wins ---
+	GameClock.day = 11
 	GameClock.minute = 8.0 * 60.0 + 59.0
-	Events.day_started.emit(17)
+	Events.day_started.emit(11)
 	await _seconds(0.6)
 	GameClock.minute = 9.0 * 60.0 + 1.0
 	await _seconds(1.2)
@@ -16379,6 +17227,352 @@ func _contest_shots(dir: String, venue: ContestVenue, crowd: ContestCrowd) -> vo
 	await _seconds(0.6)
 
 
+
+## Round 17 at the fishing contest: the side goal and its dot on a contest day (done at the
+## venue); no pier, the anglers spread round the shore facing the water and the player able
+## to fish from the bank anywhere round it; the walkers' ways in and out round the board,
+## the benches and the water; a cheer at each new biggest fish (the player's too); the shop
+## boy's broom in his hand while he walks, on the grass while he fishes. With
+## -- --contest17-shots=/abs/dir it saves the venue during the contest and the boy walking.
+func _contest17() -> void:
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var venue := town.get_node_or_null("ContestVenue") as ContestVenue
+	var crowd := venue.get_node_or_null("ContestCrowd") as ContestCrowd if venue else null
+	await _contest_ready_player(player)
+	var shots := String(DebugTools.args.get("contest17-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var far := Vector3(-14.0, 0.2, -9.0)
+	FishingContest.testing = true
+	FishingContest.ceremony_speed = 4.0
+	_check(venue != null and crowd != null, "contest17: the town has its contest venue and crowd")
+	if venue == null or crowd == null:
+		return
+	var c := WorldLayout.TOWN_POND_CENTER
+	var space := player.get_world_3d().direct_space_state
+	var wall := venue.pond.shore_wall()
+
+	# --- No pier: the ring round the pond closed, nothing standing out over the water ---
+	var over := 0
+	for i in 48:
+		var a := TAU * i / 48.0
+		for r: float in [1.5, 4.0, 6.5]:
+			var p := Vector3(c.x + cos(a) * r, 0.0, c.y + sin(a) * r)
+			var q := PhysicsRayQueryParameters3D.create(Vector3(p.x, WorldLayout.WATER_LEVEL + 3.0, p.z), Vector3(p.x, WorldLayout.WATER_LEVEL + 0.03, p.z), 1)
+			q.exclude = [wall.get_rid()]
+			if not space.intersect_ray(q).is_empty():
+				over += 1
+	_check(venue.pond.wall_gap.is_empty() and over == 0, "contest17: no pier: the shore ring is closed and nothing stands over the water (%d hits)" % over)
+
+	# --- The anglers round the shore, facing the water, the floats on fishable water ---
+	var angles: Array[float] = []
+	var facing := true
+	var fishable := true
+	var on_bank := true
+	for s: Dictionary in venue.angler_spots:
+		var at: Vector3 = s["pos"]
+		var d := Vector2(at.x - c.x, at.z - c.y)
+		angles.append(fposmod(d.angle(), TAU))
+		var look := Vector2(sin(float(s["yaw"])), cos(float(s["yaw"])))
+		facing = facing and look.dot(-d.normalized()) > 0.97
+		fishable = fishable and Pond.is_fishable(s["water"])
+		var shore := Pond.shore_radius(c, WorldLayout.TOWN_POND_RADIUS, d.normalized())
+		on_bank = on_bank and TerrainData.height(at.x, at.z) > WorldLayout.WATER_LEVEL and d.length() - shore < 1.5
+	angles.sort()
+	var gaps: Array[float] = []
+	for i in angles.size():
+		gaps.append(fposmod(angles[(i + 1) % angles.size()] - angles[i], TAU))
+	_check(venue.angler_spots.size() == 5 and gaps.min() > 0.95 and gaps.max() < 1.6,
+			"contest17: five anglers spread round the pond (gaps %s rad)" % str(gaps.map(func(g: float) -> String: return "%.2f" % g)))
+	_check(on_bank and facing and fishable, "contest17: each stands on the bank facing the water, his float on fishable water")
+	# Their places, the crowd's and the benches' are clear of anything solid (trees, posts).
+	var blocked: Array[String] = []
+	var ball := SphereShape3D.new()
+	ball.radius = 0.28
+	var sq := PhysicsShapeQueryParameters3D.new()
+	sq.shape = ball
+	sq.collision_mask = 1
+	sq.exclude = [wall.get_rid()]
+	for list: Array in [venue.angler_spots, venue.crowd_spots]:
+		for s: Dictionary in list:
+			var at: Vector3 = s["pos"]
+			sq.transform = Transform3D(Basis(), Vector3(at.x, TerrainData.height(at.x, at.z) + 1.1, at.z))
+			if not space.intersect_shape(sq, 1).is_empty():
+				blocked.append("%.1f,%.1f" % [at.x, at.z])
+	_check(blocked.is_empty(), "contest17: nothing solid where the anglers and the crowd stand %s" % str(blocked))
+	# The player can fish from the bank anywhere round it: from where he can stand, a cast
+	# towards the middle comes down on fishable water, nothing in its way.
+	var dry: Array[String] = []
+	for i in 24:
+		var dir := Vector2.from_angle(TAU * i / 24.0)
+		var stand_r := maxf(Pond.shore_radius(c, WorldLayout.TOWN_POND_RADIUS, dir) + 0.2, WorldLayout.TOWN_POND_RADIUS - 0.9 + 0.5)
+		var at := c + dir * stand_r
+		var ok := false
+		for d: float in [3.0, 4.0, 5.0, 6.0]:
+			var w := c + dir * (stand_r - d)
+			if not Pond.is_fishable(Vector3(w.x, 0.0, w.y)):
+				continue
+			var from := Vector3(at.x, TerrainData.height(at.x, at.y) + 1.6, at.y)
+			var q := PhysicsRayQueryParameters3D.create(from, Vector3(w.x, WorldLayout.WATER_LEVEL + 0.1, w.y), 1)
+			q.exclude = [wall.get_rid()]
+			if space.intersect_ray(q).is_empty():
+				ok = true
+				break
+		if not ok:
+			dry.append("%d°" % (i * 15))
+	_check(dry.is_empty(), "contest17: from the bank anywhere round the pond a cast lands in the water %s" % str(dry))
+
+	# --- The ways in and out: round the board and the benches, never through the water ---
+	var places: Array = []
+	for list: Array in [venue.angler_spots, venue.crowd_spots, venue.bench_seats]:
+		for s: Dictionary in list:
+			places.append(s["pos"])
+	places.append(crowd.zeynep_spot()["pos"])
+	var bad: Array[String] = []
+	for to: Vector3 in places:
+		var way: Array[Vector3] = []
+		way.assign(venue.approach)
+		way.append_array(venue.path_in(to))
+		way.append(to)
+		var why := _c17_way_clear(venue, way, space, sq, to)
+		if why != "":
+			bad.append("in to %.1f,%.1f: %s" % [to.x, to.z, why])
+		var back: Array[Vector3] = [to]
+		back.append_array(venue.path_out(to))
+		back.append(venue.approach[venue.approach.size() - 1])
+		why = _c17_way_clear(venue, back, space, sq, to)
+		if why != "":
+			bad.append("out from %.1f,%.1f: %s" % [to.x, to.z, why])
+	_check(bad.is_empty() and venue.footprints.size() == 3, "contest17: every way in and out goes round the board and the benches, on dry ground %s" % str(bad))
+
+	# --- The side goal: the morning of the first contest, its dot over the pond ---
+	FishingContest.goal_day = 0
+	FishingContest.result_day = 0
+	player.global_position = far
+	GameClock.day = 7
+	GameClock.minute = 8.0 * 60.0
+	Events.day_started.emit(7)
+	await _seconds(1.2)
+	var g := FishingContest.goal()
+	var dot: Variant = g.guide_point()
+	_check(FishingContest.goal_up() and g.text == tr("SIDE_GOAL_CONTEST") and dot is Vector3
+			and Vector2((dot as Vector3).x, (dot as Vector3).z).distance_to(c) < 1.0 and not g.quiet,
+			"contest17: on the contest morning a side goal comes up, its dot over the town pond (the first one prominent)")
+	_check(SideStory.goals.has(g) and g.hint == tr("SIDE_HINT_CONTEST_SOON") % "09:00", "contest17: it says when it starts (%s)" % g.hint)
+
+	# --- The shop boy walks: his broom stays in his left hand ---
+	var boy := crowd.person(&"sweeper")
+	var line := boy.sweep_to - boy.sweep_from
+	line.y = 0.0
+	var along := line.normalized()
+	var mid := boy.sweep_from + line * 0.5
+	# From one end of his forecourt to the other and back (a walk, not his sweeping).
+	var walk: Array[Vector3] = [boy.sweep_from + along * 0.3, boy.sweep_to - along * 0.3]
+	if boy.global_position.distance_to(walk[0]) < boy.global_position.distance_to(walk[1]):
+		walk.reverse()
+	# Watching from the pavement in front of the market (the street's side).
+	var side := Vector3(-along.z, 0.0, along.x)
+	if side.z * (Town.STREET_Z - mid.z) < 0.0:
+		side = -side
+	player.global_position = mid + side * 4.2 + Vector3(0, 0.3, 0)
+	var to_mid := mid + Vector3(0, 0.9, 0) - player.global_position - Vector3(0, 1.6, 0)
+	player.look_at_yaw_pitch(atan2(-to_mid.x, -to_mid.z), asin(clampf(to_mid.normalized().y, -1.0, 1.0)))
+	await _seconds(0.6)
+	boy.walk_to(walk, func() -> void:
+		boy.act = Townsperson.Act.SWEEP
+		boy._sweep_s = clampf((boy.global_position - boy.sweep_from).dot(along), 0.0, line.length()))
+	var worst := 0.0
+	var shown := true
+	var samples := 0
+	var shot_taken := false
+	for k in 400:
+		await _idle_frames(1)
+		if boy.act != Townsperson.Act.WALK:
+			break
+		if boy._speed < 0.3:
+			continue
+		samples += 1
+		var off := _c17_broom_off(boy)
+		shown = shown and off < INF
+		worst = maxf(worst, off if off < INF else 0.0)
+		if shots != "" and not shot_taken and samples > 40:
+			shot_taken = true
+			await _shot(shots + "/contest17_sweeper_walking.png")
+	_check(samples >= 20 and shown and worst < 0.035,
+			"contest17: walking, the shop boy carries his broom in his hand (%d frames, fist at most %.3f m off the handle)" % [samples, worst])
+	await _seconds(1.0)
+
+	# --- 09:00: the anglers on the shore, his broom on the grass, the tea glass left behind ---
+	# (far off first: the camera catches up before they set off, so they are simply there)
+	player.global_position = far
+	await _seconds(1.0)
+	GameClock.minute = 9.0 * 60.0 + 1.0
+	await _seconds(1.5)
+	_check(FishingContest.goal_up() and g.hint == tr("SIDE_HINT_CONTEST_ON") % "17:00", "contest17: while it is on, the goal stays up until he comes (%s)" % g.hint)
+	_check(FishingContest.crowd_level() > 0.0 and Audio._set_paths(Audio.SETS["crowd_cheer"]).size() == 2
+			and Audio._set_paths(Audio.SETS["crowd_call"]).size() >= 3 and Audio.LOOPS.has("contest_crowd"),
+			"contest17: the crowd's murmur plays over the pond, calls and cheers are there to play")
+	var anglers_ok := true
+	for i in ContestCrowd.ANGLERS.size():
+		var p := crowd.person(ContestCrowd.ANGLERS[i])
+		var spot: Dictionary = venue.angler_spots[i]
+		if p == null or p.act != Townsperson.Act.FISH or p.global_position.distance_to(spot["pos"]) > 0.3:
+			anglers_ok = false
+	_check(anglers_ok, "contest17: the five anglers fish from their places on the shore")
+	var bank: Vector3 = venue.crowd_spots[0]["pos"]
+	player.global_position = bank + Vector3(0.0, 0.4, 0.0)
+	await _seconds(1.2)
+	_check(not FishingContest.goal_up() and FishingContest.goal_day == 7 and not SideStory.goals.has(g),
+			"contest17: at the pond the side goal is done")
+	# (close enough to the boy for him to be drawn)
+	var bp := boy.global_position
+	player.global_position = bp + (Vector3(c.x, bp.y, c.y) - bp).normalized() * -4.0 + Vector3(0, 0.4, 0)
+	await _seconds(0.8)
+	var bx := boy._prop.global_transform if boy._prop else Transform3D()
+	var hand := boy.rig.to_global(boy.rig.grip_point("_l"))
+	var ground := TerrainData.height(bx.origin.x, bx.origin.z)
+	_check(boy._prop != null and boy._prop.visible and absf(bx.origin.y - ground) < 0.06 and absf(bx.basis.y.normalized().y) < 0.2
+			and hand.distance_to(bx.origin) > 0.3, "contest17: fishing, his broom lies on the grass beside him (%.3f m off the ground)" % (bx.origin.y - ground))
+	var teacher := crowd.person(&"teacher")
+	_check(teacher.act == Townsperson.Act.BENCH and teacher._prop and not teacher._prop.visible, "contest17: Nuri Hoca left his tea glass behind")
+
+	# --- A new biggest fish: a cheer (the rivals' and the player's), not for a smaller one ---
+	var leaders: Array[String] = []
+	var on_leader := func(who: String, _kg: float) -> void: leaders.append(who)
+	FishingContest.new_leader.connect(on_leader)
+	for id: StringName in FishingContest.RIVALS:
+		FishingContest._next_catch[String(id)] = 99999.0
+	FishingContest.entries.clear()
+	FishingContest.record("young", {"id": &"fish_carp", "kg": 1.2})
+	await _seconds(0.3)
+	var cheering := 0
+	for p: Townsperson in crowd.people():
+		if p.is_cheering() or p.is_clapping():
+			cheering += 1
+	FishingContest.record("farmer", {"id": &"fish_perch", "kg": 0.6})
+	var small := leaders.size()
+	FishingContest.player_caught(&"fish_pike", 2.4, player.global_position)
+	await _seconds(0.2)
+	var arms_up := 0
+	for p: Townsperson in crowd.people():
+		if p.is_cheering():
+			arms_up += 1
+	_check(leaders.size() == 2 and leaders[0] == "young" and leaders[1] == "player" and small == 1,
+			"contest17: a cheer goes up at each new biggest fish, the player's too, not for a smaller one (%s)" % str(leaders))
+	_check(cheering >= 4 and arms_up >= 1, "contest17: the crowd cheers with them (%d cheering or clapping, %d arms up)" % [cheering, arms_up])
+	FishingContest.new_leader.disconnect(on_leader)
+	if shots != "":
+		var eye := Vector3(c.x + 13.0, 0.0, c.y - 15.0)
+		eye.y = TerrainData.height(eye.x, eye.z) + 0.4
+		player.global_position = eye
+		var look := Vector3(c.x - 1.0, 0.0, c.y + 1.0) - eye
+		player.look_at_yaw_pitch(atan2(-look.x, -look.z), deg_to_rad(-12.0))
+		await _shot(shots + "/contest17_venue.png")
+
+	# --- 17:00: they walk back round the board and the benches, the broom in his hand ---
+	var walkers := crowd.people()
+	# (the old men get up off their own benches: those are only walked away from)
+	var seats := {}
+	for p: Townsperson in walkers:
+		for fp: Array in venue.footprints:
+			if ContestVenue.crosses(p.global_position, p.global_position, fp, 0.05):
+				seats[p] = fp
+	var corner := venue.approach[venue.approach.size() - 1]
+	player.global_position = corner + Vector3(-2.0, 0.6, 3.0)
+	await _seconds(1.0)
+	GameClock.minute = 17.0 * 60.0 + 0.5
+	await _contest_wait_finished()
+	var through: Array[String] = []
+	var boy_worst := 0.0
+	var boy_frames := 0
+	var boy_shown := true
+	for k in 100:
+		await _seconds(0.1)
+		for p: Townsperson in walkers:
+			if not is_instance_valid(p) or not p.is_walking_to():
+				continue
+			var at := p.global_position
+			for fp: Array in venue.footprints:
+				if seats.get(p) != fp and ContestVenue.crosses(at, at, fp, 0.2):
+					through.append("%s at %.1f,%.1f" % [p.person, at.x, at.z])
+			if Vector2(at.x, at.z).distance_to(c) < WorldLayout.TOWN_POND_RADIUS + 3.0 and TerrainData.height(at.x, at.z) < WorldLayout.WATER_LEVEL - 0.05:
+				through.append("%s in the water" % p.person)
+		if is_instance_valid(boy) and boy.is_walking_to() and boy._speed > 0.3 \
+				and player.camera.global_position.distance_to(boy.global_position) < 10.0:
+			boy_frames += 1
+			var off := _c17_broom_off(boy)
+			boy_shown = boy_shown and off < INF
+			boy_worst = maxf(boy_worst, off if off < INF else 0.0)
+		elif is_instance_valid(boy) and boy.is_walking_to():
+			# Keep near him (he is animated every frame close by).
+			var bpos := boy.global_position
+			var to_c := (bpos - Vector3(c.x, bpos.y, c.y)).normalized()
+			player.global_position = bpos + to_c * 3.0 + Vector3(0, 0.6, 0)
+	_check(through.is_empty(), "contest17: walking back nobody goes through the board, a bench or the water %s" % str(through.slice(0, 4)))
+	_check(boy_frames >= 10 and boy_shown and boy_worst < 0.035,
+			"contest17: walking back from the pond his broom is in his hand again (%d samples, %.3f m off at most)" % [boy_frames, boy_worst])
+
+	# --- A later contest's goal is quiet ---
+	await _seconds(4.0)
+	player.global_position = far
+	GameClock.day = 11
+	GameClock.minute = 8.0 * 60.0
+	Events.day_started.emit(11)
+	await _seconds(1.0)
+	_check(FishingContest.goal_up() and g.quiet, "contest17: a later contest's goal comes up again, quieter")
+	FishingContest.testing = false
+	await _seconds(1.0)
+	_check(not FishingContest.goal_up(), "contest17: no contest goal once there is no contest")
+	FishingContest.ceremony_speed = 1.0
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	await _seconds(0.6)
+
+
+## Why the walk along `way` (world points) is not clear ("" when it is): a leg through
+## the board's or a bench's footprint (a body's width round it), a point in the pond's
+## water, or anything solid (a tree, a post) at body height along it. The bench `place`
+## (a seat: the way's end or start) is in is only walked up to.
+func _c17_way_clear(venue: ContestVenue, way: Array[Vector3], space: PhysicsDirectSpaceState3D, sq: PhysicsShapeQueryParameters3D,
+		place: Vector3) -> String:
+	for i in way.size() - 1:
+		var a := way[i]
+		var b := way[i + 1]
+		for fp: Array in venue.footprints:
+			var own := ContestVenue.crosses(place, place, fp, 0.05)
+			if own and (a.distance_to(place) < 0.01 or b.distance_to(place) < 0.01):
+				continue
+			if ContestVenue.crosses(a, b, fp, 0.25):
+				return "leg %d (%.1f,%.1f to %.1f,%.1f) through a footprint at %s" % [i, a.x, a.z, b.x, b.z, str(fp[0])]
+		var n := maxi(1, ceili(Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z)) / 0.3))
+		for k in n + 1:
+			var p := a.lerp(b, float(k) / n)
+			var h := TerrainData.height(p.x, p.z)
+			if Pond.near_water(p, 3.0) and h < WorldLayout.WATER_LEVEL - 0.02:
+				return "leg %d in the water at %.1f,%.1f" % [i, p.x, p.z]
+			sq.transform = Transform3D(Basis(), Vector3(p.x, h + 1.1, p.z))
+			var hits := space.intersect_shape(sq, 1)
+			if not hits.is_empty():
+				return "leg %d blocked at %.1f,%.1f by %s" % [i, p.x, p.z, (hits[0]["collider"] as Node).name]
+	return ""
+
+
+## How far the shop boy's left fist (as drawn) is off his broom's handle (metres; INF when
+## the broom isn't shown).
+func _c17_broom_off(p: Townsperson) -> float:
+	if p._prop == null or not p._prop.visible:
+		return INF
+	var sk := p.rig.skeleton
+	if sk.has_method(&"force_update_all_bone_transforms"):
+		sk.force_update_all_bone_transforms()
+	var xf := p._prop.transform
+	var axis := xf.basis.y.normalized()
+	var g := p.rig.drawn_grip("_l") - xf.origin
+	var along := g.dot(axis)
+	return maxf((g - axis * along).length(), maxf(0.34 - along, along - 1.48))
 
 # --- Grills ------------------------------------------------------------------------------
 
@@ -17093,3 +18287,953 @@ func _fixes13_shop() -> void:
 				"%s sells the big sack and bale beside the feed and hay" % shop["title"])
 	_check(big_feed.display_name() == tr("ITEM_FEED_BIG") and tr("ITEM_FEED_BIG") != "ITEM_FEED_BIG" and tr("DESC_HAY_BIG") != "DESC_HAY_BIG",
 			"the big ones have names (%s, %s)" % [big_feed.display_name(), big_hay.display_name()])
+
+
+# --- Round 16 fixes: the rooster through the day, fish no longer see-through -------------
+
+## The rooster crows at first light as before, then once or twice every hour or two
+## through the day and never at night, fainting at most twice a day and hours apart (two
+## days played through on a seeded generator); every fish's skin is opaque, back-face
+## culled and wound facing out (it hides the far flank and the far eye), its thin fins
+## two-sided, the bending copy culled the same way and the cartoon eyes depth-tested.
+## -- --fix16-shots=<dir> also saves a fish on the grass from the side, one flopping there
+## and one in the hand.
+func _scenario_fix16() -> void:
+	await _close_screens()
+	await _fix16_rooster()
+	_fix16_fish_materials()
+	await _fix16_comic_eyes()
+	await _fix16_shots()
+
+
+func _fix16_rooster() -> void:
+	var hour := GameClock.get_hour_float()
+	var day := GameClock.day
+	var total := GameClock.total_minutes
+	GameClock.set_time_of_day(9.0)
+	Weather.force(Weather.Kind.SUNNY)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null, "fix16: a test coop stands")
+	if coop == null:
+		return
+	var rn := Animals.node_of(Animals.release(&"rooster", coop.housing))
+	await _frames(5)
+	rn._set_state(Animal.State.IDLE, 1.0e6)
+	var faint_was := Animal.faint_in_tests
+	Animal.faint_in_tests = true
+	rn._rng.seed = 1616
+	rn._crow_day = -1
+	rn._day_crow_at = -1.0
+	rn._crows_left = 0
+	rn._faint_day = -1
+	rn._faints = 0
+	rn._last_faint = -INF
+	# Two whole days, midnight to midnight, in quarter-second steps with the clock moving
+	# as it does in play (nothing else runs meanwhile).
+	var dt := 0.25
+	var step := dt * Settings.game_minutes_per_second()
+	for d in 2:
+		GameClock.day = day + 1 + d
+		GameClock.minute = 0.0
+		var crows: Array[float] = []
+		var faints: Array[float] = []
+		while GameClock.minute < 24.0 * 60.0:
+			GameClock.minute += step
+			GameClock.total_minutes += step
+			rn._update_crow(dt)
+			if rn._crow_t == 0.0 or rn._faint_t == 0.0:
+				crows.append(GameClock.minute)
+				if rn._faint_t == 0.0:
+					faints.append(GameClock.minute)
+		var dawn := 0
+		var daytime: Array[float] = []
+		var night := 0
+		for m in crows:
+			var h := m / 60.0
+			if h >= Animal.CROW_HOURS.x and h < Animal.CROW_HOURS.y:
+				dawn += 1
+			elif h >= Animal.CROW_HOURS.y and h < Animal.DAY_CROW_END:
+				daytime.append(m)
+			else:
+				night += 1
+		# Bouts: a crow 50 game minutes or more after the one before starts a new one; the
+		# quiet between a bout's last crow and the next one's first.
+		var bouts := 0
+		var gap_min := INF
+		var gap_max := 0.0
+		for i in daytime.size():
+			if i == 0 or daytime[i] - daytime[i - 1] >= 50.0:
+				bouts += 1
+				if i > 0:
+					gap_min = minf(gap_min, daytime[i] - daytime[i - 1])
+					gap_max = maxf(gap_max, daytime[i] - daytime[i - 1])
+		var closest := INF
+		for i in range(1, crows.size()):
+			closest = minf(closest, crows[i] - crows[i - 1])
+		_check(dawn == Animal.CROWS and night == 0,
+				"fix16 day %d: %d crows at first light as before, none at night (%d)" % [d + 1, dawn, night])
+		_check(daytime.size() >= 4 and daytime.size() <= 16 and bouts >= 4,
+				"fix16 day %d: %d crows through the day in %d bouts" % [d + 1, daytime.size(), bouts])
+		_check(gap_min >= Animal.DAY_CROW_EVERY.x * 60.0 and gap_max <= Animal.DAY_CROW_EVERY.y * 60.0 + 5.0,
+				"fix16 day %d: an hour or two between bouts (%.0f..%.0f game minutes)" % [d + 1, gap_min, gap_max])
+		_check(closest >= Animal.CROW_GAP.x * Settings.game_minutes_per_second() - step,
+				"fix16 day %d: never two crows on top of each other (closest %.1f game minutes)" % [d + 1, closest])
+		var spaced := faints.size() < 2 or faints[1] - faints[0] >= Animal.FAINT_SPACING
+		_check(faints.size() >= 1 and faints.size() <= Animal.FAINTS_A_DAY and spaced,
+				"fix16 day %d: %d faints of %d crows, hours apart (%s)" % [d + 1, faints.size(), crows.size(), str(faints)])
+	rn._end_faint()
+	rn._crow_t = -1.0
+	rn.rig.crow = 0.0
+	Animal.faint_in_tests = faint_was
+	GameClock.day = day
+	GameClock.total_minutes = total
+	GameClock.set_time_of_day(hour)
+	rn._crow_day = day
+	rn._day_crow_at = -1.0
+	rn._crows_left = 0
+
+
+## Every fish model (raw and grilled, as caught, in the hand, as a trophy, bending): the
+## skin opaque and culled, wound and lit facing out; the fins two-sided; eyes opaque.
+func _fix16_fish_materials() -> void:
+	# Godot's own sphere shows which way round a face is wound when it faces out.
+	var sphere := SphereMesh.new()
+	var convention := 1.0 if _fix16_wound_out(sphere.get_mesh_arrays(), 1.0) > 0.5 else -1.0
+	var fins := ["_dorsal", "_caudal", "_paired", "_spiny", "_adipose"]
+	var bad: Array[String] = []
+	var worst_wound := 1.0
+	var worst_lit := 1.0
+	var n_skins := 0
+	var species: Array[StringName] = []
+	for sp: StringName in FishTable.SPECIES:
+		if FishTable.is_fish(sp) and FishModels.has(sp):
+			species.append(sp)
+	for sp in species:
+		for id: StringName in [sp, StringName(String(sp) + "_cooked")]:
+			var real := FishModels.real_mesh(id)
+			for mesh: Mesh in [real, FishModels.mesh(id)]:
+				for si in mesh.get_surface_count():
+					var mat := mesh.surface_get_material(si) as BaseMaterial3D
+					if mat == null:
+						bad.append("%s #%d: no material" % [id, si])
+						continue
+					var fin := false
+					for f: String in fins:
+						fin = fin or mat.resource_name.ends_with(f)
+					var want := BaseMaterial3D.CULL_DISABLED if fin else BaseMaterial3D.CULL_BACK
+					if mat.cull_mode != want or mat.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED or mat.no_depth_test:
+						bad.append("%s %s" % [id, mat.resource_name])
+			for si in real.get_surface_count():
+				var mat := real.surface_get_material(si)
+				if mat == null or not mat.resource_name.ends_with("_skin"):
+					continue
+				n_skins += 1
+				var arrays := real.surface_get_arrays(si)
+				worst_wound = minf(worst_wound, _fix16_wound_out(arrays, convention))
+				# Normals out from the body's middle line (raw fish: straight along X).
+				if not String(id).ends_with("_cooked"):
+					var out := 0
+					var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+					var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+					for i in verts.size():
+						if normals[i].dot(Vector3(0.0, verts[i].y, verts[i].z)) > 0.0:
+							out += 1
+					worst_lit = minf(worst_lit, float(out) / maxf(verts.size(), 1.0))
+	_check(bad.is_empty() and n_skins >= 40,
+			"fix16: every fish's skin and eyes opaque and back-face culled, only the fins two-sided (%d skins; %s)" % [n_skins, str(bad)])
+	_check(worst_wound > 0.97 and worst_lit > 0.9,
+			"fix16: the skin faces out: wound (worst %.2f) and lit (worst %.2f) from outside" % [worst_wound, worst_lit])
+	# The trophy and the bending copy on the bank / on the line.
+	var trophy := ItemModels.mesh(FishTable.trophy_id(&"fish_carp"))
+	var trophy_ok := trophy.get_surface_count() > 0
+	for si in trophy.get_surface_count():
+		var mat := trophy.surface_get_material(si) as BaseMaterial3D
+		if mat and mat.resource_name.ends_with("_skin"):
+			trophy_ok = trophy_ok and mat.cull_mode == BaseMaterial3D.CULL_BACK
+	_check(trophy_ok, "fix16: a trophy carp's skin culled the same")
+	var flop_bad: Array[String] = []
+	for sp in species:
+		var flop := FishModels.flop_mesh(sp)
+		var real := FishModels.real_mesh(sp)
+		for si in flop.get_surface_count():
+			var sm := flop.surface_get_material(si) as ShaderMaterial
+			var src := real.surface_get_material(si) as BaseMaterial3D
+			var want := "res://shaders/fish_fin.gdshader" if src.cull_mode == BaseMaterial3D.CULL_DISABLED else "res://shaders/fish.gdshader"
+			if sm == null or sm.shader.resource_path != want:
+				flop_bad.append("%s %s" % [sp, src.resource_name])
+	var body_code := (load("res://shaders/fish.gdshader") as Shader).code
+	var fin_code := (load("res://shaders/fish_fin.gdshader") as Shader).code
+	_check(flop_bad.is_empty() and body_code.contains("cull_back") and not body_code.contains("cull_disabled")
+			and fin_code.contains("cull_disabled") and not body_code.contains("depth_test_disabled"),
+			"fix16: the bending fish culls its body, draws its fins from both sides (%s)" % str(flop_bad))
+
+
+## Share of the triangles in `arrays` wound to face out (`convention`: Godot's way round,
+## +1 or -1), judged by their vertex normals.
+func _fix16_wound_out(arrays: Array, convention: float) -> float:
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var out := 0
+	var tris := idx.size() / 3
+	for t in tris:
+		var a := idx[t * 3]
+		var b := idx[t * 3 + 1]
+		var c := idx[t * 3 + 2]
+		var g := (verts[b] - verts[a]).cross(verts[c] - verts[a]) * convention
+		if g.dot(normals[a] + normals[b] + normals[c]) > 0.0:
+			out += 1
+	return float(out) / maxf(tris, 1.0)
+
+
+## The cartoon eyes on a fish are opaque and depth-tested (the body hides the far one).
+func _fix16_comic_eyes() -> void:
+	var code := (load("res://shaders/comic_eye.gdshader") as Shader).code
+	_check(not code.contains("depth_test_disabled") and not code.contains("ALPHA") and not code.contains("depth_draw_never")
+			and not code.contains("cull_disabled"), "fix16: the cartoon eye shader is opaque, culled and depth-tested")
+	var mi := MeshInstance3D.new()
+	mi.mesh = FishModels.mesh(&"fish_carp")
+	Game.world.add_child(mi)
+	mi.global_position = Vector3(0, -400, 0)
+	var e := ComicEyes.for_fish(mi)
+	mi.add_child(e)
+	await _frames(2)
+	var ok := e.eyes.size() == 2
+	for eye in e.eyes:
+		var sm := eye.material_override as ShaderMaterial
+		ok = ok and sm != null and sm.render_priority == 0 and sm.next_pass == null and eye.transparency == 0.0
+	ok = ok and e.eyes[0].position.z > 0.0 and e.eyes[1].position.z < 0.0
+	_check(ok, "fix16: a fish's cartoon eyes sit one on each flank, drawn like any opaque ball")
+	mi.queue_free()
+
+
+func _fix16_shots() -> void:
+	var dir := String(DebugTools.args.get("fix16-shots", ""))
+	if dir == "":
+		return
+	DirAccess.make_dir_recursive_absolute(dir)
+	var player: Player = Game.player
+	GameClock.set_time_of_day(11.0)
+	Weather.force(Weather.Kind.SUNNY)
+	var spot := Vector3(-16.0, 0.0, -5.0)
+	spot.y = TerrainData.height(spot.x, spot.z)
+	player.global_position = spot + Vector3(0.0, 0.3, 5.0)
+	await _frames(5)
+	var p := Pickup.spawn(ItemStack.create(&"fish_carp", 1), spot + Vector3(0.0, 0.25, 0.0))
+	var flop := FloppingFish.launch(FishTable.catch_of(&"fish_brown_trout", 0.6), spot + Vector3(1.6, 2.0, 0.0),
+			spot + Vector3(1.0, 0.0, 0.0), 0.5)
+	await _seconds(1.5)
+	p.freeze = true
+	p.rotation = Vector3.ZERO
+	p.global_position.y = spot.y + 0.06
+	var cam := Camera3D.new()
+	cam.fov = 40.0
+	Game.world.add_child(cam)
+	for view: Array in [["fix16_ground_side", p.global_position, Vector3(0.0, 0.1, 0.75)],
+			["fix16_flop_side", flop.global_position, Vector3(0.0, 0.85, 0.45)]]:
+		var at: Vector3 = view[1]
+		cam.global_position = at + (view[2] as Vector3)
+		cam.look_at(at + Vector3(0, 0.02, 0), Vector3.UP)
+		cam.make_current()
+		await _idle_frames(20)
+		await RenderingServer.frame_post_draw
+		tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, view[0]])
+		print("SHOT ", view[0])
+	player.camera.make_current()
+	cam.queue_free()
+	p.queue_free()
+	if is_instance_valid(flop):
+		flop.queue_free()
+	# In the hand.
+	PlayerState.inventory.add_item(&"fish_carp", 1)
+	_select(&"fish_carp")
+	player.look_at_yaw_pitch(0.0, deg_to_rad(-10.0))
+	await _seconds(1.0)
+	await RenderingServer.frame_post_draw
+	tree.root.get_viewport().get_texture().get_image().save_png("%s/fix16_held.png" % dir)
+	print("SHOT fix16_held")
+
+
+
+# --- Carrying birds and leading on a halter ------------------------------------------------
+
+## The farmer's own hen picked up into his arms (G: held up in front of the view, out of the
+## world's goings-on), set down elsewhere in the run (LMB) and carrying on as usual; set down
+## outside the run (E) she walks back round the fence and in at the gate; never a bird of the
+## market's or one that isn't his; the rooster and a chick carried too. His sheep led on a
+## halter out through the paddock gate and 15 m on, let go there (E) and walking back home;
+## never an animal that isn't his; the halter slipping off when he goes over the fence where
+## the sheep can't follow. Saved while carrying and while leading, the game loads with them
+## safe at home. -- --handle-shots=/abs/dir also saves a hen in the arms and the sheep led.
+func _scenario_handle() -> void:
+	await _close_screens()
+	var farm: Farm = Game.world.farm
+	var player: Player = Game.player
+	var hand := player.handler
+	if player.driving:
+		player.exit_vehicle()
+	if player.riding:
+		player.dismount()
+	Economy.add_money(20000, "test")
+	GameClock.set_time_of_day(10.0)
+	Weather.force(Weather.Kind.SUNNY)
+	for key: StringName in [&"barn_1", &"coop_1"]:
+		if not FarmState.is_built(key):
+			FarmState.built[key] = true
+			FarmState.project_built.emit(key)
+	await _frames(5)
+	var run := farm.coop
+	var barn := farm.barn
+	# Open pens: nobody tucked away indoors.
+	run.set_level(1)
+	barn.set_level(1)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var hen := Animals._add(&"chicken", true, "Pıtırcık", run)
+	var rooster := Animals._add(&"rooster", true, "Paşa", run)
+	var chick := Animals._add(&"chicken", false, "Civciv", run)
+	var sheep := Animals._add(&"sheep", true, "Pamuk", barn)
+	await _frames(10)
+	var hen_n := Animals.node_of(hen)
+	var ground := func(p: Vector3) -> Vector3: return Vector3(p.x, TerrainData.height(p.x, p.z), p.z)
+
+	# (1) The hen: G picks her up.
+	hen_n.global_position = ground.call(Vector3(19.0, 0, -20.0))
+	hen_n.reset_physics_interpolation()
+	hen_n._attention = 30.0
+	player.global_position = ground.call(Vector3(20.4, 0, -20.0)) + Vector3(0, 0.1, 0)
+	_look_at(player, hen_n.global_position + Vector3(0, 0.2, 0))
+	await _frames(8)
+	_check(player.target == hen_n and _last_prompt.contains("G (%s)" % tr("ACTION_HOLD_ANIMAL")),
+			"aimed at his own hen: G (%s)" % tr("ACTION_HOLD_ANIMAL"))
+	await _press_key(KEY_G)
+	await _frames(3)
+	# Brought up into view (as an item taken in hand).
+	await _seconds(0.7)
+	_check(hand.carried == hen_n and hen_n.carried and hen_n.ridden and hen_n.state == Animal.State.HELD
+			and not hen_n.is_in_group(&"interactable") and player.held.stowed and not WolfRaids.can_reach(hen),
+			"G picks her up: in the arms, out of the world's goings-on (no AI, no body, no wolf gets at her)")
+	var head := player.camera.global_transform.affine_inverse() * (hen_n.global_transform * hand._head_local)
+	_check(head.z < -0.4 and head.z > -0.8 and absf(head.x) < 0.15 and head.y < -0.1 and head.y > -0.35,
+			"her head low in the middle of the view, close by (%.2f, %.2f, %.2f)" % [head.x, head.y, head.z])
+	_check(_last_prompt.contains(tr("ACTION_SET_DOWN")), "the prompt says how to put her down")
+	if DebugTools.args.has("handle-shots"):
+		player.look_at_yaw_pitch(player.rotation.y, -0.12)
+		await _shot(String(DebugTools.args["handle-shots"]).path_join("hen_in_arms.png"))
+	# Across the run she stays in the arms (the same state, the view's way).
+	player.global_position = ground.call(Vector3(26.0, 0, -20.5)) + Vector3(0, 0.1, 0)
+	player.look_at_yaw_pitch(PI * 0.5, -0.2)
+	await _seconds(1.0)
+	head = player.camera.global_transform.affine_inverse() * (hen_n.global_transform * hand._head_local)
+	_check(hen_n.state == Animal.State.HELD and head.length() < 0.9, "carried across the run she stays in his arms")
+	await _press_mouse_use()
+	await _frames(3)
+	var at := hen_n.global_position
+	_check(hand.carried == null and not hen_n.carried and not hen_n.ridden and hen_n.is_in_group(&"interactable")
+			and not player.held.stowed and run.in_pen(at) and absf(at.y - run.ground_height(at)) < 0.05
+			and Vector2(at.x - player.global_position.x, at.z - player.global_position.z).length() < 1.6,
+			"LMB sets her down on the ground in front of him")
+	hen_n._attention = 0.0
+	await _seconds(4.0)
+	_check(hen_n.state != Animal.State.HELD and hen_n.state != Animal.State.RETURN and not hen.away and run.in_pen(hen_n.global_position),
+			"down in the run she carries on as usual (%s)" % Animal.State.keys()[hen_n.state])
+
+	# (2) Set down outside the run (behind it, the gate in front): back round the fence.
+	hand.pick_up(hen_n)
+	await _frames(2)
+	_check(hand.carried == hen_n, "picked up again")
+	player.global_position = ground.call(Vector3(22.0, 0, -29.5)) + Vector3(0, 0.1, 0)
+	player.look_at_yaw_pitch(PI, -0.15)
+	await _frames(6)
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(hand.carried == null and hen_n.state == Animal.State.RETURN and not run.in_pen(hen_n.global_position),
+			"E sets her down outside the run (nothing else to use E on): she sets off home")
+	var gate := WorldLayout.gate_point(run.pen, run.gate, 0.0)
+	var entered := Vector3.INF
+	Engine.time_scale = 6.0
+	for i in 480:
+		await _seconds(0.25)
+		if run.in_pen(hen_n.global_position):
+			entered = hen_n.global_position
+			break
+	Engine.time_scale = 1.0
+	_check(entered != Vector3.INF and Vector2(entered.x - gate.x, entered.z - gate.z).length() < 2.6,
+			"she walks round the fence and in at the gate (in at %s)" % entered)
+	await _seconds(2.0)
+	_check(hen_n.state != Animal.State.RETURN and run.in_pen(hen_n.global_position, -0.3), "home again, back to her usual ways")
+
+	# (3) Not a bird that isn't his, nor the market's.
+	var stranger := AnimalData.new()
+	stranger.id = 990001
+	stranger.species = &"chicken"
+	stranger.adult = true
+	stranger.name = "Yabancı"
+	var sn := Animal.new()
+	sn.setup(stranger, run)
+	run.add_child(sn)
+	await _frames(3)
+	sn.global_position = ground.call(Vector3(19.0, 0, -23.0))
+	sn.reset_physics_interpolation()
+	sn._attention = 30.0
+	player.global_position = ground.call(Vector3(20.4, 0, -23.0)) + Vector3(0, 0.1, 0)
+	_look_at(player, sn.global_position + Vector3(0, 0.2, 0))
+	await _frames(8)
+	var aimed := player.target == sn
+	await _press_key(KEY_G)
+	await _frames(3)
+	_check(aimed and not _last_prompt.contains("G (") and hand.carried == null and not sn.carried,
+			"a hen that isn't his: no G, G does nothing")
+	sn.queue_free()
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var market_hen: MarketHerd.Beast = null
+	if town and town.herd:
+		for b: MarketHerd.Beast in town.herd.beasts:
+			if b.species == &"chicken" and b.adult:
+				market_hen = b
+				break
+	if market_hen:
+		player.global_position = market_hen.pos + Vector3(1.0, 0.1, 0)
+		_look_at(player, market_hen.pos + Vector3(0, 0.2, 0))
+		await _frames(8)
+		await _press_key(KEY_G)
+		await _frames(3)
+		_check(not _last_prompt.contains("G (") and not hand.busy(), "a hen on show at the animal market can't be picked up")
+	else:
+		_check(false, "found a hen on show at the animal market")
+
+	# (4) The rooster and a chick are carried too.
+	player.global_position = ground.call(Vector3(24.0, 0, -21.0)) + Vector3(0, 0.1, 0)
+	player.look_at_yaw_pitch(PI * 0.5, -0.2)
+	await _frames(6)
+	var rooster_n := Animals.node_of(rooster)
+	_check(rooster_n.can_carry(), "the rooster can be picked up")
+	hand.pick_up(rooster_n)
+	await _idle_frames(3)
+	_check(hand.carried == rooster_n and rooster_n.state == Animal.State.HELD, "the rooster in the arms")
+	await _press_key(KEY_G)
+	await _frames(3)
+	_check(hand.carried == null and not rooster_n.carried, "G again sets him down")
+	var chick_n := Animals.node_of(chick)
+	_check(chick_n.can_carry(), "a chick can be picked up")
+	hand.pick_up(chick_n)
+	await _seconds(0.7)
+	var chick_head := player.camera.global_transform.affine_inverse() * (chick_n.global_transform * hand._head_local)
+	_check(hand.carried == chick_n and chick_head.length() < 0.42 and chick_head.z < -0.2,
+			"the chick in the arms, held closer (%.2f m)" % chick_head.length())
+	hand.let_go()
+	await _frames(3)
+	_check(hand.carried == null and not chick_n.carried, "the chick set down")
+
+	# (5) The sheep on the halter: out through the paddock gate and 15 m on.
+	var sheep_n := Animals.node_of(sheep)
+	var west := Vector3(-1, 0, 0)
+	var start := ground.call(WorldLayout.gate_point(barn.pen, barn.gate, -4.5)) as Vector3
+	sheep_n.global_position = start
+	sheep_n.rotation.y = PI * 0.5
+	sheep_n.reset_physics_interpolation()
+	sheep_n._attention = 30.0
+	player.global_position = ground.call(WorldLayout.gate_point(barn.pen, barn.gate, -2.3)) + Vector3(0, 0.1, 0)
+	_look_at(player, sheep_n.global_position + Vector3(0, 0.6, 0))
+	await _frames(8)
+	_check(player.target == sheep_n and _last_prompt.contains("G (%s)" % tr("ACTION_HALTER")),
+			"aimed at his own sheep: G (%s)" % tr("ACTION_HALTER"))
+	await _press_key(KEY_G)
+	await _frames(3)
+	_check(hand.led == sheep_n and sheep_n.led and sheep_n.state == Animal.State.LED and hand._rope != null,
+			"G slips the halter on, the rope to his hand")
+	player.look_at_yaw_pitch(atan2(-west.x, -west.z), 0.0)
+	var samples: Array[Vector3] = []
+	var top_pace := 0.0
+	Engine.time_scale = 3.0
+	Input.action_press("move_forward")
+	for i in 900:
+		await _frames(2)
+		samples.append(sheep_n.global_position)
+		top_pace = maxf(top_pace, Vector2(player.velocity.x, player.velocity.z).length())
+		if player.global_position.x < barn.pen.position.x - 15.5:
+			break
+	Input.action_release("move_forward")
+	await _seconds(2.0)
+	Engine.time_scale = 1.0
+	var moved := sheep_n.global_position.distance_to(start)
+	var behind := Vector2(sheep_n.global_position.x - player.global_position.x, sheep_n.global_position.z - player.global_position.z).length()
+	_check(moved > 14.0 and behind > 1.8 and behind < 3.8 and not barn.in_pen(sheep_n.global_position),
+			"she followed him out of the paddock and on (%.1f m), keeping %.1f m behind" % [moved, behind])
+	_check(top_pace <= AnimalHandler.LEAD_WALK + 0.1, "leading, he walks at her pace (%.2f m/s)" % top_pace)
+	var crossed := Vector3.INF
+	for i in range(1, samples.size()):
+		if barn.in_pen(samples[i - 1]) and not barn.in_pen(samples[i]):
+			crossed = samples[i]
+			break
+	var gate_b := WorldLayout.gate_point(barn.pen, barn.gate, 0.0)
+	_check(crossed != Vector3.INF and absf(crossed.z - gate_b.z) < 1.5, "out through the gate, not the fence (at z %.2f)" % crossed.z)
+	if DebugTools.args.has("handle-shots"):
+		_look_at(player, sheep_n.global_position + Vector3(0, 0.45, 0))
+		await _shot(String(DebugTools.args["handle-shots"]).path_join("sheep_on_rope.png"))
+	_look_at(player, sheep_n.global_position + Vector3(0, 0.6, 0))
+	await _frames(6)
+	_check(player.target == sheep_n and _last_prompt.contains("%s (%s)" % [tr("KEY_E"), tr("ACTION_LET_GO")]),
+			"aimed at her: E lets her go")
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(hand.led == null and not sheep_n.led and sheep_n.state == Animal.State.RETURN and not is_instance_valid(hand._rope)
+			and not player.held.stowed, "E takes the halter off; she sets off home")
+	# Looked at, an animal stands still for the farmer: he looks away.
+	player.look_at_yaw_pitch(atan2(-west.x, -west.z), 0.0)
+	Engine.time_scale = 6.0
+	var home := false
+	for i in 400:
+		await _seconds(0.25)
+		if barn.in_pen(sheep_n.global_position):
+			home = true
+			break
+	Engine.time_scale = 1.0
+	_check(home, "she walks back into the paddock")
+
+	# (6) Not one that isn't his.
+	var stray := AnimalData.new()
+	stray.id = 990002
+	stray.species = &"sheep"
+	stray.adult = true
+	stray.name = "Komşunun"
+	var stray_n := Animal.new()
+	stray_n.setup(stray, barn)
+	barn.add_child(stray_n)
+	await _frames(3)
+	stray_n.global_position = ground.call(Vector3(40.0, 0, 6.0))
+	stray_n.reset_physics_interpolation()
+	stray_n._attention = 30.0
+	player.global_position = ground.call(Vector3(42.0, 0, 6.0)) + Vector3(0, 0.1, 0)
+	_look_at(player, stray_n.global_position + Vector3(0, 0.6, 0))
+	await _frames(8)
+	aimed = player.target == stray_n
+	await _press_key(KEY_G)
+	await _frames(3)
+	_check(aimed and not _last_prompt.contains("G (") and hand.led == null, "a sheep that isn't his: no halter")
+	stray_n.queue_free()
+
+	# (7) Over the fence where she can't follow: the halter slips off.
+	sheep_n.global_position = ground.call(Vector3(38.6, 0, 6.0))
+	sheep_n.reset_physics_interpolation()
+	sheep_n.teleport_home(false)
+	sheep_n.global_position = ground.call(Vector3(38.6, 0, 6.0))
+	sheep_n.reset_physics_interpolation()
+	sheep_n._attention = 30.0
+	player.global_position = ground.call(Vector3(37.2, 0, 6.0)) + Vector3(0, 0.1, 0)
+	await _frames(3)
+	hand.lead(sheep_n)
+	await _frames(3)
+	_check(hand.led == sheep_n, "on the halter again by the paddock fence")
+	notes.clear()
+	# Over the fence (as a jump would take him) and away.
+	player.global_position = ground.call(Vector3(34.4, 0, 6.0)) + Vector3(0, 0.1, 0)
+	await _frames(6)
+	player.global_position = ground.call(Vector3(28.0, 0, 6.0)) + Vector3(0, 0.1, 0)
+	await _frames(60)
+	_check(hand.led == null and not sheep_n.led and notes.has(tr("MSG_HALTER_SLIPPED") % sheep.name)
+			and barn.in_pen(sheep_n.global_position), "she can't follow over the fence: the halter slips off (\"%s\")"
+			% (notes.back() if not notes.is_empty() else ""))
+	Events.notification_requested.disconnect(on_note)
+
+	# (8) Saved while carrying, and while leading: loaded, they are home and his hands empty.
+	var hen_id := hen.id
+	var sheep_id := sheep.id
+	hand.pick_up(Animals.node_of(hen))
+	await _frames(2)
+	_check(SaveGame.save("handle_carry"), "saved with the hen in the arms")
+	hand.let_go()
+	await _frames(2)
+	sheep_n = Animals.node_of(sheep)
+	sheep_n.teleport_home(false)
+	player.global_position = sheep_n.global_position + Vector3(1.5, 0.1, 0)
+	await _frames(2)
+	hand.lead(sheep_n)
+	_check(hand.led == sheep_n, "on the halter for the save")
+	await _frames(2)
+	_check(SaveGame.save("handle_lead"), "saved with the sheep on the halter")
+	for slot: String in ["handle_carry", "handle_lead"]:
+		_check(SaveGame.load_game(slot), "loading %s started" % slot)
+		await _until_loaded()
+		var a := Animals.by_id(hen_id if slot == "handle_carry" else sheep_id)
+		var n := Animals.node_of(a) if a else null
+		var h := n.housing if n else null
+		_check(n != null and not n.carried and not n.led and not n.ridden and n.is_in_group(&"interactable") and h.in_pen(n.global_position)
+				and not Game.player.handler.busy(), "loaded from %s: %s is at home, the hands empty" % [slot, a.name if a else "?"])
+		SaveGame.delete(slot)
+
+
+
+## Round 16, the town: everyone at the carnival and the fishing contest (the workers too,
+## their services still open with the honesty box; Zeynep and Karamel once she lives here)
+## and back afterwards; day two's quiet side goals in town (meet five townspeople, drop in
+## on the vet, fill up at the filling station).
+func _scenario_town16() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_money := Economy.money
+	var kept_pos := player.global_position
+	var kept_side := SideStory.save_data()
+	var kept_rel := Relations.save_data()
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var people := town.get_node("TownPeople") as TownPeople
+	var venue := town.get_node("ContestVenue") as ContestVenue
+	var contest := venue.get_node("ContestCrowd") as ContestCrowd
+	var fair := town.get_node("Carnival/CarnivalCrowd") as CarnivalCrowd
+	var home := _zy_home()
+	_check(fair != null and contest != null and home != null, "the town has its carnival crowd, its contest crowd and Zeynep's home")
+	if fair == null or contest == null or home == null:
+		return
+	var far := Vector3(-14.0, 0.2, -9.0)
+	var ids: Array[StringName] = [&"shopkeeper", &"attendant", &"salesman", &"rancher", &"vet", &"sweeper", &"elder",
+		&"teacher", &"villager", &"young", &"farmer"]
+	# Zeynep lives here and they have met (no errand up).
+	SideStory.testing = true
+	SideStory.load_data({"met": true, "met_day": 6, "deliveries": 1, "gift_day": 7, "next": 999, "announced": true})
+	Relations.load_data({})
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+
+	# --- A carnival night: everyone at the fair ---
+	Carnival.testing = true
+	player.global_position = far
+	GameClock.day = 13
+	GameClock.set_time_of_day(19.0)
+	await _seconds(1.2)
+	var homes := {}
+	var acts := {}
+	for id in ids:
+		var p := fair.person(id)
+		homes[id] = p.global_position
+		acts[id] = p.act
+	_check(not fair.is_gathered() and home.where != &"event", "before 19:30 the town goes about its day")
+	GameClock.set_time_of_day(19.6)
+	await _seconds(1.5)
+	var plaza := Vector2(TownCarnival.PLAZA.x, TownCarnival.PLAZA.y)
+	var at_fair: Array[StringName] = []
+	for id in ids:
+		var p := fair.person(id)
+		if p and Vector2(p.global_position.x, p.global_position.z).distance_to(plaza) < 22.0 and p.is_visible_in_tree():
+			at_fair.append(id)
+	_check(fair.is_gathered() and at_fair.size() == ids.size(), "from 19:30 all eleven townspeople are at the fair, workers too (%d: %s)" % [at_fair.size(), str(at_fair)])
+	var workers_away := true
+	for id: StringName in EventCrowd.WORKERS:
+		if not fair.person(id).away:
+			workers_away = false
+	_check(workers_away and fair.people().size() == ids.size() + CarnivalCrowd.VISITORS.size(),
+			"the workers are away from their posts, two neighbours from the villages came too (%d at the fair)" % fair.people().size())
+	_check(fair.person(&"salesman").act == Townsperson.Act.TALK and fair.person(&"rancher").act == Townsperson.Act.TALK
+			and fair.person(&"young").act == Townsperson.Act.WALK, "Kemal and Rıza chat in the plaza, Emre strolls round the fair")
+	var z := home.zeynep
+	_check(home.at_event() and z != null and z.is_visible_in_tree() and Vector2(z.global_position.x, z.global_position.z).distance_to(plaza) < 22.0
+			and home.dog.global_position.distance_to(z.global_position) < 4.0, "Zeynep is at the fair, Karamel at her feet")
+	# The services work without their workers (the honesty box).
+	var away_line := tr("HINT_SERVICE_AWAY")
+	var counter := town.market_counter as TownPoint
+	var pump := town.pumps[0] as TownPoint
+	await _seconds(0.6)
+	var card := people.card_of(&"shopkeeper")
+	_check(counter.hint_prompt() == away_line and pump.hint_prompt() == away_line and (town.market_office as TownPoint).hint_prompt() == away_line
+			and card != null and card.visible and people.card_of(&"attendant").visible,
+			"the counter, the pumps and the hatch say \"%s\", a card stands on the counter" % away_line)
+	_check(fair.person(&"shopkeeper").interact_prompt(player) == tr("ACTION_GREET"), "E on Hasan at the fair is a greeting, not the shop")
+	GameClock.set_time_of_day(20.5)
+	await _idle_frames(2)
+	counter.interact(player)
+	await _idle_frames(2)
+	var shop_open: bool = Game.hud.shop_screen.visible
+	Game.hud.shop_screen.close_screen()
+	await _idle_frames(2)
+	_check(shop_open and Economy.carnival_factor() == 2.0, "the market's counter still opens the shop, sales pay double")
+	# Knocking at Zeynep's: nobody home; at the fair she has a friendly word.
+	home.knock()
+	await _seconds(2.6)
+	_check(notes.has(tr("MSG_ZEYNEP_AT_EVENT")), "a knock at her door finds nobody home (she's at the fair)")
+	_check(z.interact_prompt(player) == tr("ACTION_GREET"), "at the fair E on her is a greeting")
+	z.interact(player)
+	await _idle_frames(2)
+	_check(z.is_speaking() and z._bubble.text == tr("ZEYNEP_SAY_EVENT"), "she has a friendly word")
+	# The fireworks: everyone claps.
+	GameClock.set_time_of_day(19.97)
+	await _seconds(0.6)
+	GameClock.set_time_of_day(20.02)
+	var clappers := {}
+	for i in 14:
+		await _seconds(0.5)
+		for p: Townsperson in fair.people():
+			if p.is_clapping():
+				clappers[p.person] = true
+	_check(clappers.size() >= 5, "the fireworks go up and the crowd claps (%d clapped)" % clappers.size())
+	if String(DebugTools.args.get("town16-shots", "")) != "":
+		await _town16_shots(String(DebugTools.args["town16-shots"]), town, home)
+		player.global_position = far
+		await _seconds(0.5)
+	# 23:00: home again (out of sight: at once).
+	GameClock.set_time_of_day(23.02)
+	await _seconds(1.5)
+	var back := true
+	var not_back := []
+	for id in ids:
+		var p := fair.person(id)
+		var slack := 3.0 if acts[id] == Townsperson.Act.WALK else 0.6
+		if id == &"vet":
+			# The clinic closed at 20:00: she has gone home.
+			if p.visible or p.away:
+				back = false
+				not_back.append(id)
+			continue
+		if p.global_position.distance_to(homes[id]) > slack or p.act != acts[id] or p.away:
+			back = false
+			not_back.append(id)
+	_check(back and not fair.is_gathered() and town.get_node_or_null("TownPeople/Person_visitor_c") == null,
+			"at 23:00 everyone is back at his post or on his round, the vet gone home, the visitors gone %s" % str(not_back))
+	await _seconds(0.6)
+	_check(not card.visible and counter.hint_prompt() == "", "the honesty box's card is put away")
+	_check(not home.at_event() and home.where in [&"garden", &"inside"], "Zeynep is home again (%s)" % home.where)
+
+	# --- With the player in town they walk over; a worker serving him stays till he goes ---
+	GameClock.day = 17
+	GameClock.set_time_of_day(19.2)
+	await _seconds(0.8)
+	var grocer := fair.person(&"shopkeeper")
+	var post := grocer.global_position
+	player.global_position = post + Vector3(0.0, 0.1, -1.6)
+	await _idle_frames(3)
+	GameClock.set_time_of_day(19.6)
+	await _seconds(10.0)
+	var walking := 0
+	for p: Townsperson in fair.people():
+		if p.is_walking_to():
+			walking += 1
+	_check(walking >= 3 and fair.waiting().has(&"shopkeeper") and not grocer.away and grocer.global_position.distance_to(post) < 0.3,
+			"seen from town they walk over (%d on the way); Hasan finishes with the customer first" % walking)
+	player.global_position = far
+	await _seconds(1.5)
+	_check(grocer.away and not fair.waiting().has(&"shopkeeper") and Vector2(grocer.global_position.x, grocer.global_position.z).distance_to(plaza) < 22.0,
+			"once the player has gone, Hasan goes too")
+	GameClock.day = 18
+	GameClock.set_time_of_day(9.0)
+	await _seconds(1.5)
+	_check(not fair.is_gathered() and not grocer.away and grocer.global_position.distance_to(post) < 0.6, "the next day all is as before")
+	Carnival.testing = false
+
+	# --- The fishing contest: the whole town at the pond ---
+	FishingContest.testing = true
+	FishingContest.ceremony_speed = 4.0
+	player.global_position = far
+	GameClock.day = 11
+	GameClock.minute = 8.0 * 60.0 + 50.0
+	Events.day_started.emit(11)
+	await _seconds(1.0)
+	var vet := contest.person(&"vet")
+	var vet_post := vet.global_position
+	GameClock.minute = 9.0 * 60.0 + 1.0
+	await _seconds(1.5)
+	var c := WorldLayout.TOWN_POND_CENTER
+	var at_pond: Array[StringName] = []
+	for id in ids:
+		var p := contest.person(id)
+		if p and Vector2(p.global_position.x, p.global_position.z).distance_to(c) < WorldLayout.TOWN_POND_RADIUS + 9.0:
+			at_pond.append(id)
+	_check(contest.is_gathered() and at_pond.size() == ids.size(), "at 09:00 all eleven are at the pond, workers too (%d: %s)" % [at_pond.size(), str(at_pond)])
+	_check(vet.away and town.vet_clinic.staffed and town.vet_clinic.counter.hint_prompt() == away_line
+			and town.vet_clinic.counter.interact_prompt(player) != "", "the clinic stays open with Dr. Selin at the pond (the counter's E still works)")
+	z = home.zeynep
+	_check(home.at_event() and z != null and Vector2(z.global_position.x, z.global_position.z).distance_to(c) < WorldLayout.TOWN_POND_RADIUS + 9.0,
+			"Zeynep watches the contest too, Karamel with her")
+	GameClock.minute = 17.0 * 60.0 + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.0)
+	var home_again := true
+	for id: StringName in EventCrowd.WORKERS:
+		var p := contest.person(id)
+		if p.away or not p.visible:
+			home_again = false
+	_check(home_again and vet.global_position.distance_to(vet_post) < 0.6 and not contest.is_gathered(),
+			"after the contest the workers are back at their posts (Dr. Selin behind her counter)")
+	_check(not home.at_event(), "and Zeynep is home again")
+	FishingContest.testing = false
+	FishingContest.ceremony_speed = 1.0
+
+	# --- Day two's side goals in town ---
+	var goals := SideStory.town_goals
+	goals.testing = true
+	goals.load_data({})
+	Relations.load_data({})
+	player.global_position = far
+	GameClock.day = 1
+	GameClock.set_time_of_day(15.0)
+	await _seconds(1.0)
+	_check(not goals.up and not goals.is_up(&"meet"), "day one: no town goals")
+	GameClock.day = 2
+	GameClock.set_time_of_day(8.0)
+	await _seconds(1.0)
+	_check(not goals.up, "day two, on the farm in the morning: not yet")
+	notes.clear()
+	player.global_position = Vector3(228.0, TerrainData.height(228.0, 19.0) + 0.1, 19.0)
+	await _seconds(1.2)
+	var all_up := goals.is_up(&"meet") and goals.is_up(&"vet") and goals.is_up(&"fuel")
+	_check(goals.up and all_up and goals.goal(&"meet").quiet and notes.has(tr("MSG_TOWN_GOALS_NEW")),
+			"in town on day two three quiet side goals come up (meet, vet, fuel), with a note")
+	var mg := goals.goal(&"meet")
+	_check(mg.text == tr("SIDE_GOAL_TOWN_MEET") % [0, 5] and mg.guide_point() is Vector3 and mg.label != "",
+			"\"%s\": the dot shows the nearest townsperson not met yet (%s)" % [mg.text, mg.label])
+	var xp := Progress.xp
+	var greeted := 0
+	for id: StringName in [&"sweeper", &"elder", &"teacher", &"villager", &"farmer"]:
+		var p := town.get_node("TownPeople/Person_" + String(id)) as Townsperson
+		p.interact(player)
+		greeted += 1
+		await _seconds(0.6)
+		if greeted == 4:
+			_check(goals.is_up(&"meet") and mg.text == tr("SIDE_GOAL_TOWN_MEET") % [4, 5], "greetings count (%s)" % mg.text)
+	_check(not goals.is_up(&"meet") and goals.done.has(&"meet") and Progress.xp >= xp + TownGoals.XP[&"meet"],
+			"five greeted: the goal is done, a little farm experience (+%d)" % (Progress.xp - xp))
+	# The vet: a word with her at the counter instead of her screen.
+	GameClock.set_time_of_day(10.0)
+	await _seconds(0.8)
+	var clinic := town.vet_clinic
+	clinic.counter.interact(player)
+	await _idle_frames(3)
+	var dlg: DialogueScreen = Game.hud.dialogue_screen
+	_check(dlg.is_open() and dlg.current_text() == tr("VET_HELLO_1") and not Game.hud.vet_screen.visible,
+			"E at the clinic's counter: Dr. Selin says hello (not her screen yet)")
+	var said := []
+	for i in 6:
+		said.append(dlg.current_text())
+		if not dlg.is_open():
+			break
+		dlg.advance()
+		await _idle_frames(2)
+		dlg.advance()
+		await _idle_frames(2)
+	await _seconds(0.6)
+	_check(not goals.is_up(&"vet") and goals.done.has(&"vet") and said.has(tr("VET_HELLO_2")),
+			"she tells about the wolves at night and hurt animals; the goal is done")
+	clinic.counter.interact(player)
+	await _idle_frames(3)
+	_check(Game.hud.vet_screen.visible, "after that the counter opens her screen as usual")
+	await _close_screens()
+	# The filling station.
+	var truck: Vehicle = null
+	for v: Vehicle in tree.get_nodes_in_group(Vehicle.GROUP):
+		if v.owned:
+			truck = v
+			break
+	if truck:
+		var at := pump.global_position + Vector3(2.2, 0.0, 0.0)
+		truck.global_position = Vector3(at.x, TerrainData.height(at.x, at.z) + 0.6, at.z)
+		truck.fuel = 5.0
+		Economy.money = maxi(Economy.money, 100)
+		await _seconds(0.5)
+		pump.interact(player)
+		await _seconds(0.8)
+	_check(truck != null and not goals.is_up(&"fuel") and goals.done.has(&"fuel"), "the pickup filled up at the pump: done")
+	# Saved and loaded; past day four they are gone.
+	var saved := goals.save_data()
+	goals.load_data({"up": true, "done": []})
+	await _seconds(0.8)
+	var reup := goals.is_up(&"meet") or goals.is_up(&"vet")
+	goals.load_data(saved)
+	await _seconds(0.8)
+	_check(reup and goals.done.size() == 3 and not goals.is_up(&"vet"), "a save keeps which are done")
+	goals.load_data({"up": true, "done": []})
+	GameClock.day = 5
+	await _seconds(0.8)
+	_check(not goals.is_up(&"vet") and not goals.is_up(&"fuel"), "after day four the goals left undone quietly go")
+
+	# Put everything back.
+	Events.notification_requested.disconnect(on_note)
+	goals.testing = false
+	goals.load_data({})
+	SideStory.testing = false
+	SideStory.load_data(kept_side)
+	Relations.load_data(kept_rel)
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	Economy.money = kept_money
+	player.global_position = kept_pos
+	await _seconds(1.0)
+
+
+## The fair with the town at it, the honesty box's card on the market's counter, and
+## Zeynep with Karamel by the Ferris wheel.
+func _town16_shots(dir: String, town: Town, home: ZeynepHome) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	var player: Player = Game.player
+	var eye := Vector3(227.4, 0.0, -6.5)
+	eye.y = TerrainData.height(eye.x, eye.z) + 0.1
+	player.global_position = eye
+	_look_at(player, Vector3(222.5, eye.y + 0.6, -22.0))
+	await _shot(dir + "/fair_crowd.png")
+	var counter := town.market_counter.global_position
+	player.global_position = Vector3(counter.x - 0.3, counter.y - 0.55, counter.z - 1.5)
+	_look_at(player, Vector3(counter.x - 0.3, counter.y + 0.45, counter.z))
+	await _shot(dir + "/honesty_card.png")
+	var z := home.zeynep.global_position
+	player.global_position = z + Vector3(2.6, 0.1, 3.4)
+	_look_at(player, z + Vector3(0.0, 0.9, 0.0))
+	await _shot(dir + "/zeynep_fair.png")
+
+
+## The field's goals never stall on a field the farmer has done already: every bed tilled
+## before the "till three more" goal came up, everything sown, everything watered.
+func _scenario_fields17() -> void:
+	await _close_screens()
+	var plots: Array[FarmPlot] = []
+	for n in tree.get_nodes_in_group(&"farm_plots"):
+		plots.append(n as FarmPlot)
+	var kept: Array = []
+	for p in plots:
+		kept.append([p.soil, p.crop, p.wet_hours, p.withered])
+	var step_was := Quests.step
+	var count_was := Quests.step_count
+	var go := func(id: String) -> void:
+		Quests.step = Quests.index_of(id)
+		Quests.step_count = 0
+		Quests._poll = 0.0
+		await _idle_frames(3)
+	# Every bed tilled and empty already: no ground left to till, the goal passes.
+	for p in plots:
+		p.soil = FarmPlot.Soil.TILLED
+		p.crop = &""
+	await go.call("till2")
+	_check(Quests.passed("till2"), "every bed tilled before the goal came up: \"till three more\" passes at once")
+	# Some ground left but three beds ready to sow: passes too.
+	plots[0].soil = FarmPlot.Soil.UNTILLED
+	await go.call("till2")
+	_check(Quests.passed("till2"), "three tilled beds ready to sow: the tilling passes")
+	# Not enough ready and ground to till: it waits for the hoe.
+	for i in plots.size():
+		plots[i].soil = FarmPlot.Soil.UNTILLED if i >= 2 else FarmPlot.Soil.TILLED
+	await go.call("till2")
+	_check(not Quests.passed("till2") and Quests.current()["id"] == "till2", "two beds ready and ground left: the goal asks for the hoe")
+	# Every bed sown: nothing free to sow, nothing to till: the sowing passes.
+	for p in plots:
+		p.soil = FarmPlot.Soil.TILLED
+		p.crop = &"potato"
+		p.wet_hours = 5.0
+	await go.call("sow")
+	_check(Quests.passed("sow"), "no bed free and none to till: the sowing passes")
+	# Every sown bed wet (watered, or rain): nothing to water, the watering passes.
+	for p in plots:
+		p.soak()
+	await go.call("water2")
+	_check(Quests.passed("water2"), "no dry bed: the watering passes")
+	await go.call("water3")
+	_check(Quests.passed("water3"), "no dry bed on the third morning either: it passes")
+	for i in plots.size():
+		plots[i].soil = kept[i][0]
+		plots[i].crop = kept[i][1]
+		plots[i].wet_hours = kept[i][2]
+		plots[i].withered = kept[i][3]
+	Quests.step = step_was
+	Quests.step_count = count_was
+

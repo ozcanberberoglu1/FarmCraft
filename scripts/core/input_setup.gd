@@ -20,10 +20,16 @@ static func register_actions() -> void:
 	_key(&"pause", KEY_ESCAPE)
 	_key(&"debug_overlay", KEY_F3)
 	_key(&"screenshot", KEY_F12)
+	# Test shortcuts (TestKeys, while Settings.test_shortcuts is on).
+	_key(&"test_time_fast", KEY_F6)
+	_key(&"test_skip_night", KEY_F7)
+	_key(&"test_plus_hour", KEY_F8)
 	_key(&"vehicle_camera", KEY_V)
 	_key(&"vehicle_lights", KEY_L)
 	# Whistling for the farmer's own dog (Pet).
 	_key(&"whistle", KEY_H)
+	# Taking hold of an animal: a bird into the arms, a halter on a big one (AnimalHandler).
+	_key(&"handle", KEY_G)
 	_mouse(&"use", MOUSE_BUTTON_LEFT)
 	_mouse(&"secondary", MOUSE_BUTTON_RIGHT)
 	_mouse(&"hotbar_prev", MOUSE_BUTTON_WHEEL_UP)

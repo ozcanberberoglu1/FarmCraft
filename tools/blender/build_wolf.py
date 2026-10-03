@@ -9,27 +9,32 @@ Source: the same "Dog" by Yury Misiyuk (Tim0) on Sketchfab, CC-BY-4.0, that Kara
 built from (tools/blender/build_dog.py; art/models/animals/dog/source/dog_source.glb), so
 the wolf has Karamel's skeleton and DogRig's procedural animation drives it (WolfRig).
 Here the young Labrador is made into an Anatolian grey wolf:
-  - the floppy ears laid flat against the skull (the flaps pressed onto it, their pink
-    linings sunk inside) and new erect ears made for it: pointed, cupped, thick at the
-    root, their hollows facing forward, set high on the skull;
+  - the floppy ears cut away (the holes closed) and new erect ears made for it: broad,
+    cupped, thick, with blunt, rounded tips, their hollows facing forward, set wide on
+    the skull;
   - reshaped (source units, facing +Y): long legs (the lower legs stretched, the body
     raised on them), big paws, a longer, narrower body with a deep chest and a tucked-up
-    belly, a long, narrow muzzle with a gentler stop and tight lips, a longer tail;
+    belly, wide cheekbones and a long, narrow muzzle with a gentler stop and tight lips
+    (a wedge of a head), a longer tail;
     scaled to 72 cm at the withers standing on z = 0, centred between its feet;
   - skinned to the dog's skeleton (same bone names, see build_dog.bone_specs), the new
     ears on their own two bones each;
-  - recoloured from the dog's painted coat to a grizzled grey wolf (the painted hair kept
-    as the detail): a dark saddle over the back with black-tipped hair, buff-grey flanks,
-    tawny legs with a dark line down the front of the forelegs, cream under the throat,
-    chest and belly, white cheeks and lips, a pale brow over dark-rimmed eyes, a black
-    tail tip, tawny backs of the ears with dark rims and pale hair inside; a normal map
-    from the hair strokes and a roughness map (wet nose, glossy lips);
-  - given eyes of their own (Eyes: two small balls in the sockets, skinned to the head;
-    WolfRig's eye shader paints the amber iris and makes them shine back a light near
-    the viewer);
-  - given shell fur like Karamel's but long: a thick ruff round the neck and cheeks, a
-    heavy coat over the shoulders and back, breeches on the thighs and a bushy tail;
-    short on the face, legs and ears (FUR_MAX over UV2.y).
+  - recoloured from the dog's painted coat to a Eurasian grey wolf (the painted hair kept
+    as the detail): a dark saddle over the back with black-tipped hair and a dark band
+    down in front of the shoulder, buff-grey flanks, a tawny nape, tawny legs with a dark
+    line down the front of the forelegs, cream-white under the throat, chest and belly,
+    white cheeks, muzzle sides and lips, a tawny-grey bridge, a pale brow over
+    dark-rimmed eyes, the dark spot of the tail's gland and a black tail tip, tawny backs
+    of the ears with dark rims and cream hair in the hollows; a normal map from the hair
+    strokes and a roughness map (wet nose, glossy lips);
+  - given eyes of their own (Eyes: small, the openings slanting up toward the ears, over
+    the sockets, skinned to the head; WolfRig's eye shader paints the amber iris and
+    makes them shine back a light near the viewer);
+  - given shell fur like Karamel's but long: a heavy mane over the neck and withers, a
+    thick ruff round the neck, a cheek ruff flaring behind the eyes, a heavy coat over
+    the shoulders and back, breeches on the thighs and a bushy tail; shorter on the
+    face and legs, a close coat on the backs of the ears and long pale hair in their
+    hollows (FUR_MAX over UV2.y).
 It also builds the wolf pelt item's model (wolf_pelt.gltf: a folded grey pelt, the tail
 hanging off it) from the same coat.
 """
@@ -61,11 +66,11 @@ LEG_SPAN = (1.5, 7.0)
 LEG_GROW = 0.62
 BODY_SPAN = (-5.0, 4.0)
 BODY_GROW = 0.08
-TUCK = 2.6
+TUCK = 2.0
 STOP_Y = 14.4
 MUZZLE_GROW = 0.42
 NARROW = 0.86
-PAW_GROW = 1.04
+PAW_GROW = 1.12
 ## The lower legs slimmed (their girth's share kept), along these bones (source units,
 ## the right legs: elbow, wrist, knuckle; stifle, hock, knuckle).
 LEG_SLIM = 0.74
@@ -82,14 +87,14 @@ TAIL_GROW = 1.6
 ## The new ears (source units, the right one; the left mirrors it): the middle of the
 ## root on the skull, height, half-width at the root, the hollow's depth, the thickness,
 ## and their turns (radians): the hollow toward the outside, the tip out and back.
-EAR_ROOT = np.array([2.0, 12.7, 23.35])
-EAR_H = 3.6
-EAR_W = 1.25
-EAR_CUP = 0.5
-EAR_THICK = 0.26
-EAR_YAW = 0.32
-EAR_ROLL = 0.3
-EAR_PITCH = 0.2
+EAR_ROOT = np.array([2.25, 12.6, 23.1])
+EAR_H = 3.5
+EAR_W = 1.6
+EAR_CUP = 0.62
+EAR_THICK = 0.5
+EAR_YAW = 0.34
+EAR_ROLL = 0.36
+EAR_PITCH = 0.22
 ## Where the ears' faces lie in the coat texture (free space in the dog's atlas): the
 ## front (hollow) and the back, (u0, v0, u1, v1).
 EAR_UV_FRONT = (0.03, 0.03, 0.125, 0.34)
@@ -102,14 +107,17 @@ EAR_NV = 9
 ## their height, and how far out of the head the eye mesh stands.
 ## Where the dog's painted eyes are (source units, the right one).
 EYE_CENTRE = np.array([1.67, 17.02, 21.71])
-EYE_A = 0.52
-EYE_B = 0.36
+EYE_A = 0.46
+EYE_B = 0.3
 EYE_OUT = 0.05
+## The eyes set obliquely: the opening's long axis turned (radians), its outer corner up
+## toward the ear.
+EYE_TILT = 0.3
 TEX_SIZE = 1024
 FUR_TRIS = 7000
 FUR_LAYERS = 14
 ## Longest fur (m): UV2.y is the fur length over this.
-FUR_MAX = 0.07
+FUR_MAX = 0.09
 ## Part ids per vertex: 0 body, 1/2 the dog's ear linings (sunk), 3/4 the new ears.
 EAR_L, EAR_R = 3, 4
 
@@ -365,8 +373,9 @@ def ear_point(side, u, v, face):
     across, back, up = ear_basis(side)
     root = EAR_ROOT * np.array([side, 1.0, 1.0])
     uu = max(u, 0.0)
-    # Half-width: full at the root, the sides a little convex, to a point at the tip.
-    w = EAR_W * (1.0 - uu) ** 0.8 * (1.0 + 0.3 * uu) + 0.015
+    # Half-width: full at the root, the sides convex, to a blunt, rounded tip (a wolf's
+    # ears are broad and thick, not a shepherd dog's long points).
+    w = EAR_W * (1.0 - uu) ** 0.55 * (1.0 + 0.2 * uu) * (1.0 - 0.12 * uu * uu) + 0.04
     # The hollow: deepest in the middle, low down; the back follows it a thickness behind,
     # the two meeting at the rim.
     cup = EAR_CUP * (1.0 - v * v) * (1.0 - 0.6 * uu)
@@ -494,6 +503,10 @@ def build_eyes(obj, part, eyes):
         v = np.cross(n, h)
         if v[2] < 0:
             v = -v
+        # The oval's long axis toward the outer corner (back along the head), turned up
+        # by EYE_TILT: the shader's almond lies along it, slanting up toward the ear.
+        h = -h
+        h, v = h * math.cos(EYE_TILT) + v * math.sin(EYE_TILT), v * math.cos(EYE_TILT) - h * math.sin(EYE_TILT)
         vmap = {}
         for p in me.polygons:
             vs = list(p.vertices)
@@ -611,6 +624,11 @@ def grow(P, part=None):
     # The skull a little narrower (and the new ears with it).
     skull = smoothstep(9.5, 11.5, Q[:, 1]) * smoothstep(15.0, 18.0, Q[:, 2]) * ((part == 0) | (part >= EAR_L))
     Q[:, 0] = Q[:, 0] * (1.0 - 0.05 * skull)
+    # The cheekbones wider behind and below the eyes (the skull broad there, the muzzle
+    # narrow ahead of it: a wolf's wedge of a head).
+    cheek = smoothstep(11.5, 13.0, Q[:, 1]) * smoothstep(17.2, 15.4, Q[:, 1]) * smoothstep(16.6, 18.0, Q[:, 2]) \
+        * smoothstep(22.6, 21.0, Q[:, 2]) * body
+    Q[:, 0] = Q[:, 0] * (1.0 + 0.08 * cheek)
     # The neck drawn out: the head and the top of the neck forward of the shoulders.
     y, z = Q[:, 1], Q[:, 2]
     up = smoothstep(13.0, 16.0, z) * ((part == 0) | (part >= EAR_L))
@@ -765,73 +783,97 @@ def value_noise(P, scale, seed):
 
 
 def coat_colour(P):
-    """The grey wolf's coat by where a texel is on the body (source units, facing +Y,
-    before reshaping; sRGB): a grizzled grey with a dark saddle, countershaded cream
-    below, tawny legs, the face's pattern."""
+    """The Eurasian grey wolf's coat by where a texel is on the body (source units, facing
+    +Y, before reshaping; sRGB): buff-grey agouti flanks under a dark, black-tipped saddle
+    with a dark band down in front of the shoulder, tawny behind the ears, down the neck
+    and on the outside of the legs, countershaded cream-white below (throat, chest bib,
+    belly, the insides of the legs); the face pale (white muzzle sides, cheeks and throat,
+    a pale brow) with a tawny-grey bridge and crown and a dark lip line; the tail grey
+    above with the dark spot of its gland and a black tip, buff beneath."""
     x, y, z = P[..., 0], P[..., 1], P[..., 2]
     ax = np.abs(x)
-    # Flanks: grizzled grey with a little buff.
-    col = np.broadcast_to(C(0.45, 0.42, 0.375), P.shape).copy()
-    # Legs: tawny outside, paling to cream at the paws.
-    legs = smoothstep(9.0, 6.0, z)
-    col = mix(col, C(0.6, 0.5, 0.38), legs)
-    col = mix(col, C(0.74, 0.68, 0.58), smoothstep(4.0, 1.5, z))
-    # The saddle: dark, black-tipped hair from the top of the neck over the shoulders,
-    # the back and the rump to the tail; it shades off down the sides.
-    saddle = smoothstep(11.5, 16.0, z) * smoothstep(3.2, 1.2, ax) * smoothstep(11.0, 8.5, y) * (y > -12.0)
-    saddle = np.maximum(saddle, smoothstep(13.5, 17.0, z) * smoothstep(11.0, 8.5, y) * (y > -12.0) * 0.7)
-    col = mix(col, C(0.2, 0.185, 0.17), 0.85 * saddle)
-    neck_top = smoothstep(15.5, 19.5, z) * smoothstep(5.0, 7.0, y) * smoothstep(11.5, 10.0, y) * smoothstep(2.8, 1.0, ax)
-    col = mix(col, C(0.26, 0.24, 0.22), 0.7 * neck_top)
-    # Underside, countershaded: chest, belly, the inside of the legs, the throat; cream.
+    # Flanks: buff-grey (the banded hairs read as a warm grey).
+    col = np.broadcast_to(C(0.54, 0.49, 0.42), P.shape).copy()
+    # Legs: tawny outside, paling to buff at the feet.
+    legs = smoothstep(9.5, 6.5, z)
+    col = mix(col, C(0.68, 0.56, 0.42), legs)
+    col = mix(col, C(0.8, 0.73, 0.62), smoothstep(4.0, 1.5, z))
+    # Tawny up the back of the neck, behind and below the ears.
+    nape = smoothstep(7.0, 9.5, y) * smoothstep(12.8, 11.2, y) * smoothstep(15.5, 18.5, z)
+    col = mix(col, C(0.62, 0.5, 0.36), 0.75 * nape)
+    # The saddle: dark, black-tipped hair from the withers over the back and the rump
+    # to the tail, shading off down the sides; the mane over the neck a little paler.
+    saddle = smoothstep(12.0, 16.0, z) * smoothstep(3.0, 1.2, ax) * smoothstep(9.0, 6.5, y) * (y > -12.0)
+    saddle = np.maximum(saddle, smoothstep(14.0, 17.0, z) * smoothstep(9.0, 6.5, y) * (y > -12.0) * 0.7)
+    col = mix(col, C(0.19, 0.175, 0.16), 0.82 * saddle)
+    neck_top = smoothstep(16.0, 19.5, z) * smoothstep(5.0, 7.0, y) * smoothstep(10.5, 9.0, y) * smoothstep(2.6, 1.0, ax)
+    col = mix(col, C(0.3, 0.27, 0.23), 0.6 * neck_top)
+    # The dark band down in front of the shoulder blade.
+    band = smoothstep(2.6, 3.6, y) * smoothstep(5.6, 4.6, y) * smoothstep(9.5, 12.5, z) * smoothstep(15.0, 13.0, z)
+    col = mix(col, C(0.24, 0.21, 0.18), 0.5 * band)
+    # Underside, countershaded: belly, chest, throat, the insides of the legs; cream-white.
     under = smoothstep(10.0, 7.8, z) * smoothstep(-9.5, -6.5, y) * smoothstep(3.0, 1.7, ax)
-    chest = smoothstep(5.5, 8.0, y) * smoothstep(15.0, 12.0, z) * smoothstep(3.0, 1.6, ax)
-    throat = smoothstep(7.0, 9.5, y) * smoothstep(17.5, 15.0, z)
+    chest = smoothstep(5.0, 7.5, y) * smoothstep(15.5, 12.0, z) * smoothstep(3.2, 1.6, ax)
+    throat = smoothstep(7.0, 9.5, y) * smoothstep(18.0, 15.5, z)
     inner = smoothstep(9.5, 4.0, z) * smoothstep(1.9, 1.3, ax) * 0.8
     ttail = smoothstep(-11.0, -13.0, y) * smoothstep(0.2, -0.6, z - (17.0 + (-11.0 - y) * 0.9))
     cream = np.clip(np.maximum.reduce([under, chest, throat, inner, ttail * 0.7]), 0, 1)
-    col = mix(col, C(0.82, 0.78, 0.7), cream)
+    col = mix(col, C(0.88, 0.85, 0.78), cream)
     # The dark line down the front of the forelegs (elbow to wrist).
     fore = smoothstep(9.0, 7.0, z) * smoothstep(2.5, 3.5, z) * smoothstep(4.5, 6.0, y) * smoothstep(1.4, 2.2, ax)
     front = smoothstep(6.4, 7.4, y)
-    col = mix(col, C(0.24, 0.2, 0.17), 0.75 * fore * front)
-    # Head: a grizzled grey crown, a tawny bridge and forehead, a dark spot over each eye
-    # with a pale brow above it, black rims round the eyes; the whole lower face (lips,
-    # chin, cheeks back to the ruff) white-cream.
+    col = mix(col, C(0.26, 0.21, 0.17), 0.7 * fore * front)
+    # Head: a grizzled grey crown and forehead, a tawny-grey bridge darkening toward the
+    # nose, a pale brow over each eye and a thin dark rim round it; the lips, the sides
+    # of the muzzle, the cheeks back to the ruff and the chin white.
     head = smoothstep(10.0, 12.0, y) * smoothstep(17.0, 19.0, z)
-    col = mix(col, C(0.46, 0.42, 0.36), head)
-    crown = smoothstep(11.0, 12.5, y) * smoothstep(22.0, 23.6, z)
-    col = mix(col, C(0.3, 0.28, 0.25), 0.6 * crown)
-    bridge = smoothstep(15.5, 17.5, y) * smoothstep(20.6, 21.6, z)
-    col = mix(col, C(0.55, 0.46, 0.35), 0.75 * bridge)
-    lower = smoothstep(11.0, 13.0, y) * smoothstep(20.8, 19.6, z)
-    col = mix(col, C(0.86, 0.83, 0.77), np.clip(lower, 0, 1))
+    col = mix(col, C(0.5, 0.45, 0.38), head)
+    crown = smoothstep(11.0, 12.5, y) * smoothstep(21.5, 23.4, z)
+    col = mix(col, C(0.36, 0.32, 0.27), 0.55 * crown)
+    forehead = smoothstep(13.5, 15.0, y) * smoothstep(17.0, 15.8, y) * smoothstep(21.8, 22.8, z) * smoothstep(1.4, 0.4, ax)
+    col = mix(col, C(0.36, 0.31, 0.26), 0.5 * forehead)
+    bridge = smoothstep(15.5, 17.5, y) * smoothstep(20.4, 21.4, z)
+    col = mix(col, C(0.56, 0.46, 0.35), 0.75 * bridge)
+    snout = smoothstep(17.8, 19.0, y) * smoothstep(20.2, 21.0, z)
+    col = mix(col, C(0.38, 0.31, 0.25), 0.55 * snout)
+    lower = smoothstep(11.0, 13.0, y) * smoothstep(21.0, 19.8, z)
+    col = mix(col, C(0.9, 0.88, 0.83), np.clip(lower, 0, 1))
     eye = np.array([1.67, 17.02, 21.71])
     de = np.sqrt(((ax - eye[0]) * 1.4) ** 2 + (y - eye[1]) ** 2 + ((z - eye[2]) * 1.3) ** 2)
-    brow = smoothstep(0.9, 0.4, np.sqrt(((ax - 1.6) * 1.4) ** 2 + (y - 16.4) ** 2 + ((z - 22.7) * 1.6) ** 2))
-    col = mix(col, C(0.8, 0.76, 0.68), 0.8 * brow)
-    col = mix(col, C(0.1, 0.09, 0.085), smoothstep(1.0, 0.55, de) * 0.85)
-    # Tail: dark grey on top, paler beneath, the last part black.
+    brow = smoothstep(0.75, 0.3, np.sqrt(((ax - 1.6) * 1.4) ** 2 + (y - 16.6) ** 2 + ((z - 22.5) * 1.6) ** 2))
+    col = mix(col, C(0.84, 0.8, 0.72), 0.65 * brow)
+    # (The pale patch under the eye, into the white cheek.)
+    sub = smoothstep(1.1, 0.5, np.sqrt(((ax - 1.75) * 1.4) ** 2 + (y - 16.6) ** 2 + ((z - 20.9) * 1.6) ** 2))
+    col = mix(col, C(0.88, 0.85, 0.79), 0.7 * sub)
+    col = mix(col, C(0.09, 0.08, 0.075), smoothstep(0.8, 0.5, de) * 0.85)
+    # Tail: grey above with the dark spot of the gland near the root, paler beneath, the
+    # last part black.
     d, length = D.tail_frame()
     t = (P - D.TAIL_BASE) @ d
     tail = smoothstep(-0.3, 0.6, t) * (y < -10.4)
-    col = mix(col, C(0.3, 0.28, 0.26), 0.6 * tail)
-    col = mix(col, C(0.06, 0.055, 0.05), tail * smoothstep(length * 0.72, length * 0.9, t))
+    col = mix(col, C(0.4, 0.37, 0.33), 0.55 * tail)
+    gland = tail * smoothstep(1.3, 0.5, np.abs(t - length * 0.22)) * smoothstep(-0.2, 0.6, z - (D.TAIL_BASE[2] + t * d[2]))
+    col = mix(col, C(0.1, 0.09, 0.085), 0.75 * gland)
+    col = mix(col, C(0.06, 0.055, 0.05), tail * smoothstep(length * 0.72, length * 0.88, t))
     return col
 
 
 def ear_colour(face, u, v):
-    """The new ears' coat (sRGB) by where a texel is on them: the hollow pale with long
-    light hair over a darker skin low down, the back tawny with dark rims and tip."""
+    """The new ears' coat (sRGB) by where a texel is on them: the hollow's long hair
+    cream-white over a darker, greyish skin deep in, toward the tip; the back tawny,
+    greyer at the root, with dark rims and tip."""
     if face == 0:
-        col = C(0.66, 0.62, 0.55) * (0.65 + 0.35 * smoothstep(0.0, 0.5, u))[..., None]
-        rim = smoothstep(0.78, 0.98, np.abs(v))
-        return col * (1 - rim)[..., None] + C(0.16, 0.14, 0.13) * rim[..., None]
-    col = np.broadcast_to(C(0.45, 0.36, 0.27), u.shape + (3,))
-    rim = np.maximum(smoothstep(0.7, 0.95, np.abs(v)), smoothstep(0.7, 0.95, u))
-    col = col * (1 - rim)[..., None] + C(0.08, 0.07, 0.065) * rim[..., None]
-    root = smoothstep(0.25, -0.1, u)
-    return col * (1 - root)[..., None] + C(0.3, 0.27, 0.24) * root[..., None]
+        skin = C(0.5, 0.44, 0.4)
+        hair = C(0.9, 0.87, 0.8)
+        k = smoothstep(0.95, 0.5, u) * (1.0 - smoothstep(0.6, 0.95, np.abs(v)) * 0.35)
+        col = skin * (1 - k)[..., None] + hair * k[..., None]
+        rim = smoothstep(0.82, 0.98, np.abs(v))
+        return col * (1 - rim)[..., None] + C(0.2, 0.17, 0.15) * rim[..., None]
+    col = np.broadcast_to(C(0.6, 0.47, 0.33), u.shape + (3,))
+    rim = np.maximum(smoothstep(0.78, 0.97, np.abs(v)), smoothstep(0.78, 0.98, u))
+    col = col * (1 - rim)[..., None] + C(0.13, 0.11, 0.1) * rim[..., None]
+    root = smoothstep(0.3, -0.1, u)
+    return col * (1 - root)[..., None] + C(0.44, 0.4, 0.35) * root[..., None]
 
 
 def coat_maps(obj, part):
@@ -927,21 +969,32 @@ def fur_length(P, part):
     and round the eyes."""
     x, y, z = P[:, 0], P[:, 1], P[:, 2]
     ax = np.abs(x)
-    L = np.full(len(P), 0.034)
+    L = np.full(len(P), 0.036)
     # The back and the shoulders heavier.
     back = smoothstep(12.0, 16.0, z) * smoothstep(-11.0, -8.0, y)
-    L = np.maximum(L, 0.044 * back)
-    # The ruff: the neck all round, the cheeks behind the eyes, the shoulders.
+    L = np.maximum(L, 0.052 * back)
+    # The ruff: the neck all round and the shoulders, a heavy mane (the hackles) over
+    # the top of the neck and the withers.
     ruff = smoothstep(4.0, 7.0, y) * smoothstep(12.8, 10.8, y) * smoothstep(8.5, 11.5, z)
     ruff = ruff * (1.0 - smoothstep(10.0, 11.5, y) * smoothstep(17.5, 15.5, z))
-    L = np.maximum(L, 0.062 * ruff)
+    L = np.maximum(L, 0.08 * ruff)
+    mane = smoothstep(1.0, 4.5, y) * smoothstep(12.2, 10.6, y) * smoothstep(14.5, 17.0, z)
+    L = np.maximum(L, 0.09 * mane)
     cheek = smoothstep(10.0, 11.5, y) * smoothstep(14.8, 13.4, y) * smoothstep(21.0, 19.0, z) * smoothstep(1.4, 2.5, ax)
-    L = np.maximum(L, 0.04 * cheek)
+    L = np.maximum(L, 0.05 * cheek)
     # Head short, the muzzle bare.
     head = smoothstep(11.8, 13.2, y) * smoothstep(16.0, 18.0, z)
     jaw = smoothstep(11.0, 12.5, y) * smoothstep(15.0, 16.5, z)
     head = np.maximum(head, jaw)
-    L = L * (1 - head) + 0.009 * head
+    L = L * (1 - head) + 0.015 * head
+    # The cheek ruff: the hair behind the eyes and below the ears flaring out and back,
+    # which gives a wolf's face its breadth.
+    flare = smoothstep(11.0, 12.6, y) * smoothstep(16.2, 14.6, y) * smoothstep(21.6, 19.8, z) \
+        * smoothstep(16.4, 17.6, z) * smoothstep(1.0, 2.0, ax)
+    L = np.maximum(L, 0.066 * flare)
+    # A fuller coat over the crown and the back of the skull, between the ears.
+    poll = smoothstep(10.5, 12.0, y) * smoothstep(15.0, 13.4, y) * smoothstep(21.0, 22.5, z)
+    L = np.maximum(L, 0.03 * poll)
     muzzle = smoothstep(14.8, 15.8, y)
     L = L * (1 - muzzle) + 0.003 * muzzle
     L = L * (1 - smoothstep(18.0, 19.0, y) * smoothstep(19.0, 20.0, z))
@@ -954,14 +1007,14 @@ def fur_length(P, part):
     L = L * (1 - paws)
     # Breeches on the backs of the thighs, feathering behind the forelegs.
     breeches = smoothstep(-8.5, -11.0, y) * smoothstep(5.0, 8.0, z) * smoothstep(14.5, 11.0, z)
-    L = np.maximum(L, 0.048 * breeches)
+    L = np.maximum(L, 0.06 * breeches)
     fore_back = smoothstep(4.0, 6.5, z) * smoothstep(8.5, 7.0, z) * smoothstep(5.8, 4.8, y) * smoothstep(3.2, 6.0, y)
     L = np.maximum(L, 0.02 * fore_back)
     # Tail: bushy, thickest along its middle.
     d, length = D.tail_frame()
     t = (P - D.TAIL_BASE) @ d
     tail = smoothstep(-0.5, 0.5, t) * (y < -10.4)
-    L = L * (1 - tail) + 0.066 * tail * (0.7 + 0.3 * np.sin(np.clip(t / length, 0, 1) * math.pi))
+    L = L * (1 - tail) + 0.084 * tail * (0.75 + 0.25 * np.sin(np.clip(t / length, 0, 1) * math.pi))
     # None over the eyes and close round them (the eyes' own mesh shows there).
     for side in (-1.0, 1.0):
         e = EYE_CENTRE * np.array([side, 1.0, 1.0])
@@ -971,7 +1024,7 @@ def fur_length(P, part):
     return L
 
 
-def build_fur(body, part, dark_v, ear_face):
+def build_fur(body, part, dark_v, ear_face, ear_u):
     """FUR_LAYERS copies of a lighter body; UV2 = (layer / FUR_LAYERS, length / FUR_MAX).
     The source position rides along through the decimation for the fur's length."""
     src = body.copy()
@@ -984,6 +1037,7 @@ def build_fur(body, part, dark_v, ear_face):
     info[:, 0] = part / 4.0
     info[:, 1] = dark_v
     info[:, 2] = ear_face
+    info[:, 3] = ear_u
     a.data.foreach_set("color", info.astype(np.float32).ravel())
     sp = me.attributes.new("src_pos", "FLOAT_COLOR", "POINT")
     spos = np.zeros((len(me.vertices), 4))
@@ -1005,9 +1059,12 @@ def build_fur(body, part, dark_v, ear_face):
     sp = sp.reshape(-1, 4)[:, :3]
     vpart = np.round(col[:, 0] * 4.0).astype(np.int64)
     L = fur_length(sp, vpart) * (1.0 - smoothstep(0.2, 0.6, col[:, 1]))
-    # The new ears: a short coat on the back (face 1) only.
+    # The new ears: a close, thick coat on the back (face 1), thinning to the tip; in the
+    # hollow (face 0) long pale hair standing out of it low down, none near the tip.
     ears = vpart >= EAR_L
-    L[ears] = np.where(col[ears, 2] > 0.5, 0.006, 0.0)
+    eu = col[ears, 3]
+    L[ears] = np.where(col[ears, 2] > 0.5, 0.014 * (1.0 - 0.6 * smoothstep(0.5, 1.0, eu)),
+                       0.03 * smoothstep(0.9, 0.35, eu))
     Wsrc = np.zeros((nv, len(BONE_NAMES)))
     for v in me.vertices:
         for g in v.groups:
@@ -1327,7 +1384,9 @@ def main():
     ear_face = np.zeros(len(me.vertices))
     n_old = len(me.vertices) - len(ear_info)
     ear_face[n_old:] = [f for (_u, _v, f) in ear_info]
-    fur = build_fur(body, part, dv, ear_face)
+    ear_u = np.zeros(len(me.vertices))
+    ear_u[n_old:] = [u for (u, _v, _f) in ear_info]
+    fur = build_fur(body, part, dv, ear_face, ear_u)
     fur.parent = arm
     fm = fur.modifiers.new("Armature", "ARMATURE")
     fm.object = arm

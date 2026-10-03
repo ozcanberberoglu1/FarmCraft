@@ -65,6 +65,9 @@ const SETS := {
 	# end, the crowd's applause, the winner's fanfare.
 	"contest_horn": ["sfx/contest/horn.ogg"], "applause": ["sfx/contest/applause.ogg"],
 	"fanfare": ["sfx/contest/fanfare.ogg"],
+	# Its crowd (tools/build_contest_crowd_audio.py): a call or a laugh now and then, the
+	# cheer at a new biggest fish.
+	"crowd_call": "sfx/contest/crowd_call_%d.ogg", "crowd_cheer": "sfx/contest/cheer_%d.ogg",
 }
 ## Looping beds and engines, cross-faded so recordings that don't loop cleanly never click.
 const LOOPS := {
@@ -77,6 +80,9 @@ const LOOPS := {
 	"hooves_road": "sfx/animals/horse_trot_road.mp3",
 	# The fairground's crowd on a carnival night (Carnival.crowd_level).
 	"carnival_crowd": "ambience/carnival_crowd.ogg",
+	# The fishing contest's crowd round the town pond (FishingContest.crowd_level): the
+	# same people's murmur, heard from the pond (positional).
+	"contest_crowd": "ambience/carnival_crowd.ogg",
 }
 const DAY_MUSIC: Array[String] = ["music/day_relaxing_country.mp3", "music/day_relaxing_in_nature.mp3",
 	"music/day_wind_leaves.mp3", "music/day_the_long_road.mp3"]
@@ -182,7 +188,7 @@ func _ready() -> void:
 	_music.finished.connect(func() -> void: _music_gap = 1.0 if _music_state == "carnival" else randf_range(45.0, 110.0))
 	add_child(_music)
 	for key: String in LOOPS:
-		var positional: bool = key in ANIMAL_BEDS or key in ["engine", "hooves_walk", "hooves_gallop", "hooves_road"]
+		var positional: bool = key in ANIMAL_BEDS or key in ["engine", "hooves_walk", "hooves_gallop", "hooves_road", "contest_crowd"]
 		_loops[key] = Loop.new(self, _stream(LOOPS[key]), positional, &"Effects" if key.begins_with("engine") or key.begins_with("hooves") else &"Ambience")
 	Events.lightning.connect(_on_lightning)
 	Events.money_changed.connect(_on_money)
@@ -626,6 +632,7 @@ func _update_ambience(delta: float, in_world: bool, probe: bool) -> void:
 	(_loops["rain"] as Loop).update(delta, clampf(rain * 1.6, 0.0, 1.0) * 0.8 * gate)
 	(_loops["rain_heavy"] as Loop).update(delta, clampf((rain - 0.55) * 2.2, 0.0, 1.0) * 0.8 * gate)
 	(_loops["carnival_crowd"] as Loop).update(delta, (Carnival.crowd_level() * 0.9 * inside) if in_world else 0.0)
+	(_loops["contest_crowd"] as Loop).update(delta, FishingContest.crowd_level() if in_world else 0.0, FishingContest.crowd_point())
 	# Animal housing hums with its animals (positional, at the buildings), only with the
 	# animals each recording is of.
 	if probe:

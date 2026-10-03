@@ -13,6 +13,7 @@ extends Node3D
 ##     and a balloon seller's cart around it, a carousel with its horses, and a Ferris
 ##     wheel whose rim and spokes are ringed with bulbs, turning slowly
 ##   - fireworks (CarnivalFireworks) when the fun starts at 20:00 and again before 23:00
+##   - the whole town at the fair meanwhile (CarnivalCrowd, a child of this node)
 ##
 ## Hundreds of bulbs cost little: they are multimesh instances of one small sphere whose
 ## shader (carnival_bulb.gdshader) makes them glow, shimmer, chase along their strings or
@@ -91,6 +92,11 @@ func _ready() -> void:
 	town = get_parent() as Town
 	Carnival.began.connect(_on_began)
 	Settings.changed.connect(_apply_quality)
+	# The whole town comes to the fair (after the townspeople are in: Town adds them first).
+	var crowd := CarnivalCrowd.new()
+	crowd.town = town
+	crowd.carnival = self
+	add_child(crowd)
 
 
 func _process(delta: float) -> void:
@@ -149,6 +155,11 @@ func _update_fireworks(delta: float) -> void:
 func _on_began() -> void:
 	_show_left = 24.0
 	_next_shell = 0.8
+
+
+## The fireworks' show is on (the opening one, or the finale): the crowd claps.
+func show_on() -> bool:
+	return root != null and Carnival.is_on() and (_show_left > 0.0 or GameClock.minute >= Carnival.END_MINUTE - 20)
 
 
 # --- Building ----------------------------------------------------------------------------

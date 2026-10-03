@@ -41,6 +41,8 @@ const EAT_TIME := 10.0
 const GREET_GAP := 0.95
 const ANIMATE_RANGE := 50.0
 const SHOW_RANGE := 90.0
+## How far its body keeps off a vehicle's (m: half its length, Vehicle.keep_out).
+const CAR_KEEP := 0.48
 ## Roaming, what it does next and how likely it is (weights), and for how long (s).
 enum Act { STAND, WANDER, SNIFF, SIT, LIE }
 const ACT_WEIGHTS := {Act.STAND: 3.0, Act.WANDER: 4.0, Act.SNIFF: 2.5, Act.SIT: 2.0, Act.LIE: 1.5}
@@ -520,9 +522,12 @@ func _move(delta: float) -> void:
 	rotation.y = _yaw
 	if _speed > 0.001:
 		var fwd := Vector3(-sin(_yaw), 0.0, -cos(_yaw))
-		var next := global_position + fwd * _speed * delta
+		var step := fwd * _speed * delta
+		# Never into a vehicle (its body would shove it): along its side, or stopped.
+		var next := Vehicle.keep_out(global_position, global_position + step, CAR_KEEP)
+		var moves := _flat(next - global_position).length() > step.length() * 0.05
 		# Set down outside its garden, it may only come back in.
-		if _inside(next, fwd) or _outside_by(next) < _outside_by(global_position) - 0.0001:
+		if moves and (_inside(next, fwd) or _outside_by(next) < _outside_by(global_position) - 0.0001):
 			global_position = next
 		else:
 			_speed = 0.0

@@ -10,7 +10,10 @@ extends RefCounted
 ##     at the origin; the float's waterline is at the origin).
 ##   mesh: the item's model (held, dropped, icons): fish sized to a hand's length.
 ##   flop_mesh: the real mesh drawn with shaders/fish.gdshader, whose body bends by the
-##     instance parameters flex (tail beat, 0..1), flex_phase (radians) and curl (arch).
+##     instance parameters flex (tail beat, 0..1), flex_phase (radians) and curl (arch);
+##     the thin fins (two-sided in the model) with shaders/fish_fin.gdshader.
+## The skin is single-sided, wound facing out: the body is opaque and hides the far flank
+## and the far eye (tools/blender/make_fishing.py).
 
 const DIR := "res://art/models/fish/"
 ## The rod's tip ring (the line leaves it) in its model space.
@@ -87,15 +90,17 @@ static func flop_mesh(id: StringName) -> ArrayMesh:
 	return m
 
 
-## A bending copy of a model's material (shared by every fish of the species).
+## A bending copy of a model's material (shared by every fish of the species): culled
+## like the source (the body's back faces, never the fins').
 static func flop_material(source: Material, half_length: float) -> ShaderMaterial:
 	var key := [source, snappedf(half_length, 0.001)]
 	if _flop_mats.has(key):
 		return _flop_mats[key]
 	var sm := ShaderMaterial.new()
-	sm.shader = load("res://shaders/fish.gdshader")
-	sm.set_shader_parameter("half_length", half_length)
 	var std := source as BaseMaterial3D
+	var two_sided := std != null and std.cull_mode == BaseMaterial3D.CULL_DISABLED
+	sm.shader = load("res://shaders/fish_fin.gdshader" if two_sided else "res://shaders/fish.gdshader")
+	sm.set_shader_parameter("half_length", half_length)
 	if std:
 		sm.set_shader_parameter("albedo", std.albedo_color)
 		if std.albedo_texture:

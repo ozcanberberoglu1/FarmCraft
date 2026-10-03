@@ -37,7 +37,8 @@ extends Node
 ##
 ## Other side goals can be up at the same time as hers (`goals`: SideGoal, each on a card
 ## of its own with a dot of its own): the wolves' lesson and the vet's (WolfRaids) add and
-## take away theirs.
+## take away theirs, and day two's getting to know the town (TownGoals: town_goals, kept
+## and saved here).
 
 ## The side goal, its dot or its hint changed (the HUD refreshes).
 signal changed
@@ -122,6 +123,8 @@ var testing := false
 var test_kind := ""
 ## The other side goals up now, besides Zeynep's (in the order their cards show).
 var goals: Array[SideGoal] = []
+## Day two's quiet goals in town (meet the townspeople, the vet, the filling station).
+var town_goals: TownGoals
 
 ## When she last opened the door to a knock with nothing to bring (GameClock.total_minutes).
 var _last_knock := -INF
@@ -136,6 +139,9 @@ var _banner_wait := 1.5
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
+	town_goals = TownGoals.new()
+	town_goals.name = "TownGoals"
+	add_child(town_goals)
 	Events.day_started.connect(func(_d: int) -> void: _poll = 0.0)
 	PlayerState.inventory.changed.connect(func() -> void: _poll = 0.0)
 	Mail.opened.connect(_on_letter_opened)
@@ -432,6 +438,10 @@ func _target(g: String) -> Variant:
 	var out := home.zeynep_outside()
 	if g == "meet" or g.ends_with("_bring") or not g.ends_with("_buy"):
 		_label = tr("PERSON_ZEYNEP")
+		if home.at_event():
+			# Out at the town's event: her door, for when it is over.
+			_hint = tr("SIDE_HINT_AT_EVENT")
+			return home.door_point()
 		if g == "meet":
 			if out:
 				_hint = tr("SIDE_HINT_MEET")
@@ -645,7 +655,7 @@ func save_data() -> Dictionary:
 	return {"met": met, "met_day": met_day, "errand": errand.duplicate(), "next": next_errand_day,
 		"deliveries": deliveries, "gift_day": gift_day, "announced": announced, "chat_day": chat_day,
 		"turn": turn, "puppy_day": puppy_day, "puppy_letter": puppy_letter, "invite_sent": invite_sent,
-		"visit_day": visit_day}
+		"visit_day": visit_day, "town": town_goals.save_data()}
 
 
 ## After GameClock.load_data.
@@ -663,6 +673,7 @@ func load_data(data: Dictionary) -> void:
 	puppy_letter = bool(data.get("puppy_letter", false))
 	invite_sent = bool(data.get("invite_sent", false))
 	visit_day = int(data.get("visit_day", 0))
+	town_goals.load_data(data.get("town", {}))
 	_last_knock = -INF
 	_goal = goal()
 	_waypoint = null

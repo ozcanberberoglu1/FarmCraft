@@ -6,8 +6,9 @@ extends Node3D
 ## few layered motions instead of clips:
 ##
 ##   stance      breathing, the weight shifting from foot to foot, relaxed arms
-##   walk        a heel-to-toe gait: planted feet (leg IK), pelvis bob, sway and
-##               twist, counter-rotating shoulders, swinging arms
+##   walk        a heel-to-toe gait: feet planted in the world (leg IK) rolling heel,
+##               flat, toes; a bent-knee swing; pelvis bob, sway, drop and twist,
+##               counter-rotating shoulders, arms swinging from the shoulders
 ##   sit         on a bench or a chair, hands on the thighs
 ##   kneel       down on one knee (by a dog), the toes of that foot tucked under, the
 ##               other foot flat in front
@@ -60,9 +61,16 @@ var _pelvis_rest_local := Vector3.ZERO
 var pelvis_y := 0.9
 var leg_len := 0.84
 var ankle_y := 0.07
-## Walk state: phase of the gait (0..1 at the left heel strike) and the blend in.
+## Walk state: phase of the gait (0..1 at the left heel strike).
 var gait_phase := 0.0
-var _walk_blend := 0.0
+## How this person walks (the townsperson sets it; 1 an average adult): the length of
+## the steps, how far the arms swing, how much the body rises, sways and turns, how far
+## the feet roll from the heel to the toes, and a stoop (radians forward).
+var gait_stride := 1.0
+var gait_arms := 1.0
+var gait_bounce := 1.0
+var gait_roll := 1.0
+var gait_stoop := 0.0
 var _look := Vector2.ZERO
 var _materials: Array[BaseMaterial3D] = []
 
@@ -818,7 +826,12 @@ func wobble(rate: float, k: float) -> float:
 func stance(lean := 0.0, arms := true) -> void:
 	var breath := sin(time * 1.55 + seed_phase)
 	var shift := wobble(0.55, 1.0)
-	move_pelvis(Vector3(shift * 0.03, -0.012 - absf(shift) * 0.012, 0.0))
+	var y := -0.012 - absf(shift) * 0.012
+	# (just stopped walking: the pelvis rises back from the walk's as the feet settle)
+	var u := (time - _walk_at) / SETTLE
+	if u >= 0.0 and u < 1.0:
+		y = lerpf(_walk_pelvis, y, smoothstep(0.0, 1.0, u))
+	move_pelvis(Vector3(shift * 0.03, y, 0.0))
 	rot_z(&"pelvis", -shift * 0.045)
 	rot_y(&"pelvis", wobble(0.3, 2.0) * 0.06)
 	rot_z(&"spine_02", shift * 0.035)
@@ -828,9 +841,10 @@ func stance(lean := 0.0, arms := true) -> void:
 	rot_z(&"clavicle_l", breath * 0.012)
 	rot_z(&"clavicle_r", -breath * 0.012)
 	for side: String in ["_l", "_r"]:
-		var foot := pos_rest("foot" + side) + Vector3(0.0, 0.0, 0.02)
-		foot.x *= 1.08
-		step(side, foot, Vector3(signf(foot.x) * 0.15, 0, 1))
+		var foot := _settled_foot(side)
+		var at: Vector3 = foot[0]
+		step(side, at, Vector3(signf(at.x) * 0.15, 0, 1))
+		_settle_turn(side, foot[1])
 	if arms:
 		relaxed_arms()
 
@@ -875,79 +889,284 @@ func pose_between(side: String, a: Array, b: Array, t: float, pole: Vector3, cur
 	curl(side, lerpf(curl_a, curl_b, t), lerpf(0.35, 0.6, t))
 
 
-## One step of the gait at `speed` m/s (the phase advances by `delta`). The feet roll
-## heel to toe and stay planted while on the ground (leg IK), the pelvis rides over them.
-func walk(delta: float, speed: float, stride_scale := 1.0, arms := true) -> void:
-	var stride := clampf(0.55 + speed * 0.5, 0.8, 1.55) * stride_scale
-	var freq := speed / stride
-	gait_phase = fposmod(gait_phase + delta * freq, 1.0)
+## One frame of the gait at `speed` m/s (the phase advances by `delta`), on ground that
+## rises `slope` metres a metre to the left (x) and forward (y). Each foot is a heel
+## strike, the foot rolling down flat, the heel rising and the toes pushing off, then a
+## swing: the knee bends as the heel comes up behind, the foot clears the ground in an
+## arc and reaches forward toes up for the next heel strike. A foot on the ground stays
+## where it is in the world while the body moves on (no sliding, whatever the speed or a
+## turn); the swing goes from where it left the ground to where it will land. The pelvis
+## rides as high as the standing leg allows with its knee soft (a few centimetres up and
+## down twice a stride), sways over the standing foot, drops on the swinging side and
+## turns with the forward leg; the chest turns against it, the head stays steady and the
+## arms swing from the shoulders against the legs. The steps lengthen and quicken with
+## the speed (about 108 a minute at 1.1 m/s); slow, it is a shorter, flatter step.
+func walk(delta: float, speed: float, stride_scale := 1.0, arms := true, slope := Vector2.ZERO) -> void:
+	var a := smoothstep(0.0, 0.8, speed)
+	var hip_h := leg_len + ankle_y
+	var hs := hip_h / 0.88
+	var step_len := STEP * 0.88 * sqrt(hs) * pow(maxf(speed, 0.01) / 1.1, STEP_EXP) * gait_stride * stride_scale
+	var stride := step_len * 2.0
+	var g := global_transform
+	# Where the feet were: carried along with the body's move since the last frame (a jump,
+	# or a while without walking: both feet down where she stands, the left about to go).
+	var fresh := time - _walk_at > 0.6
+	if not fresh:
+		var m := g.affine_inverse() * _walk_xf
+		if m.origin.length() > 1.2 or absf(m.basis.get_euler().y) > 0.9:
+			fresh = true
+		else:
+			for k in 2:
+				_plant[k] = m * _plant[k]
+	if fresh:
+		gait_phase = TOE_OFF - 0.05
+		for k in 2:
+			_plant[k] = _stand_spot("_l" if k == 0 else "_r")
+			_down[k] = true
+	_walk_xf = g
+	_walk_at = time
+	gait_phase = fposmod(gait_phase + delta * speed / stride, 1.0)
 	var p := gait_phase
-	var hips := {}
-	var ankles := {}
-	var pitches := {}
-	var reach_y := pelvis_y
-	for side: String in ["_l", "_r"]:
-		var ph := fposmod(p + (0.0 if side == "_l" else 0.5), 1.0)
-		var foot := _foot_path(ph, stride, speed)
-		var ankle := Vector3(pos_rest("foot" + side).x * 0.9, ankle_y + foot.y, foot.x)
-		ankles[side] = ankle
-		pitches[side] = foot.z
-		var hip := pos_rest("thigh" + side)
-		hips[side] = hip
-		var horiz := Vector2(ankle.x - hip.x, ankle.z - hip.z).length()
-		var reach_len := leg_len * 0.985
-		var hip_at := ankle.y + sqrt(maxf(reach_len * reach_len - horiz * horiz, 0.0))
-		reach_y = minf(reach_y, hip_at + (pelvis_y - hip.y))
-	# Pelvis: rides as high as the legs allow, sways over the standing foot, twists
-	# with the forward leg and drops on the swing side.
-	var twist := sin(TAU * p) * 0.08
-	var sway := -cos(TAU * p) * 0.022
-	move_pelvis(Vector3(sway, minf(reach_y - pelvis_y, -0.005), 0.0))
+	# The pelvis turns with the forward leg, drops on the swinging side and sways over
+	# the standing foot.
+	var bounce := a * gait_bounce
+	var twist := -cos(TAU * p) * 0.075 * bounce
+	var drop := sin(TAU * (p + 0.07)) * 0.05 * bounce
 	rot_y(&"pelvis", twist)
-	rot_z(&"pelvis", sin(TAU * p * 2.0) * 0.03)
-	rot_x(&"pelvis", 0.03)
-	# The chest turns against the pelvis, the head keeps looking ahead.
+	rot_z(&"pelvis", drop)
+	rot_x(&"pelvis", (0.035 + sin(TAU * p * 2.0 + 0.6) * 0.012) * a)
+	move_pelvis(Vector3(sin(TAU * p) * 0.02 * hs * bounce, 0.0, 0.0))
+	# The feet.
+	var tilt := Quaternion(Vector3.BACK, atan(slope.x)) * Quaternion(Vector3.RIGHT, -atan(slope.y))
+	var roll := a * gait_roll
+	var p_hs := 0.3 * roll
+	var p_to := -0.68 * roll
+	var ankles: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+	var pitches: Array[float] = [0.0, 0.0]
+	var toes: Array[float] = [0.0, 0.0]
+	var reach_off := 0.0
+	var soft := INF
+	for k in 2:
+		var side := "_l" if k == 0 else "_r"
+		var sgn := 1.0 if k == 0 else -1.0
+		var ph := fposmod(p + 0.5 * k, 1.0)
+		var yaw := Quaternion(Vector3.UP, sgn * 0.09 * a)
+		var x := sgn * maxf(absf(pos_rest("thigh" + side).x) * WALK_WIDTH, 0.045)
+		var land := Vector3(x, 0.0, step_len * 0.5 + 0.035 * hs)
+		land.y = slope.x * land.x + slope.y * land.z + ankle_y
+		var pitch := 0.0
+		var toe := 0.0
+		var flat: Vector3
+		var lift := 0.0
+		var slack := 0.0
+		if ph < TOE_OFF:
+			if not _down[k]:
+				# Down: on the heel, where the swing put it (carried back since).
+				_plant[k] = land - Vector3(0.0, slope.y * ph * stride, ph * stride)
+				_down[k] = true
+			flat = _plant[k]
+			if ph < FOOT_FLAT:
+				pitch = p_hs * (1.0 - smoothstep(0.0, FOOT_FLAT, ph))
+			elif ph > HEEL_OFF:
+				pitch = p_to * pow((ph - HEEL_OFF) / (TOE_OFF - HEEL_OFF), 1.7)
+				toe = -pitch
+		else:
+			_down[k] = false
+			var s := (ph - TOE_OFF) / (1.0 - TOE_OFF)
+			# From where it left the ground to where it will land (both as the ground has
+			# them now: it lands ahead of where the body will be by then).
+			var to := land + Vector3(0.0, slope.y, 1.0) * (1.0 - ph) * stride
+			var e := smoothstep(0.0, 1.0, s)
+			flat = _plant[k].lerp(to, e)
+			pitch = _curve(SWING_AT, PackedFloat32Array([p_to, p_to * 1.12, 0.0, p_hs * 0.97, p_hs]), s)
+			toe = -p_to * (1.0 - smoothstep(0.0, 0.35, s)) + 0.12 * roll * smoothstep(0.55, 1.0, s)
+			lift = _curve(LIFT_AT, LIFT, s) * hs * sqrt(a) * lerpf(0.75, 1.0, gait_roll)
+			slack = 0.3 * smoothstep(0.0, 0.12, s) * (1.0 - smoothstep(0.75, 0.94, s))
+		var ankle := flat + Vector3(0.0, lift, 0.0) + tilt * yaw * _roll_offset(side, pitch)
+		ankles[k] = ankle
+		pitches[k] = pitch
+		toes[k] = toe
+		# How high the hip may ride over this foot with the knee soft (a swinging leg
+		# hardly at all until it reaches for the ground).
+		var hip := pos(bi("thigh" + side))
+		var bend := _curve(KNEE_AT, KNEE, fposmod(ph, 1.0)) * a * lerpf(0.6, 1.0, gait_bounce)
+		var th: float = _len[bi("thigh" + side)]
+		var ca: float = _len[bi("calf" + side)]
+		var reach_d := sqrt(th * th + ca * ca + 2.0 * th * ca * cos(bend))
+		var horiz := Vector2(ankle.x - hip.x, ankle.z - hip.z).length()
+		var up := ankle.y + sqrt(maxf(reach_d * reach_d - horiz * horiz, 0.0)) - hip.y + slack
+		soft = up if soft == INF else _smin(soft, up, 0.03)
+	reach_off = minf(soft, -0.002)
+	move_pelvis(Vector3(0.0, reach_off, 0.0))
+	# The chest turns against the pelvis and keeps the shoulders level; the head steady.
 	rot_y(&"spine_02", -twist * 0.9)
 	rot_y(&"spine_03", -twist * 0.7)
-	rot_x(&"spine_03", 0.04 + sin(TAU * p * 2.0) * 0.012)
-	rot_y(&"neck_01", twist * 0.3)
-	for side: String in ["_l", "_r"]:
-		var sgn := 1.0 if side == "_l" else -1.0
-		step(side, ankles[side], Vector3(sgn * 0.1, 0.0, 1.0))
-		rot(&"foot" + side, Quaternion(Vector3.RIGHT, -float(pitches[side])))
-		rot_x(&"ball" + side, clampf(float(pitches[side]) * 0.9, -0.6, 0.0) if float(pitches[side]) < 0.0 else 0.0)
+	rot_z(&"spine_01", -drop * 0.45)
+	rot_z(&"spine_02", -drop * 0.35)
+	rot_x(&"spine_01", 0.02 * a + gait_stoop * 0.5)
+	rot_x(&"spine_02", gait_stoop * 0.3)
+	rot_x(&"spine_03", 0.025 * a + gait_stoop * 0.2)
+	rot_y(&"neck_01", twist * 0.38)
+	rot_y(&"head", twist * 0.22)
+	rot_x(&"neck_01", -gait_stoop * 0.55 - 0.02 * a)
+	rot_z(&"neck_01", drop * 0.2)
+	# The legs: the knee forward and a little out, the foot as it rolls, the toes flat
+	# on the ground while the heel is up.
+	for k in 2:
+		var side := "_l" if k == 0 else "_r"
+		var sgn := 1.0 if k == 0 else -1.0
+		step(side, ankles[k], Vector3(sgn * 0.2, 0.0, 1.0))
+		var yaw := Quaternion(Vector3.UP, sgn * 0.09 * a)
+		var foot_q := tilt * yaw * Quaternion(Vector3.RIGHT, -pitches[k])
+		var toe_q := tilt * yaw * Quaternion(Vector3.RIGHT, -(pitches[k] + toes[k]))
+		set_global(StringName("foot" + side), foot_q)
+		set_global(StringName("ball" + side), toe_q)
+		_walk_ankle[k] = ankles[k]
+		_walk_foot[k] = foot_q
+		_walk_toe[k] = toe_q
+	_walk_pelvis = reach_off
 	if arms:
-		var swing := cos(TAU * p) * clampf(speed * 0.45, 0.25, 0.7)
-		relaxed_arms(-swing, swing)
+		# The arms swing against the legs (the left forward with the right foot), the
+		# elbows bending a little more on the way forward; a slower walk swings less.
+		var amp := a * gait_arms * clampf(0.7 + 0.3 * speed / 1.1, 0.7, 1.15)
+		for k in 2:
+			var side := "_l" if k == 0 else "_r"
+			var ph := fposmod(p + 0.5 * k, 1.0)
+			var swing := -cos(TAU * (ph - 0.04)) * amp
+			var bend := maxf(-cos(TAU * (ph - 0.1)), 0.0) * 0.25 * amp
+			_walk_arm(side, swing, bend, a)
 
 
-## A foot's path through the gait cycle at phase `ph` (0: its heel strike): x = its
-## forward position, y = the ankle's lift, z = the foot's pitch (+ toes up).
-func _foot_path(ph: float, stride: float, speed: float) -> Vector3:
-	var stance := 0.62
-	var reach_fwd := stride * 0.3
-	var travel := stride * stance
-	if ph < stance:
-		var z := reach_fwd - travel * (ph / stance)
-		var pitch := 0.0
-		if ph < 0.1:
-			pitch = lerpf(0.22, 0.0, smoothstep(0.0, 0.1, ph))
-		elif ph > 0.36:
-			pitch = -0.6 * smoothstep(0.36, stance, ph)
-		var toe := 0.13
-		var y := 0.0
-		if pitch < 0.0:
-			# The heel rises, the foot turns about its ball.
-			y = toe * sin(-pitch)
-			z += toe - toe * cos(pitch)
-		return Vector3(z, y, pitch)
-	var s := (ph - stance) / (1.0 - stance)
-	var z0 := reach_fwd - travel + 0.13 - 0.13 * cos(0.6)
-	var e := 0.5 - 0.5 * cos(PI * s)
-	var z := lerpf(z0, reach_fwd, e)
-	var lift := 0.13 * sin(0.6) * (1.0 - s) + sin(PI * minf(s * 1.15, 1.0)) * (0.07 + speed * 0.02)
-	var pitch := lerpf(-0.6, 0.22, smoothstep(0.1, 0.95, s))
-	return Vector3(z, lift, pitch)
+## The walk's step width (of the hips' width), the phase a foot leaves the ground (its
+## heel strike at 0), lifts its heel and is flat, and a step's length (heel to heel) at
+## 1.1 m/s (for a hip 0.88 m high; a longer leg a little more) and how it grows with the
+## speed.
+const WALK_WIDTH := 0.75
+const TOE_OFF := 0.6
+const HEEL_OFF := 0.38
+const FOOT_FLAT := 0.11
+const STEP := 0.69
+const STEP_EXP := 0.55
+## Through the swing (0 at toe off .. 1 at the heel strike): the foot's pitch keys and the
+## ankle's lift over its path (metres for a hip 0.88 m high): up behind as the knee bends,
+## low and level by mid-swing, just clear of the ground reaching forward.
+const SWING_AT := [0.0, 0.12, 0.55, 0.86, 1.0]
+const LIFT_AT := [0.0, 0.2, 0.45, 0.7, 0.88, 1.0]
+const LIFT := [0.0, 0.085, 0.068, 0.03, 0.016, 0.0]
+## The standing knee's bend through the cycle (radians): soft at the heel strike, giving
+## a little as the weight comes on, nearly straight over the foot.
+const KNEE_AT := [0.0, 0.13, 0.3, 0.45, 0.6, 0.9, 1.0]
+const KNEE := [0.07, 0.28, 0.12, 0.07, 0.07, 0.07, 0.07]
+## The walk's state: the rig's transform and time at its last frame, each foot's place on
+## the ground (where it stands, or where it left the ground; the ankle as if the foot lay
+## flat, body frame) and whether it is down; its ankle, the foot's and the toes' turn
+## then and the pelvis' drop (the stop settles from them).
+var _walk_xf := Transform3D.IDENTITY
+var _walk_at := -9.0
+var _plant: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+var _down: Array[bool] = [true, true]
+var _walk_ankle: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+var _walk_foot: Array[Quaternion] = [Quaternion.IDENTITY, Quaternion.IDENTITY]
+var _walk_toe: Array[Quaternion] = [Quaternion.IDENTITY, Quaternion.IDENTITY]
+var _walk_pelvis := 0.0
+
+
+## The ankle's offset from where it is with the foot flat when the foot is pitched by
+## `pitch` (+ toes up) about its heel (toes up) or its ball (heel up), body frame.
+func _roll_offset(side: String, pitch: float) -> Vector3:
+	if absf(pitch) < 0.0001:
+		return Vector3.ZERO
+	var ankle := pos_rest("foot" + side)
+	var ball := pos_rest("ball" + side)
+	var pivot := Vector3(0.0, -ankle.y, (ball.z - ankle.z) * -0.47)
+	if pitch < 0.0:
+		pivot = Vector3(0.0, -ankle.y, ball.z - ankle.z)
+	return pivot - Quaternion(Vector3.RIGHT, -pitch) * pivot
+
+
+## A walking arm: the shoulder swung `swing` (radians, + forward), the elbow bent `bend`
+## more than when it hangs; `amount` 0 hangs it relaxed (as relaxed_arm) .. 1.
+func _walk_arm(side: String, swing: float, bend: float, amount: float) -> void:
+	var sgn := 1.0 if side == "_l" else -1.0
+	var rest: Array = relaxed_pose(side)
+	var sh := pos(bi("upperarm" + side))
+	var la: float = _len[bi("upperarm" + side)]
+	var lf: float = _len[bi("lowerarm" + side)]
+	var fwd := 0.05 + swing * 0.22
+	var upper := Quaternion(Vector3.BACK, sgn * (0.15 + maxf(-swing, 0.0) * 0.05)) * Quaternion(Vector3.RIGHT, -fwd) * Vector3.DOWN
+	var fore := Quaternion(Vector3.BACK, sgn * (0.1 - maxf(swing, 0.0) * 0.08)) * Quaternion(Vector3.RIGHT, -(fwd + 0.22 + bend)) * Vector3.DOWN
+	var wrist := sh + upper * la + fore * lf
+	var w := hand_rot(side, (fore + Vector3(0.0, 0.0, 0.1)).normalized(), Vector3(-sgn, 0.0, -0.25))
+	var t := smoothstep(0.0, 1.0, amount)
+	reach(side, (rest[0] as Vector3).lerp(wrist, t), Vector3(sgn * 0.25, 0.0, -1.0))
+	set_hand(side, (rest[1] as Quaternion).slerp(w, t))
+	curl(side, 0.35 + 0.05 * t, 0.35)
+
+
+## Where a foot stands at rest (its ankle, body frame).
+func _stand_spot(side: String) -> Vector3:
+	var foot := pos_rest("foot" + side) + Vector3(0.0, 0.0, 0.02)
+	foot.x *= 1.08
+	return foot
+
+
+## Just after a walk the feet settle into the stance: the foot further from its place
+## steps over first, the other after it, the pelvis rising back. The foot's ankle now
+## (body frame) and how far it has settled (1: in its place).
+const SETTLE := 0.55
+func _settled_foot(side: String) -> Array:
+	var spot := _stand_spot(side)
+	var u := (time - _walk_at) / SETTLE
+	if u >= 1.0 or u < 0.0:
+		return [spot, 1.0]
+	var k := 0 if side == "_l" else 1
+	var other := _stand_spot("_r" if k == 0 else "_l")
+	var d := _walk_ankle[k].distance_to(spot)
+	var first := d >= _walk_ankle[1 - k].distance_to(other)
+	var t := smoothstep(0.0, 0.6, u) if first else smoothstep(0.4, 1.0, u)
+	var at := _walk_ankle[k].lerp(spot, t)
+	at.y += sin(t * PI) * clampf(d * 0.35, 0.0, 0.05)
+	return [at, t]
+
+
+## A settling foot (see _settled_foot) turned from how the walk left it to how it stands.
+func _settle_turn(side: String, t: float) -> void:
+	if t >= 1.0:
+		return
+	var k := 0 if side == "_l" else 1
+	var f := StringName("foot" + side)
+	var b := StringName("ball" + side)
+	set_global(f, _walk_foot[k].slerp(acc(bi(f)), t))
+	set_global(b, _walk_toe[k].slerp(acc(bi(f)), t))
+
+
+## Smooth minimum of `a` and `b` (blending within `k`).
+static func _smin(a: float, b: float, k: float) -> float:
+	var h := maxf(k - absf(a - b), 0.0) / k
+	return minf(a, b) - h * h * k * 0.25
+
+
+## A smooth curve through (xs, ys) at `x` (Catmull-Rom; straight on to the end points).
+static func _curve(xs: Array, ys: Variant, x: float) -> float:
+	var n := xs.size()
+	if x <= float(xs[0]):
+		return float(ys[0])
+	if x >= float(xs[n - 1]):
+		return float(ys[n - 1])
+	var k := 0
+	while x > float(xs[k + 1]):
+		k += 1
+	var x0 := float(xs[k])
+	var x1 := float(xs[k + 1])
+	var y0 := float(ys[k])
+	var y1 := float(ys[k + 1])
+	var h := x1 - x0
+	var t := (x - x0) / h
+	var m0 := (y1 - y0) if k == 0 else (y1 - float(ys[k - 1])) / (x1 - float(xs[k - 1])) * h
+	var m1 := (y1 - y0) if k + 2 >= n else (float(ys[k + 2]) - y0) / (float(xs[k + 2]) - x0) * h
+	var t2 := t * t
+	var t3 := t2 * t
+	return (2.0 * t3 - 3.0 * t2 + 1.0) * y0 + (t3 - 2.0 * t2 + t) * m0 + (-2.0 * t3 + 3.0 * t2) * y1 + (t3 - t2) * m1
 
 
 ## Sitting on a seat `seat_y` high (body frame), feet flat in front, hands on the
@@ -1024,8 +1243,7 @@ func kneel(amount: float, side: String, lean := 0.3, twist := 0.0, forward := 0.
 	var off_stand := Vector3(shift * 0.03, -0.012 - absf(shift) * 0.012, 0.0)
 	move_pelvis(off_stand.lerp(off_knelt, down))
 	# The kneeling leg: from its standing place back (lifted on the way) to behind the knee.
-	var stand_k := pos_rest("foot" + side) + Vector3(0.0, 0.0, 0.02)
-	stand_k.x *= 1.08
+	var stand_k: Vector3 = _settled_foot(side)[0]
 	var ak := stand_k.lerp(ankle_back, back_s)
 	ak.y += sin(back_s * PI) * 0.06 * (1.0 - down)
 	step(side, ak, Vector3(sgn * 0.15, 0.0, 1.0).lerp(Vector3(sgn * 0.1, -0.75, 0.6), back_s))
@@ -1037,8 +1255,7 @@ func kneel(amount: float, side: String, lean := 0.3, twist := 0.0, forward := 0.
 	var bk := StringName("ball" + side)
 	set_global(bk, acc(bi(bk)).slerp(Quaternion.IDENTITY, back_s))
 	# The other foot a little forward, flat, its knee up and out a little.
-	var stand_f := pos_rest("foot" + other) + Vector3(0.0, 0.0, 0.02)
-	stand_f.x *= 1.08
+	var stand_f: Vector3 = _settled_foot(other)[0]
 	var af := stand_f.lerp(Vector3(-sgn * 0.14, ankle_y, 0.3 + forward), front_s)
 	af.y += sin(front_s * PI) * 0.05
 	step(other, af, Vector3(-sgn * 0.15, 0.0, 1.0).lerp(Vector3(-sgn * 0.3, 0.35, 1.0), front_s))

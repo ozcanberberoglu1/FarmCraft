@@ -1,8 +1,9 @@
 class_name SettingsScreen
 extends ModalScreen
-## Settings: general (language, day length, wolf raids), video (quality preset, fullscreen,
-## v-sync, resolution scale, field of view, camera shake, FPS counter), audio and
-## controls (mouse, key bindings). Changes apply at once and are saved when the window closes.
+## Settings: general (language, day length, wolf raids, funny animals; the developer's
+## test shortcuts), video (quality preset, fullscreen, v-sync, resolution scale, field of
+## view, camera shake, FPS counter), audio and controls (mouse, key bindings). Changes
+## apply at once and are saved when the window closes.
 
 const CATEGORIES := [["general", "SETTINGS_GENERAL", "globe"], ["video", "SETTINGS_VIDEO", "monitor"],
 	["audio", "SETTINGS_AUDIO", "speaker"], ["controls", "SETTINGS_CONTROLS", "keyboard"]]
@@ -10,6 +11,8 @@ const BINDINGS := [["BIND_MOVE", ["W", "A", "S", "D"]], ["BIND_SPRINT", ["SHIFT"
 	["BIND_USE", ["LMB"]], ["BIND_INTERACT", ["E"]], ["BIND_INFO", ["F"]], ["BIND_INVENTORY", ["TAB", "I"]],
 	["BIND_DROP", ["Q"]], ["BIND_HOTBAR", ["1", "–", "8"]], ["BIND_VEHICLE", ["V", "L"]], ["BIND_WHISTLE", ["H"]],
 	["BIND_PAUSE", ["ESC"]]]
+## The test shortcuts (TestKeys), listed while Settings.test_shortcuts is on.
+const TEST_BINDINGS := [["BIND_TEST_FAST", ["F6"]], ["BIND_TEST_MORNING", ["F7"]], ["BIND_TEST_HOUR", ["F8"]]]
 
 var _nav: VBoxContainer
 var _rows: VBoxContainer
@@ -179,6 +182,9 @@ func _general() -> void:
 			func(i: int) -> void: Settings.wolf_raids = i as Settings.Raids)
 	_switch("SETTINGS_COMIC_ANIMALS", "SETTINGS_COMIC_ANIMALS_DESC", Settings.comic_animals,
 			func(on: bool) -> void: Settings.comic_animals = on)
+	_rows.add_child(UiTheme.section(tr("SETTINGS_DEVELOPER"), "wrench"))
+	_switch("SETTINGS_TEST_KEYS", "SETTINGS_TEST_KEYS_DESC", Settings.test_shortcuts,
+			func(on: bool) -> void: Settings.test_shortcuts = on)
 
 
 ## Every language as a button showing its own name in its own script; picking one
@@ -280,7 +286,15 @@ func _controls() -> void:
 			func(v: float) -> void: Settings.mouse_sensitivity = v)
 	_switch("SETTINGS_INVERT_Y", "", Settings.invert_y, func(on: bool) -> void: Settings.invert_y = on)
 	_rows.add_child(UiTheme.section(tr("SETTINGS_KEYS"), "keyboard"))
-	for b: Array in BINDINGS:
+	_bindings(BINDINGS)
+	if Settings.test_shortcuts:
+		_rows.add_child(UiTheme.section(tr("SETTINGS_DEVELOPER"), "wrench"))
+		_bindings(TEST_BINDINGS)
+
+
+## A row for each of `list` ([title key, [key caps]]).
+func _bindings(list: Array) -> void:
+	for b: Array in list:
 		var keys := HBoxContainer.new()
 		keys.add_theme_constant_override("separation", 6)
 		for k: String in b[1]:

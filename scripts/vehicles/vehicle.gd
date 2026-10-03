@@ -33,12 +33,27 @@ const TAIL_GLOW := 0.4
 const BRAKE_GLOW := 2.2
 ## Side window dust relative to the windshield's (wound down, wiped by the seals).
 const SIDE_GRIME := 0.45
+## Sunk into the ground (shoved in, or so saved): its wheels' contact patches, as they sit
+## at the ride height, this deep under the terrain on average (m), or one of them this
+## deep (more than the springs give on a bump).
+const SINK_MEAN := 0.15
+const SINK_DEEPEST := 0.32
+
+## Every vehicle in the world (walkers keep off them: keep_out, way_round).
+static var all: Array[Vehicle] = []
 
 var kind: StringName
 var info: Dictionary
 var owned := true
 ## Seconds a parked vehicle has stood still (see _hold_when_parked).
 var _settle_t := 0.0
+## Times it was lifted out of the ground on settling since last driven (see _unsink).
+var _lifts := 0
+## Its body's footprint (the collision boxes, body frame: x across, y along body z), their
+## bottom and top (body y) and how far the footprint's corners reach from its origin.
+var _footprint := Rect2()
+var _box_y := Vector2.ZERO
+var _reach := 0.0
 ## While it is held on display and turned by hand (see turn_on_display): each wheel's
 ## pose under the body as it stood (wheel key -> local transform). Empty otherwise.
 var _display_pose := {}
@@ -104,6 +119,15 @@ static func create(kind_id: StringName, xform: Transform3D, for_sale := false) -
 	v.fuel = float(v.info.get("fuel_capacity", 40.0)) * 0.5
 	v.transform = xform
 	return v
+
+
+func _enter_tree() -> void:
+	if not all.has(self):
+		all.append(self)
+
+
+func _exit_tree() -> void:
+	all.erase(self)
 
 
 func _ready() -> void:
@@ -412,6 +436,8 @@ func _emissive(src: StandardMaterial3D, color: Color, metal: float) -> StandardM
 
 
 func _build_body() -> void:
+	var lo := Vector3(INF, INF, INF)
+	var hi := -lo
 	for box: Array in info.get("boxes", []):
 		var cs := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
@@ -420,6 +446,13 @@ func _build_body() -> void:
 		cs.shape = shape
 		cs.position = _mb(box[0])
 		add_child(cs)
+		lo = lo.min(cs.position - shape.size * 0.5)
+		hi = hi.max(cs.position + shape.size * 0.5)
+	if lo.x < hi.x:
+		_footprint = Rect2(lo.x, lo.z, hi.x - lo.x, hi.z - lo.z)
+		_box_y = Vector2(lo.y, hi.y)
+		for c: Vector2 in [_footprint.position, _footprint.end, Vector2(lo.x, hi.z), Vector2(hi.x, lo.z)]:
+			_reach = maxf(_reach, c.length())
 	if info.has("bed_zone"):
 		var zone: AABB = info["bed_zone"]
 		var point := BedPoint.new()
@@ -570,8 +603,58 @@ func _hold_when_parked(delta: float) -> void:
 		return
 	_settle_t += delta
 	if _settle_t > 1.5 and linear_velocity.length() < 0.05 and angular_velocity.length() < 0.05:
+		# Settled sunk in the ground: lifted out first, held once it has settled again.
+		if _lifts < 3 and _unsink():
+			_lifts += 1
+			return
 		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 		freeze = true
+
+
+## How deep its wheels stand in the ground (m; below it, negative): each one's contact
+## patch as it sits at the ride height (the hub where the springs hold it at rest), under
+## the terrain there; the mean of them (x) and the deepest (y).
+func _burial(xf: Transform3D) -> Vector2:
+	var sum := 0.0
+	var deepest := -INF
+	for key: String in _wheels:
+		var d := _wheel_depth(xf, key)
+		sum += d
+		deepest = maxf(deepest, d)
+	return Vector2(sum / maxf(float(_wheels.size()), 1.0), deepest)
+
+
+func _wheel_depth(xf: Transform3D, key: String) -> float:
+	var w := _wheels[key] as VehicleWheel3D
+	var hub: Vector3 = _mounts[key] - Vector3(0, w.wheel_rest_length - gravity_sag(w.suspension_stiffness), 0)
+	var p := xf * hub - xf.basis.y.normalized() * w.wheel_radius
+	return TerrainData.height(p.x, p.z) - p.y
+
+
+## Sunk into the ground (shoved in, or saved so: SINK_MEAN, SINK_DEEPEST): lifted back
+## onto its wheels, upright on the ground under it, heading the way it was, and let go to
+## settle (held again once it has). Left as it is when it stands as it should. Whether it
+## was lifted.
+func _unsink() -> bool:
+	if not is_inside_tree() or _wheels.is_empty() or not _display_pose.is_empty():
+		return false
+	var xf := global_transform
+	var b := _burial(xf)
+	if b.x < SINK_MEAN and b.y < SINK_DEEPEST:
+		return false
+	var o := xf.origin
+	var ahead := xf.basis.z
+	var yaw := atan2(ahead.x, ahead.z)
+	var up := TerrainData.normal_at(o.x, o.z)
+	var basis := Basis(Quaternion(Vector3.UP, up)) * Basis(Vector3.UP, yaw)
+	var lifted := Transform3D(basis.orthonormalized(), o)
+	# Its wheels just on the ground (the deepest one), a hair above to drop onto its springs.
+	lifted.origin.y += _burial(lifted).y + 0.03
+	teleport(lifted)
+	if freeze:
+		freeze = false
+	_settle_t = 0.0
+	return true
 
 
 ## Turns the vehicle by hand by `angle` radians about the vertical through `pivot`, as one
@@ -613,6 +696,8 @@ func set_driver(d: Node) -> void:
 	can_sleep = d == null
 	sleeping = false
 	if d:
+		_lifts = 0
+		_unsink()
 		_current_camera().make_current()
 		_snap_chase()
 	else:
@@ -1037,6 +1122,174 @@ func _check_live_aboard() -> void:
 	_live_aboard = now
 
 
+# --- Walkers round it ------------------------------------------------------------------------
+
+## Where a walker `radius` m round (an animal, a dog, a wolf, a townsman: bodies moved by
+## hand, kinematic, that would shove a car they walked into with no limit, along and
+## down into the ground) stepping from `from` to `to` may go: `to` when clear of every
+## vehicle's body; else along the side it came to (the part of the step into the vehicle
+## taken off), or kept at `from`. One already against a vehicle may only step out or along.
+static func keep_out(from: Vector3, to: Vector3, radius: float) -> Vector3:
+	for v: Vehicle in all:
+		if v._footprint.has_area() and v.is_inside_tree():
+			to = v._keep_clear(from, to, radius)
+	return to
+
+
+func _keep_clear(from: Vector3, to: Vector3, radius: float) -> Vector3:
+	var reach := _reach + radius
+	if Vector2(to.x - global_position.x, to.z - global_position.z).length_squared() > reach * reach:
+		return to
+	var inv := global_transform.affine_inverse()
+	var b3 := inv * to
+	if b3.y > _box_y.y + 0.3 or b3.y < _box_y.x - 2.5:
+		# Well above its roof, or far below it.
+		return to
+	var r := _footprint.grow(radius)
+	var b := Vector2(b3.x, b3.z)
+	if not r.has_point(b):
+		return to
+	var a3 := inv * from
+	var a := Vector2(a3.x, a3.z)
+	if r.has_point(a):
+		return to if _depth(r, b) <= _depth(r, a) + 0.001 else from
+	# Up to the side it came from (across a corner: the side it is least far into).
+	var lo := r.position
+	var hi := r.end
+	var out_x := a.x < lo.x or a.x > hi.x
+	var out_z := a.y < lo.y or a.y > hi.y
+	var dx := minf(b.x - lo.x, hi.x - b.x)
+	var dz := minf(b.y - lo.y, hi.y - b.y)
+	if out_x and (not out_z or dx <= dz):
+		b.x = lo.x if a.x < lo.x else hi.x
+	else:
+		b.y = lo.y if a.y < lo.y else hi.y
+	return _flat_world(b, to.y)
+
+
+## The way round vehicles for a walker `radius` m round going from `from` to `to`: `to`
+## when no vehicle's body stands in between; else the corner (`margin` m further out) of
+## the nearest one in the way to make for first, the shorter way round. A `to` in a
+## vehicle's body becomes the nearest point beside it.
+static func way_round(from: Vector3, to: Vector3, radius: float, margin: float) -> Vector3:
+	var best := to
+	var best_d := INF
+	for v: Vehicle in all:
+		if not v._footprint.has_area() or not v.is_inside_tree():
+			continue
+		var w := v._way_round(from, to, radius, margin)
+		if w != to:
+			var d := v.global_position.distance_squared_to(from)
+			if d < best_d:
+				best_d = d
+				best = w
+	return best
+
+
+func _way_round(from: Vector3, to: Vector3, radius: float, margin: float) -> Vector3:
+	var o := Vector2(global_position.x, global_position.z)
+	var near := Geometry2D.get_closest_point_to_segment(o, Vector2(from.x, from.z), Vector2(to.x, to.z))
+	if near.distance_to(o) > _reach + radius + margin:
+		return to
+	var inv := global_transform.affine_inverse()
+	var a3 := inv * from
+	if a3.y > _box_y.y + 0.3 or a3.y < _box_y.x - 2.5:
+		return to
+	var b3 := inv * to
+	var hard := _footprint.grow(radius + 0.05)
+	var a := Vector2(a3.x, a3.z)
+	var b := Vector2(b3.x, b3.z)
+	if hard.has_point(a):
+		# Right against it already: keep_out lets it step out or along.
+		return to
+	var moved := false
+	if hard.has_point(b):
+		b = _out_of(hard.grow(0.05), b)
+		moved = true
+	if not _crosses(hard, a, b):
+		return _flat_world(b, to.y) if moved else to
+	# The shortest way by its corners (round one end, or along a side and round two).
+	var soft := _footprint.grow(radius + margin)
+	var pts: Array[Vector2] = [a, soft.position, Vector2(soft.end.x, soft.position.y), soft.end,
+		Vector2(soft.position.x, soft.end.y), b]
+	var dist: Array[float] = [0.0, INF, INF, INF, INF, INF]
+	var prev: Array[int] = [-1, -1, -1, -1, -1, -1]
+	var done: Array[bool] = [false, false, false, false, false, false]
+	for _i in pts.size():
+		var u := -1
+		for k in pts.size():
+			if not done[k] and (u < 0 or dist[k] < dist[u]):
+				u = k
+		if u < 0 or dist[u] == INF or u == 5:
+			break
+		done[u] = true
+		for k in pts.size():
+			if done[k] or _crosses(hard, pts[u], pts[k]):
+				continue
+			var alt := dist[u] + pts[u].distance_to(pts[k])
+			if alt < dist[k]:
+				dist[k] = alt
+				prev[k] = u
+	if dist[5] == INF:
+		return to
+	var step := 5
+	while prev[step] > 0:
+		step = prev[step]
+	return _flat_world(pts[step], to.y)
+
+
+## A point of the body frame's ground plane (x, z) in the world, at height `y`.
+func _flat_world(p: Vector2, y: float) -> Vector3:
+	var g := global_transform * Vector3(p.x, 0.0, p.y)
+	return Vector3(g.x, y, g.z)
+
+
+## How far `p` is inside `r` (to its nearest side).
+static func _depth(r: Rect2, p: Vector2) -> float:
+	return minf(minf(p.x - r.position.x, r.end.x - p.x), minf(p.y - r.position.y, r.end.y - p.y))
+
+
+## `p` (inside `r`) moved out to the nearest side of `r`.
+static func _out_of(r: Rect2, p: Vector2) -> Vector2:
+	var d := [p.x - r.position.x, r.end.x - p.x, p.y - r.position.y, r.end.y - p.y]
+	var k := 0
+	for i in 4:
+		if d[i] < d[k]:
+			k = i
+	match k:
+		0:
+			p.x = r.position.x
+		1:
+			p.x = r.end.x
+		2:
+			p.y = r.position.y
+		_:
+			p.y = r.end.y
+	return p
+
+
+## Whether the segment `p`-`q` passes through the inside of `r` (along a side or touching
+## a corner is not through).
+static func _crosses(r: Rect2, p: Vector2, q: Vector2) -> bool:
+	var t0 := 0.0
+	var t1 := 1.0
+	var d := q - p
+	for axis in 2:
+		var lo := r.position[axis]
+		var hi := r.end[axis]
+		if absf(d[axis]) < 1e-6:
+			if p[axis] <= lo or p[axis] >= hi:
+				return false
+			continue
+		var ta := (lo - p[axis]) / d[axis]
+		var tb := (hi - p[axis]) / d[axis]
+		t0 = maxf(t0, minf(ta, tb))
+		t1 = minf(t1, maxf(ta, tb))
+		if t0 >= t1:
+			return false
+	return true
+
+
 # --- Save -----------------------------------------------------------------------------------
 
 func save_data() -> Dictionary:
@@ -1056,6 +1309,8 @@ func load_data(d: Dictionary) -> void:
 	if d.get("xform") is Transform3D:
 		teleport(d["xform"])
 		_make_room()
+		# Saved sunk in the ground (shoved in by a wolf before that was stopped): out of it.
+		_unsink()
 	cargo.from_dict(d.get("cargo", {}))
 	cargo.capacity = int(info.get("cargo_units", cargo.capacity))
 	_bed.settle()

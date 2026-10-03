@@ -121,6 +121,11 @@ var fluff := 0.0
 ## it forward and down for a moment.
 var limp := 0.0
 var stumble := 0.0
+## A bird the farmer holds in his arms (AnimalHandler), set by its handler: `held` 0..1
+## its legs tucked up under it; `flutter` 0..1 its wings beating a little (he runs, it
+## wriggles).
+var held := 0.0
+var flutter := 0.0
 ## A bird standing about: how far into it (fading in and out); where its head looks (neck
 ## pitch, yaw, head tilt), where it turns to next and when; what it is doing now and then
 ## (a BirdAct), for how long, on which side (-1 left, 1 right) and the wait for the next;
@@ -387,7 +392,8 @@ func animate(delta: float, speed: float, mode: int) -> void:
 	if biped:
 		# Running flutters the wings; a crow starts with a few strong beats.
 		var beat := crow * (1.0 - smoothstep(0.55, 0.9, crow)) if crow > 0.0 else 0.0
-		var flap := sin(_time * 18.0) * 0.4 * (1.0 if running else 0.0) + sin(_time * 14.0) * 0.7 * beat
+		var flap := sin(_time * 18.0) * 0.4 * (1.0 if running else 0.0) + sin(_time * 14.0) * 0.7 * beat \
+				+ (0.5 + 0.5 * sin(_time * 21.0)) * 0.55 * flutter
 		# Fallen open in a faint, quivering, held out a little in a ruffle; the one preened
 		# lifted a little from the body.
 		var splay := shake * 0.3 + fluffed * 0.35
@@ -398,16 +404,18 @@ func animate(delta: float, speed: float, mode: int) -> void:
 
 	# Legs: folded under lying down or out cold in a faint (posed joint by joint), otherwise
 	# placed by IK on the feet (_place_legs), the two blended while it lies down or gets up.
-	var fk := maxf(lie, faint)
+	# Held in the arms the legs are tucked up as lying down.
+	var tuck := maxf(lie, held)
+	var fk := maxf(tuck, faint)
 	if fk > 0.0:
 		for leg in legs:
 			var fold: Array = (cfg.get("fold_front", FOLD_FRONT) if leg["front"] else cfg.get("fold_rear", FOLD_REAR)) \
 					if not biped else FOLD_BIPED
 			var spread := float(leg["side"]) * FAINT_SPREAD * faint
-			_pose_rot(leg["up"], Quaternion.from_euler(Vector3(lerpf(fold[0] * lie, FAINT_LEGS[0], faint), 0, spread)))
-			_pose_rot(leg["lo"], Quaternion(Vector3.RIGHT, lerpf(fold[1] * lie, FAINT_LEGS[1], faint)))
+			_pose_rot(leg["up"], Quaternion.from_euler(Vector3(lerpf(fold[0] * tuck, FAINT_LEGS[0], faint), 0, spread)))
+			_pose_rot(leg["lo"], Quaternion(Vector3.RIGHT, lerpf(fold[1] * tuck, FAINT_LEGS[1], faint)))
 			if leg["ft"] >= 0:
-				_pose_rot(leg["ft"], Quaternion(Vector3.RIGHT, lerpf(fold[2] * lie, FAINT_LEGS[2], faint)))
+				_pose_rot(leg["ft"], Quaternion(Vector3.RIGHT, lerpf(fold[2] * tuck, FAINT_LEGS[2], faint)))
 	_place_legs(fk, delta)
 
 

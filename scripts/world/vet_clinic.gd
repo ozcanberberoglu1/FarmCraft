@@ -215,10 +215,11 @@ func _set_staffed(on: bool) -> void:
 
 
 ## The vet at the counter (TownPeople): there while the clinic is staffed, gone home (not
-## drawn, not in the way, not posed) otherwise.
+## drawn, not in the way, not posed) otherwise; away at a town event she is left as the
+## event has her (EventCrowd calls this again when she is back).
 func set_vet(person: Townsperson) -> void:
 	vet = person
-	if vet == null:
+	if vet == null or vet.away:
 		return
 	vet.visible = staffed
 	vet.collision_layer = (4 | 16) if staffed else 0
@@ -901,11 +902,14 @@ class Point extends TownPoint:
 	func hint_prompt() -> String:
 		if door:
 			return tr("VET_CLOSED_DOOR")
-		return "" if clinic.staffed else tr("VET_CLOSED")
+		return super.hint_prompt() if clinic.staffed else tr("VET_CLOSED")
 
 	func interact(_player: Node) -> void:
 		if door or not clinic.staffed:
 			Audio.ui("error", -8.0)
+			return
+		# Day two's "say hello to the vet" (TownGoals): a word with her first.
+		if SideStory.town_goals and SideStory.town_goals.vet_hello(clinic.vet):
 			return
 		Game.hud.open_vet()
 

@@ -455,17 +455,25 @@ class Builder:
         return ob
 
 
+## Written into every model (its scene's extras): Godot reimports a .gltf only when the
+## .gltf itself changes, not its .bin, so a rebuild that changes nothing but the geometry
+## must bump this to reach the game (2: the fish skin wound facing out).
+REVISION = 2
+
+
 def export(name, objects):
     bpy.ops.object.select_all(action="DESELECT")
     for ob in objects:
         ob.select_set(True)
     bpy.context.view_layer.objects.active = objects[0]
+    bpy.context.scene["revision"] = REVISION
     path = os.path.join(OUT, name + ".gltf")
     # Textures go to one shared folder (a raw fish and its cooked one share their normal
     # maps).
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLTF_SEPARATE", export_texture_dir="textures",
                               use_selection=True, export_yup=True, export_apply=True, export_image_format="JPEG",
-                              export_jpeg_quality=90, export_tangents=True, export_materials="EXPORT")
+                              export_jpeg_quality=90, export_tangents=True, export_materials="EXPORT",
+                              export_extras=True)
     print("wrote", path, os.path.getsize(path) // 1024, "KB")
 
 
@@ -538,17 +546,20 @@ def body_mesh(b, body, mat, ns=72, nt=48):
             j1 = (j + 1) % nt
             v0 = j / nt
             v1 = (j + 1) / nt
-            # The face is wound so its normal points out of the body.
-            b.face([rings[i][j], rings[i][j1], rings[i + 1][j1], rings[i + 1][j]],
-                   [(ss[i], v0), (ss[i], v1), (ss[i + 1], v1), (ss[i + 1], v0)], mat)
+            # Wound counter-clockwise seen from outside (theta runs belly -> +Y flank -> back,
+            # s runs nose -> tail along -X), so the normal points out of the body: the skin
+            # is single-sided, and wound the other way round it would be drawn from inside
+            # (the far flank and the far eye's sunken half showing through the near one).
+            b.face([rings[i][j], rings[i + 1][j], rings[i + 1][j1], rings[i][j1]],
+                   [(ss[i], v0), (ss[i + 1], v0), (ss[i + 1], v1), (ss[i], v1)], mat)
     nose = b.bm.verts.new(Vector((body.x(0.0) + 0.002, 0.0, body.ridge(0.006).z * 0.2)))
     for j in range(nt):
         j1 = (j + 1) % nt
-        b.face([rings[0][j1], rings[0][j], nose], [(0.006, (j + 1) / nt), (0.006, j / nt), (0.0, (j + 0.5) / nt)], mat)
+        b.face([rings[0][j], rings[0][j1], nose], [(0.006, j / nt), (0.006, (j + 1) / nt), (0.0, (j + 0.5) / nt)], mat)
     tail = b.bm.verts.new(Vector((body.x(1.0) - 0.001, 0.0, 0.0)))
     for j in range(nt):
         j1 = (j + 1) % nt
-        b.face([rings[ns][j], rings[ns][j1], tail], [(1.0, j / nt), (1.0, (j + 1) / nt), (1.0, (j + 0.5) / nt)], mat)
+        b.face([rings[ns][j1], rings[ns][j], tail], [(1.0, (j + 1) / nt), (1.0, j / nt), (1.0, (j + 0.5) / nt)], mat)
 
 
 def ridge_fin(b, body, s0, s1, heights, rake, up, mat, nu=14, nv=5, billow=0.02):
@@ -1000,8 +1011,12 @@ def build_fish(key, cfg):
         for s0, s1, hs, rake in cfg.get("anal", []):
             ridge_fin(b, body, s0, s1, hs, rake, False, mats["paired"])
         if "adipose" in cfg:
+            # A thin flap of skin: the skin's look, seen from both sides like the other fins.
+            mats["adipose"] = material(name + "_adipose", image=cooked_img if cooked_variant else albedo_img,
+                                       normal=nor_img, rough=0.55 if cooked_variant else slime, spec=0.6,
+                                       coat=0.0 if cooked_variant else 0.35, double=True)
             s0, s1, h = cfg["adipose"]
-            ridge_fin(b, body, s0, s1, [(0, 0.3 * h), (0.5, h), (1, 0.6 * h)], 0.6, True, mats["body"], nu=6, nv=3)
+            ridge_fin(b, body, s0, s1, [(0, 0.3 * h), (0.5, h), (1, 0.6 * h)], 0.6, True, mats["adipose"], nu=6, nv=3)
         tail_fin(b, body, mats["caudal"])
         s, e, ln = cfg["pectoral"]
         paired_fin(b, body, s, e, ln, mats["paired"], 0.8, 1.0, 0.35)

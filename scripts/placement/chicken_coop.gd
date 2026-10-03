@@ -45,8 +45,10 @@ const EXPAND_SECONDS := 60.0
 ## (PlaceableTable size 11 x 10); the house stands at its back.
 const YARD := Rect2(-5.5, -5.0, 11.0, 10.0)
 const HOUSE := Rect2(-2.5, -4.4, 5.0, 3.4)
-## Game minutes after the first hen moves in until she lays her first egg.
-const FIRST_EGG_MINUTES := 25.0
+## Game minutes after the first hen moves in until she lays her first egg (short: on the
+## first day's slow clock this is about half a real minute, so the story's egg is
+## usually lying in the yard by the time its goal comes up).
+const FIRST_EGG_MINUTES := 6.0
 ## Game minutes until a hen lays again after the story's egg was broken (hurry_egg).
 const QUICK_EGG_MINUTES := 6.0
 ## The first egg's Pickup is in this group (for the waypoint).
@@ -77,6 +79,9 @@ const NEST_LID := 0.92
 ## Game minutes a hen's egg waits for her to lay it in a nest (the door shut on her, the
 ## night, the farmer asleep) before it turns up there anyway.
 const LAY_GRACE := 120.0
+## The same for the story's first egg: it never keeps the farmer waiting long (a hen that
+## doesn't get to a box in time lays it anyway, in a bedded box or about the yard).
+const FIRST_LAY_GRACE := 8.0
 ## A night's sleep (or any skip this long, in game minutes) finishes the construction.
 const SKIP_FINISHES := 60.0
 ## The chopping log in the yard (by the house's front right corner).
@@ -1046,10 +1051,11 @@ func _overdue_lays() -> void:
 	for key: String in lays.keys():
 		var d: Dictionary = lays[key]
 		var late := now - float(d.get("at", now))
-		if late < LAY_GRACE:
+		var grace := FIRST_LAY_GRACE if bool(d.get("first", false)) else LAY_GRACE
+		if late < grace:
 			continue
 		var hen := _hen(int(key))
-		if hen and _claims.values().has(hen) and late < LAY_GRACE * 3.0:
+		if hen and _claims.values().has(hen) and late < grace * 3.0:
 			continue
 		_lay_now(key)
 

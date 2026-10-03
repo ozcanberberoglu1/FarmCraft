@@ -1,14 +1,20 @@
 extends Node
 ## Yeşilova's fishing contest, "En Büyük Balık Yarışması": the biggest fish of the day wins.
-## The first on day 9, then one every EVERY_DAYS days (17, 25...), 09:00 to 17:00 at the
-## town pond behind the filling station (ContestVenue: its pier and the board). Never on
-## a carnival day: a contest that would fall on one is held the day after.
+## The first on day 7, then one every EVERY_DAYS days (11, 15...), 09:00 to 17:00 at the
+## town pond behind the filling station (ContestVenue: its shore and the board): always two
+## days off a carnival (Carnival: 5, 9, 13...). Never on a carnival day: a contest that
+## would fall on one (were the two cadences to change) is held the day after. On the day
+## a side goal (SideStory.goals: "join the fishing contest", its dot over the pond) is up
+## from the morning until he gets there while it is on (or until 17:00); the first
+## contest's is prominent, later ones' quiet. It never stands in the story's way.
 ##
 ## The morning before, a letter from Nuri Hoca announces it (through the mailbox when the
 ## game has one, else on the letter sheet like Beyza's carnival letter; once: letter_day
-## is saved). At 09:00 a banner opens it: five anglers fish along the shore and from the
-## pier (RIVALS: four townspeople and Cemal Usta from the lake villages, landing a fish
-## every half hour or so), the town comes to watch (ContestCrowd moves them). The player
+## is saved). At 09:00 a banner opens it: five anglers fish from the shore round the pond
+## (RIVALS: four townspeople and Cemal Usta from the lake villages, landing a fish every
+## half hour or so), the town comes to watch (ContestCrowd moves them): a murmur of voices
+## over the pond (Audio's "contest_crowd" loop), a call or a laugh now and then, and a
+## cheer each time the board gets a new biggest fish (new_leader), whoever caught it. The player
 ## takes part by fishing there: every fish he lands within VENUE_RADIUS of the pond is
 ## weighed, his biggest counts. The board at the pond and a small HUD card (while he is
 ## there) show the top three and his best.
@@ -32,9 +38,11 @@ signal ceremony_started
 signal rival_caught(id: StringName, catch: Dictionary)
 ## The leaderboard changed (a fish weighed, a new contest, a load).
 signal board_changed
+## The board has a new biggest fish (`who`: "player" or a rival's id): the crowd cheers.
+signal new_leader(who: String, kg: float)
 
-const FIRST_DAY := 9
-const EVERY_DAYS := 8
+const FIRST_DAY := 7
+const EVERY_DAYS := 4
 const START_MINUTE := 9 * 60
 const END_MINUTE := 17 * 60
 const PRIZE_MONEY := 100
@@ -60,6 +68,15 @@ const ANNOUNCE_AT := 4.5
 const CEREMONY_LEN := 12.0
 ## Seconds between the player being free and the letter opening (a note comes first).
 const LETTER_DELAY := 2.2
+## The crowd's murmur at the pond (Audio's "contest_crowd" loop, 0..1), heard round it.
+const MURMUR := 0.75
+## Real seconds between a call or a laugh from the crowd (a random wait in this range),
+## heard within CALL_RADIUS of the pond.
+const CALL_EVERY := Vector2(5.0, 13.0)
+const CALL_RADIUS := 60.0
+## The side goal's colour and how often it is looked at (seconds).
+const GOAL_COLOR := Color("f2c66d")
+const GOAL_POLL := 0.5
 
 ## The day's leaderboard: entrant ("player" or a rival's id) -> {"kg": float, "fish": String}.
 var entries := {}
@@ -71,6 +88,8 @@ var result_day := 0
 var last_winner := {}
 ## The last contest day whose letter was read; today's letter waits for the player.
 var letter_day := 0
+## The last contest day the player came to (its side goal done).
+var goal_day := 0
 var letter_pending := false
 ## Set by the contest scenario: contests happen in this automated run (`testing_letter`:
 ## the letter opens by itself as in play). `ceremony_speed` hurries the ceremony.
@@ -89,17 +108,21 @@ var _rng := RandomNumberGenerator.new()
 var _card: GlassPanel
 var _card_label: Label
 var _card_t := 0.0
+var _goal: SideGoal
+var _goal_t := 0.0
+var _call_t := 4.0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	_rng.randomize()
+	_goal = SideGoal.new(&"contest", "", "star", GOAL_COLOR)
 	Events.day_started.connect(_on_day_started)
 
 
 # --- Schedule --------------------------------------------------------------------------------
 
-## A contest is due on day `d` by the count (9, 17, 25...), before a carnival moves it.
+## A contest is due on day `d` by the count (7, 11, 15...), before a carnival moves it.
 static func _due(d: int) -> bool:
 	return d >= FIRST_DAY and (d - FIRST_DAY) % EVERY_DAYS == 0
 
@@ -158,12 +181,16 @@ func player_caught(id: StringName, kg: float, at: Vector3) -> bool:
 	if not is_on() or not at_venue(at) or not FishTable.is_fish(id):
 		return false
 	_open_board()
+	_goal_done()
 	var best := float((entries.get("player", {}) as Dictionary).get("kg", 0.0))
 	var w := FloppingFish.weight_text(kg)
 	if kg > best:
+		var top := top_kg()
 		entries["player"] = {"kg": kg, "fish": String(id)}
 		Game.notify(tr("MSG_CONTEST_ENTRY") % [w, rank_of("player")], UiTheme.GOLD_SOFT)
 		board_changed.emit()
+		if kg > top:
+			_cheer("player", kg)
 	else:
 		Game.notify(tr("MSG_CONTEST_ENTRY_SMALL") % [w, FloppingFish.weight_text(best)], UiTheme.TEXT_MUTED)
 	return true
@@ -174,8 +201,26 @@ func record(who: String, catch: Dictionary) -> void:
 	_open_board()
 	var kg := float(catch.get("kg", 0.0))
 	if kg > float((entries.get(who, {}) as Dictionary).get("kg", 0.0)):
+		var top := top_kg()
 		entries[who] = {"kg": kg, "fish": String(catch.get("id", ""))}
 		board_changed.emit()
+		if kg > top:
+			_cheer(who, kg)
+
+
+## The biggest fish on today's board (kg; 0 with none weighed).
+func top_kg() -> float:
+	var best := 0.0
+	for who: String in entries:
+		best = maxf(best, float((entries[who] as Dictionary).get("kg", 0.0)))
+	return best
+
+
+## A new biggest fish: the crowd cheers at the pond (heard there), new_leader.
+func _cheer(who: String, kg: float) -> void:
+	if _player_distance() < HEAR_RADIUS:
+		Audio.play("crowd_cheer", crowd_point(), -2.0, 0.05, &"Effects", 9.0)
+	new_leader.emit(who, kg)
 
 
 ## Today's contest's board starts empty.
@@ -256,6 +301,11 @@ func _process(delta: float) -> void:
 			_show_banner(tr("CONTEST_BANNER_TITLE"), tr("CONTEST_BANNER_TEXT") % _clock(END_MINUTE), "sparkles")
 	if on:
 		_sim_rivals()
+		_crowd_calls(delta)
+	_goal_t -= delta
+	if _goal_t <= 0.0:
+		_goal_t = GOAL_POLL
+		_update_goal()
 	# The end: the horn at the pond, or (missed, slept through, loaded later) settled quietly.
 	if _ceremony_t < 0.0 and day_held > 0 and result_day != day_held and enabled() \
 			and (GameClock.day > day_held or GameClock.minute >= END_MINUTE):
@@ -354,6 +404,74 @@ func _settle(loud: bool) -> void:
 			Audio.ui("fanfare", -8.0)
 		else:
 			Game.notify(text, UiTheme.GOLD_SOFT)
+
+
+# --- The crowd's voices and the side goal ----------------------------------------------------
+
+## The murmur's level at the pond now (0..1): while the town is out there.
+func crowd_level() -> float:
+	return MURMUR if crowd_out() else 0.0
+
+
+## Where the crowd's murmur comes from: over the middle of the pond (they stand all round).
+func crowd_point() -> Vector3:
+	var c := WorldLayout.TOWN_POND_CENTER
+	return Vector3(c.x, WorldLayout.WATER_LEVEL + 1.6, c.y)
+
+
+## Now and then someone in the crowd calls out or laughs (from where one of them stands).
+func _crowd_calls(delta: float) -> void:
+	_call_t -= delta
+	if _call_t > 0.0:
+		return
+	_call_t = _rng.randf_range(CALL_EVERY.x, CALL_EVERY.y)
+	if _player_distance() > CALL_RADIUS:
+		return
+	var venue := get_tree().get_first_node_in_group(ContestVenue.GROUP) as ContestVenue
+	var at := crowd_point()
+	if venue and not venue.crowd_spots.is_empty():
+		at = (venue.crowd_spots[_rng.randi() % venue.crowd_spots.size()]["pos"] as Vector3) + Vector3(0, 1.6, 0)
+	Audio.play("crowd_call", at, -7.0, 0.1, &"Effects", 4.0)
+
+
+## The side goal on a contest day: up from the morning, its dot over the pond, until he
+## comes to it while the contest is on (or it is over); quiet after the first contest.
+func _update_goal() -> void:
+	var up := is_today() and GameClock.minute < END_MINUTE and goal_day != GameClock.day
+	if up and is_on() and _player_distance() < VENUE_RADIUS:
+		_goal_done()
+		return
+	if not up:
+		if SideStory.goals.has(_goal):
+			SideStory.remove_goal(_goal)
+		return
+	if not SideStory.goals.has(_goal):
+		_goal.title = tr("SIDE_CONTEST_TITLE")
+		_goal.quiet = result_day > 0
+		SideStory.add_goal(_goal)
+		Game.notify(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CONTEST"), GOAL_COLOR)
+	var hint := tr("SIDE_HINT_CONTEST_ON") % _clock(END_MINUTE) if is_on() else tr("SIDE_HINT_CONTEST_SOON") % _clock(START_MINUTE)
+	var c := WorldLayout.TOWN_POND_CENTER
+	_goal.set_goal(tr("SIDE_GOAL_CONTEST"), hint, Vector3(c.x, WorldLayout.WATER_LEVEL + 1.2, c.y), tr("SIDE_LABEL_CONTEST"))
+
+
+## He came to the contest (or landed a fish there): today's goal is done.
+func _goal_done() -> void:
+	if goal_day == GameClock.day:
+		return
+	goal_day = GameClock.day
+	if SideStory.goals.has(_goal):
+		SideStory.remove_goal(_goal)
+		Game.notify(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_CONTEST"), UiTheme.GOLD)
+
+
+## Today's side goal is up (tests).
+func goal_up() -> bool:
+	return SideStory.goals.has(_goal)
+
+
+func goal() -> SideGoal:
+	return _goal
 
 
 func _venue_point() -> Vector3:
@@ -496,7 +614,7 @@ func new_game() -> void:
 
 func save_data() -> Dictionary:
 	return {"entries": entries.duplicate(true), "day_held": day_held, "result_day": result_day,
-		"last_winner": last_winner.duplicate(), "letter_day": letter_day}
+		"last_winner": last_winner.duplicate(), "letter_day": letter_day, "goal_day": goal_day}
 
 
 ## After GameClock.load_data: the board as saved; a morning before a contest whose letter
@@ -507,6 +625,8 @@ func load_data(data: Dictionary) -> void:
 	result_day = int(data.get("result_day", 0))
 	last_winner = (data.get("last_winner", {}) as Dictionary).duplicate()
 	letter_day = int(data.get("letter_day", 0))
+	goal_day = int(data.get("goal_day", 0))
+	_goal_t = 0.0
 	# Loaded mid-contest: no opening banner again.
 	_on = is_on()
 	_ceremony_t = -1.0

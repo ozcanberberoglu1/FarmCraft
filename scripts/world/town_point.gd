@@ -1,7 +1,8 @@
 class_name TownPoint
 extends StaticBody3D
 ## An invisible interaction box in town (shop counters, fuel pumps): shows a prompt
-## and runs `action` on E.
+## and runs `action` on E. While the one who works it (`staff`, a Townsperson) is away
+## at a town event it works all the same, saying so under the prompt (an honesty box).
 
 var prompt_key := ""
 ## Translation keys filled into the prompt's %s (an Animal Market pen: its kind).
@@ -9,6 +10,8 @@ var prompt_args: Array = []
 var action: Callable
 var size := Vector3.ONE
 var is_pump := false
+## Who serves here (TownPeople sets it): the hint says when he is away.
+var staff: Node
 
 
 func _ready() -> void:
@@ -37,3 +40,10 @@ func interact_prompt(_player: Node) -> String:
 func interact(_player: Node) -> void:
 	if action.is_valid():
 		action.call()
+
+
+## A line under the prompt while the one who serves here is away at a town event.
+func hint_prompt() -> String:
+	if staff != null and is_instance_valid(staff) and bool(staff.get("away")):
+		return tr("HINT_SERVICE_AWAY")
+	return ""

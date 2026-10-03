@@ -27,6 +27,14 @@ extends Node3D
 ## handing her the bag in the garden (she fills Karamel's bowl) and a chat. A heart for a
 ## bag only once it is in her hands. Karamel eats from the bowl once it is filled (after
 ## the bag at her door, from indoors, while the player isn't looking at it).
+##
+## On the town's event days (EventCrowd: the carnival nights, the fishing contest) she goes
+## too, Karamel at her heels: from the garden she walks out of the gate and over (he
+## trots after her), from indoors she just has gone once nobody is about, and far from
+## the player both are simply there; she stands where the event has her
+## (EventCrowd.zeynep_spot), he potters about at her feet. Her errands wait for her to be
+## home again: a knock meanwhile finds the house empty (a note says where she is), and E
+## on her at the event is a friendly word. When it is over they walk home (or are home).
 
 const GROUP := &"zeynep_home"
 const MODEL := &"zeynep"
@@ -85,9 +93,15 @@ var zeynep: ZeynepPerson
 ## Karamel.
 var dog: Dog
 
-## Where she is: &"away" (not moved in), &"garden", &"inside", &"door" (in the doorway)
-## or &"walking".
+## Where she is: &"away" (not moved in), &"garden", &"inside", &"door" (in the doorway),
+## &"walking" or &"event" (at the town's event, or on her way there or back).
 var where: StringName = &"away"
+## At the event: the crowd she went with, her spot there ({pos, yaw, via}), on her way
+## there or back ("there", "back"; "" standing there), Karamel's garden.
+var _event: EventCrowd
+var _event_spot := {}
+var _event_walk := ""
+var _garden_area := Rect2()
 
 var _knocker: Knocker
 var _blocker: StaticBody3D
@@ -655,6 +669,7 @@ func _spawn() -> void:
 	dog = Dog.new()
 	dog.name = "Karamel"
 	dog.home_area = Rect2(garden.position.x, garden.position.y + 0.75, garden.size.x, garden.size.y - 0.75)
+	_garden_area = dog.home_area
 	dog.name_key = "DOG_KARAMEL"
 	dog.ate.connect(_on_dog_ate)
 	var ds := _dog_spot()
@@ -680,6 +695,8 @@ func _spawn() -> void:
 
 func _despawn() -> void:
 	_steps.clear()
+	_event = null
+	_event_walk = ""
 	_passing = false
 	_bag_given = false
 	_fill_pending = false
@@ -1076,6 +1093,10 @@ func knock() -> void:
 				zeynep.say(tr("ZEYNEP_SAY_GARDEN"))
 				_face(Game.player.global_position, 0.6))])
 		return
+	if where == &"event":
+		# Out at the town's event: nobody home.
+		_play([_wait(KNOCK_ANSWER + 0.6), _do(func() -> void: Game.notify(tr("MSG_ZEYNEP_AT_EVENT"), UiTheme.TEXT_MUTED))])
+		return
 	if SideStory.asleep():
 		_play([_wait(KNOCK_ANSWER + 0.6), _do(func() -> void: Game.notify(tr("MSG_ZEYNEP_ASLEEP"), UiTheme.TEXT_MUTED))])
 		return
@@ -1325,6 +1346,9 @@ func _process(delta: float) -> void:
 		_bowl_left -= delta
 		if _bowl_left <= 0.0:
 			_bowl_food.visible = false
+	if _event_walk != "" and zeynep and dog and dog.mode == &"greet":
+		# Karamel at her heels on the way.
+		dog.target = zeynep.global_position
 	if _pet_resume > 0.0:
 		_pet_resume -= delta
 		if _pet_resume <= 0.0 and not busy() and where == &"garden":
@@ -1339,7 +1363,7 @@ func _process(delta: float) -> void:
 ## while the door stands open); the doorway's fill with the hall lamp.
 func _update_lamps() -> void:
 	var dark := DayNightCycle.night_factor > DUSK
-	var up := SideStory.moved_in() and not SideStory.asleep()
+	var up := SideStory.moved_in() and not SideStory.asleep() and where != &"event"
 	var porch := dark and (up or (SideStory.moved_in() and door.is_open()))
 	if porch != _porch.visible:
 		_porch.visible = porch
@@ -1368,12 +1392,22 @@ func _sync(first: bool) -> void:
 	if busy() or _dialogue_open():
 		return
 	var out := SideStory.outside_now()
+	var ev := _event_now()
 	if zeynep == null:
 		_spawn()
-		if out:
+		if ev:
+			_go_to_event(ev, true)
+		elif out:
 			_place_in_garden()
 		else:
 			_place_inside()
+		return
+	if ev and where != &"event":
+		_go_to_event(ev, first)
+		return
+	if where == &"event":
+		if ev == null and _event_walk != "back":
+			_come_home()
 		return
 	if out and where == &"inside":
 		if _watched() and not first:
@@ -1421,3 +1455,157 @@ static func _set_body_enabled(root: Node, on: bool) -> void:
 		for cs: Node in body.get_children():
 			if cs is CollisionShape3D:
 				(cs as CollisionShape3D).disabled = not on
+
+
+# --- The town's events ---------------------------------------------------------------------------
+
+## The event the town is at now, if she goes (she lives here, and it has a place for her).
+func _event_now() -> EventCrowd:
+	if not SideStory.moved_in():
+		return null
+	var ev := EventCrowd.active(get_tree())
+	return ev if ev and not ev.zeynep_spot().is_empty() else null
+
+
+## On the pavement in front of her garden gate; just inside the gate.
+func _gate_out() -> Vector3:
+	return Vector3(garden.get_center().x, 0.0, EventCrowd.NORTH_WALK)
+
+
+func _gate_in() -> Vector3:
+	return Vector3(garden.get_center().x, 0.0, garden.end.y - 0.8)
+
+
+func _camera_pos() -> Vector3:
+	var cam := get_viewport().get_camera_3d()
+	return cam.global_position if cam else Vector3(0, 1000, 0)
+
+
+## Off to the event: from the garden, while the player is about, she walks out of the
+## gate and over with Karamel; from indoors she goes once nobody is about; with nobody
+## near either end (or `instant`) both are just there.
+func _go_to_event(ev: EventCrowd, instant: bool) -> void:
+	var spot := ev.zeynep_spot()
+	var to: Vector3 = spot["pos"]
+	var watched := _watched() and not instant
+	if watched and where != &"garden":
+		return
+	_event = ev
+	_event_spot = spot
+	_steps.clear()
+	_pet_resume = 0.0
+	zeynep.stop_walk()
+	zeynep.pet_target = null
+	zeynep.act = Townsperson.Act.STAND
+	zeynep.set_indoors(false)
+	where = &"event"
+	if instant or (not watched and _camera_pos().distance_to(to) > EventCrowd.SEEN):
+		_at_event()
+		return
+	var path: Array[Vector3] = []
+	if watched:
+		path.append(_gate_in())
+	else:
+		# Nobody about her house: she has already come out of her gate.
+		zeynep.place_at(_gate_out(), PI * 0.5)
+		dog.global_position = _gate_out() + Vector3(0.9, 0.0, -0.4)
+	path.append(_gate_out())
+	path.append_array(ev._path_to_venue(_gate_out()))
+	path.append_array(spot.get("via", []) as Array)
+	path.append(to)
+	_event_walk = "there"
+	dog.home_area = Rect2()
+	_dog_mode(&"greet", zeynep.global_position)
+	zeynep.walk_to(path, _at_event)
+
+
+## At her place at the event, Karamel pottering about at her feet.
+func _at_event() -> void:
+	_event_walk = ""
+	if zeynep == null or _event_spot.is_empty():
+		return
+	var to: Vector3 = _event_spot["pos"]
+	var yaw := float(_event_spot["yaw"])
+	zeynep.place_at(to, yaw)
+	zeynep.act = Townsperson.Act.STAND
+	var side := Vector3(cos(yaw), 0.0, -sin(yaw))
+	var c := to + side * 1.2
+	dog.home_area = Rect2(c.x - 1.0, c.z - 1.0, 2.0, 2.0)
+	if Vector2(dog.global_position.x, dog.global_position.z).distance_to(Vector2(c.x, c.z)) > 6.0:
+		dog.global_position = Vector3(c.x, _ground(c.x, c.z, zeynep.global_position.y), c.z)
+	_dog_mode(&"roam")
+
+
+## Home again when it is over: walking back while the player can see her (in from the
+## pavement if only her house is in view), else simply home.
+func _come_home() -> void:
+	var path: Array[Vector3] = []
+	if _event and _camera_pos().distance_to(zeynep.global_position) < EventCrowd.SEEN:
+		var via: Array = (_event_spot.get("via", []) as Array).duplicate()
+		via.reverse()
+		path.append_array(via)
+		var way := _event._path_to_venue(_gate_out())
+		way.reverse()
+		path.append_array(way)
+	elif _watched():
+		zeynep.place_at(_gate_out(), -PI * 0.5)
+		dog.global_position = _gate_out() + Vector3(0.9, 0.0, 0.4)
+	else:
+		_home_again()
+		return
+	path.append(_gate_out())
+	path.append(_gate_in())
+	_event_walk = "back"
+	zeynep.stop_walk()
+	dog.home_area = Rect2()
+	_dog_mode(&"greet", zeynep.global_position)
+	zeynep.walk_to(path, _home_again)
+
+
+## Back in her garden (walked in, or put there): on with her day.
+func _home_again() -> void:
+	_event_walk = ""
+	_event = null
+	_event_spot = {}
+	if zeynep == null:
+		return
+	dog.home_area = _garden_area
+	var ds := _dog_spot()
+	if not dog.home_area.has_point(Vector2(dog.global_position.x, dog.global_position.z)):
+		dog.global_position = _at(ds.x, ds.y)
+	_dog_mode(&"roam")
+	where = &"garden"
+	zeynep.act = Townsperson.Act.STAND
+	if not _watched():
+		if SideStory.outside_now():
+			_place_in_garden()
+		else:
+			_place_inside()
+		return
+	if SideStory.outside_now():
+		_play_pet()
+	else:
+		_play_walk_in()
+
+
+## E on her at the event: a friendly word (her errands wait for her to be home).
+func event_hello() -> void:
+	if not at_event_spot():
+		return
+	var p := Game.player as Node3D
+	if p:
+		_face(p.global_position, 0.5)
+	var line := tr("ZEYNEP_SAY_EVENT")
+	zeynep.say(line)
+	_talk_for(line)
+	SideStory.on_chat()
+
+
+## At the town's event (or on her way there or back).
+func at_event() -> bool:
+	return where == &"event"
+
+
+## Standing at her place at the event (not on her way).
+func at_event_spot() -> bool:
+	return zeynep != null and where == &"event" and _event_walk == ""

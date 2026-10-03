@@ -46,7 +46,7 @@ const HOUSE_SIZES := [Vector2(9, 7), Vector2(12, 8), Vector2(15, 9.5)]
 const POND_CENTER := Vector2(-44, -4)
 const POND_RADIUS := 11.0
 ## Yeşilova's pond on the meadow behind the filling station (the fishing contest's water,
-## FishingContest; its pier and board: ContestVenue).
+## FishingContest; its shore anglers and board: ContestVenue).
 const TOWN_POND_CENTER := Vector2(214, 63)
 const TOWN_POND_RADIUS := 9.0
 

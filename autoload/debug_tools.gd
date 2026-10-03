@@ -1,6 +1,6 @@
 extends Node
 ## Development helpers: automated screenshots driven by command-line arguments,
-## F12 screenshots and an F3 debug overlay.
+## F12 screenshots, an F3 debug overlay and the test shortcuts (TestKeys: F6-F8).
 ##
 ## Usage (arguments after `--`):
 ##   --shots=/abs/shots.json   JSON list of {out, pos, look | yaw+pitch, hour, wait, hud}
@@ -46,6 +46,8 @@ func _ready() -> void:
 	if args.has("weather"):
 		Weather.force.call_deferred(Weather.Kind.keys().find(String(args["weather"]).to_upper()))
 	_build_overlay()
+	# F6/F7/F8 for testing (Settings.test_shortcuts).
+	add_child(TestKeys.new())
 
 
 func is_automated() -> bool:

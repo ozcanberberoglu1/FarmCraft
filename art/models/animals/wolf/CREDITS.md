@@ -18,9 +18,11 @@ This work is based on "Dog" (https://sketchfab.com/3d-models/dog-a89b49b3d9c647a
 ```
 
 Changes: the floppy ears cut away (the side of the head closed where they hung) and new erect ears modelled for
-it; reshaped into a grey wolf (long, slim lower legs, a longer neck and muzzle, a bigger head, a narrower, deeper
-body with a tucked-up belly, a longer tail), 72 cm at the withers; rigged and skinned for the game's procedural
-animation; eyes of their own; the coat recoloured to a grizzled grey wolf (a dark saddle, tawny legs, cream
-underparts and lower face) keeping the source's painted hair as the detail, with new normal and roughness maps;
-long shell fur (strand texture made by the script). The pelt item (`wolf_pelt.gltf`) is modelled by the same
+it (broad, thick and round-tipped, pale hair in their hollows); reshaped into a grey wolf (long, slim lower legs on
+big paws, a longer neck and muzzle, a bigger head with wide cheekbones, a narrower, deeper body, a longer tail),
+72 cm at the withers; rigged and skinned for the game's procedural animation; small, oblique eyes of their own; the
+coat recoloured to a Eurasian grey wolf (buff-grey under a dark saddle, a dark shoulder band, tawny nape and legs,
+cream-white underparts, throat, cheeks and muzzle sides, a pale brow, a dark lip line, the tail's dark gland spot
+and black tip) keeping the source's painted hair as the detail, with new normal and roughness maps; long shell fur
+(a heavy mane and neck ruff, a cheek ruff, breeches, a bushy tail; strand texture made by the script). The pelt item (`wolf_pelt.gltf`) is modelled by the same
 script and textured with the wolf's coat.
