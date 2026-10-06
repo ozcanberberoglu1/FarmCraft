@@ -66,9 +66,13 @@ const SHEEP_PEN := Rect2(252.0, 46.4, 16.0, 8.6)
 const PEN_GATE := 2.4
 ## Which paddock shows which kind (the coop's kinds live in the run).
 const MARKET_PENS := {&"horse": HORSE_PADDOCK, &"cow": COW_PADDOCK, &"sheep": SHEEP_PEN}
-## The general market's side yard, between its east wall and the dealership (where its
-## poultry stall stood before the Animal Market took the hens).
+## The concrete yard between the general market's east wall and the dealership (where
+## the market's poultry stall stood before the Animal Market took the hens): the
+## dealer's trailer bay now, two bays side by side open to the pavement (TrailerYard
+## stands the trailers in them), the market's cement pallets along the wall.
 const MARKET_SIDE_YARD := Rect2(216.6, 7.4, 7.6, 5.9)
+## The trailer bay's lines (x), west to east: the two bays lie between them.
+const TRAILER_BAY_LINES: Array[float] = [218.85, 221.6, 224.12]
 ## The vet clinic (VetClinic): its building behind the south pavement's west end, between
 ## the town sign and the filling station, its paved yard in front.
 const VET := Rect2(180.6, 29.8, 10.0, 9.0)
@@ -78,8 +82,9 @@ const FORECOURT_X := Vector2(196.0, 216.0)
 const FUEL_PRICE := 0.5
 
 ## Kerbs are bevelled into mountable kerbs across the driveways (x from, x to): on the
-## south side the filling station's and the Animal Market lane's.
-const DRIVEWAYS_N: Array[Vector2] = [Vector2(186.0, 195.5), Vector2(232.0, 262.0)]
+## north side the car park's, the trailer bay's and the dealer's lot; on the south side
+## the filling station's and the Animal Market lane's.
+const DRIVEWAYS_N: Array[Vector2] = [Vector2(186.0, 195.5), Vector2(219.0, 224.2), Vector2(232.0, 262.0)]
 const DRIVEWAYS_S: Array[Vector2] = [Vector2(194.0, 228.0), Vector2(246.1, 252.1)]
 ## Storm drains in the gutters (x) on each side of the street.
 const DRAINS_N: Array[float] = [199.5, 223.0, 247.5, 270.0]
@@ -255,7 +260,8 @@ func _ready() -> void:
 		Game.world.block_grass(r)
 	_spawn_dealer_stock()
 	_spawn_farm_truck()
-	# Grandpa's stock trailer and the cargo trailer for sale, beside the dealer's lot.
+	# Grandpa's stock trailer and the cargo trailer for sale, in the trailer bay between
+	# the market and the dealer's.
 	TrailerYard.spawn(self)
 	# The townspeople (scripts/npc): at the counters, the pumps, the dealer's, on the pavements.
 	add_child(TownPeople.new())
@@ -1667,12 +1673,15 @@ func _refuel(pump: Vector3) -> void:
 		SideStory.town_goals.note_refuel()
 
 
-static func _nearest_owned_vehicle(p: Vector3, max_dist: float) -> Vehicle:
+## `loaded_only`: an empty trailer does not count.
+static func _nearest_owned_vehicle(p: Vector3, max_dist: float, loaded_only := false) -> Vehicle:
 	var best: Vehicle = null
 	var best_d := max_dist
 	for v: Vehicle in Game.world.get_tree().get_nodes_in_group(Vehicle.GROUP):
 		# A trailer takes no fuel (the pumps' reach is the short one).
 		if not v.owned or (v is Trailer and max_dist < 10.0):
+			continue
+		if loaded_only and v is Trailer and v.cargo.total() == 0:
 			continue
 		var d := v.global_position.distance_to(p)
 		if d < best_d:
@@ -1685,10 +1694,26 @@ static func _nearest_owned_vehicle(p: Vector3, max_dist: float) -> Vehicle:
 func vehicle_at_market() -> Vehicle:
 	if market_counter == null:
 		return null
-	var v := _nearest_owned_vehicle(market_counter.global_position, 30.0)
-	# An empty trailer nearer the counter than the pickup that tows it: the pickup's bed is meant.
-	if v is Trailer and v.cargo.total() == 0 and (v as Trailer).tow != null:
-		return (v as Trailer).tow
+	var at := market_counter.global_position
+	var v := _nearest_owned_vehicle(at, 30.0)
+	# An empty trailer nearer the counter than the pickup: the bed of the pickup that tows
+	# it is meant, or (it stands unhitched, as in the trailer bay next door) of the nearest
+	# vehicle that is no empty trailer.
+	if v is Trailer and v.cargo.total() == 0:
+		if (v as Trailer).tow != null:
+			return (v as Trailer).tow
+		var other := _nearest_owned_vehicle(at, 30.0, true)
+		v = other if other != null else v
+	# A loaded trailer standing unhitched (left in the trailer bay next door, nearer the
+	# counter than the kerb and the car park): what he drove up in comes first while that
+	# carries something (the nearest: his pickup, or the trailer on its ball).
+	if v is Trailer and (v as Trailer).tow == null and v.cargo.total() > 0:
+		var best_d := 30.0
+		for o: Vehicle in get_tree().get_nodes_in_group(Vehicle.GROUP):
+			var d := o.global_position.distance_to(at)
+			if o.owned and d < best_d and o.cargo.total() > 0 and (not o is Trailer or (o as Trailer).tow != null):
+				best_d = d
+				v = o
 	return v
 
 
@@ -2616,22 +2641,46 @@ func _market_animals() -> void:
 			herd.add_pen((MARKET_PENS[species] as Rect2).grow(-0.2), species, 3 if species == &"sheep" else 2, 1, avoid)
 
 
-## The general market's side yard (where its poultry stall used to stand): old concrete
-## patched with packed earth, a pallet of cement and a drum.
-func _market_side_yard(mb: MeshBuilder, cols: Array) -> void:
+## Height of the side yard's concrete (the trailer bay's floor).
+static func side_yard_top() -> float:
 	var c := MARKET_SIDE_YARD.get_center()
-	var y0 := _y(c.x, c.y) + 0.15
-	BuildingKit.slab(mb, cols, MARKET_SIDE_YARD, y0, 0.45, &"concrete", Color(0.5, 0.49, 0.47))
+	return TerrainData.height(c.x, c.y) + 0.15
+
+
+## The yard between the market and the dealership (where the market's poultry stall used
+## to stand), the dealer's trailer bay: old concrete patched with packed earth, two bays
+## marked out in worn paint, open to the pavement (the kerb is bevelled in front:
+## DRIVEWAYS_N), the dealer's "RÖMORK" board over its back west corner; the market's
+## pallets of cement and a drum stand along its wall, out of the bays.
+func _market_side_yard(mb: MeshBuilder, cols: Array) -> void:
+	var y0 := side_yard_top()
+	var yard := MARKET_SIDE_YARD
+	BuildingKit.slab(mb, cols, yard, y0, 0.45, &"concrete", Color(0.5, 0.49, 0.47))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2217
 	for i in 4:
-		var p := Vector3(rng.randf_range(MARKET_SIDE_YARD.position.x + 0.8, MARKET_SIDE_YARD.end.x - 0.8), y0 + 0.004,
-				rng.randf_range(MARKET_SIDE_YARD.position.y + 0.8, MARKET_SIDE_YARD.end.y - 0.8))
+		var p := Vector3(rng.randf_range(yard.position.x + 0.8, yard.end.x - 0.8), y0 + 0.004,
+				rng.randf_range(yard.position.y + 0.8, yard.end.y - 0.8))
 		mb.blob(&"dirt_old", Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(1.4, 0.01, 1.0)), p),
 				rng.randf_range(0.5, 0.9), 1, Color(0.3, 0.26, 0.2), 0.4, 1.8, 60 + i, 0.0, true)
-	_cement_pallet(mb, cols, Vector3(c.x - 1.4, y0, c.y - 1.2), 3, 0.1)
-	_cement_pallet(mb, cols, Vector3(c.x + 1.3, y0, c.y - 1.5), 2, -0.06)
-	_prop("barrel_03", Vector3(MARKET_SIDE_YARD.end.x - 0.7, y0, MARKET_SIDE_YARD.position.y + 0.7), 0.8)
+	# The bays' lines, and oil where the tow cars stand.
+	for x in TRAILER_BAY_LINES:
+		_decal("line", Vector3(x, y0, yard.get_center().y + 0.15), Vector2(4.9, 0.14), PI * 0.5, Color(1, 1, 1, 0.8), 0.3)
+	_decal("oil", Vector3(223.2, y0, 12.3), Vector2(1.0, 0.8), 0.6, Color(1, 1, 1, 0.45), 0.3)
+	# The market's stock along its wall, west of the bays.
+	_cement_pallet(mb, cols, Vector3(yard.position.x + 0.85, y0, yard.position.y + 0.9), 3, 0.06)
+	_cement_pallet(mb, cols, Vector3(yard.position.x + 0.9, y0, yard.position.y + 2.5), 2, -0.05)
+	_prop("barrel_03", Vector3(yard.position.x + 0.6, y0, yard.position.y + 3.75), 0.8)
+	# The dealer's board on two posts at the back, behind the market's pallets (at the
+	# front its posts stood where a pickup's tail swings in), turned to the street.
+	var board := Vector3(yard.position.x + 0.85, y0, yard.position.y + 0.2)
+	for sx: float in [-0.6, 0.6]:
+		mb.cylinder(&"metal", Transform3D(Basis(), board + Vector3(sx, 0, 0)), 0.03, 0.03, 2.7, 6, GALV)
+		cols.append([board + Vector3(sx, 1.2, 0), Vector3(0.08, 2.4, 0.08), 0.0])
+	mb.box_at(&"sign", board + Vector3(0, 2.4, 0.035), Vector3(1.42, 0.58, 0.03), Color(0.86, 0.86, 0.84))
+	mb.box_at(&"sign", board + Vector3(0, 2.4, 0.05), Vector3(1.36, 0.52, 0.024), Color(0.1, 0.2, 0.36))
+	var label := BuildingKit.sign(self, "RÖMORK", board + Vector3(0, 2.4, 0.068), 0.0, 72, Color(1, 1, 1))
+	label.visibility_range_end = 80.0
 
 
 ## One more package on display (see _goods): "item:variant:shadow", or "item:still"
@@ -3203,7 +3252,9 @@ func _bus_stop(mb: MeshBuilder, cols: Array) -> void:
 func _trees() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4711
-	for p: Vector2 in [Vector2(182, 8), Vector2(222, 6), Vector2(226, -8), Vector2(266, 14.8), Vector2(284, 6),
+	# The second stands well behind the trailer bay: right behind it its branches hung in
+	# front of the chase camera of a pickup backing up to a tongue.
+	for p: Vector2 in [Vector2(182, 8), Vector2(220, 0), Vector2(226, -8), Vector2(266, 14.8), Vector2(284, 6),
 			Vector2(286, 34), Vector2(232, 44), Vector2(187, 43.4), Vector2(185, -14), Vector2(214, -12), Vector2(262, -16)]:
 		var mi := MeshInstance3D.new()
 		mi.mesh = NatureModels.oak(rng.randi_range(1, 3), true) if rng.randf() < 0.7 else NatureModels.pine(rng.randi_range(1, 3), true)

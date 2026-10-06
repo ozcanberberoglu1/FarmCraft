@@ -1458,11 +1458,53 @@ func load_data(d: Dictionary) -> void:
 ## A vehicle the save doesn't know yet (Grandpa's pickup in a game saved before it
 ## came with the farm) stays at its spawn; if this one was parked on top of it, it
 ## moves to the nearest clear spot. A vehicle the save knows is restored afterwards
-## anyway, so moving it early does no harm.
+## anyway, so moving it early does no harm. Not the dealer's trailers: they stay in their
+## bays (TrailerYard; moved, they would stand in the street), and this one leaves if it
+## stands in one (_leave_bay, once every vehicle is restored: one of them may be the
+## farmer's, saved somewhere else).
 func _make_room() -> void:
 	for v: Vehicle in get_tree().get_nodes_in_group(GROUP):
-		if v != self and not v.restored and v.global_position.distance_to(global_position) < 6.0:
+		if v == self or v.global_position.distance_to(global_position) >= 6.0:
+			continue
+		if v is Trailer and not v.owned:
+			_leave_bay.call_deferred(v)
+		elif not v.restored:
 			v.teleport(v.clear_spot_near(v.global_transform))
+
+
+## A vehicle a save left standing in the dealer's trailer `t` (the yard was the market's
+## before it was his trailer bay) is put at the kerb in front of the bays, or on the
+## nearest clear spot to that; backed up to its tongue it stays.
+func _leave_bay(t: Trailer) -> void:
+	if not is_instance_valid(t) or t.owned or not is_inside_tree() or not stands_in(t):
+		return
+	var spot := TrailerYard.kerb_place()
+	teleport(spot if is_clear_at(spot) else clear_spot_near(spot))
+
+
+## Whether this vehicle's body stands in `other`'s on the ground, `slack` m or more into
+## it (bumpers touching is not in it).
+func stands_in(other: Vehicle, slack := 0.15) -> bool:
+	for a in _ground_boxes(-slack):
+		for b in other._ground_boxes(0.0):
+			if not Geometry2D.intersect_polygons(a, b).is_empty():
+				return true
+	return false
+
+
+## The outlines of its body's boxes on the ground (world x, z), each grown by `by` m.
+func _ground_boxes(by: float) -> Array[PackedVector2Array]:
+	var out: Array[PackedVector2Array] = []
+	for box: Array in info.get("boxes", []):
+		var c := _mb(box[0])
+		var size: Vector3 = box[1]
+		var half := Vector2(maxf(size.z * 0.5 + by, 0.01), maxf(size.x * 0.5 + by, 0.01))
+		var outline := PackedVector2Array()
+		for k: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+			var p := global_transform * Vector3(c.x + k.x * half.x, 0.0, c.z + k.y * half.y)
+			outline.append(Vector2(p.x, p.z))
+		out.append(outline)
+	return out
 
 
 ## The first spot 7-13 m around `xf` where this vehicle fits without touching a

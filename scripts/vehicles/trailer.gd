@@ -17,6 +17,17 @@ extends Vehicle
 ## marker over the coupling shows while the farmer drives near: amber, green in reach),
 ## get out, E at the tongue ("Römorku bağla"; a clunk, the jockey wheel winds up); E there
 ## again unhitches it.
+## Wheeled by hand: an empty trailer (no animal, no cargo) need not be backed up to. With
+## one of his vehicles standing within WHEEL_REACH of the coupling (any way round) and a
+## clear, level place straight behind it, E at the tongue rolls the trailer there on its
+## jockey wheel over a moment (wheel_choice, _wheel_plan: out along its own length first,
+## then swung round and in; nothing in its way, and it collides with nothing while it
+## rolls) at a brisk walk (WHEEL_SPEED) and couples it; the farmer in its way is stepped
+## aside ahead of it (_roll_aside), it waits for a townsman or an animal who walks into its
+## way (_roll_held), and its bed cannot be opened or loaded until it stands. The marker
+## turns green for a driver who is near enough with room behind him, and he is told once
+## he has stopped there. When it can't be done the tongue says why (too far, the vehicle
+## tows another, no room, somebody in the way, loaded).
 ## The stock trailer: E at its body lowers and raises the gate (a ramp). With an animal on
 ## the rope (AnimalHandler) and the ramp down, E walks it up the ramp to its place (two
 ## sheep side by side, or one cow or horse: "room"); more are refused with a line. Aboard
@@ -55,6 +66,57 @@ const VOICE_EVERY := Vector2(9.0, 24.0)
 const CONFIRM_TIME := 6.0
 ## Room an animal takes (sheep: 1).
 const ROOM := {&"cow": 2, &"horse": 2}
+## Wheeling an empty trailer to a vehicle by hand: how near (m, on the ground) the
+## vehicle's ball must be to the coupling and how much higher or lower it may stand (from
+## the dealer's bay to a pickup at the kerb in front is 5.4 to 6.5 m); how fast it is
+## wheeled (m/s, a brisk walk) and how long it takes to get going and to stop (s), so how
+## long the roll takes (s: the shortest, the longest, by the length of the way: 4 m in
+## 1.6 s, 10 m in 3.4 s); and the longest way it is wheeled (m, a radian of turning on its
+## axle counted as WHEEL_ARM m).
+const WHEEL_REACH := 8.0
+const WHEEL_RISE := 1.5
+const WHEEL_SPEED := 3.5
+const WHEEL_RAMP := 0.5
+const WHEEL_TIME := Vector2(1.2, 5.3)
+const WHEEL_FAR := 16.5
+const WHEEL_ARM := 1.6
+## While it rolls: how near its body the farmer's feet are let (m), how far ahead along
+## its way he is stepped aside for it (m) and how fast (m/s); how far ahead it looks for a
+## townsman or an animal who walked into its way (m) and how long in all it waits for them
+## (s; then it goes on, as it must end somewhere); seconds between the steps heard at its
+## tongue.
+const WHEEL_KEEP := 0.5
+const WHEEL_AHEAD := 1.6
+const WHEEL_ASIDE := 3.2
+const WHEEL_LOOK := 1.2
+const WHEEL_WAIT := 2.0
+const WHEEL_FOOT := 0.36
+## The driver's marker goes green for a trailer to wheel over only below the second of
+## these speeds (km/h), and he is told to get out only once he is slower than the first:
+## driving past his trailer is not coming for it.
+const WHEEL_SLOW := Vector2(3.0, 25.0)
+## Its way is looked over every WHEEL_STEP m; straight out along its own length up to
+## WHEEL_OUT m, straight in behind the vehicle from up to WHEEL_IN m back.
+const WHEEL_STEP := 0.3
+const WHEEL_OUT := 7.0
+const WHEEL_IN := 3.5
+## How near it may pass another vehicle's body (m), how far its tongue may stand into its
+## tow's tail on the way in (the ball is under it), how near what stands (a wall, a post)
+## or walks, and how near the farmer's feet its place may be.
+const WHEEL_GAP := 0.12
+const WHEEL_TOW_SLACK := 0.06
+const WHEEL_WALL_GAP := 0.08
+const WHEEL_SELF := 0.5
+## What stands in its way is looked for between these heights over the ground (m: over a
+## kerb, under a canopy), and the most its place may tilt (radians).
+const WHEEL_CHECK := Vector2(0.45, 1.7)
+const WHEEL_TILT := 0.2
+## Seconds an answer of wheel_plan is kept (the marker, the hint and the goal ask every
+## frame).
+const WHEEL_EVERY := 0.3
+## Things without a body that stand in a wheeled trailer's way all the same (the price
+## board): nodes of this group with a "post" meta, Vector3(x, z, radius).
+const WHEEL_POSTS := &"wheel_posts"
 
 ## The vehicle it is hitched to (null: parked).
 var tow: Vehicle
@@ -106,6 +168,18 @@ var _confirm := 0.0
 var _rng := RandomNumberGenerator.new()
 ## What a load asked to be put back once every vehicle is restored.
 var _pending := {}
+## Being wheeled to a vehicle by hand (empty: not): {"to": Vehicle, "keys": the way
+## (Vector3(x, z, heading) each), "lens", "total", "t", "time", "end": its place as a
+## save keeps it, "layer": its collision layer while it stands, "pace": how fast its clock
+## runs (0: it waits for somebody in its way), "held": seconds waited so far, "look":
+## the query for walkers ahead, "shapes": its body as boxes to ask it with (_wheel_scene),
+## "side": the side the farmer was last stepped to}.
+var _roll := {}
+## wheel_plan's last answers: vehicle instance id -> [msec, plan].
+var _wheel_memo := {}
+## Its body's boxes on the ground in its own frame: [centre (x, z), half size (x, z)] each.
+var _wheel_boxes: Array = []
+var _roll_step := 0.0
 
 
 static func make(kind_id: StringName, xform: Transform3D, for_sale := false) -> Trailer:
@@ -348,6 +422,7 @@ func tow_in_reach() -> Vehicle:
 func hitch(v: Vehicle, quiet := false) -> bool:
 	if v == null or v == tow or v is Trailer or towed_by(v) != null:
 		return false
+	_cancel_roll()
 	if tow:
 		unhitch(true)
 	tow = v
@@ -425,6 +500,7 @@ func _show_ball(on: bool) -> void:
 
 
 func teleport(xf: Transform3D) -> void:
+	_cancel_roll()
 	super.teleport(xf)
 	if tow == null:
 		_settle = 2
@@ -439,6 +515,9 @@ func _physics_process(delta: float) -> void:
 		else:
 			_tow_tick(delta)
 			return
+	if not _roll.is_empty():
+		_roll_tick(delta)
+		return
 	if _settle > 0:
 		_settle -= 1
 		if _settle == 0:
@@ -615,7 +694,8 @@ func _process(delta: float) -> void:
 
 
 ## The marker over the coupling: only for a driver near an owned trailer that stands
-## unhitched; green and a line once his ball is in reach.
+## unhitched; green and a line once he can get out and couple it (his ball in reach, or
+## the trailer empty and near enough to be wheeled over, with room behind him).
 func _update_guide() -> void:
 	var p := Game.player as Player
 	var show := false
@@ -628,13 +708,538 @@ func _update_guide() -> void:
 	if not show:
 		return
 	var ready := tow_in_reach() == p.driving
+	var tell := ready
+	var kmh := p.driving.speed_kmh()
+	if not ready and _roll.is_empty() and kmh < WHEEL_SLOW.y and not loaded() and _wheel_near(p.driving):
+		ready = String(wheel_plan(p.driving)["why"]) == ""
+		# Told once he has as good as stopped there, not while he drives past.
+		tell = ready and kmh < WHEEL_SLOW.x
 	_guide_mat.albedo_color = Color(0.3, 1.0, 0.35, 0.95) if ready else Color(1.0, 0.7, 0.15, 0.9)
 	_guide.rotation.y = _clock * 1.2
-	if ready and not _in_reach_told:
+	if tell and not _in_reach_told:
 		_in_reach_told = true
 		Game.notify(tr("MSG_TRAILER_IN_REACH"), UiTheme.GREEN)
-	elif not ready and p.driving.global_position.distance_to(coupling()) > 6.0:
+	elif not ready and p.driving.global_position.distance_to(coupling()) > WHEEL_REACH + 3.5:
 		_in_reach_told = false
+
+
+# --- Wheeled by hand --------------------------------------------------------------------------
+
+## Whether anything rides in it (an animal, cargo): such a trailer is not wheeled by hand.
+func loaded() -> bool:
+	_prune()
+	return not aboard.is_empty() or cargo.total() > 0
+
+
+## Whether it is being wheeled to a vehicle right now.
+func rolling() -> bool:
+	return not _roll.is_empty()
+
+
+## Whether E at the tongue would couple it now: a ball in reach, or one of the farmer's
+## vehicles near enough to wheel it to.
+func can_couple() -> bool:
+	return owned and tow == null and (tow_in_reach() != null or String(wheel_choice()["why"]) == "")
+
+
+## Whether `v`'s ball is near enough to the coupling to wheel the trailer to it.
+func _wheel_near(v: Vehicle) -> bool:
+	var ball := v.global_transform * hitch_of(v)
+	var c := coupling()
+	return Vector2(ball.x - c.x, ball.z - c.z).length() < WHEEL_REACH and absf(ball.y - c.y) < WHEEL_RISE
+
+
+## Which of the farmer's vehicles it can be wheeled to by hand now and how: {"to", "why":
+## "", "keys", "end"}, or {"to": null, "why": the key of the line that says why not}: too
+## far, the only one near tows a trailer already, no room, somebody in the way, loaded.
+## `fresh`: looked over anew (E), not from the last answer.
+func wheel_choice(fresh := false) -> Dictionary:
+	if not owned or tow != null or not _roll.is_empty():
+		return {"to": null, "why": "HINT_TRAILER_BACK_UP"}
+	if loaded():
+		return {"to": null, "why": "HINT_TRAILER_WHEEL_LOADED"}
+	var c := coupling()
+	var near: Array = []
+	var taken := false
+	for v: Vehicle in Vehicle.all:
+		if v is Trailer or not v.owned or not v.is_inside_tree() or not _wheel_near(v):
+			continue
+		var busy := towed_by(v) != null
+		for t in every():
+			busy = busy or (t != self and t._roll.get("to") == v)
+		if busy:
+			taken = true
+		else:
+			var ball := v.global_transform * hitch_of(v)
+			near.append([Vector2(ball.x - c.x, ball.z - c.z).length(), v])
+	near.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	# Nothing free near: too far, or the one that stands near has a trailer on its ball.
+	var why := "HINT_TRAILER_WHEEL_TAKEN" if taken else "HINT_TRAILER_BACK_UP"
+	for i in near.size():
+		var plan := wheel_plan(near[i][1] as Vehicle, fresh)
+		if String(plan["why"]) == "":
+			return plan
+		if i == 0:
+			why = String(plan["why"])
+	return {"to": null, "why": why}
+
+
+## How it would be wheeled to `v` (see wheel_choice), from the last answer when that is
+## no older than WHEEL_EVERY.
+func wheel_plan(v: Vehicle, fresh := false) -> Dictionary:
+	var id := v.get_instance_id()
+	var now := Time.get_ticks_msec()
+	if not fresh and _wheel_memo.has(id) and now - int(_wheel_memo[id][0]) < int(WHEEL_EVERY * 1000.0):
+		return _wheel_memo[id][1]
+	var plan := _wheel_plan(v)
+	_wheel_memo[id] = [now, plan]
+	return plan
+
+
+## Its place straight behind `v` (level enough, nothing standing in it, the farmer not in
+## it) and a clear way there. Refused for want of room with a townsman or an animal in
+## the way, it is looked over once more without them: clear then, the line is to wait a
+## moment, not to move the vehicle.
+func _wheel_plan(v: Vehicle) -> Dictionary:
+	var scene := _wheel_scene(v)
+	var plan := _wheel_look(v, scene)
+	if String(plan["why"]) == "HINT_TRAILER_WHEEL_NO_ROOM" and bool(scene["walker"]):
+		if String(_wheel_look(v, _wheel_scene(v, false))["why"]) == "":
+			return {"to": null, "why": "HINT_TRAILER_WHEEL_WAIT"}
+	return plan
+
+
+func _wheel_look(v: Vehicle, scene: Dictionary) -> Dictionary:
+	var no_room := {"to": null, "why": "HINT_TRAILER_WHEEL_NO_ROOM"}
+	var ball := v.global_transform * hitch_of(v)
+	var f3 := v.global_basis.z
+	var h1 := Vector2(f3.x, f3.z)
+	if h1.length() < 0.6 or v.global_basis.y.y < 0.8:
+		return no_room
+	h1 = h1.normalized()
+	var a1 := Vector2(ball.x, ball.z) - h1 * _hitch.z
+	var end := Vector3(a1.x, a1.y, atan2(h1.x, h1.y))
+	var place := _pose(a1, h1, ball)
+	if place.basis.y.y < cos(WHEEL_TILT):
+		return no_room
+	if _wheel_hits(end, scene):
+		return no_room
+	var me: Variant = null
+	var p := Game.player as Player
+	if is_instance_valid(p) and p.driving == null:
+		me = Vector2(p.global_position.x, p.global_position.z)
+		if _wheel_over(end, me as Vector2, WHEEL_SELF):
+			return {"to": null, "why": "HINT_TRAILER_WHEEL_SELF"}
+	var f0 := global_basis.z
+	var keys := _wheel_route(Vector3(global_position.x, global_position.z, atan2(f0.x, f0.z)), end, scene, me)
+	if keys.is_empty():
+		return no_room
+	return {"to": v, "why": "", "keys": keys, "end": place}
+
+
+## What a way to `v` is looked over against: the other vehicles' bodies on the ground
+## (its tow's a little smaller: the tongue ends under its tail), the bodiless posts, the
+## query for what stands or walks (the world and, with `walkers`, the walkers' layer; not
+## the vehicles, the farmer or his own dog, who steps aside), the boxes it is asked with.
+## "walker": a look found a townsman or an animal in the way.
+func _wheel_scene(v: Vehicle, walkers := true) -> Dictionary:
+	if _wheel_boxes.is_empty():
+		for box: Array in info.get("boxes", []):
+			var c := _mb(box[0])
+			var size: Vector3 = box[1]
+			_wheel_boxes.append([Vector2(c.x, c.z), Vector2(size.z * 0.5, size.x * 0.5)])
+	var skip: Array[RID] = []
+	var others: Array = []
+	var here := Vector2(global_position.x, global_position.z)
+	for o: Vehicle in Vehicle.all:
+		if not o.is_inside_tree():
+			continue
+		skip.append(o.get_rid())
+		var at := Vector2(o.global_position.x, o.global_position.z)
+		if o != self and at.distance_to(here) < WHEEL_FAR + WHEEL_REACH + o._reach + _reach:
+			others.append([at, o._reach, o._ground_boxes(-WHEEL_TOW_SLACK if o == v else WHEEL_GAP)])
+	if is_instance_valid(Game.player):
+		skip.append((Game.player as CollisionObject3D).get_rid())
+	for dog in get_tree().get_nodes_in_group(PetDog.PET_GROUP):
+		for body in dog.find_children("*", "CollisionObject3D", true, false):
+			skip.append((body as CollisionObject3D).get_rid())
+	var posts: Array[Vector3] = []
+	for n in get_tree().get_nodes_in_group(WHEEL_POSTS):
+		if n is Node3D and (n as Node3D).visible and n.has_meta("post"):
+			posts.append(n.get_meta("post"))
+	var shapes: Array = []
+	var tall := WHEEL_CHECK.y - WHEEL_CHECK.x
+	var whole := BoxShape3D.new()
+	whole.size = Vector3(_footprint.size.x + WHEEL_WALL_GAP * 2.0, tall, _footprint.size.y + WHEEL_WALL_GAP * 2.0)
+	shapes.append([whole, _footprint.get_center()])
+	for b: Array in _wheel_boxes:
+		var half: Vector2 = b[1]
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(half.x * 2.0 + WHEEL_WALL_GAP * 2.0, tall, half.y * 2.0 + WHEEL_WALL_GAP * 2.0)
+		shapes.append([shape, b[0]])
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.collision_mask = (1 | 16) if walkers else 1
+	q.exclude = skip
+	return {"others": others, "posts": posts, "shapes": shapes, "query": q, "space": get_world_3d().direct_space_state, "memo": {}, "walker": false}
+
+
+## Whether the trailer standing at `pose` (x, z, heading) would stand in something: a
+## vehicle's body, a post, a wall, an animal, a townsman.
+func _wheel_hits(pose: Vector3, scene: Dictionary) -> bool:
+	var memo: Dictionary = scene["memo"]
+	var key := Vector3i(roundi(pose.x * 25.0), roundi(pose.y * 25.0), roundi(pose.z * 50.0))
+	if not memo.has(key):
+		memo[key] = _wheel_hits_now(pose, scene)
+	return memo[key]
+
+
+func _wheel_hits_now(pose: Vector3, scene: Dictionary) -> bool:
+	var fwd := Vector2(sin(pose.z), cos(pose.z))
+	var right := Vector2(cos(pose.z), -sin(pose.z))
+	var at := Vector2(pose.x, pose.y)
+	var mine: Array[PackedVector2Array] = []
+	for o: Array in scene["others"]:
+		if at.distance_to(o[0]) > _reach + float(o[1]) + 0.4:
+			continue
+		if mine.is_empty():
+			for b: Array in _wheel_boxes:
+				var c: Vector2 = b[0]
+				var h: Vector2 = b[1]
+				var mid := at + right * c.x + fwd * c.y
+				mine.append(PackedVector2Array([mid - right * h.x - fwd * h.y, mid + right * h.x - fwd * h.y,
+						mid + right * h.x + fwd * h.y, mid - right * h.x + fwd * h.y]))
+		for a in mine:
+			for b: PackedVector2Array in o[2]:
+				if not Geometry2D.intersect_polygons(a, b).is_empty():
+					return true
+	for post: Vector3 in scene["posts"]:
+		if _wheel_over(pose, Vector2(post.x, post.y), post.z):
+			return true
+	# What stands or walks there: the whole of it first, then box by box (the tongue is
+	# narrow).
+	var q: PhysicsShapeQueryParameters3D = scene["query"]
+	var space: PhysicsDirectSpaceState3D = scene["space"]
+	var turned := Basis(Vector3.UP, pose.z)
+	var y := _ground_under(at, global_position.y) + (WHEEL_CHECK.x + WHEEL_CHECK.y) * 0.5
+	var shapes: Array = scene["shapes"]
+	for i in shapes.size():
+		var c: Vector2 = shapes[i][1]
+		var mid := at + right * c.x + fwd * c.y
+		q.shape = shapes[i][0]
+		q.transform = Transform3D(turned, Vector3(mid.x, y, mid.y))
+		var found := space.intersect_shape(q, 1)
+		var hit := not found.is_empty()
+		if i == 0 and not hit:
+			return false
+		if i > 0 and hit:
+			var body := found[0].get("collider") as CollisionObject3D
+			if body != null and (body.collision_layer & 16) != 0:
+				scene["walker"] = true
+			return true
+	return false
+
+
+## Whether the ground point `p` is within `radius` of the trailer's body standing at `pose`.
+func _wheel_over(pose: Vector3, p: Vector2, radius: float) -> bool:
+	var d := p - Vector2(pose.x, pose.y)
+	var lx := d.dot(Vector2(cos(pose.z), -sin(pose.z)))
+	var lz := d.dot(Vector2(sin(pose.z), cos(pose.z)))
+	for b: Array in _wheel_boxes:
+		var c: Vector2 = b[0]
+		var h: Vector2 = b[1]
+		if Vector2(maxf(absf(lx - c.x) - h.x, 0.0), maxf(absf(lz - c.y) - h.y, 0.0)).length() < radius:
+			return true
+	return false
+
+
+## How far (m, up to `far`) the trailer can go straight along `dir` from `from` before
+## it stands in something; `short`: a step short of that.
+func _wheel_free(from: Vector3, dir: Vector2, far: float, scene: Dictionary, short: bool) -> float:
+	var free := 0.0
+	var d := WHEEL_STEP
+	while d <= far + 0.001:
+		if _wheel_hits(Vector3(from.x + dir.x * d, from.y + dir.y * d, from.z), scene):
+			return maxf(free - WHEEL_STEP, 0.0) if short else free
+		free = d
+		d += WHEEL_STEP
+	return free
+
+
+## How long the stretch from pose `a` to pose `b` is (m; turning counted by WHEEL_ARM).
+static func _wheel_len(a: Vector3, b: Vector3) -> float:
+	return maxf(Vector2(b.x - a.x, b.y - a.y).length(), absf(b.z - a.z) * WHEEL_ARM)
+
+
+## The way from `start` to `end` (poses: x, z, heading; the headings run on from one to
+## the next, so a turn the long way round is more than half a circle): the shortest clear
+## one of a handful, each out along its own length first (as far as its place is ahead,
+## as far as it can go, half that, or not at all), then either swung round while it is
+## carried over, or turned on its axle to where it goes, rolled there and turned again
+## (tongue or tail first, the short way round or the long), and straight in behind the
+## vehicle for the last stretch. One that does not pass over the farmer (`me`, his feet)
+## before one that does. Empty: none.
+func _wheel_route(start: Vector3, end: Vector3, scene: Dictionary, me: Variant) -> Array[Vector3]:
+	var h0 := Vector2(sin(start.z), cos(start.z))
+	var h1 := Vector2(sin(end.z), cos(end.z))
+	var a0 := Vector2(start.x, start.y)
+	var a1 := Vector2(end.x, end.y)
+	var out_free := _wheel_free(start, h0, WHEEL_OUT, scene, true)
+	var in_free := _wheel_free(end, -h1, WHEEL_IN, scene, false)
+	var outs: Array[float] = []
+	for d: float in [clampf((a1 - a0).dot(h0), 0.0, out_free), out_free, out_free * 0.5, 0.0]:
+		var known := false
+		for o in outs:
+			known = known or absf(o - d) < 0.25
+		if not known:
+			outs.append(d)
+	var ways: Array = []
+	for d in outs:
+		var p1 := Vector3(a0.x + h0.x * d, a0.y + h0.y * d, start.z)
+		for k: float in [0.0, 0.8, 2.0, 3.5]:
+			if k > in_free + 0.01:
+				break
+			var q2 := a1 - h1 * k
+			var round_to := start.z + angle_difference(start.z, end.z)
+			ways.append(_wheel_keys([start, p1, Vector3(q2.x, q2.y, round_to), Vector3(a1.x, a1.y, round_to)]))
+			var go := q2 - Vector2(p1.x, p1.y)
+			if go.length() < 0.3:
+				continue
+			for lead: float in [0.0, PI]:
+				var along := p1.z + angle_difference(p1.z, atan2(go.x, go.y) + lead)
+				var back := angle_difference(along, end.z)
+				var turns: Array[float] = [back]
+				if absf(back) > 0.02:
+					turns.append(back - signf(back) * TAU)
+				for turn in turns:
+					ways.append(_wheel_keys([start, p1, Vector3(p1.x, p1.y, along), Vector3(q2.x, q2.y, along),
+							Vector3(q2.x, q2.y, along + turn), Vector3(a1.x, a1.y, along + turn)]))
+	ways.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["len"]) < float(b["len"]))
+	var spare: Array[Vector3] = []
+	var tried := 0
+	for way: Dictionary in ways:
+		if float(way["len"]) > WHEEL_FAR or tried >= 48:
+			break
+		tried += 1
+		var keys: Array[Vector3] = way["keys"]
+		var over := _wheel_way(keys, scene, me)
+		if over == 0:
+			return keys
+		if over == 1 and spare.is_empty():
+			spare = keys
+	return spare
+
+
+## The poses `list` as a way: {"keys": them without the ones that repeat, "len"}.
+func _wheel_keys(list: Array) -> Dictionary:
+	var keys: Array[Vector3] = [list[0]]
+	var total := 0.0
+	for i in range(1, list.size()):
+		var step := _wheel_len(keys.back(), list[i])
+		if step > 0.02 or i == list.size() - 1:
+			total += step
+			keys.append(list[i])
+	return {"keys": keys, "len": total}
+
+
+## Looks over the way `keys`: -1 something stands in it, 1 clear but over the farmer's
+## feet (`me`), 0 clear.
+func _wheel_way(keys: Array[Vector3], scene: Dictionary, me: Variant) -> int:
+	for i in range(1, keys.size()):
+		if _wheel_hits(keys[i], scene):
+			return -1
+	var over := 0
+	for i in keys.size() - 1:
+		var n := maxi(ceili(_wheel_len(keys[i], keys[i + 1]) / WHEEL_STEP), 1)
+		for j in range(1, n):
+			var pose := keys[i].lerp(keys[i + 1], float(j) / n)
+			if _wheel_hits(pose, scene):
+				return -1
+			if over == 0 and me is Vector2 and _wheel_over(pose, me as Vector2, WHEEL_SELF - 0.1):
+				over = 1
+	return over
+
+
+## Off it goes along the plan's way (wheel_choice): through nothing, as its way was looked
+## over, and colliding with nothing while it rolls (a body moved by hand sweeps aside
+## whatever it touches). The ramp is put up first.
+func _start_roll(plan: Dictionary) -> void:
+	var keys: Array[Vector3] = plan["keys"]
+	var lens := PackedFloat32Array()
+	var total := 0.0
+	for i in keys.size() - 1:
+		lens.append(_wheel_len(keys[i], keys[i + 1]))
+		total += lens[i]
+	if gate_open:
+		set_gate(false)
+	var scene := _wheel_scene(plan["to"] as Vehicle)
+	var look := PhysicsShapeQueryParameters3D.new()
+	look.collision_mask = 16
+	look.exclude = (scene["query"] as PhysicsShapeQueryParameters3D).exclude
+	_roll = {"to": plan["to"], "keys": keys, "lens": lens, "total": total, "t": 0.0,
+		"time": clampf(total / WHEEL_SPEED + WHEEL_RAMP, WHEEL_TIME.x, WHEEL_TIME.y), "end": plan["end"], "layer": collision_layer,
+		"pace": 1.0, "held": 0.0, "look": look, "shapes": scene["shapes"], "side": 0.0}
+	collision_layer = 0
+	_bed_touch(false)
+	_roll_step = 0.0
+	_wheel_memo.clear()
+	Audio.play("creak", coupling(), -7.0, 0.08, &"Effects", 6.0, 1.25)
+
+
+## One tick of the roll: along its way at a walk (up to its pace, steady, and down again),
+## on its wheels and its jockey wheel, the wheels turning with it, steps at its tongue;
+## waiting while somebody walks across its way, the farmer stepped aside ahead of it; at
+## the end it couples.
+func _roll_tick(delta: float) -> void:
+	var time := float(_roll["time"])
+	var total := float(_roll["total"])
+	var share := WHEEL_RAMP / time
+	var at := _wheel_ease(clampf(float(_roll["t"]) / time, 0.0, 1.0), share) * total
+	# Somebody in the next stretch of its way: its clock runs down, and up again after.
+	var pace := move_toward(float(_roll["pace"]), 0.0 if _roll_held(at, delta) else 1.0, delta * 5.0)
+	_roll["pace"] = pace
+	_roll["t"] = float(_roll["t"]) + delta * pace
+	var u := clampf(float(_roll["t"]) / time, 0.0, 1.0)
+	var s := _wheel_ease(u, share) * total
+	_roll_aside(s, delta)
+	var pose := _roll_pose(s)
+	var o := global_position
+	var xf := _pose(Vector2(pose.x, pose.y), Vector2(sin(pose.z), cos(pose.z)), null)
+	var rolled := (xf.origin - o).dot(xf.basis.z)
+	_spin = fposmod(_spin + rolled / _radius, TAU)
+	global_transform = xf
+	_roll_step += delta * pace
+	if _roll_step > WHEEL_FOOT:
+		_roll_step = 0.0
+		Audio.play("step_" + Audio._surface(self), coupling(), -13.0, 0.1, &"Effects", 3.0)
+	if u >= 1.0:
+		_end_roll()
+
+
+## How far along its way (0 to 1) it is at `u` of its time: getting going over the share
+## `ramp` of it, steady, and stopping over as much.
+static func _wheel_ease(u: float, ramp: float) -> float:
+	var a := clampf(ramp, 0.01, 0.5)
+	if u < a:
+		return u * u / (2.0 * a * (1.0 - a))
+	if u > 1.0 - a:
+		return 1.0 - (1.0 - u) * (1.0 - u) / (2.0 * a * (1.0 - a))
+	return (u - a * 0.5) / (1.0 - a)
+
+
+## Where it is (x, z, heading) `s` m along the way it is rolling.
+func _roll_pose(s: float) -> Vector3:
+	var keys: Array[Vector3] = _roll["keys"]
+	var lens: PackedFloat32Array = _roll["lens"]
+	var i := 0
+	while i < lens.size() - 1 and s > lens[i]:
+		s -= lens[i]
+		i += 1
+	return keys[i].lerp(keys[i + 1], clampf(s / maxf(lens[i], 0.001), 0.0, 1.0))
+
+
+## Whether a townsman or an animal stands in the next WHEEL_LOOK m of its way from `at`
+## (m along it): it waits for them, WHEEL_WAIT s in all at the most. Not for one who
+## stands against it already (a walker stopped at its side by Vehicle.keep_out waits for
+## it to go, and would wait for ever).
+func _roll_held(at: float, delta: float) -> bool:
+	if float(_roll["held"]) >= WHEEL_WAIT:
+		return false
+	var total := float(_roll["total"])
+	var shapes: Array = _roll["shapes"]
+	var beside := _roll_walkers(_roll_pose(at), shapes.slice(0, 1))
+	var body := shapes.slice(1) if shapes.size() > 1 else shapes
+	for ahead: float in [WHEEL_LOOK * 0.5, WHEEL_LOOK]:
+		for who: int in _roll_walkers(_roll_pose(minf(at + ahead, total)), body):
+			if not beside.has(who):
+				_roll["held"] = float(_roll["held"]) + delta
+				return true
+	return false
+
+
+## The townsmen and animals (instance ids) its body, as the boxes `shapes` (_wheel_scene),
+## would touch standing at `pose`.
+func _roll_walkers(pose: Vector3, shapes: Array) -> Array[int]:
+	var out: Array[int] = []
+	var q: PhysicsShapeQueryParameters3D = _roll["look"]
+	var space := get_world_3d().direct_space_state
+	var fwd := Vector2(sin(pose.z), cos(pose.z))
+	var right := Vector2(cos(pose.z), -sin(pose.z))
+	var turned := Basis(Vector3.UP, pose.z)
+	var y := global_position.y + (WHEEL_CHECK.x + WHEEL_CHECK.y) * 0.5
+	for shape: Array in shapes:
+		var c: Vector2 = shape[1]
+		var mid := Vector2(pose.x, pose.y) + right * c.x + fwd * c.y
+		q.shape = shape[0]
+		q.transform = Transform3D(turned, Vector3(mid.x, y, mid.y))
+		for hit: Dictionary in space.intersect_shape(q, 6):
+			var id := int(hit.get("collider_id", 0))
+			if not out.has(id):
+				out.append(id)
+	return out
+
+
+## The farmer on foot where it is about to be (the next WHEEL_AHEAD m of its way from `s`)
+## takes a step aside, out of its way to the nearer side, as one does with a trailer in
+## hand: it never rolls over his feet or through his view. A wall beside him stops him,
+## not it.
+func _roll_aside(s: float, delta: float) -> void:
+	var p := Game.player as Player
+	if not is_instance_valid(p) or p.driving != null or absf(p.global_position.y - global_position.y) > 2.5:
+		return
+	var feet := Vector2(p.global_position.x, p.global_position.z)
+	var total := float(_roll["total"])
+	for i in 5:
+		var pose := _roll_pose(minf(s + WHEEL_AHEAD * i / 4.0, total))
+		if not _wheel_over(pose, feet, WHEEL_KEEP):
+			continue
+		var right := Vector2(cos(pose.z), -sin(pose.z))
+		var lx := (feet - Vector2(pose.x, pose.y)).dot(right)
+		var side := float(_roll["side"])
+		if absf(lx) > 0.08 or side == 0.0:
+			side = 1.0 if lx >= 0.0 else -1.0
+		var step := right * side * WHEEL_ASIDE * delta
+		if p.test_move(p.global_transform, Vector3(step.x, 0.0, step.y)) and absf(lx) < 0.5:
+			# Something stands on that side of him: the other way.
+			side = -side
+			step = -step
+		_roll["side"] = side
+		p.move_and_collide(Vector3(step.x, 0.0, step.y))
+		return
+
+
+## At its place: it stands as a body again and goes onto the ball (when the vehicle still
+## stands there: one driven off meanwhile leaves it standing on its jockey wheel).
+func _end_roll() -> void:
+	var to: Variant = _roll.get("to")
+	collision_layer = int(_roll["layer"])
+	_bed_touch(true)
+	_roll = {}
+	_wheel_memo.clear()
+	if is_instance_valid(to) and (to as Vehicle).is_inside_tree() and towed_by(to as Vehicle) == null:
+		var ball := (to as Vehicle).global_transform * hitch_of(to as Vehicle)
+		var c := coupling()
+		if Vector2(ball.x - c.x, ball.z - c.z).length() < HITCH_REACH and hitch(to as Vehicle):
+			return
+	_settle = 1
+
+
+## The roll given up (put somewhere else, loaded from a save): it stands where it is.
+func _cancel_roll() -> void:
+	if _roll.is_empty():
+		return
+	collision_layer = int(_roll["layer"])
+	_bed_touch(true)
+	_roll = {}
+	_wheel_memo.clear()
+	_settle = 1
+
+
+## Its bed as something to look at (E, F: BedPoint): not while it rolls, when the box
+## passing the farmer's crosshair would open on a second E, or take cargo aboard.
+func _bed_touch(on: bool) -> void:
+	var bed := get_node_or_null("BedPoint") as CollisionObject3D
+	if bed != null:
+		bed.collision_layer = 4 if on else 0
 
 
 # --- Animals aboard ---------------------------------------------------------------------------
@@ -958,7 +1563,10 @@ func hint_prompt() -> String:
 		return tr("HINT_TRAILER_GRANDPA") if kind == &"trailer_stock" else tr(info.get("desc_key", ""))
 	var p := Game.player as Player
 	if is_instance_valid(p) and _zone(p) == &"hitch":
-		return "" if tow != null or tow_in_reach() != null else tr("HINT_TRAILER_BACK_UP")
+		if tow != null or tow_in_reach() != null or not _roll.is_empty():
+			return ""
+		var why := String(wheel_choice()["why"])
+		return "" if why == "" else tr(why)
 	if not takes_animals():
 		return ""
 	_prune()
@@ -994,12 +1602,19 @@ func interact(player: Node) -> void:
 		if tow != null:
 			unhitch()
 			return
+		if not _roll.is_empty():
+			return
 		var v := tow_in_reach()
-		if v == null:
-			Game.notify(tr("HINT_TRAILER_BACK_UP"), UiTheme.GOLD_SOFT)
+		if v != null:
+			hitch(v)
+			return
+		# No ball at the coupling: wheeled over to a vehicle standing near, when it can be.
+		var plan := wheel_choice(true)
+		if String(plan["why"]) != "":
+			Game.notify(tr(String(plan["why"])), UiTheme.GOLD_SOFT)
 			Audio.ui("error", -8.0)
 			return
-		hitch(v)
+		_start_roll(plan)
 		return
 	if not takes_animals():
 		Game.hud.open_storage(self)
@@ -1036,7 +1651,12 @@ func _buy() -> void:
 
 func save_data() -> Dictionary:
 	var d := super.save_data()
-	d["tow"] = String(tow.kind) if tow != null and is_instance_valid(tow) else ""
+	var to: Variant = tow
+	if not _roll.is_empty() and is_instance_valid(_roll.get("to")):
+		# Saved while it is wheeled over: coupled, in its place behind that vehicle.
+		to = _roll["to"]
+		d["xform"] = _roll["end"]
+	d["tow"] = String((to as Vehicle).kind) if to != null and is_instance_valid(to) else ""
 	d["gate"] = gate_open
 	_prune()
 	var ids := []
@@ -1050,6 +1670,12 @@ func save_data() -> Dictionary:
 
 
 func load_data(d: Dictionary) -> void:
+	_cancel_roll()
+	if not bool(d.get("owned", owned)):
+		# Not the farmer's yet: it stands in its bay at the dealer's (TrailerYard), not where
+		# an older save had it (at the kerb in the street).
+		d = d.duplicate()
+		d["xform"] = TrailerYard.bay_place(kind)
 	super.load_data(d)
 	gate_open = bool(d.get("gate", false))
 	_gate = 1.0 if gate_open else 0.0

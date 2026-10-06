@@ -8,7 +8,10 @@ extends Node
 ## static. Whether it is on and which station it is left on stay with the saved game
 ## (FarmState.flags). It plays on a bus of its own into Music (the music volume sets it),
 ## band-limited and narrowed like a small dashboard speaker, duller and quieter from the
-## chase camera outside, and it fades out as the driver gets out. While it plays the
+## chase camera outside, and it fades out as the driver gets out. The set never stops for
+## that: the track runs on unheard (to its end), so that the driver who gets back in, or
+## switches the set on again, hears it carry on from behind the door, not start afresh.
+## Every track plays at one loudness in the cab (MusicLevels, VOLUME_DB). While it plays the
 ## world's own music is held (Audio._update_music asks holds_music). The HUD shows the
 ## station and the track for a few seconds (RadioLine, on `shown`), and a dashboard mesh
 ## named "RadioDisplay" glows while the set is on.
@@ -25,8 +28,10 @@ const NO_RADIO: Array[StringName] = [&"tractor"]
 ## repeats: [file under DIR, title as shown, seconds]. The seconds are the files' own
 ## lengths (the broadcast clock is worked out from them without loading anything);
 ## tools/fetch_radio_music.py, which downloads the recordings, writes them here. Every
-## station has music of its own: no track is on two of them, and none is the world's own
-## (Audio.DAY_MUSIC, NIGHT_MUSIC). The credits are in art/audio/CREDITS.md.
+## station has recordings of its own (music/radio/) and shares the rest of its list with
+## the world's music (Audio.DAY_MUSIC, NIGHT_MUSIC); no track is on two stations. "Bathed
+## in the Light" is long held tones and plays here only, not in the day's own music. The
+## credits are in art/audio/CREDITS.md.
 const STATIONS: Array[Dictionary] = [
 	# The town's own station: Anatolian folk tunes on saz, oud and violin, and easy
 	# acoustic tunes for the farm and the fields between them.
@@ -34,17 +39,20 @@ const STATIONS: Array[Dictionary] = [
 		["music/radio/yesilova_yesilim.ogg", "Yeşilim · Turku", 92.71],
 		["music/day_relaxing_in_nature.mp3", "Relaxing in Nature", 97.07],
 		["music/radio/yesilova_uskudara_gider_iken.ogg", "Üsküdar'a Gider İken · Turku", 192.16],
-		["music/day_wind_leaves.mp3", "Wind Leaves · Eugenio Mininni", 204.72]]},
+		["music/day_laid_back_guitars.ogg", "Laid Back Guitars · Kevin MacLeod", 243.54]]},
 	# Country for the road to town.
 	{"id": "yol", "name": "Radyo Yol", "freq": "98.2", "tracks": [
 		["music/radio/yol_bama_country.ogg", "Bama Country · Kevin MacLeod", 211.12],
 		["music/day_relaxing_country.mp3", "Relaxing Country", 109.92],
+		["music/day_carpe_diem.ogg", "Carpe Diem · Kevin MacLeod", 293.39],
 		["music/radio/yol_cattails.ogg", "Cattails · Kevin MacLeod", 157.65],
 		["music/day_the_long_road.mp3", "The Long Road · Ahjay Stelino", 97.2]]},
 	# Slow and quiet, for the drive home after dark.
 	{"id": "huzur", "name": "Radyo Huzur", "freq": "88.4", "tracks": [
 		["music/radio/huzur_satie_gymnopedie_1.ogg", "Satie: Gymnopédie No. 1 · Robin Alciatore", 181.62],
-		["music/night_relaxation.mp3", "Relaxation", 117.73]]},
+		["music/day_heartwarming.ogg", "Heartwarming · Kevin MacLeod", 70.70],
+		["music/night_relaxation.mp3", "Relaxation", 117.73],
+		["music/day_bathed_in_the_light.ogg", "Bathed in the Light · Kevin MacLeod", 165.71]]},
 ]
 ## Seconds between one station's list starting and the next one's, so that two stations
 ## never change track together.
@@ -55,9 +63,10 @@ const TAIL := 1.5
 const TUNE_NOISE: Array[String] = ["sfx/vehicle/radio_tune_1.wav", "sfx/vehicle/radio_tune_2.wav",
 	"sfx/vehicle/radio_tune_3.wav"]
 const CLICK := "sfx/vehicle/radio_click.wav"
-## Seconds before the station comes in: after the engine has started, after the knob's
-## click, after the static between two stations.
-const WAIT_ENGINE := 1.1
+## Seconds before the station comes in: on getting in (none: the set was never off, it is
+## heard as soon as the door is open), after the knob's click, after the static between
+## two stations.
+const WAIT_ENGINE := 0.0
 const WAIT_SWITCH := 0.25
 const WAIT_STATIC := 0.5
 ## Seconds the set takes to fade in or out at the knob, to fade out as the driver gets
@@ -65,15 +74,22 @@ const WAIT_STATIC := 0.5
 const FADE_SWITCH := 0.3
 const FADE_EXIT := 0.8
 const FADE_TRACK := 0.2
-## The music's level in the cab (dB), and how much quieter it is heard from outside.
-const VOLUME_DB := -3.0
+## The music's level in the cab (dB above MusicLevels.REFERENCE, the level of the world's
+## own music, as heard through the speaker: every track is trimmed to it), and how much
+## quieter it is heard from outside.
+const VOLUME_DB := 5.0
 const OUTSIDE_DB := -8.0
-const NOISE_DB := -5.0
+## The static and the click: about as loud as the music they break into.
+const NOISE_DB := 2.0
 ## The dashboard speaker's band (Hz); from outside, through the doors, only this much of
 ## the top is left.
 const SPEAKER_LOW := 170.0
 const SPEAKER_HIGH := 5600.0
 const OUTSIDE_HIGH := 950.0
+## A track still running (heard or not) carries on, without a new start, while it is no
+## further than this from where the broadcast is (seconds): the sound card's clock and the
+## computer's drift apart a little, and a computer that slept is hours out.
+const SYNC := 2.0
 ## The display's glow while the set is on.
 const DISPLAY_GLOW := Color(0.55, 1.0, 0.62)
 const DISPLAY_ENERGY := 1.4
@@ -104,6 +120,11 @@ var _pending := ""
 var _on_air := -1
 var _on_station := -1
 var _last_noise := -1
+## The file the player holds (under DIR) and the dB that brings it to the common loudness.
+var _playing := ""
+var _trim_db := 0.0
+## How many times a track was started (not carried on): tests count them.
+var starts := 0
 
 
 func _ready() -> void:
@@ -235,6 +256,21 @@ static func track_title(index: int, track: int) -> String:
 	return String((STATIONS[index]["tracks"] as Array)[track][1])
 
 
+## The level (dB) the track on air plays at in the cab: every track as loud as the next.
+func cab_db() -> float:
+	return VOLUME_DB + _trim_db
+
+
+## Whether the track the player holds still runs where station `s` broadcasts it at
+## `time`: it can carry on as it is.
+func carries_on(s: int, time: float) -> bool:
+	if silent or not _player.playing:
+		return false
+	var b := joined_at(s, time)
+	return String((STATIONS[s]["tracks"] as Array)[int(b["track"])][0]) == _playing \
+			and absf(_player.get_playback_position() - float(b["at"])) < SYNC
+
+
 ## Turns the set on or off (the knob's click; the station comes back in a moment later).
 func set_on(on: bool) -> void:
 	if on == is_on():
@@ -248,8 +284,10 @@ func set_on(on: bool) -> void:
 	_play_noise(CLICK)
 	_light_display(_vehicle, on)
 	if on:
-		_tune(WAIT_SWITCH)
-		_show_station(WAIT_SWITCH)
+		# (Switched on again in the same breath: the track that was fading goes on.)
+		var wait := 0.0 if carries_on(station(), now()) else WAIT_SWITCH
+		_tune(wait)
+		_show_station(wait)
 	else:
 		_tuning = false
 		shown.emit(tr("RADIO_OFF"), "", false)
@@ -309,22 +347,29 @@ func _process(delta: float) -> void:
 	elif listening and _on_air >= 0 and not _player.playing and not silent:
 		# The track ran out: what the station plays next.
 		_tune(0.0)
+	elif not listening and not silent and _on_air >= 0 and not _player.playing:
+		# Nobody listens and the track that ran on unheard is over: the next time the
+		# station is brought in where its broadcast is.
+		_stop()
+		if _vehicle != null and is_on():
+			# (The driver sleeps at the wheel: nothing but waking brings the set back,
+			# so it is left tuning in for then.)
+			_tune(0.0)
 	_level = move_toward(_level, 1.0 if listening else 0.0, delta / (FADE_SWITCH if _vehicle else FADE_EXIT))
 	_track_level = move_toward(_track_level, 1.0, delta / FADE_TRACK)
 	var outside := _vehicle == null or _vehicle.chase_camera
 	_outside = move_toward(_outside, 1.0 if outside else 0.0, delta * (4.0 if _vehicle else 1.0 / FADE_EXIT))
-	if _level <= 0.0 and not listening and _player.playing:
-		_stop()
+	# (Faded out, the track is not stopped: it runs on unheard, see carries_on.)
 	_lowpass.cutoff_hz = lerpf(SPEAKER_HIGH, OUTSIDE_HIGH, _outside)
-	_player.volume_db = linear_to_db(maxf(_level * _track_level, 0.0001)) + VOLUME_DB + OUTSIDE_DB * _outside
+	_player.volume_db = linear_to_db(maxf(_level * _track_level, 0.0001)) + cab_db() + OUTSIDE_DB * _outside
 	_noise.volume_db = NOISE_DB + OUTSIDE_DB * _outside
 
 
-## The driver sat down in `v`: the display, and the station once the engine runs (or, with
-## the set off, a line saying so: the keys are on it).
+## The driver sat down in `v`: the display, and the station at once, as if the set had
+## played on in the cab all the while: it comes up from behind the door (from the level
+## and the dullness it went out with), and a track still running carries on (or, with the
+## set off, a line saying so: the keys are on it).
 func _got_in(v: Vehicle) -> void:
-	_level = 0.0
-	_outside = 1.0 if v.chase_camera else 0.0
 	_light_display(v, is_on())
 	if is_on():
 		_tune(WAIT_ENGINE)
@@ -359,12 +404,15 @@ func _come_in() -> void:
 	if not silent and ResourceLoader.load_threaded_get_status(DIR + rel) == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
 		return
 	_tuning = false
+	# The track still runs where the broadcast is (the driver was out for a moment, the
+	# set was off for one): it carries on, nothing is started or faded up afresh.
+	var carried := carries_on(s, now())
 	var changed := track != _on_air or s != _on_station
 	_on_air = track
 	_on_station = s
 	if changed:
 		shown.emit(station_title(s), track_title(s, track), true)
-	if silent:
+	if silent or carried:
 		return
 	var stream := _stream(rel)
 	if stream == null:
@@ -372,14 +420,18 @@ func _come_in() -> void:
 		_on_air = -1
 		return
 	_player.stream = stream
+	_playing = rel
+	_trim_db = MusicLevels.speaker_trim(rel)
 	_track_level = 0.0
 	_player.volume_db = -80.0
+	starts += 1
 	# (Not past the end of a file shorter than the list says.)
 	_player.play(clampf(float(b["at"]), 0.0, maxf(stream.get_length() - 0.5, 0.0)))
 
 
 func _stop() -> void:
 	_player.stop()
+	_playing = ""
 	_on_air = -1
 	_on_station = -1
 

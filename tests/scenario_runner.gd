@@ -3,16 +3,101 @@ extends RefCounted
 ## Scripted gameplay checks driven through real input and physics.
 ## Run: godot --path . -- --scenario=<name>   (prints SCENARIO PASS/FAIL lines)
 
+## cab22: a point of the pickup's cab is inside the body when the skin, a frame or a pane
+## stands over it, behind it (above the load bed's floor, model height) and beside it
+## (above the door sills), at least this far (m) away; a ray that slips through a seam of
+## the body is tried again this far (m) to either side. The physics layers the body's
+## skin, its frames, its panes and the cab are measured on, and where (far over the
+## map). The driver's looks tried for daylight: every CAB22_STEP degrees round, from
+## CAB22_PITCH.x to .y up, and every CAB22_FINE degrees within CAB22_CORNER of each
+## top corner of the windshield (where a pillar's trim meets the header and the rail).
+## The rear window from the driver's eyes: its rim is sampled every CAB22_RIM_STEP m, and
+## the glass CAB22_RIM_IN m in from the rim must show (above CAB22_RIM_FROM m over the
+## pane's foot: the ledge, the seats and their headrests stand before it below). The headliner is at
+## least CAB22_LINER m wide.
+const CAB22_RIM_STEP := 0.02
+const CAB22_RIM_IN := 0.015
+const CAB22_RIM_FROM := 0.2
+const CAB22_LINER := 1.1
+const CAB22_GAP := 0.003
+const CAB22_BACK_FROM := 0.67
+const CAB22_SIDE_FROM := 0.6
+const CAB22_JITTER := 0.003
+## A look this far to the side (the tangent of 0.02 degrees: a quarter of a millimetre at
+## the pillar) must get through as well for a gap to count (_cab22_daylight).
+const CAB22_HAIR := 0.00035
+const CAB22_SKIN := 1 << 20
+const CAB22_FRAME := 1 << 21
+const CAB22_PANE := 1 << 22
+const CAB22_CAB := 1 << 23
+const CAB22_AT := Vector3(0.0, 3000.0, 0.0)
+const CAB22_STEP := 2.0
+const CAB22_PITCH := Vector2(-30.0, 88.0)
+const CAB22_FINE := 0.5
+const CAB22_CORNER := 14.0
+
 ## pet20: where the pickup is parked off the farm (on the county road), and the spots near
 ## the farmhouse tried for the doghouse (x, z).
 const PET20_ROAD := Vector3(120.0, 0.0, 30.9)
 const PET20_PLOTS: Array[Vector2] = [Vector2(-6.0, -4.0), Vector2(-9.0, -3.0), Vector2(-12.0, 2.0), Vector2(-4.0, 2.0),
 	Vector2(-9.0, 9.0), Vector2(4.0, -6.0), Vector2(-16.0, 4.0), Vector2(-2.0, -10.0)]
 
+## trailer22: the lane the pickup comes up the street in from the farm and the one it
+## pulls away in (z), how far past the trailer's tongue its tail goes before it backs up
+## (m), and how near a trailer's body may stand to a way people walk (m).
+const T22_LANE_Z := 21.6
+const T22_OUT_Z := 20.6
+const T22_PULL_PAST := 9.0
+const T22_WALK_CLEAR := 1.0
+
+## hitch22: goes of the sloppy driver each way along the kerb and on open ground, the seed
+## of his dice; how fast he comes along (km/h), how long after the marker goes green he
+## brakes (s), how far from the kerb his pickup's side runs (m) and how much his hands
+## wander on the wheel (of full lock).
+const H22_GOES := 10
+const H22_SEED := 2222
+const H22_SPEED := Vector2(8.0, 14.0)
+const H22_REACT := Vector2(0.15, 1.0)
+const H22_KERB_GAP := Vector2(0.5, 1.3)
+const H22_WOBBLE := 0.1
+
 ## breed21: where the farmer stands while the lamb is born (the house's yard, far from the
 ## barn), and the most dawns the seeded dice may take to get the ewe with lamb.
 const BREED21_AWAY := Vector3(-16.0, 0.3, -9.5)
 const BREED21_DAWNS := 12
+
+## fishgoal22: seeds for the draw of the giants' places among the five catches (the first
+## is the one fished through the rod), and where the angler's dice start for its bites.
+const FISHGOAL22_DRAWS: Array[int] = [22, 7, 1234]
+const FISHGOAL22_BITES := 2200
+## fishgoal22: its numbers: the goes fished with each bait, at each of the hours (noon,
+## dusk, night), dry and in rain, on each of the rods (the standard one, and the cane pole
+## the big fish like least), where their dice start, and how many of the angler's own
+## rolls are checked against the water asked by hand. And the giants that can be promised
+## (FishGoal.fit): the fish worth the sum but for the crayfish and the two legends.
+const FISHGOAL22_GOES := 300
+const FISHGOAL22_HOURS: Array[float] = [12.0, 19.0, 23.0]
+const FISHGOAL22_SHOWN: Array[StringName] = [&"fish_bream", &"fish_chub", &"fish_carp", &"fish_tench", &"fish_barbel", &"fish_silver_carp",
+	&"fish_grass_carp", &"fish_trout", &"fish_eel", &"fish_brown_trout", &"fish_zander", &"fish_pike"]
+const FISHGOAL22_RODS: Array[StringName] = [&"fishing_rod", &"cane_rod"]
+const FISHGOAL22_DICE := 9100
+const FISHGOAL22_ROLLS := 40
+## radio22: seconds the driver stays out of the truck, and the set stays off, before he is
+## back; seconds into its first track the station is as he first gets in; seconds the
+## track has left as he falls asleep at the wheel.
+const RADIO22_AWAY := 4.0
+const RADIO22_IN := 10.0
+## contest22: how much faster than real time its mornings run, the hour its saves are
+## made at before the opening, and the slot they go into.
+const C22_SPEED := 4.0
+const C22_SLOT := "slot_3"
+const C22_FRAMES := 40000
+## contest22: two walkers nearer than this (metres) walk inside one another, the seconds a
+## pair may (a brush in passing), and the seconds a window is held open over the walk.
+const C22_CLOSE := 0.45
+const C22_CLOSE_MAX := 4.0
+const C22_WINDOW := 12.0
+const RADIO22_LEFT := 3.0
 
 var tree: SceneTree
 var failures := 0
@@ -131,6 +216,8 @@ func run(scenario: String) -> void:
 			await _contest()
 		"contest17":
 			await _contest17()
+		"contest22":
+			await _scenario_contest22()
 		"coop2":
 			await _coop2()
 		"game9":
@@ -203,10 +290,18 @@ func run(scenario: String) -> void:
 			await _scenario_vehicle19()
 		"trailer21":
 			await _scenario_trailer21()
+		"trailer22":
+			await _scenario_trailer22()
+		"hitch22":
+			await _scenario_hitch22()
 		"cab_interior":
 			await _scenario_cab_interior()
+		"cab22":
+			await _scenario_cab22()
 		"radio20":
 			await _scenario_radio20()
+		"radio22":
+			await _scenario_radio22()
 		"rain20":
 			await _scenario_rain20()
 		"display19":
@@ -233,6 +328,8 @@ func run(scenario: String) -> void:
 			await _scenario_ident21()
 		"catalog21":
 			await _scenario_catalog21()
+		"fishgoal22":
+			await _scenario_fishgoal22()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -17190,10 +17287,11 @@ func _contest() -> void:
 		acts[id] = p.act
 	player.global_position = far
 	GameClock.day = k1
-	GameClock.minute = 8.0 * 60.0 + 50.0
+	# (they set out early enough to be there by 09:00: nobody has in the small hours)
+	GameClock.minute = 30.0
 	Events.day_started.emit(k1)
 	await _seconds(0.8)
-	_check(not FishingContest.is_on() and not crowd.is_gathered(), "before 09:00 nobody is at the pond")
+	_check(not FishingContest.is_on() and not crowd.is_gathered(), "in the small hours nobody has set out for the pond yet")
 	GameClock.minute = 9.0 * 60.0 + 1.0
 	await _seconds(1.2)
 	var anglers_ok := true
@@ -17507,6 +17605,9 @@ func _contest17() -> void:
 	FishingContest.goal_day = 0
 	FishingContest.result_day = 0
 	player.global_position = far
+	# (by 08:00 the town is on its way to the pond: the shop boy is kept at his sweeping
+	# until his broom has been looked at)
+	crowd.held[&"sweeper"] = true
 	GameClock.day = FishingContest.FIRST_DAY
 	GameClock.minute = 8.0 * 60.0
 	Events.day_started.emit(FishingContest.FIRST_DAY)
@@ -17562,6 +17663,7 @@ func _contest17() -> void:
 
 	# --- 09:00: the anglers on the shore, his broom on the grass, the tea glass left behind ---
 	# (far off first: the camera catches up before they set off, so they are simply there)
+	crowd.held.erase(&"sweeper")
 	player.global_position = far
 	await _seconds(1.0)
 	GameClock.minute = 9.0 * 60.0 + 1.0
@@ -17571,12 +17673,15 @@ func _contest17() -> void:
 			and Audio._set_paths(Audio.SETS["crowd_call"]).size() >= 3 and Audio.LOOPS.has("contest_crowd"),
 			"contest17: the crowd's murmur plays over the pond, calls and cheers are there to play")
 	var anglers_ok := true
+	var not_fishing: Array[String] = []
 	for i in ContestCrowd.ANGLERS.size():
 		var p := crowd.person(ContestCrowd.ANGLERS[i])
 		var spot: Dictionary = venue.angler_spots[i]
 		if p == null or p.act != Townsperson.Act.FISH or p.global_position.distance_to(spot["pos"]) > 0.3:
 			anglers_ok = false
-	_check(anglers_ok, "contest17: the five anglers fish from their places on the shore")
+			not_fishing.append("%s (%s, %.2f m off)" % [ContestCrowd.ANGLERS[i], Townsperson.Act.keys()[p.act] if p else "gone",
+					p.global_position.distance_to(spot["pos"]) if p else -1.0])
+	_check(anglers_ok, "contest17: the five anglers fish from their places on the shore %s" % str(not_fishing))
 	var bank: Vector3 = venue.crowd_spots[0]["pos"]
 	player.global_position = bank + Vector3(0.0, 0.4, 0.0)
 	await _seconds(1.2)
@@ -17685,6 +17790,637 @@ func _contest17() -> void:
 	GameClock.day = kept_day
 	GameClock.minute = kept_minute
 	await _seconds(0.6)
+
+
+## Round 22 at the fishing contest: everyone is at the pond when it opens at 09:00 (each
+## sets out at his own time, worked out from his walk and the clock's pace: on an 8 and a
+## 12 minute day, seen from the pond and from far away), nobody leaves before his time,
+## the card shows nobody's catch at the opening, a rival's fish are only weighed once he
+## has cast from his place (the first FIRST_CATCH after it), one kept in town gets none,
+## a skip into the middle of the contest and loads of saves made before the opening and
+## during it put everyone where he would be with the board as it was. Then what the first
+## look at it found: the test shortcuts' fast-forward held over the morning, a window held
+## open over it, nobody walking in inside somebody else, and Zeynep after a skipped clock
+## and a load in sight of the pond.
+func _scenario_contest22() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var venue := town.get_node_or_null("ContestVenue") as ContestVenue
+	var crowd := venue.get_node_or_null("ContestCrowd") as ContestCrowd if venue else null
+	_check(venue != null and crowd != null, "contest22: the town has its contest venue and crowd")
+	if venue == null or crowd == null:
+		return
+	var kept_length := Settings.day_length_minutes
+	# (automated runs hold the clock: here it runs, as in play)
+	var clock_ran := GameClock.running
+	GameClock.running = true
+	var far := Vector3(-14.0, 0.2, -9.0)
+	var c := WorldLayout.TOWN_POND_CENTER
+	var start := float(FishingContest.START_MINUTE)
+	# On the meadow by the pond, out of everyone's way (they are all in sight from here).
+	var bank := Vector3(c.x + 19.5 * cos(0.55), 0.0, c.y + 19.5 * sin(0.55))
+	bank.y = TerrainData.height(bank.x, bank.z) + 0.3
+	FishingContest.testing = true
+	FishingContest.ceremony_speed = 4.0
+	var k := FishingContest.FIRST_DAY
+	var ids := crowd.plan_ids()
+	_check(ids.size() == 9 + EventCrowd.WORKERS.size(), "contest22: five anglers, two on the benches, two neighbours and the five workers come (%d)" % ids.size())
+
+	# --- When each would leave, on every day length (from where he stands now) ---
+	GameClock.day = k
+	GameClock.minute = 0.0
+	for length: float in Settings.DAY_LENGTHS:
+		Settings.day_length_minutes = length
+		var first := INF
+		var last := -INF
+		var who_first := &""
+		var who_last := &""
+		for id in ids:
+			var m := crowd.leave_minute(id)
+			if m < first:
+				first = m
+				who_first = id
+			if m > last:
+				last = m
+				who_last = id
+		var due_first := INF
+		var due_last := -INF
+		for id in ids:
+			due_first = minf(due_first, crowd.arrive_minute(id))
+			due_last = maxf(due_last, crowd.arrive_minute(id))
+		print("contest22 info: a %d minute day (%.2f game min/s): they leave from %s (%s) to %s (%s), due at the pond %s to %s"
+				% [int(length), ContestCrowd.pace(), _c22_clock(first), who_first, _c22_clock(last), who_last, _c22_clock(due_first), _c22_clock(due_last)])
+		# (a few a little before the half hour: no two come past the meadow's corner together)
+		_check(first < last and last < start - 15.0 and due_last <= start - ContestCrowd.EARLY_FLOOR * ContestCrowd.pace() + 0.01 and due_first >= start - 45.0,
+				"contest22: on a %d minute day each has his own leaving time and all are due in the last three quarters of an hour before 09:00" % int(length))
+
+	# --- An 8 minute day, seen from the pond: Emre kept in town ---
+	crowd.held[&"young"] = true
+	var m8: Dictionary = await _c22_morning(crowd, k, 8.0, bank, [&"young"])
+	_c22_morning_checks(m8, crowd, 8.0, "seen from the pond")
+	var card := Game.hud.find_child("ContestCard", true, false) as Control
+	await _seconds(0.7)
+	card = Game.hud.find_child("ContestCard", true, false) as Control
+	var label := (card.find_children("*", "Label", true, false).back() as Label).text if card else "?"
+	_check(card != null and card.visible and label == FishingContest.board_text(false) and label.begins_with(tr("CONTEST_BOARD_BEGUN")) and not _c22_has_digit(label),
+			"contest22: the card in the top right says the contest has begun and nobody's catch (\"%s\")" % label.replace("\n", " / "))
+	# The first hour and a half: who is on the board, since when, and where he was then.
+	var rivals: Array[StringName] = []
+	rivals.assign(FishingContest.RIVALS.keys())
+	var first_fish := {}
+	var cast_seen := {}
+	var unfair: Array[String] = []
+	Engine.time_scale = C22_SPEED
+	for guard in C22_FRAMES:
+		if GameClock.minute >= start + 95.0:
+			break
+		for id in rivals:
+			var cm := crowd.cast_minute(id)
+			if cm >= 0.0 and not cast_seen.has(id):
+				cast_seen[id] = cm
+			if FishingContest.entries.has(String(id)) and not first_fish.has(id):
+				first_fish[id] = GameClock.minute
+				var p := crowd.person(id)
+				var spot: Dictionary = venue.angler_spots[ContestCrowd.ANGLERS.find(id)]
+				if cm < start or p == null or p.act != Townsperson.Act.FISH or p.global_position.distance_to(spot["pos"]) > 0.4 \
+						or GameClock.minute - cm < FishingContest.FIRST_CATCH.x - 0.01:
+					unfair.append("%s at %s (cast %s)" % [id, _c22_clock(GameClock.minute), _c22_clock(cm)])
+		await tree.physics_frame
+	Engine.time_scale = 1.0
+	var casts: Array[String] = []
+	var waits: Array[String] = []
+	var cast_late := true
+	for id in rivals:
+		if cast_seen.has(id):
+			casts.append("%s %s" % [id, _c22_clock(float(cast_seen[id]))])
+			cast_late = cast_late and float(cast_seen[id]) > start
+		if first_fish.has(id):
+			waits.append("%s +%d" % [id, int(float(first_fish[id]) - float(cast_seen.get(id, 0.0)))])
+	_check(cast_seen.size() == 4 and cast_late and not cast_seen.has(&"young"), "contest22: the four at the shore cast after the opening, one after another (%s)" % ", ".join(casts))
+	_check(first_fish.size() >= 2 and unfair.is_empty(),
+			"contest22: each rival's first fish is weighed at least %d game minutes after his cast, he at his place with his line in the water (minutes after the cast: %s) %s"
+			% [int(FishingContest.FIRST_CATCH.x), ", ".join(waits), str(unfair)])
+	var emre := crowd.person(&"young")
+	var spot_e: Dictionary = venue.angler_spots[ContestCrowd.ANGLERS.find(&"young")]
+	_check(not crowd.has_left(&"young") and not FishingContest.entries.has("young") and not FishingContest._next_catch.has("young")
+			and FishingContest.cast_of(&"young") < 0.0 and emre != null and emre.act != Townsperson.Act.FISH
+			and emre.global_position.distance_to(spot_e["pos"]) > 5.0,
+			"contest22: Emre, kept in town, has no fish weighed and none on its way (the board at %s: %s)"
+			% [_c22_clock(GameClock.minute), FishingContest.board_text(false).replace("\n", " / ")])
+	# Let go (nobody about): he comes, casts, and waits for his first fish like the others.
+	player.global_position = far
+	await _seconds(0.8)
+	var let_go := GameClock.minute
+	crowd.held.erase(&"young")
+	var emre_cast := -1.0
+	for i in 200:
+		await _seconds(0.05)
+		emre_cast = crowd.cast_minute(&"young")
+		if emre_cast >= 0.0:
+			break
+	_check(emre_cast >= let_go and emre.act == Townsperson.Act.FISH and emre.global_position.distance_to(spot_e["pos"]) < 0.4 and not FishingContest.entries.has("young"),
+			"contest22: let go at %s he is at his place and casts at %s, still nothing weighed" % [_c22_clock(let_go), _c22_clock(emre_cast)])
+	var too_soon := false
+	Engine.time_scale = C22_SPEED
+	for guard in C22_FRAMES:
+		if GameClock.minute >= emre_cast + FishingContest.FIRST_CATCH.y + 2.0:
+			break
+		if FishingContest.entries.has("young") and GameClock.minute < emre_cast + FishingContest.FIRST_CATCH.x - 0.01:
+			too_soon = true
+		await tree.physics_frame
+	Engine.time_scale = 1.0
+	_check(not too_soon and float(FishingContest._next_catch.get("young", 0.0)) >= emre_cast + FishingContest.FIRST_CATCH.x + FishingContest.CATCH_EVERY.x - 0.01,
+			"contest22: his first fish came no sooner than %d game minutes after that cast (weighed: %s)" % [int(FishingContest.FIRST_CATCH.x), FishingContest.entries.has("young")])
+	GameClock.minute = float(FishingContest.END_MINUTE) + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.0)
+	_check(not crowd.is_gathered(), "contest22: at 17:00 it ends as before, everyone home again")
+
+	# --- A 12 minute day, the player far away ---
+	k += FishingContest.EVERY_DAYS
+	var m12: Dictionary = await _c22_morning(crowd, k, 12.0, far, [])
+	_c22_morning_checks(m12, crowd, 12.0, "from far away", false)
+	_check(not _c22_has_digit(FishingContest.board_text(false)) and FishingContest.standings().is_empty(), "contest22: nothing on the board at that opening either")
+	GameClock.minute = float(FishingContest.END_MINUTE) + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.0)
+
+	# --- Time skipped from the small hours into the middle of the contest ---
+	k += FishingContest.EVERY_DAYS
+	Settings.day_length_minutes = Settings.DEFAULT_DAY_LENGTH
+	player.global_position = far
+	GameClock.day = k
+	GameClock.minute = 0.0
+	Events.day_started.emit(k)
+	await _seconds(0.8)
+	var none_out := not crowd.is_gathered()
+	GameClock.minute = 11.0 * 60.0
+	await _seconds(1.0)
+	var state := _c22_everyone(crowd, venue)
+	_check(none_out and crowd.is_gathered() and (state["missing"] as Array).is_empty() and int(state["fishing"]) == 5,
+			"contest22: skipped from 00:00 to 11:00, everyone is at his place, the five anglers fishing (not there: %s)" % str(state["missing"]))
+	var board_ok := FishingContest.entries.size() >= 2 and FishingContest.entries.size() <= 5 and FishingContest.top_kg() > 0.0
+	for who: String in FishingContest.entries:
+		board_ok = board_ok and FishingContest.RIVALS.has(StringName(who)) and is_equal_approx(FishingContest.cast_of(StringName(who)), start)
+	for id in rivals:
+		board_ok = board_ok and float(FishingContest._next_catch.get(String(id), 0.0)) > GameClock.minute
+	_check(board_ok, "contest22: the board has what two hours' fishing gives (%s)" % FishingContest.board_text(false).replace("\n", " / "))
+	GameClock.minute = float(FishingContest.END_MINUTE) + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.0)
+
+	# --- A save made while they are on their way, loaded ---
+	k += FishingContest.EVERY_DAYS
+	GameClock.day = k
+	GameClock.minute = 0.0
+	Events.day_started.emit(k)
+	await _seconds(0.8)
+	GameClock.minute = crowd.first_leave_minute() + 50.0
+	await _seconds(0.8)
+	var on_way := {}
+	var at_home: Array[StringName] = []
+	for id in ids:
+		var p := crowd.person(id)
+		if crowd.has_left(id) and not crowd.is_there(id) and p != null and p.is_walking_to():
+			on_way[id] = p.global_position
+		elif not crowd.has_left(id) and crowd.leave_minute(id) > GameClock.minute + 8.0 and (p == null or p.act != Townsperson.Act.WALK):
+			# (not the walkers: a load puts them back at the start of their rounds)
+			at_home.append(id)
+	var saved_at := GameClock.minute
+	_check(on_way.size() >= 2 and at_home.size() >= 2 and FishingContest.day_held != k,
+			"contest22: at %s %d of them are on their way, %d still in town" % [_c22_clock(saved_at), on_way.size(), at_home.size()])
+	_check(SaveGame.save(C22_SLOT), "contest22: saved before the opening")
+	_check(SaveGame.load_game(C22_SLOT), "contest22: loading it")
+	await _until_loaded()
+	await _seconds(0.8)
+	player = Game.player
+	town = tree.get_first_node_in_group(&"town") as Town
+	venue = town.get_node("ContestVenue") as ContestVenue
+	crowd = venue.get_node("ContestCrowd") as ContestCrowd
+	var off: Array[String] = []
+	for id: StringName in on_way:
+		var p := crowd.person(id)
+		var d := p.global_position.distance_to(on_way[id]) if p else INF
+		if p == null or not crowd.has_left(id) or crowd.is_there(id) or not p.is_walking_to() or d > 9.0:
+			off.append("%s %.1f m" % [id, d])
+	for id in at_home:
+		if crowd.has_left(id):
+			off.append("%s left" % id)
+	_check(GameClock.day == k and absf(GameClock.minute - saved_at) < 12.0 and crowd.is_gathered() and off.is_empty() and FishingContest.day_held != k,
+			"contest22: loaded, those on their way are on their way where they were, the others still in town %s" % str(off))
+	await _c22_until(start - 0.4)
+	await _c22_until(start, 1.0)
+	await _idle_frames(2)
+	state = _c22_everyone(crowd, venue)
+	_check((state["missing"] as Array).is_empty() and FishingContest.entries.is_empty() and not _c22_has_digit(FishingContest.board_text(false)),
+			"contest22: and at 09:00 they are all at the pond, nothing on the board (not there: %s)" % str(state["missing"]))
+	await _c22_until(start + FishingContest.FIRST_CATCH.x - 1.0)
+	_check(FishingContest.entries.is_empty() and int(_c22_everyone(crowd, venue)["fishing"]) == 5,
+			"contest22: at %s all five have cast and nobody has a fish weighed yet" % _c22_clock(GameClock.minute))
+
+	# --- A save made in the middle of the contest, loaded ---
+	GameClock.minute = 11.0 * 60.0 + 30.0
+	await _seconds(1.0)
+	# (the clock held, so that no fish falls due between the save and the look after it)
+	GameClock.running = false
+	await _idle_frames(2)
+	var board: Dictionary = FishingContest.entries.duplicate(true)
+	var nexts: Dictionary = FishingContest._next_catch.duplicate()
+	var saved_text := FishingContest.board_text(false)
+	_check(board.size() >= 2 and SaveGame.save(C22_SLOT), "contest22: saved at 11:30 with %d on the board" % board.size())
+	FishingContest.entries.clear()
+	_check(SaveGame.load_game(C22_SLOT), "contest22: loading it")
+	await _until_loaded()
+	await _seconds(1.2)
+	player = Game.player
+	town = tree.get_first_node_in_group(&"town") as Town
+	venue = town.get_node("ContestVenue") as ContestVenue
+	crowd = venue.get_node("ContestCrowd") as ContestCrowd
+	state = _c22_everyone(crowd, venue)
+	var same := FishingContest.entries.size() == board.size()
+	for who: String in board:
+		same = same and FishingContest.entries.has(who) and is_equal_approx(float(FishingContest.entries[who]["kg"]), float(board[who]["kg"]))
+	for who: String in nexts:
+		same = same and is_equal_approx(float(FishingContest._next_catch.get(who, 0.0)), float(nexts[who]))
+	_check((state["missing"] as Array).is_empty() and int(state["fishing"]) == 5 and same,
+			"contest22: loaded, everyone is at his place, the anglers fishing, the board as it was saved (%s; now %s; not there: %s)"
+			% [saved_text.replace("\n", " / "), FishingContest.board_text(false).replace("\n", " / "), str(state["missing"])])
+	GameClock.running = true
+	GameClock.minute = float(FishingContest.END_MINUTE) + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.0)
+
+	# --- The fast-forward and an open window over the morning; Zeynep ---
+	k = FishingContest.next_contest_day(k + 1)
+	await _c22_fast_forward(k, far, bank)
+	k = FishingContest.next_contest_day(k + 1)
+	await _c22_zeynep(k, far, bank)
+	SaveGame.delete(C22_SLOT)
+	GameClock.running = clock_ran
+	FishingContest.testing = false
+	FishingContest.ceremony_speed = 1.0
+	Settings.day_length_minutes = kept_length
+	await _seconds(1.0)
+
+
+## contest22: the town's contest crowd as it is now (a load builds the town anew).
+func _c22_crowd() -> ContestCrowd:
+	var town := tree.get_first_node_in_group(&"town") as Town
+	return town.get_node("ContestVenue/ContestCrowd") as ContestCrowd
+
+
+## contest22: holds the test shortcuts' fast-forward key (F6) until the clock shows
+## `minute`; whether the clock really ran fast meanwhile.
+func _c22_fast(minute: float) -> bool:
+	var ran := false
+	Input.action_press(&"test_time_fast")
+	for guard in C22_FRAMES:
+		if GameClock.minute >= minute:
+			break
+		await tree.physics_frame
+		ran = ran or GameClock.fast_forward > 1.0
+	Input.action_release(&"test_time_fast")
+	await _idle_frames(2)
+	return ran
+
+
+## contest22: contest day `day` (the default day length) with the fast-forward held from
+## the farm (`far`) into the morning: nobody leaves earlier for it and nobody is at the
+## pond hours before his time; a window held open there stops the clock and with it the
+## ones on their way; then held on from the pond's `bank` over the opening: everyone is at
+## his place at 09:00, nothing on the board.
+func _c22_fast_forward(day: int, far: Vector3, bank: Vector3) -> void:
+	var player: Player = Game.player
+	var crowd := _c22_crowd()
+	var start := float(FishingContest.START_MINUTE)
+	var kept_keys := Settings.test_shortcuts
+	Settings.test_shortcuts = true
+	Settings.day_length_minutes = Settings.DEFAULT_DAY_LENGTH
+	player.global_position = far
+	GameClock.day = day
+	GameClock.minute = 0.0
+	Events.day_started.emit(day)
+	await _seconds(0.8)
+	var ids := crowd.plan_ids()
+	var leave := {}
+	var last := -INF
+	var due_first := INF
+	for id in ids:
+		leave[id] = crowd.leave_minute(id)
+		last = maxf(last, float(leave[id]))
+		due_first = minf(due_first, crowd.arrive_minute(id))
+	# Held from the farm to the middle of their leaving times.
+	var mid := (crowd.first_leave_minute() + last) * 0.5
+	var ran: bool = await _c22_fast(mid)
+	var on_way := {}
+	var there := 0
+	var too_soon: Array[String] = []
+	for id in ids:
+		var p := crowd.person(id)
+		if crowd.is_there(id):
+			there += 1
+		elif crowd.has_left(id) and p != null and p.is_walking_to():
+			on_way[id] = p.global_position
+		# (the ones on their rounds have walked on meanwhile: their times move a little)
+		if crowd.has_left(id) and float(leave[id]) > GameClock.minute + 20.0:
+			too_soon.append("%s (leaves %s)" % [id, _c22_clock(float(leave[id]))])
+	_check(ran and there == 0 and on_way.size() >= 2 and on_way.size() < ids.size() and too_soon.is_empty(),
+			"contest22: the fast-forward held from the farm to %s: %d are on their way, nobody at the pond yet, nobody gone before his time %s"
+			% [_c22_clock(GameClock.minute), on_way.size(), str(too_soon)])
+	# A window open: the clock stands still, and so do the ones on their way (nobody sees them).
+	var at_open := GameClock.minute
+	Game.push_ui(&"contest22")
+	await _seconds(C22_WINDOW)
+	var moved := 0.0
+	var waiting := 0
+	for id: StringName in on_way:
+		var p := crowd.person(id)
+		if p != null:
+			moved = maxf(moved, p.global_position.distance_to(on_way[id]))
+			if p.walk_held:
+				waiting += 1
+		if crowd.is_there(id):
+			there += 1
+	Game.pop_ui(&"contest22")
+	# (one may have been BEHIND his time when it opened and waits once he is AHEAD of it)
+	_check(absf(GameClock.minute - at_open) < 0.5 and there == 0 and waiting >= 2 and moved < (ContestCrowd.BEHIND + ContestCrowd.AHEAD + 1.0) * 1.1,
+			"contest22: a window open for %d s: the clock stands at %s and the ones on their way wait (%d of %d; the farthest went %.1f m on)"
+			% [int(C22_WINDOW), _c22_clock(GameClock.minute), waiting, on_way.size(), moved])
+	# On to half an hour before the first is due: still nobody there.
+	await _c22_fast(due_first - 30.0)
+	there = 0
+	for id in ids:
+		if crowd.is_there(id):
+			there += 1
+	_check(there == 0, "contest22: the fast-forward held on to %s (the first is due %s): nobody at the pond yet (%d)"
+			% [_c22_clock(GameClock.minute), _c22_clock(due_first), there])
+	# From the pond's bank, held over the opening.
+	player.global_position = bank
+	await _frames(3)
+	await _c22_fast(start + 1.0)
+	var state := _c22_everyone(crowd, crowd.venue)
+	var walking := 0
+	for id in ids:
+		var p := crowd.person(id)
+		if p != null and p.is_walking_to():
+			walking += 1
+	_check((state["missing"] as Array).is_empty() and walking == 0 and FishingContest.entries.is_empty() and not _c22_has_digit(FishingContest.board_text(false)),
+			"contest22: the fast-forward held from the pond's bank to %s: everyone is at his place, nobody walking in, nothing on the board (not there: %s)"
+			% [_c22_clock(GameClock.minute), str(state["missing"])])
+	Settings.test_shortcuts = kept_keys
+	# (from far away: everyone is home at once when it ends, not still walking back)
+	player.global_position = far
+	await _seconds(0.6)
+	GameClock.minute = float(FishingContest.END_MINUTE) + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.0)
+
+
+## contest22: Zeynep, living in town, on two contest days seen from the pond's `bank`
+## (the default day length; each ended from `far` away). The first (`day`) as it goes:
+## she and the fourteen walk in apart from one another and are at their places at 09:00.
+## The next: a clock skipped into her walk puts her where she would be, a save loaded
+## there too, and one loaded once she stands at her place finds her there (not at her
+## garden gate again).
+func _c22_zeynep(day: int, far: Vector3, bank: Vector3) -> void:
+	var crowd := _c22_crowd()
+	var start := float(FishingContest.START_MINUTE)
+	var kept_side := SideStory.save_data()
+	SideStory.testing = true
+	SideStory.load_data({"met": true, "met_day": SideStory.MOVE_DAY, "deliveries": 1, "gift_day": SideStory.GIFT_DAY, "next": 999, "announced": true})
+	var m: Dictionary = await _c22_morning(crowd, day, Settings.DEFAULT_DAY_LENGTH, bank, [])
+	_c22_morning_checks(m, crowd, Settings.DEFAULT_DAY_LENGTH, "seen from the pond, Zeynep living in town")
+	_check(_c22_zeynep_off(crowd) < 0.5, "contest22: Zeynep is at her place in the crowd at that opening too (%.1f m off)" % _c22_zeynep_off(crowd))
+	# (from far away: she and everyone are home at once when it ends, not still walking back)
+	Game.player.global_position = far
+	await _seconds(0.6)
+	GameClock.minute = float(FishingContest.END_MINUTE) + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.5)
+
+	day = FishingContest.next_contest_day(day + 1)
+	Game.player.global_position = bank
+	GameClock.day = day
+	GameClock.minute = 0.0
+	Events.day_started.emit(day)
+	await _seconds(0.8)
+	# Skipped to a quarter of an hour before she is due, in sight of the pond.
+	GameClock.minute = crowd._zeynep_arrive() - 15.0
+	await _seconds(1.5)
+	var late := _c22_zeynep_late(crowd)
+	_check(absf(late) < ContestCrowd.AHEAD + 1.0, "contest22: the clock skipped to %s in sight of the pond: Zeynep is on her way where she would be by then (%.1f s behind her time, %.0f m to go)"
+			% [_c22_clock(GameClock.minute), late, _c22_zeynep_off(crowd)])
+	_check(SaveGame.save(C22_SLOT) and SaveGame.load_game(C22_SLOT), "contest22: saved there and loading it")
+	await _until_loaded()
+	await _seconds(1.5)
+	crowd = _c22_crowd()
+	late = _c22_zeynep_late(crowd)
+	_check(absf(late) < ContestCrowd.AHEAD + 1.0, "contest22: loaded at %s: she is on her way where she would be, not at her gate again (%.1f s behind her time, %.0f m to go)"
+			% [_c22_clock(GameClock.minute), late, _c22_zeynep_off(crowd)])
+	await _c22_until(start - 3.0, 1.0)
+	# (the clock held over the save and the look after it: it is about to open)
+	GameClock.running = false
+	await _idle_frames(2)
+	var state := _c22_everyone(crowd, crowd.venue)
+	_check((state["missing"] as Array).is_empty() and _c22_zeynep_off(crowd) < 0.5 and SaveGame.save(C22_SLOT) and SaveGame.load_game(C22_SLOT),
+			"contest22: at %s everyone and Zeynep are at their places; saved and loading it (not there: %s; she %.1f m off)"
+			% [_c22_clock(GameClock.minute), str(state["missing"]), _c22_zeynep_off(crowd)])
+	await _until_loaded()
+	await _seconds(1.5)
+	crowd = _c22_crowd()
+	state = _c22_everyone(crowd, crowd.venue)
+	_check((state["missing"] as Array).is_empty() and _c22_zeynep_off(crowd) < 0.5 and GameClock.minute < start,
+			"contest22: loaded at %s: she stands at her place, everyone at his (not there: %s; she %.1f m off)"
+			% [_c22_clock(GameClock.minute), str(state["missing"]), _c22_zeynep_off(crowd)])
+	GameClock.running = true
+	await _c22_until(start + 1.0, 1.0)
+	Game.player.global_position = far
+	await _seconds(0.6)
+	GameClock.minute = float(FishingContest.END_MINUTE) + 0.5
+	await _contest_wait_finished()
+	await _seconds(1.0)
+	SideStory.load_data(kept_side)
+	SideStory.testing = false
+
+
+## contest22: metres from Zeynep to her place at the contest (INF: she is not out for it).
+func _c22_zeynep_off(crowd: ContestCrowd) -> float:
+	var home := _zy_home()
+	if home == null or home.zeynep == null or not home.at_event():
+		return INF
+	return home.zeynep.global_position.distance_to(crowd.zeynep_spot()["pos"])
+
+
+## contest22: real seconds Zeynep, on her way to the contest, is behind her time (what is
+## left of her walk against what the clock leaves her; negative: ahead; INF: not on her way).
+func _c22_zeynep_late(crowd: ContestCrowd) -> float:
+	var home := _zy_home()
+	if home == null or home.zeynep == null or not home.at_event() or home._event_walk != "there" or not home.zeynep.is_walking_to():
+		return INF
+	var z: Townsperson = home.zeynep
+	return ContestCrowd.walk_seconds(z.global_position, z._path, z.walk_speed) - (crowd._zeynep_arrive() - GameClock.minute) / ContestCrowd.pace()
+
+
+## contest22: the morning of contest day `day` on a `length` minute day, the player at
+## `at`, from before the first leaves to the moment it opens (`kept`: ids held in town).
+## {early: who left before his time, late_out: who left well after it, left / there: id ->
+## game minute, missing: who is not at his place inside the venue at the opening, walking:
+## how many are still walking then, cast: anglers with a line out at the opening, text:
+## the card's lines then, entries: fish on the board then, slowest: the longest walk (real
+## seconds) and whose, gathered_early: the crowd was out before the first leaving time,
+## close / close_who: the longest any two of them (Zeynep too) walked nearer than
+## C22_CLOSE to one another (seconds) and which two}.
+func _c22_morning(crowd: ContestCrowd, day: int, length: float, at: Vector3, kept: Array) -> Dictionary:
+	var player: Player = Game.player
+	var start := float(FishingContest.START_MINUTE)
+	Settings.day_length_minutes = length
+	player.global_position = at
+	GameClock.day = day
+	GameClock.minute = 0.0
+	Events.day_started.emit(day)
+	await _seconds(0.8)
+	var out := {"early": [], "late_out": [], "left": {}, "there": {}, "missing": [], "walking": 0, "cast": 0, "slowest": 0.0, "who": &""}
+	GameClock.minute = crowd.first_leave_minute() - 12.0
+	await _seconds(0.6)
+	out["gathered_early"] = crowd.is_gathered()
+	var ids := crowd.plan_ids()
+	var due := {}
+	var rate := ContestCrowd.pace()
+	var close := {}
+	var step := 1.0 / Engine.physics_ticks_per_second
+	var zy := _zy_home()
+	Engine.time_scale = C22_SPEED
+	for guard in C22_FRAMES:
+		if GameClock.minute >= start - 0.4:
+			break
+		var walkers: Array = []
+		if zy != null and zy.zeynep != null and zy._event_walk == "there" and zy.zeynep.is_walking_to():
+			walkers.append([&"zeynep", zy.zeynep.global_position])
+		for id in ids:
+			if kept.has(id):
+				continue
+			var w := crowd.person(id)
+			if w != null and crowd.has_left(id) and not crowd.is_there(id) and w.is_walking_to():
+				walkers.append([id, w.global_position])
+			if not (out["left"] as Dictionary).has(id):
+				if crowd.has_left(id):
+					out["left"][id] = GameClock.minute
+					if not due.has(id) or GameClock.minute < float(due[id]) - rate * 0.35:
+						(out["early"] as Array).append("%s at %s, due %s" % [id, _c22_clock(GameClock.minute), _c22_clock(float(due.get(id, -1.0)))])
+					elif GameClock.minute > float(due[id]) + rate * 1.5:
+						(out["late_out"] as Array).append("%s at %s, due %s" % [id, _c22_clock(GameClock.minute), _c22_clock(float(due[id]))])
+				else:
+					due[id] = crowd.leave_minute(id)
+			elif not (out["there"] as Dictionary).has(id) and crowd.is_there(id):
+				out["there"][id] = GameClock.minute
+				var secs := (GameClock.minute - float(out["left"][id])) / rate
+				if secs > float(out["slowest"]):
+					out["slowest"] = secs
+					out["who"] = id
+		for a in walkers.size():
+			for b in range(a + 1, walkers.size()):
+				if (walkers[a][1] as Vector3).distance_to(walkers[b][1]) < C22_CLOSE:
+					var pair := "%s+%s" % [walkers[a][0], walkers[b][0]]
+					close[pair] = float(close.get(pair, 0.0)) + step
+		await tree.physics_frame
+	out["close"] = 0.0
+	out["close_who"] = ""
+	for pair: String in close:
+		if float(close[pair]) > float(out["close"]):
+			out["close"] = float(close[pair])
+			out["close_who"] = pair
+	await _c22_until(start, 1.0)
+	# The opening, as the first frame of it finds them.
+	for id in ids:
+		if kept.has(id):
+			continue
+		var p := crowd.person(id)
+		if p == null or not crowd.is_there(id) or p.is_walking_to() or not FishingContest.at_venue(p.global_position):
+			(out["missing"] as Array).append(id)
+		if p != null and p.is_walking_to():
+			out["walking"] = int(out["walking"]) + 1
+		if crowd.cast_minute(id) >= 0.0:
+			out["cast"] = int(out["cast"]) + 1
+	out["opened"] = GameClock.minute
+	out["text"] = FishingContest.board_text(false)
+	out["entries"] = FishingContest.entries.size()
+	return out
+
+
+## contest22: what a morning (_c22_morning) has to show (`seen`: the player watched them
+## walk in, so no two may have walked inside one another).
+func _c22_morning_checks(m: Dictionary, crowd: ContestCrowd, length: float, how: String, seen := true) -> void:
+	var start := float(FishingContest.START_MINUTE)
+	var left: Dictionary = m["left"]
+	var there: Dictionary = m["there"]
+	var first_out := INF
+	var last_out := -INF
+	var first_in := INF
+	var last_in := -INF
+	for id: StringName in left:
+		first_out = minf(first_out, float(left[id]))
+		last_out = maxf(last_out, float(left[id]))
+	for id: StringName in there:
+		first_in = minf(first_in, float(there[id]))
+		last_in = maxf(last_in, float(there[id]))
+	print("contest22 info: %d minute day, %s: they set out %s to %s and reached their places %s to %s (the longest walk %.0f s: %s); opened at %s; nearer than %.2f m to one another the longest: %.1f s %s"
+			% [int(length), how, _c22_clock(first_out), _c22_clock(last_out), _c22_clock(first_in), _c22_clock(last_in), float(m["slowest"]), m["who"], _c22_clock(float(m["opened"])),
+			C22_CLOSE, float(m["close"]), String(m["close_who"])])
+	_check(not bool(m["gathered_early"]) and (m["early"] as Array).is_empty() and (m["late_out"] as Array).is_empty(),
+			"contest22: a %d minute day, %s: nobody sets out before his own leaving time (first %s, last %s) %s %s"
+			% [int(length), how, _c22_clock(first_out), _c22_clock(last_out), str(m["early"]), str(m["late_out"])])
+	_check((m["missing"] as Array).is_empty() and int(m["walking"]) == 0 and last_in < start and first_in > start - 50.0,
+			"contest22: a %d minute day, %s: at 09:00 every angler and spectator is at his place inside the venue (they came in %s to %s; not there: %s)"
+			% [int(length), how, _c22_clock(first_in), _c22_clock(last_in), str(m["missing"])])
+	_check(int(m["entries"]) == 0 and int(m["cast"]) == 0 and not _c22_has_digit(String(m["text"])) and String(m["text"]).begins_with(tr("CONTEST_BOARD_BEGUN")),
+			"contest22: a %d minute day, %s: at the opening no line is out yet and the card shows no catch (\"%s\")" % [int(length), how, String(m["text"]).replace("\n", " / ")])
+	if seen:
+		_check(float(m["close"]) < C22_CLOSE_MAX, "contest22: a %d minute day, %s: nobody walks in inside somebody else (the longest two were nearer than %.2f m: %.1f s %s)"
+				% [int(length), how, C22_CLOSE, float(m["close"]), String(m["close_who"])])
+
+
+## contest22: who of the crowd's plan is not at his place inside the venue now ("missing"),
+## and how many anglers fish from theirs ("fishing").
+func _c22_everyone(crowd: ContestCrowd, venue: ContestVenue) -> Dictionary:
+	var missing: Array[StringName] = []
+	var fishing := 0
+	for id in crowd.plan_ids():
+		var p := crowd.person(id)
+		if p == null or not crowd.is_there(id) or p.is_walking_to() or not FishingContest.at_venue(p.global_position):
+			missing.append(id)
+		var i := ContestCrowd.ANGLERS.find(id)
+		if i >= 0 and p != null and p.act == Townsperson.Act.FISH and crowd.cast_minute(id) >= 0.0 \
+				and p.global_position.distance_to(venue.angler_spots[i]["pos"]) < 0.4:
+			fishing += 1
+	return {"missing": missing, "fishing": fishing}
+
+
+## contest22: lets the clock run on to `minute` (`speed` times real time; it gives up
+## after C22_FRAMES frames).
+func _c22_until(minute: float, speed := C22_SPEED) -> void:
+	Engine.time_scale = speed
+	for guard in C22_FRAMES:
+		if GameClock.minute >= minute:
+			break
+		await tree.physics_frame
+	Engine.time_scale = 1.0
+
+
+static func _c22_clock(minute: float) -> String:
+	if not is_finite(minute):
+		return "--:--"
+	return "%02d:%02d" % [floori(minute / 60.0), int(fposmod(minute, 60.0))]
+
+
+static func _c22_has_digit(text: String) -> bool:
+	for i in text.length():
+		if text[i] >= "0" and text[i] <= "9":
+			return true
+	return false
 
 
 ## Why the walk along `way` (world points) is not clear ("" when it is): a leg through
@@ -19183,6 +19919,9 @@ func _scenario_town16() -> void:
 	Carnival.testing = false
 
 	# --- The fishing contest: the whole town at the pond ---
+	# (her post as it is the day before: by 08:50 of the contest's morning she is on her way)
+	var vet := contest.person(&"vet")
+	var vet_post := vet.global_position
 	FishingContest.testing = true
 	FishingContest.ceremony_speed = 4.0
 	player.global_position = far
@@ -19190,8 +19929,6 @@ func _scenario_town16() -> void:
 	GameClock.minute = 8.0 * 60.0 + 50.0
 	Events.day_started.emit(pond_day)
 	await _seconds(1.0)
-	var vet := contest.person(&"vet")
-	var vet_post := vet.global_position
 	GameClock.minute = 9.0 * 60.0 + 1.0
 	await _seconds(1.5)
 	var c := WorldLayout.TOWN_POND_CENTER
@@ -21961,7 +22698,7 @@ func _scenario_radio20() -> void:
 	var out_db := radio._player.volume_db
 	truck.chase_camera = false
 	await _seconds(0.7)
-	_check(out_hz < 1500.0 and out_db < CarRadio.VOLUME_DB - 5.0 and radio._lowpass.cutoff_hz > 5000.0 and radio._player.volume_db > CarRadio.VOLUME_DB - 0.5,
+	_check(out_hz < 1500.0 and out_db < radio.cab_db() - 5.0 and radio._lowpass.cutoff_hz > 5000.0 and radio._player.volume_db > radio.cab_db() - 0.5,
 			"from outside (the chase camera) it is muffled: %d Hz at %.1f dB, in the cab %d Hz at %.1f dB" % [roundi(out_hz), out_db, roundi(radio._lowpass.cutoff_hz), radio._player.volume_db])
 
 	# --- R: off (the world's music comes back where it was), R: on again ---
@@ -21970,7 +22707,8 @@ func _scenario_radio20() -> void:
 	await _seconds(0.15)
 	var said_off := line.title == tr("RADIO_OFF") and line.detail == ""
 	await _seconds(CarRadio.FADE_SWITCH + 0.5)
-	_check(not radio.is_on() and FarmState.flags.get("radio_off") == true and said_off and (not live or not radio._player.playing),
+	# (Its track runs on unheard: CarRadio.carries_on.)
+	_check(not radio.is_on() and FarmState.flags.get("radio_off") == true and said_off and radio._player.volume_db < -60.0,
 			"R turns the set off ('%s')" % tr("RADIO_OFF"))
 	if live:
 		_check(Audio._music.playing and Audio._music_held < 0.0 and Audio._music.get_playback_position() >= held - 0.1,
@@ -22024,8 +22762,8 @@ func _scenario_radio20() -> void:
 	await _seconds(0.35)
 	var mid_db := radio._player.volume_db
 	await _seconds(CarRadio.FADE_EXIT + 0.4)
-	_check(not radio.is_listening() and (not live or (fading and mid_db < CarRadio.VOLUME_DB - 3.0 and not radio._player.playing)),
-			"getting out, the radio fades away behind the door (%.1f dB a third of a second on) and stops" % mid_db)
+	_check(not radio.is_listening() and (not live or (fading and mid_db < radio.cab_db() - 3.0 and radio._player.volume_db < -60.0)),
+			"getting out, the radio fades away behind the door (%.1f dB a third of a second on) and is not heard" % mid_db)
 	if live:
 		await _seconds(0.6)
 		_check(Audio._music.playing, "on foot again the world's music is back")
@@ -22085,7 +22823,7 @@ func _scenario_radio20() -> void:
 		await _press_key(KEY_T)
 		await _seconds(0.3)
 		_check(not CarRadio.has_radio(tractor) and CarRadio.has_radio(truck) and not radio.is_listening() and not radio.holds_music()
-				and not radio._player.playing and lines.size() == told and radio.station() == n - 1,
+				and radio._player.volume_db < -60.0 and lines.size() == told and radio.station() == n - 1,
 				"the tractor has no radio: nothing plays, the keys do nothing, the world's music stays")
 		player.exit_vehicle()
 		await _frames(5)
@@ -22177,6 +22915,314 @@ func _scenario_cab_interior() -> void:
 	player.exit_vehicle()
 	await _frames(5)
 	await _park(truck, Town.farm_truck_home())
+
+
+# --- Round 22: the pickup's cab fits its body -----------------------------------------------
+
+## The modelled cab sits inside the body it is put into, on every pickup (Grandpa's, the
+## dealer's, and the canopy, stake and box bodies on the same cab): measured against the
+## exterior's own meshes, no point of the cab's fixed parts shows above the roof skin,
+## behind the rear wall or outside the body's sides, nothing of it reaches back into the
+## load bed or the body built there, and from the driver's eyes no look in the upper cab
+## passes the trim onto the bare skin (painted on its outside only: daylight from inside),
+## least of all where the windshield pillars' trims run into the header and the roof rails.
+func _scenario_cab22() -> void:
+	await _close_screens()
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var cars: Array[Vehicle] = [town.farm_truck]
+	for v in town.dealer_stock:
+		if String(v.kind).begins_with("pickup"):
+			cars.append(v)
+	_check(cars.size() == 5, "Grandpa's pickup and the dealer's four are there (%d)" % cars.size())
+	for v in cars:
+		await _cab22_fit(v)
+
+
+## One body of the measuring rig: the triangles (model frame) as a two-sided mesh shape.
+func _cab22_body(rig: Node3D, faces: PackedVector3Array, layer: int) -> void:
+	if faces.is_empty():
+		return
+	var body := StaticBody3D.new()
+	body.collision_layer = layer
+	body.collision_mask = 0
+	var shape := ConcavePolygonShape3D.new()
+	shape.backface_collision = true
+	shape.set_faces(faces)
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	rig.add_child(body)
+
+
+## How far along `dir` (model frame) from `p` the first of the `mask` layers stands: -1
+## when nothing does.
+func _cab22_cast(space: PhysicsDirectSpaceState3D, p: Vector3, dir: Vector3, mask: int, reach := 6.0) -> float:
+	var q := PhysicsRayQueryParameters3D.create(CAB22_AT + p, CAB22_AT + p + dir * reach, mask)
+	var hit := space.intersect_ray(q)
+	return -1.0 if hit.is_empty() else ((hit["position"] as Vector3) - CAB22_AT - p).length()
+
+
+## True when `p` is inside the body as seen along `dir` (model frame): something of the
+## body stands there, and where the first of it is the painted skin or a pane, CAB22_GAP
+## away or more. A miss is tried again a little to either side (the model's panels do
+## not meet everywhere: a seam is not an opening). Returns [inside, the distance kept
+## from the skin or the pane (INF behind a frame)].
+func _cab22_cover(space: PhysicsDirectSpaceState3D, p: Vector3, dir: Vector3) -> Array:
+	var d := _cab22_cast(space, p, dir, CAB22_SKIN | CAB22_FRAME | CAB22_PANE)
+	if d < 0.0:
+		var side := dir.cross(Vector3(0.577, 0.577, 0.577)).normalized()
+		for o: Vector3 in [side, -side, dir.cross(side), -dir.cross(side)]:
+			if _cab22_cast(space, p + o * CAB22_JITTER, dir, CAB22_SKIN | CAB22_FRAME | CAB22_PANE) >= 0.0:
+				return [true, INF]
+		return [false, 0.0]
+	var outer := _cab22_cast(space, p, dir, CAB22_SKIN | CAB22_PANE)
+	if outer < 0.0 or outer > d + 0.0005:
+		return [true, INF]
+	return [outer >= CAB22_GAP, outer]
+
+
+## True when the driver's look along `dir` from `eye` ends on the bare skin (or on
+## nothing at all) with no trim of the cab before it. A gap is wider than a hair: a look
+## that gets through where none of its neighbours CAB22_HAIR off does is the ray slipping
+## between two triangles of the trim (it happens once in some ten thousand looks, the
+## model standing 3 km up where a float is a quarter of a millimetre coarse), not an
+## opening anybody could see.
+func _cab22_daylight(space: PhysicsDirectSpaceState3D, eye: Vector3, dir: Vector3) -> bool:
+	if not _cab22_open(space, eye, dir):
+		return false
+	var side := dir.cross(Vector3(0.577, 0.577, 0.577)).normalized()
+	for o: Vector3 in [side, -side, dir.cross(side), -dir.cross(side)]:
+		if _cab22_open(space, eye, (dir + o * CAB22_HAIR).normalized()):
+			return true
+	return false
+
+
+func _cab22_open(space: PhysicsDirectSpaceState3D, eye: Vector3, dir: Vector3) -> bool:
+	var skin := _cab22_cast(space, eye, dir, CAB22_SKIN)
+	var seen := _cab22_cast(space, eye, dir, CAB22_FRAME | CAB22_PANE)
+	if seen >= 0.0 and (skin < 0.0 or seen <= skin):
+		return false
+	var cab := _cab22_cast(space, eye, dir, CAB22_CAB)
+	return cab < 0.0 or (skin >= 0.0 and cab > skin)
+
+
+func _cab22_fit(v: Vehicle) -> void:
+	var holder := v.get_node("Model") as Node3D
+	var cab := holder.find_child("Interior", true, false) as Node3D
+	_check(cab != null, "the %s has the modelled cab" % v.kind)
+	if cab == null:
+		return
+	var model := cab.get_parent() as Node3D
+	var extra := model.get_node_or_null("Extra") as Node3D
+	var to_model := model.global_transform.affine_inverse()
+	var panes: Array = (v.info.get("glass", {}) as Dictionary).get("panes", [])
+	var skin := PackedVector3Array()
+	var frame := PackedVector3Array()
+	var pane := PackedVector3Array()
+	var inside := PackedVector3Array()
+	var rear_pane := PackedVector3Array()
+	var liner := Vector2(INF, -INF)
+	var rear_wall := INF
+	var roof_top := -INF
+	var extra_box := AABB()
+	var points := {}
+	for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		var n := String(mi.name)
+		if mi.mesh == null:
+			continue
+		var xf := to_model * mi.global_transform
+		if extra and extra.is_ancestor_of(mi):
+			var ebox := xf * mi.get_aabb()
+			extra_box = ebox if extra_box.size == Vector3.ZERO else extra_box.merge(ebox)
+			continue
+		var faces := mi.mesh.get_faces()
+		if cab.is_ancestor_of(mi):
+			if n.begins_with("Needle_"):
+				continue
+			for si in mi.mesh.get_surface_count():
+				var mat := mi.mesh.surface_get_material(si)
+				if "Liner_Roof" in String(mi.mesh.get("surface_%d/name" % si)) or (mat and "Liner_Roof" in mat.resource_name):
+					for q: Vector3 in mi.mesh.surface_get_arrays(si)[Mesh.ARRAY_VERTEX]:
+						liner = Vector2(minf(liner.x, (xf * q).z), maxf(liner.y, (xf * q).z))
+			for f in faces:
+				var p := xf * f
+				inside.append(p)
+				points[p.snappedf(0.0002)] = p
+			continue
+		if "WheelStock" in n or "Steering" in n or "Truckbed" in n or "Wiper" in n:
+			continue
+		var kind := 0 if "Bodymat" in n else 1
+		for want: String in panes:
+			if want in n:
+				kind = 2
+		for f in faces:
+			if kind == 0:
+				skin.append(xf * f)
+			elif kind == 1:
+				frame.append(xf * f)
+			else:
+				pane.append(xf * f)
+				if "Glass_Rear" in n:
+					rear_pane.append(xf * f)
+		if "Body_UTLTRUCK90_Bodymat" in n:
+			var bbox := xf * mi.get_aabb()
+			rear_wall = bbox.position.x
+			roof_top = bbox.end.y
+	_check(skin.size() > 3000 and frame.size() > 3000 and pane.size() >= 300 and points.size() > 4000,
+			"the %s's body and cab are measured on their own meshes (%d skin, %d frame, %d pane triangles; %d cab points)" % [
+			v.kind, skin.size() / 3, frame.size() / 3, pane.size() / 3, points.size()])
+	var rig := Node3D.new()
+	rig.name = "Cab22Rig"
+	tree.current_scene.add_child(rig)
+	rig.global_position = CAB22_AT
+	_cab22_body(rig, skin, CAB22_SKIN)
+	_cab22_body(rig, frame, CAB22_FRAME)
+	_cab22_body(rig, pane, CAB22_PANE)
+	_cab22_body(rig, inside, CAB22_CAB)
+	await _frames(3)
+	var space := tree.root.get_world_3d().direct_space_state
+	# (1) Every point of the cab: the body over it, behind it and beside it.
+	var over := 0
+	var behind := 0
+	var beside := 0
+	var roof_gap := INF
+	var wall_gap := INF
+	var side_gap := INF
+	var top := -INF
+	var back := INF
+	var worst := Vector3.ZERO
+	for p: Vector3 in points.values():
+		top = maxf(top, p.y)
+		back = minf(back, p.x)
+		var c := _cab22_cover(space, p, Vector3.UP)
+		roof_gap = minf(roof_gap, float(c[1]))
+		if not c[0]:
+			over += 1
+			worst = p
+		if p.y >= CAB22_BACK_FROM:
+			c = _cab22_cover(space, p, Vector3.LEFT)
+			wall_gap = minf(wall_gap, float(c[1]))
+			if not c[0]:
+				behind += 1
+				worst = p
+		if p.y >= CAB22_SIDE_FROM:
+			for s: float in ([1.0, -1.0] if absf(p.z) < 0.05 else [signf(p.z)]):
+				c = _cab22_cover(space, p, Vector3(0, 0, s))
+				side_gap = minf(side_gap, float(c[1]))
+				if not c[0]:
+					beside += 1
+					worst = p
+	_check(over == 0, "no point of the %s's cab shows above its roof, its panes or its cowl (%d do; the nearest keeps %.1f cm; e.g. %s)" % [
+			v.kind, over, roof_gap * 100.0, worst if over > 0 else "-"])
+	_check(behind == 0, "none stands behind the rear wall or the rear window (%d do; the nearest keeps %.1f cm; e.g. %s)" % [
+			behind, wall_gap * 100.0, worst if behind > 0 else "-"])
+	_check(beside == 0, "none stands outside the doors, the pillars or the side panes (%d do; the nearest keeps %.1f cm; e.g. %s)" % [
+			beside, side_gap * 100.0, worst if beside > 0 else "-"])
+	_check(top < roof_top - 0.01 and back > rear_wall + 0.01, "the cab's highest point is under the roof's crown and its rearmost before the cab's back (%.3f under %.3f m, %.3f before %.3f m)" % [
+			top, roof_top, back, rear_wall])
+	if extra:
+		# Nothing of the cab inside the body built on the bed (it may reach over the cab).
+		var into := 0
+		var box := extra_box.grow(-0.01)
+		for p: Vector3 in points.values():
+			if box.has_point(p) and p.x < rear_wall:
+				into += 1
+		_check(into == 0, "nothing of the cab reaches into the %s's body behind it (%d points)" % [v.kind, into])
+	# (2) The driver's looks: no daylight past the trim anywhere in the upper cab, and
+	# none at all where the windshield pillars meet the header and the roof rails.
+	var eye: Vector3 = v.info["eyes"]
+	var looks := 0
+	var holes := 0
+	var hole := Vector2.ZERO
+	var yaw := 0.0
+	while yaw < 360.0:
+		var pitch := CAB22_PITCH.x
+		while pitch <= CAB22_PITCH.y:
+			var dir := Basis.from_euler(Vector3(0.0, deg_to_rad(yaw), deg_to_rad(pitch))) * Vector3.RIGHT
+			looks += 1
+			if _cab22_daylight(space, eye, dir):
+				holes += 1
+				hole = Vector2(yaw, pitch)
+			pitch += CAB22_STEP
+		yaw += CAB22_STEP
+	_check(holes == 0, "from the %s's driver's seat no look round the upper cab ends on the bare skin or the sky past the trim (%d of %d looks do; e.g. %s)" % [
+			v.kind, holes, looks, hole if holes > 0 else "-"])
+	# The windshield's top corners (the pane's highest point on each side).
+	for s: float in [-1.0, 1.0]:
+		var corner := Vector3(0, -INF, 0)
+		for p in pane:
+			if p.z * s > 0.5 and p.x > 0.9 and p.y > corner.y:
+				corner = p
+		var to := (corner - eye).normalized()
+		var right := to.cross(Vector3.UP).normalized()
+		var up := right.cross(to)
+		var open := 0
+		var tried := 0
+		var a := -CAB22_CORNER
+		while a <= CAB22_CORNER:
+			var b := -CAB22_CORNER
+			while b <= CAB22_CORNER:
+				var dir := (to + right * tan(deg_to_rad(a)) + up * tan(deg_to_rad(b))).normalized()
+				tried += 1
+				if _cab22_daylight(space, eye, dir):
+					open += 1
+				b += CAB22_FINE
+			a += CAB22_FINE
+		_check(corner.y > 1.5 and open == 0, "the %s windshield pillar's trim runs into the header and the roof rail with no gap (%d of %d looks at the corner %s pass it)" % [
+				"left" if s < 0.0 else "right", open, tried, corner])
+	# (3) The rear window is as large from the seat as its glass: the trim ends on the
+	# pane's rim, it does not stand over the glass (the look back to the trailer).
+	var rim := _cab22_rim(rear_pane)
+	var centre := Vector3.ZERO
+	var foot := INF
+	for p in rim:
+		centre += p[0] / rim.size()
+		foot = minf(foot, (p[0] as Vector3).y)
+	var tried_rim := 0
+	var hidden := 0
+	var hid := Vector3.ZERO
+	for p in rim:
+		var at: Vector3 = p[0]
+		var inward: Vector3 = p[1]
+		if inward.dot(centre - at) < 0.0:
+			inward = -inward
+		var q := at + inward * CAB22_RIM_IN
+		if q.y < foot + CAB22_RIM_FROM:
+			continue
+		tried_rim += 1
+		var cab_at := _cab22_cast(space, eye, (q - eye).normalized(), CAB22_CAB, eye.distance_to(q))
+		if cab_at >= 0.0 and cab_at < eye.distance_to(q) - 0.002:
+			hidden += 1
+			hid = q
+	_check(tried_rim > 40 and hidden == 0, "from the %s's driver's seat the rear window's glass shows to within %.1f cm of its rim (%d of %d looks at its edge end on the cab; e.g. %s)" % [
+			v.kind, CAB22_RIM_IN * 100.0, hidden, tried_rim, hid if hidden > 0 else "-"])
+	_check(liner.y - liner.x >= CAB22_LINER, "the %s's headliner runs %.2f m across the roof (%.2f m or more)" % [v.kind, liner.y - liner.x, CAB22_LINER])
+	rig.queue_free()
+	await _frames(2)
+
+
+## The rim of a pane (its triangles): [point, the way into the pane there (either sign)]
+## every CAB22_RIM_STEP m along the edges only one triangle has.
+func _cab22_rim(faces: PackedVector3Array) -> Array:
+	var count := {}
+	for i in range(0, faces.size(), 3):
+		var normal := (faces[i + 1] - faces[i]).cross(faces[i + 2] - faces[i]).normalized()
+		for k in 3:
+			var a := faces[i + k].snappedf(0.0005)
+			var b := faces[i + (k + 1) % 3].snappedf(0.0005)
+			var key := [a, b] if a < b else [b, a]
+			count[key] = [] if count.has(key) else [normal]
+	var out := []
+	for key: Array in count:
+		if (count[key] as Array).is_empty() or (key[0] as Vector3).is_equal_approx(key[1]):
+			continue
+		var a: Vector3 = key[0]
+		var b: Vector3 = key[1]
+		var inward := (count[key][0] as Vector3).cross(b - a).normalized()
+		var n := maxi(1, ceili(a.distance_to(b) / CAB22_RIM_STEP))
+		for k in n:
+			out.append([a.lerp(b, (k + 0.5) / n), inward])
+	return out
 
 
 
@@ -27391,3 +28437,2472 @@ func _scenario_trailer21() -> void:
 	Events.notification_requested.disconnect(on_note)
 	await _frames(5)
 
+
+# --- Round 22: the trailer bay ----------------------------------------------------------------
+
+## Points round `v`'s body on the ground (world XZ): its corners and along its sides.
+func _t22_outline(v: Vehicle) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	var r := v._footprint
+	for fx: float in [0.0, 0.5, 1.0]:
+		for fz: float in [0.0, 0.25, 0.5, 0.75, 1.0]:
+			var p := v.global_transform * Vector3(r.position.x + r.size.x * fx, 0.0, r.position.y + r.size.y * fz)
+			out.append(Vector2(p.x, p.z))
+	return out
+
+
+## How near the ground point `p` is to `v`'s body (m; 0: under it).
+func _t22_gap(v: Vehicle, p: Vector2) -> float:
+	var l := v.global_transform.affine_inverse() * Vector3(p.x, v.global_position.y, p.y)
+	var r := v._footprint
+	return Vector2(maxf(maxf(r.position.x - l.x, l.x - r.end.x), 0.0), maxf(maxf(r.position.y - l.z, l.z - r.end.y), 0.0)).length()
+
+
+## How near the bodies of `a` and `b` stand to each other on the ground (m; 0: overlapping).
+func _t22_apart(a: Vehicle, b: Vehicle) -> float:
+	var best := INF
+	for p in _t22_outline(a):
+		best = minf(best, _t22_gap(b, p))
+	for p in _t22_outline(b):
+		best = minf(best, _t22_gap(a, p))
+	return best
+
+
+## How near the point `p` is to the rectangle `r` (m; 0: inside).
+func _t22_rect_gap(r: Rect2, p: Vector2) -> float:
+	return Vector2(maxf(maxf(r.position.x - p.x, p.x - r.end.x), 0.0), maxf(maxf(r.position.y - p.y, p.y - r.end.y), 0.0)).length()
+
+
+## What `v`'s body touches that stands (a wall, a post, a cabinet, a tree, a fence): not the
+## ground or a kerb under it, not another vehicle. Names of the bodies ("" free).
+func _t22_touching(v: Vehicle) -> String:
+	var q := PhysicsShapeQueryParameters3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(v._footprint.size.x, 0.8, v._footprint.size.y)
+	q.shape = box
+	q.collision_mask = 1
+	var skip: Array[RID] = []
+	for o: Vehicle in Vehicle.all:
+		skip.append(o.get_rid())
+	skip.append((Game.player as CollisionObject3D).get_rid())
+	q.exclude = skip
+	var c := v._footprint.get_center()
+	q.transform = v.global_transform * Transform3D(Basis(), Vector3(c.x, 0.85, c.y))
+	var names := PackedStringArray()
+	for hit: Dictionary in v.get_world_3d().direct_space_state.intersect_shape(q, 4):
+		var n := String((hit["collider"] as Node).name) if hit["collider"] is Node else "?"
+		if not names.has(n):
+			names.append(n)
+	return ", ".join(names)
+
+
+## Turns the driven vehicle's wheel: `s` from -1 (full right) to 1 (full left).
+func _t22_steer(s: float) -> void:
+	if s > 0.04:
+		Input.action_release("move_right")
+		Input.action_press("move_left", minf(s, 1.0))
+	elif s < -0.04:
+		Input.action_release("move_left")
+		Input.action_press("move_right", minf(-s, 1.0))
+	else:
+		Input.action_release("move_left")
+		Input.action_release("move_right")
+
+
+## Lets go of the pedals and the wheel and holds the handbrake until `v` stands.
+func _t22_stop(v: Vehicle) -> void:
+	for action: String in ["move_forward", "move_back", "move_left", "move_right"]:
+		Input.action_release(action)
+	Input.action_press("jump")
+	var t := 0.0
+	while t < 4.0 and absf(v.forward_speed()) > 0.05:
+		await _seconds(0.1)
+		t += 0.1
+	await _seconds(0.4)
+	Input.action_release("jump")
+
+
+## How far trailer `t` stands from its place in the dealer's bay (m, a radian off its
+## heading counted as a metre).
+func _t22_off_bay(t: Trailer) -> float:
+	var home := TrailerYard.bay_place(t.kind)
+	return Vector2(t.global_position.x - home.origin.x, t.global_position.z - home.origin.z).length() + absf(t.global_basis.z.signed_angle_to(home.basis.z, Vector3.UP))
+
+
+## Saves the game, loads that save and waits for its world: the town built from it.
+func _t22_reload() -> Town:
+	var slot := "slot_trailer22"
+	var saved: bool = SaveGame.save(slot)
+	var started: bool = SaveGame.load_game(slot)
+	await _until_loaded()
+	await _seconds(2.5)
+	SaveGame.delete(slot)
+	_check(saved and started, "saved and loaded again")
+	return tree.get_first_node_in_group(&"town") as Town
+
+
+## The dealer's trailer bay (round 22): Grandpa's stock trailer and the cargo trailer for
+## sale stand in the yard between the market and the car dealer's, off the carriageway, the
+## pavements and the crossing, clear of the ways people walk (the townspeople's rounds, the
+## carnival's walk and arch, the contest's), of the dealer's stock, his door and the spot
+## where a bought car is handed over; level on the concrete, tongues at hitch height; the
+## cargo trailer's price board at the bay's front; a save from before the bay shows one not
+## bought yet in the bay, one bought where it was left; the story's dot is on Grandpa's;
+## owned and empty in the bay they do not take the market's trade from the pickup, nor
+## loaded while the pickup carries something; the pickup, driven up the street from the
+## farm and backed round to the tongue, hitches it (on the ball it is "with him" at once:
+## no dealer's fee) and pulls away onto the street without touching a thing; and games
+## saved and loaded again find the dealer's trailers in their bays (one paid for beside
+## one for sale; a save from before the bay with the pickup left where the bays are now,
+## which is put at the kerb in front; the pickup backed up to a tongue, which stays).
+func _scenario_trailer22() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	if player.driving:
+		player.exit_vehicle()
+	GameClock.set_time_of_day(10.5)
+	Weather.force(Weather.Kind.SUNNY)
+	await _frames(20)
+	var truck := town.farm_truck
+	var stock := Trailer.of_kind(&"trailer_stock")
+	var flat := Trailer.of_kind(&"trailer_flat")
+	_check(stock != null and flat != null and not stock.owned and not flat.owned and stock.tow == null and flat.tow == null,
+			"Grandpa's stock trailer and the cargo trailer stand in town, not the farmer's yet")
+	if stock == null or flat == null:
+		return
+	await _seconds(0.5)
+	var both: Array[Trailer] = [stock, flat]
+
+	# (1) Off the carriageway, the pavements and the crossing (the town's own extents), on
+	# the concrete of the bay.
+	TerrainData.ensure()
+	var street := Rect2(Town.WALK_N.position.x, Town.WALK_N.end.y, Town.WALK_N.size.x, Town.WALK_S.position.y - Town.WALK_N.end.y)
+	var zebra := Rect2(Town.CROSSING_X - 1.75, street.position.y, 3.5, street.size.y)
+	var bay := Town.MARKET_SIDE_YARD
+	var to_asphalt := INF
+	var to_street := INF
+	var to_walk := INF
+	var to_zebra := INF
+	var off_bay := 0.0
+	for t in both:
+		for p in _t22_outline(t):
+			var mid := INF
+			for rp in TerrainData.road_points:
+				mid = minf(mid, rp.distance_to(p))
+			to_asphalt = minf(to_asphalt, mid - WorldLayout.ROAD_WIDTH * 0.5)
+			to_street = minf(to_street, _t22_rect_gap(street, p))
+			to_walk = minf(to_walk, minf(_t22_rect_gap(Town.WALK_N, p), _t22_rect_gap(Town.WALK_S, p)))
+			to_zebra = minf(to_zebra, _t22_rect_gap(zebra, p))
+			off_bay = maxf(off_bay, _t22_rect_gap(bay, p))
+	_check(to_asphalt > 2.0 and to_street > 2.0 and to_walk > 0.2 and to_zebra > 3.0,
+			"neither trailer stands on the road, a pavement or the crossing (nearest: asphalt %.2f m, street %.2f m, pavement %.2f m, crossing %.2f m)" % [to_asphalt,
+			to_street, to_walk, to_zebra])
+	_check(off_bay < 0.02, "both stand wholly on the concrete of the bay between the market and the dealer's (%.2f m over its edge)" % off_bay)
+	var spot_off := 0.0
+	for t in both:
+		var spot: Vector3 = TrailerYard.SPOTS[t.kind]
+		spot_off = maxf(spot_off, Vector2(t.global_position.x - spot.x, t.global_position.z - spot.y).length())
+	_check(spot_off < 0.05 and stock.global_basis.z.dot(Vector3(0, 0, signf(Town.STREET_Z - stock.global_position.z))) > 0.99
+			and flat.global_basis.z.dot(stock.global_basis.z) > 0.99, "each on its spot (TrailerYard.SPOTS), tongues to the street")
+
+	# (2) Level on the ground: tyres and jockey wheel down, the coupling at a ball's height.
+	for t in both:
+		var gaps := _t21_gaps(t)
+		var jockey := t.global_transform * Vector3(0.135, 0.0, t._jockey_z)
+		var jockey_gap := jockey.y - t._ground_under(Vector2(jockey.x, jockey.z), jockey.y)
+		var c := t.coupling()
+		var rise := c.y - t._ground_under(Vector2(c.x, c.z), c.y)
+		_check(absf(gaps.x) < 0.03 and absf(gaps.y) < 0.03 and absf(jockey_gap) < 0.04 and t.global_basis.y.y > 0.998
+				and absf(rise - Trailer.BALL_HEIGHT) < 0.08 and absf(t.global_position.y - Town.side_yard_top()) < 0.03,
+				"%s stands level on the bay's concrete (tyres %.3f..%.3f m, jockey %.3f m off it, coupling %.2f m up)" % [t.kind, gaps.x, gaps.y, jockey_gap, rise])
+
+	# (3) Clear of each other, of the dealer's stock, his door and the hand-over spot.
+	var nearest_stock := INF
+	for v in town.dealer_stock:
+		for t in both:
+			nearest_stock = minf(nearest_stock, _t22_apart(t, v))
+	var door := Vector2(Town.DEALER.position.x + 15.0, Town.DEALER.end.y)
+	var hand_over := Vector2(Town.DELIVERY.x, Town.DELIVERY.y)
+	var to_door := INF
+	var to_hand_over := INF
+	for t in both:
+		to_door = minf(to_door, _t22_gap(t, door))
+		to_hand_over = minf(to_hand_over, _t22_gap(t, hand_over))
+	var between := _t22_apart(stock, flat)
+	_check(between > 0.5 and nearest_stock > 6.0 and to_door > 8.0 and to_hand_over > 8.0 and _t22_touching(stock) == "" and _t22_touching(flat) == "",
+			"clear of each other (%.2f m), the dealer's stock (%.1f m), his door (%.1f m) and the hand-over spot (%.1f m); touching nothing" % [between,
+			nearest_stock, to_door, to_hand_over])
+
+	# (4) Clear of where people walk: the townspeople's rounds, the carnival's way in under
+	# its arch, the contest's way to the pond.
+	var ways: Array = []
+	var people := town.get_node_or_null("TownPeople")
+	if people:
+		for person in people.get_children():
+			if person is Townsperson and (person as Townsperson).route.size() > 1:
+				var route: Array = (person as Townsperson).route
+				for i in route.size():
+					ways.append([route[i]["p"], route[(i + 1) % route.size()]["p"]])
+	var arch_x := CarnivalCrowd.ARCH_X
+	var walk: Array[Vector3] = [Vector3(Town.WALK_N.position.x, 0, EventCrowd.NORTH_WALK), Vector3(Town.WALK_N.end.x, 0, EventCrowd.NORTH_WALK),
+		Vector3(arch_x, 0, EventCrowd.NORTH_WALK), Vector3(arch_x, 0, 9.0), Vector3(arch_x, 0, -2.0), Vector3(CarnivalCrowd.MOUTH.x, 0, CarnivalCrowd.MOUTH.y)]
+	for i in range(0, walk.size() - 1):
+		if i != 1:
+			ways.append([walk[i], walk[i + 1]])
+	for post_x: float in [TownCarnival.ARCH_X.x, TownCarnival.ARCH_X.y]:
+		ways.append([Vector3(post_x, 0, TownCarnival.ARCH_Z), Vector3(post_x, 0, TownCarnival.ARCH_Z)])
+	for child in town.get_children():
+		if child is ContestVenue:
+			var way: Array[Vector3] = (child as ContestVenue).approach
+			for i in range(0, way.size() - 1):
+				ways.append([way[i], way[i + 1]])
+	var to_way := INF
+	for seg: Array in ways:
+		var a: Vector3 = seg[0]
+		var b: Vector3 = seg[1]
+		var steps := maxi(ceili(a.distance_to(b) / 0.25), 1)
+		for k in steps + 1:
+			var p := a.lerp(b, float(k) / steps)
+			for t in both:
+				to_way = minf(to_way, _t22_gap(t, Vector2(p.x, p.z)))
+	_check(people != null and ways.size() > 12 and to_way > T22_WALK_CLEAR, "no way people walk (%d stretches: rounds, carnival, contest) comes nearer than %.2f m" % [ways.size(), to_way])
+
+	# (5) The cargo trailer's price board: at the bay's front by its tongue, turned to the street.
+	var board := town.get_node_or_null("PriceBoard_trailer_flat") as Node3D
+	var label: Label3D = null
+	if board:
+		for child in board.get_children():
+			if child is Label3D:
+				label = child
+	_check(board != null and board.visible and label != null and label.text.contains(UiTheme.money(flat.price)), "the cargo trailer's price board shows %s" % UiTheme.money(flat.price))
+	if label:
+		var at := Vector2(label.global_position.x, label.global_position.z)
+		var by := Vector2(flat.coupling().x, flat.coupling().z).distance_to(at)
+		_check(by < 1.6 and _t22_gap(flat, at) > 0.2 and _t22_gap(stock, at) > 1.0 and bay.has_point(at) and _t22_rect_gap(Town.WALK_N, at) > 0.1
+				and absf(wrapf(label.global_rotation.y, -PI, PI)) < 0.01 and at.y > flat.global_position.z,
+				"it stands in the bay by the cargo trailer's tongue (%.2f m), off the pavement, turned to the street" % by)
+
+	# (6) A save from before the bay (the trailers at the kerb in the street): one not bought
+	# yet stands in the bay all the same.
+	var kerb := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(236.2, TerrainData.height(236.2, 17.95) + 0.02, 17.95))
+	var old := stock.save_data()
+	old["xform"] = kerb
+	stock.load_data(old)
+	await _frames(8)
+	var bay_spot: Vector3 = TrailerYard.SPOTS[&"trailer_stock"]
+	_check(not stock.owned and Vector2(stock.global_position.x - bay_spot.x, stock.global_position.z - bay_spot.y).length() < 0.05 and absf(_t21_gaps(stock).x) < 0.03,
+			"loaded from a save that had it at the kerb, the trailer not bought yet stands in the bay")
+
+	# (7) The story's goal: the dot is on Grandpa's trailer, Kemal says what is owed; paid, the
+	# dot goes to its tongue.
+	await _tut20_goal("trailer_get")
+	Economy.money = 200
+	Quests._wp_left = 0.0
+	await _seconds(0.8)
+	_check(String(Quests.current().get("id", "")) == "trailer_get" and Quests.waypoint() == stock.waypoint_roof()
+			and WaypointMarker.anchor(TrailerYard.ANCHOR) == stock.waypoint_roof() and stock.waypoint_roof().global_position.distance_to(stock.global_position) < 4.0
+			and Quests.goal_hint().contains("Kemal"), "the goal's dot is on Grandpa's trailer in the bay, Kemal's line under it: '%s'" % Quests.goal_hint().replace("\n", " / "))
+	player.global_position = stock.global_transform * Vector3(2.2, 0.15, 0.3)
+	_look_at(player, stock.global_transform * Vector3(0.9, 1.0, 0.3))
+	await _frames(8)
+	_check(player.target == stock and _last_prompt.contains(tr("ACTION_TRAILER_FEE") % UiTheme.money(stock.price)), "standing beside it in the bay: E pays the tyre bill ('%s')" % _last_prompt.replace("\n", " / "))
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(stock.owned and Economy.money == 200 - stock.price, "paid: it is the farmer's")
+	_check(TrailerYard.in_bay(stock) and TrailerYard.trailer_at_market() == null and TrailerYard.fee_now() == TrailerYard.DELIVERY_FEE,
+			"standing in the dealer's bay it is not at the Animal Market yet (the dealer's fee would be due)")
+	_check(await _t21_goal("trailer_hitch"), "the story goes on: hitch it (%s)" % Quests.current().get("id", ""))
+	Quests._wp_left = 0.0
+	await _seconds(0.8)
+	var dot: Variant = Quests.waypoint()
+	_check(dot is Vector3 and Vector2((dot as Vector3).x - stock.coupling().x, (dot as Vector3).z - stock.coupling().z).length() < 0.3,
+			"and the dot is over its tongue")
+	# One bought stays where its save left it.
+	Economy.money = 1000
+	flat.interact(player)
+	flat.interact(player)
+	var flat_home := flat.global_transform
+	old = flat.save_data()
+	old["xform"] = Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(246.6, TerrainData.height(246.6, 17.95) + 0.02, 17.95))
+	flat.load_data(old)
+	await _frames(8)
+	_check(flat.owned and board != null and not board.visible and Vector2(flat.global_position.x - 246.6, flat.global_position.z - 17.95).length() < 0.3,
+			"the cargo trailer bought (its board gone): a save that left it at the kerb finds it there")
+	flat.teleport(flat_home)
+	await _frames(8)
+
+	# (8) Both his, empty and unhitched in the bay next to the market: the market still buys
+	# from the pickup's bed, or from the trailer once it carries something.
+	await _park(truck, Transform3D(Basis(Vector3.UP, 0.0), Vector3(Town.PARKING.get_center().x, TerrainData.height(Town.PARKING.get_center().x, 5.0) + 0.35, 5.0)))
+	await _seconds(0.5)
+	var at_market := town.vehicle_at_market()
+	flat.cargo.add(&"wood", 10)
+	var with_load := town.vehicle_at_market()
+	truck.cargo.add(&"wood", 3)
+	var both_loaded := town.vehicle_at_market()
+	stock.cargo.add(&"wood", 2)
+	flat.cargo.take(&"wood", 10)
+	var other_bay := town.vehicle_at_market()
+	stock.cargo.take(&"wood", 2)
+	truck.cargo.take(&"wood", 3)
+	_check(at_market == truck and with_load == flat and town.vehicle_at_market() == truck,
+			"with the empty trailers in the bay the market trades from the pickup in the car park; from the cargo trailer once it is loaded")
+	_check(both_loaded == truck and other_bay == truck,
+			"a loaded trailer left in the bay does not take the trade from the pickup while that carries something (%s, %s)" % [both_loaded.kind if both_loaded else &"none",
+			other_bay.kind if other_bay else &"none"])
+
+	# (9) The natural approach: up the street from the farm, past the bay, then backed round
+	# to the tongue over the bevelled kerb.
+	var ball_local := Trailer.hitch_of(truck)
+	var aim := stock.coupling() + stock.global_basis.z * 0.4
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(aim.x - 24.0, TerrainData.height(aim.x - 24.0, T22_LANE_Z) + 0.35, T22_LANE_Z)))
+	await _seconds(0.5)
+	player.enter_vehicle(truck)
+	await _frames(10)
+	var touched := PackedStringArray()
+	var near_flat := INF
+	var t_run := 0.0
+	while t_run < 25.0:
+		await _seconds(0.1)
+		t_run += 0.1
+		Input.action_press("move_forward", 1.0 if truck.speed_kmh() < 16.0 else 0.0)
+		if truck.speed_kmh() >= 16.0:
+			Input.action_release("move_forward")
+		var hit := _t22_touching(truck)
+		if hit != "" and not touched.has(hit):
+			touched.append(hit)
+		if (truck.global_transform * ball_local).x >= aim.x + T22_PULL_PAST - truck.forward_speed() * 0.5:
+			break
+	await _t22_stop(truck)
+	var pulled_to := truck.global_transform * ball_local
+	_check(pulled_to.x > aim.x + 6.0 and pulled_to.x < aim.x + 13.0 and street.has_point(Vector2(truck.global_position.x, truck.global_position.z)),
+			"the pickup comes up the street and pulls %.1f m past the tongue" % (pulled_to.x - aim.x))
+	var reach := INF
+	t_run = 0.0
+	while t_run < 45.0:
+		await _seconds(0.05)
+		t_run += 0.05
+		var to := truck.global_transform.affine_inverse() * Vector3(aim.x, (truck.global_transform * ball_local).y, aim.z) - ball_local
+		reach = Vector2(to.x, to.z).length()
+		if reach < 0.3 or to.z > -0.05:
+			break
+		# The tail at the tongue: the wheel turned to the side the tongue is on.
+		_t22_steer(clampf(atan2(to.x, -to.z) / 0.45, -1.0, 1.0))
+		if -truck.forward_speed() < (1.4 if reach > 3.0 else 0.7):
+			Input.action_press("move_back", 0.7)
+		else:
+			Input.action_release("move_back")
+		var hit := _t22_touching(truck)
+		if hit != "" and not touched.has(hit):
+			touched.append(hit)
+		near_flat = minf(near_flat, _t22_apart(truck, flat))
+	await _t22_stop(truck)
+	var ball := truck.global_transform * ball_local
+	var off := Vector2(ball.x - stock.coupling().x, ball.z - stock.coupling().z).length()
+	_check(stock.tow_in_reach() == truck and off < Trailer.HITCH_REACH and touched.is_empty() and near_flat > 0.3,
+			"backed round to the tongue in %.0f s: the ball %.2f m from the coupling, in reach; nothing touched on the way (%s), the cargo trailer %.2f m off at the nearest" % [t_run,
+			off, ", ".join(touched), near_flat])
+	if stock.tow_in_reach() != truck:
+		# Put there, so the rest can be judged.
+		var c := stock.coupling()
+		var f := stock.global_basis.z
+		var at := c + f * (0.35 - ball_local.z)
+		player.exit_vehicle()
+		await _park(truck, Transform3D(Basis(Vector3.UP, atan2(f.x, f.z)), Vector3(at.x, TerrainData.height(at.x, at.z) + 0.35, at.z)))
+		await _seconds(1.5)
+	if player.driving:
+		player.exit_vehicle()
+	await _frames(5)
+	player.global_position = stock.global_transform * Vector3(1.5, 0.15, 2.3)
+	_look_at(player, stock.global_transform * Vector3(0.0, 0.5, 2.3))
+	await _frames(8)
+	_check(player.target == stock and _last_prompt.contains(tr("ACTION_TRAILER_HITCH")), "out of the cab, at the tongue: E (%s): '%s'" % [tr("ACTION_TRAILER_HITCH"), _last_prompt.replace("\n", " / ")])
+	await _press_key(KEY_E)
+	await _seconds(1.5)
+	_check(stock.tow == truck and stock.coupling().distance_to(truck.global_transform * ball_local) < 0.06, "hitched: the coupling sits on the ball")
+	_check(TrailerYard.in_bay(stock) and TrailerYard.trailer_at_market() == stock and TrailerYard.fee_now() == 0 and TrailerYard.delivery_line() == tr("MARKET_PEN_WAITS"),
+			"on the pickup's ball, the rig still at the bay across the street from the Animal Market, it is with him: no fee (%d)" % TrailerYard.fee_now())
+
+	# (10) Away: out of the bay over the pavement, round onto the street towards the Animal
+	# Market, touching nothing.
+	player.enter_vehicle(truck)
+	await _frames(10)
+	touched.clear()
+	near_flat = INF
+	var blocked := false
+	var swing := 0.0
+	var worst_off := 0.0
+	var tyre := Vector2(INF, -INF)
+	var from := truck.global_position
+	t_run = 0.0
+	while t_run < 30.0:
+		await _seconds(0.05)
+		t_run += 0.05
+		var here := truck.global_position
+		var to := truck.global_transform.affine_inverse() * Vector3(maxf(here.x, aim.x) + 7.0, here.y, T22_OUT_Z)
+		_t22_steer(clampf(atan2(to.x, to.z) / 0.45, -1.0, 1.0))
+		if truck.forward_speed() < 3.2:
+			Input.action_press("move_forward", 0.8)
+		else:
+			Input.action_release("move_forward")
+		for v: Vehicle in [truck, stock]:
+			var hit := _t22_touching(v)
+			if hit != "" and not touched.has(hit):
+				touched.append(hit)
+		blocked = blocked or stock._blocked != 0.0
+		swing = maxf(swing, absf(stock.swing()))
+		worst_off = maxf(worst_off, stock.coupling().distance_to(truck.global_transform * ball_local))
+		near_flat = minf(near_flat, minf(_t22_apart(truck, flat), _t22_apart(stock, flat)))
+		var g := _t21_gaps(stock)
+		tyre = Vector2(minf(tyre.x, g.x), maxf(tyre.y, g.y))
+		if here.x > aim.x + 20.0:
+			break
+	await _t22_stop(truck)
+	var behind := Vector2(stock.global_position.x, stock.global_position.z)
+	_check(truck.global_position.x > aim.x + 20.0 and street.has_point(behind) and street.has_point(Vector2(truck.global_position.x, truck.global_position.z))
+			and stock.global_basis.z.x > 0.9 and absf(stock.swing()) < deg_to_rad(15.0),
+			"pulled away in %.0f s: pickup and trailer stand in the street %.0f m on, straight behind each other, heading for the Animal Market" % [t_run,
+			truck.global_position.distance_to(from)])
+	_check(touched.is_empty() and not blocked and near_flat > 0.1 and swing < Trailer.MAX_SWING - 0.02 and worst_off < 0.1 and tyre.x > -0.06 and tyre.y < 0.06,
+			"on the way out nothing was touched (%s), the trailer ran into nothing, the cargo trailer stayed %.2f m off; swing at most %.0f deg, the coupling on the ball (%.3f m), tyres %.3f..%.3f m off the ground" % [", ".join(touched),
+			near_flat, rad_to_deg(swing), worst_off, tyre.x, tyre.y])
+	_check(not TrailerYard.in_bay(stock) and TrailerYard.trailer_at_market() == stock and TrailerYard.fee_now() == 0,
+			"brought into the street by the Animal Market it counts as there: no fee")
+	player.exit_vehicle()
+	Quests.skip_tutorial()
+	await _frames(5)
+
+	# (11) Saved and loaded again. Grandpa's trailer paid and left in its bay, the cargo
+	# trailer still the dealer's, the pickup at home on the farm: both stand in their bays
+	# (restoring the one must not move the other out into the street).
+	stock.unhitch(true)
+	flat.owned = false
+	flat.changed.emit()
+	stock.teleport(TrailerYard.bay_place(stock.kind))
+	flat.teleport(TrailerYard.bay_place(flat.kind))
+	await _park(truck, Town.farm_truck_home())
+	await _seconds(1.0)
+	town = await _t22_reload()
+	truck = town.farm_truck
+	stock = Trailer.of_kind(&"trailer_stock")
+	flat = Trailer.of_kind(&"trailer_flat")
+	board = town.get_node_or_null("PriceBoard_trailer_flat") as Node3D
+	_check(stock.owned and not flat.owned and _t22_off_bay(stock) < 0.05 and _t22_off_bay(flat) < 0.05 and absf(_t21_gaps(flat).x) < 0.03 and board != null and board.visible,
+			"loaded with Grandpa's trailer paid and left in its bay: it and the cargo trailer for sale stand in their bays (%.2f m, %.2f m off), the price board by it" % [_t22_off_bay(stock),
+			_t22_off_bay(flat)])
+	# A save from before the bay (both at the kerb, not his), the pickup left along the
+	# front of the yard where the bays are now: the trailers stand in their bays, the
+	# pickup is put at the kerb in front, on its wheels, at rest.
+	stock.owned = false
+	stock.changed.emit()
+	stock.teleport(kerb)
+	flat.teleport(Transform3D(kerb.basis, Vector3(246.6, TerrainData.height(246.6, 17.95) + 0.02, 17.95)))
+	await _frames(10)
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(220.6, Town.side_yard_top() + 0.4, 11.9)))
+	await _seconds(1.5)
+	town = await _t22_reload()
+	truck = town.farm_truck
+	stock = Trailer.of_kind(&"trailer_stock")
+	flat = Trailer.of_kind(&"trailer_flat")
+	var kerb_at := TrailerYard.kerb_place().origin
+	var from_kerb := Vector2(truck.global_position.x - kerb_at.x, truck.global_position.z - kerb_at.z).length()
+	_check(not stock.owned and not flat.owned and _t22_off_bay(stock) < 0.05 and _t22_off_bay(flat) < 0.05,
+			"loaded from a save from before the bay with the pickup left where the bays are: both trailers stand in their bays (%.2f m, %.2f m off)" % [_t22_off_bay(stock),
+			_t22_off_bay(flat)])
+	_check(from_kerb < 1.0 and not truck.stands_in(stock) and not truck.stands_in(flat) and truck.linear_velocity.length() < 0.5 and truck.global_basis.y.y > 0.97
+			and absf(truck.global_position.y - TerrainData.height(truck.global_position.x, truck.global_position.z)) < 1.0 and _t22_touching(truck) == "",
+			"and the pickup stands at the kerb in front of them (%.2f m from the spot), on its wheels, at rest (%.2f m/s), touching nothing (%s)" % [from_kerb,
+			truck.linear_velocity.length(), _t22_touching(truck)])
+	# Backed up to the tongue of the one not paid yet (the farmer about to go and pay): the
+	# pickup stays where it was left.
+	var backed := stock.coupling() + Vector3(0, 0, 0.2) - ball_local
+	await _park(truck, Transform3D(Basis(), Vector3(backed.x, TerrainData.height(backed.x, backed.z) + 0.35, backed.z)))
+	await _seconds(1.5)
+	var left_at := truck.global_position
+	town = await _t22_reload()
+	truck = town.farm_truck
+	stock = Trailer.of_kind(&"trailer_stock")
+	flat = Trailer.of_kind(&"trailer_flat")
+	_check(truck.global_position.distance_to(left_at) < 0.3 and stock.tow_in_reach() == truck and _t22_off_bay(stock) < 0.05 and _t22_off_bay(flat) < 0.05,
+			"loaded with the pickup backed up to the tongue of the trailer not paid yet: it stands where it was left (%.2f m off), the ball in reach, the trailers in their bays" % truck.global_position.distance_to(left_at))
+
+
+
+
+# --- Round 22: the trailer wheeled by hand ----------------------------------------------------
+
+## Whether the marker over `t`'s coupling shows green to the driver.
+func _h22_green(t: Trailer) -> bool:
+	return t._guide.visible and t._guide_mat.albedo_color.g > 0.9 and t._guide_mat.albedo_color.r < 0.6
+
+
+## Stands the farmer beside `t`'s tongue (`side`: which, in its frame) looking at it (a
+## step this way or that until the tongue is what he looks at: on the farm a tuft of grass
+## may stand in his line of sight) and presses E, again every half second while it is
+## refused, until it rolls or is coupled or `patience` s are over (somebody walking past
+## the bay). The line it was refused with last ("": it went).
+func _h22_press(t: Trailer, notes: Array[String], side := 1.0, patience := 0.0) -> String:
+	var player: Player = Game.player
+	var why := ""
+	var waited := 0.0
+	while true:
+		for stance: Vector3 in [Vector3(1.5, 2.3, 2.3), Vector3(0.9, 2.5, 2.5), Vector3(1.2, 3.4, 2.8), Vector3(2.0, 2.9, 2.6), Vector3(0.8, 1.9, 2.1),
+				Vector3(-1.3, 2.4, 2.4), Vector3(-0.8, 2.6, 2.6)]:
+			player.global_position = t.global_transform * Vector3(stance.x * side, 0.15, stance.y)
+			player.velocity = Vector3.ZERO
+			_look_at(player, t.global_transform * Vector3(0.0, 0.5, stance.z))
+			await _frames(8)
+			if player.target == t and t._zone(player) == &"hitch":
+				break
+		notes.clear()
+		await _press_key(KEY_E)
+		await _frames(2)
+		if t.rolling() or t.tow != null:
+			return ""
+		why = notes.back() if not notes.is_empty() else "?"
+		if waited >= patience:
+			break
+		await _seconds(0.5)
+		waited += 0.7
+	return why
+
+
+## Watches `t` roll to its end (up to `limit` s of the game's time): {"time", "top" (its
+## fastest, m/s), "layer" (it was no body to run into all the way), "jockey" (the jockey
+## wheel down all the way), "spun" (radians its wheels turned), "low" (the furthest a tyre
+## was off the ground, m), "way" (m), "bed" (its bed could not be looked at all the way),
+## "goal" (the story's line stayed the on-foot one all the way), "under" (ticks the
+## farmer's feet were under its body, or within 0.2 m of it), "turn" (its fastest turning,
+## degrees a second)}. "top" is its speed over the ground.
+func _h22_watch(t: Trailer, limit := 10.0) -> Dictionary:
+	var out := {"time": 0.0, "top": 0.0, "layer": true, "jockey": true, "spun": 0.0, "low": 0.0, "way": 0.0, "bed": true, "goal": true, "under": 0, "turn": 0.0}
+	var last := t.global_position
+	var bed := t.get_node_or_null("BedPoint") as CollisionObject3D
+	var foot_line := tr("HINT_TRAILER_HITCH_FOOT")
+	var player: Player = Game.player
+	var yaw := atan2(t.global_basis.z.x, t.global_basis.z.z)
+	var spin := t._spin
+	var ticks := 0
+	var rate := float(Engine.physics_ticks_per_second)
+	out["way"] = float(t._roll.get("total", 0.0))
+	while t.rolling() and ticks < int(limit * rate):
+		await tree.physics_frame
+		ticks += 1
+		if not t.rolling():
+			break
+		out["layer"] = bool(out["layer"]) and t.collision_layer == 0
+		out["jockey"] = bool(out["jockey"]) and t._jockey_up < 0.05
+		out["bed"] = bool(out["bed"]) and (bed == null or bed.collision_layer == 0)
+		out["goal"] = bool(out["goal"]) and String(TrailerGoals.place("hitch")["hint"]) == foot_line
+		var here := t.global_position
+		out["top"] = maxf(float(out["top"]), Vector2(here.x - last.x, here.z - last.z).length() * rate)
+		var yaw_now := atan2(t.global_basis.z.x, t.global_basis.z.z)
+		out["turn"] = maxf(float(out["turn"]), absf(rad_to_deg(angle_difference(yaw, yaw_now))) * rate)
+		yaw = yaw_now
+		if player.driving == null and t._wheel_over(Vector3(here.x, here.z, yaw_now), Vector2(player.global_position.x, player.global_position.z), 0.2):
+			out["under"] = int(out["under"]) + 1
+		out["spun"] = float(out["spun"]) + absf(angle_difference(spin, t._spin))
+		var g := _t21_gaps(t)
+		out["low"] = maxf(float(out["low"]), maxf(absf(g.x), absf(g.y)))
+		last = here
+		spin = t._spin
+	out["time"] = float(ticks) / rate
+	return out
+
+
+## Where every vehicle but `but` stands.
+func _h22_places(but: Array) -> Dictionary:
+	var out := {}
+	for v: Vehicle in Vehicle.all:
+		if v.is_inside_tree() and not but.has(v):
+			out[v] = v.global_transform
+	return out
+
+
+## The furthest any of them has moved since (m, a radian of turning counted as a metre).
+## One on the dealer's turning display is not counted: it turns by itself.
+func _h22_moved(places: Dictionary) -> float:
+	var worst := 0.0
+	for v: Vehicle in places:
+		if is_instance_valid(v) and v._display_pose.is_empty():
+			var was: Transform3D = places[v]
+			var moved := v.global_position.distance_to(was.origin) + absf(v.global_basis.z.angle_to(was.basis.z))
+			if moved > 0.01:
+				print("H22 moved: %s %s by %.3f m (from %s to %s)" % [v.name, v.kind, moved, was.origin, v.global_position])
+			worst = maxf(worst, moved)
+	return worst
+
+
+## How well `t` is coupled behind `truck`: {"ok", "off" (coupling to ball, m), "swing"
+## (degrees), "tyres" (m off the ground)}.
+func _h22_coupled(t: Trailer, truck: Vehicle) -> Dictionary:
+	var ball := truck.global_transform * Trailer.hitch_of(truck)
+	var off := t.coupling().distance_to(ball)
+	var g := _t21_gaps(t)
+	var tyres := maxf(absf(g.x), absf(g.y))
+	var swing := absf(rad_to_deg(t.swing()))
+	return {"ok": t.tow == truck and off < 0.08 and swing < 3.0 and tyres < 0.05 and t.collision_layer != 0, "off": off, "swing": swing, "tyres": tyres}
+
+
+## The farmer straight ahead of `t`'s tongue, `ahead` m from its tip, looking at it (where
+## he arrives walking up to it), E (again for up to `patience` s while it is refused:
+## somebody walking past), and the roll watched to its end: {"why": the last refusal ("":
+## it went), "under": ticks his feet were under its body, "moved": how far he was stepped
+## aside (m), "time" (s)}.
+func _h22_ahead_go(t: Trailer, notes: Array[String], ahead: float, patience: float) -> Dictionary:
+	var player: Player = Game.player
+	var out := {"why": "?", "under": 0, "moved": 0.0, "time": 0.0}
+	var waited := 0.0
+	while true:
+		player.global_position = t.global_transform * Vector3(0.0, 0.3, t._hitch.z + ahead)
+		player.velocity = Vector3.ZERO
+		_look_at(player, t.global_transform * Vector3(0.0, 0.5, t._hitch.z - 0.3))
+		await _frames(10)
+		notes.clear()
+		await _press_key(KEY_E)
+		await _frames(2)
+		if t.rolling() or t.tow != null:
+			out["why"] = ""
+			break
+		out["why"] = notes.back() if not notes.is_empty() else "? (looking at %s)" % ((player.target as Node).name if player.target is Node else "nothing")
+		if waited >= patience:
+			return out
+		await _seconds(0.5)
+		waited += 0.7
+	var from := player.global_position
+	var seen := await _h22_watch(t)
+	out["under"] = int(seen["under"])
+	out["time"] = float(seen["time"])
+	out["moved"] = Vector2(player.global_position.x - from.x, player.global_position.z - from.z).length()
+	return out
+
+
+## A body as a townsman's (the walkers' layer) standing at `at`.
+func _h22_body(parent: Node, at: Vector3) -> AnimatableBody3D:
+	var body := AnimatableBody3D.new()
+	body.collision_layer = 4 | 16
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.3
+	cap.height = 1.75
+	cs.shape = cap
+	cs.position.y = 0.9
+	body.add_child(cs)
+	parent.add_child(body)
+	body.global_position = at
+	return body
+
+
+## One go of a sloppy driver at the dealer's bay: the pickup comes along the street
+## (`heading` 1: from the farm, nose east; -1: the other way), pulls up along the north
+## kerb in front of the bay (his line anywhere between H22_KERB_GAP of it, the wheel never
+## held still), lets it roll on for his reaction time once the marker is green and stops.
+## {"room": the nearest its body came to the pavement (m; below 0: on it), "ball" (x, z),
+## "green": the marker as he stands, "saw": it was green at some time, "early": he was
+## told to get out (`notes`) while he still drove, faster than 5 km/h}.
+func _h22_kerb_go(truck: Vehicle, stock: Trailer, heading: float, rng: RandomNumberGenerator, notes: Array[String] = []) -> Dictionary:
+	var player: Player = Game.player
+	var kerb := Town.WALK_N.end.y
+	var line := kerb + truck._footprint.size.x * 0.5 + rng.randf_range(H22_KERB_GAP.x, H22_KERB_GAP.y)
+	var cruise := rng.randf_range(H22_SPEED.x, H22_SPEED.y)
+	var react := rng.randf_range(H22_REACT.x, H22_REACT.y)
+	var c := stock.coupling()
+	var from_x := c.x - heading * rng.randf_range(19.0, 23.0)
+	var from_z := T22_LANE_Z + rng.randf_range(-0.3, 0.3) if heading > 0.0 else line + rng.randf_range(0.2, 0.9)
+	var yaw := heading * PI * 0.5 + deg_to_rad(rng.randf_range(-3.0, 3.0))
+	await _park(truck, Transform3D(Basis(Vector3.UP, yaw), Vector3(from_x, TerrainData.height(from_x, from_z) + 0.35, from_z)))
+	await _seconds(0.3)
+	player.enter_vehicle(truck)
+	await _frames(10)
+	var phase := rng.randf() * TAU
+	var wander := rng.randf_range(0.05, 0.2)
+	var green_for := -1.0
+	var saw := false
+	var early := false
+	var told_line := tr("MSG_TRAILER_IN_REACH")
+	var room := INF
+	var t := 0.0
+	while t < 25.0:
+		await _seconds(0.05)
+		t += 0.05
+		var here := truck.global_position
+		var to := truck.global_transform.affine_inverse() * Vector3(here.x + heading * 6.0, here.y, line + sin(t * 1.3 + phase) * wander)
+		_t22_steer(clampf(atan2(to.x, to.z) / 0.45 + sin(t * 3.1 + phase) * H22_WOBBLE, -1.0, 1.0))
+		if truck.speed_kmh() < cruise:
+			Input.action_press("move_forward", 0.7)
+		else:
+			Input.action_release("move_forward")
+		for p in _t22_outline(truck):
+			room = minf(room, p.y - kerb)
+		early = early or (truck.speed_kmh() > 5.0 and notes.has(told_line))
+		if _h22_green(stock):
+			saw = true
+			if green_for < 0.0:
+				green_for = 0.0
+		if green_for >= 0.0:
+			green_for += 0.05
+			if green_for >= react:
+				break
+		if (here.x - c.x) * heading > 13.0:
+			break
+	await _t22_stop(truck)
+	for p in _t22_outline(truck):
+		room = minf(room, p.y - kerb)
+	var ball := truck.global_transform * Trailer.hitch_of(truck)
+	var green := _h22_green(stock)
+	player.exit_vehicle()
+	await _frames(5)
+	return {"room": room, "ball": Vector2(ball.x, ball.z), "green": green, "saw": saw, "early": early}
+
+
+## One go on open ground: the trailer stood at `centre` any way round, the pickup comes
+## past its tongue from anywhere in front of it, a few metres off, and stops a reaction
+## time after the marker went green. {"green", "saw", "ball" (m from the coupling), "side":
+## the tongue's side away from the pickup}.
+func _h22_field_go(truck: Vehicle, stock: Trailer, centre: Vector3, rng: RandomNumberGenerator) -> Dictionary:
+	var player: Player = Game.player
+	stock.unhitch(true)
+	stock.teleport(Transform3D(Basis(Vector3.UP, rng.randf() * TAU), centre + Vector3(0, 0.05, 0)))
+	await _frames(8)
+	var c := stock.coupling()
+	var f := stock.global_basis.z
+	var ahead := Vector2(f.x, f.z).normalized()
+	var by := Vector2.ZERO
+	var dir := Vector2.ZERO
+	for attempt in 40:
+		# A line past the tongue that keeps the pickup clear of the trailer's body.
+		var out := ahead.rotated(deg_to_rad(rng.randf_range(-80.0, 80.0)))
+		by = Vector2(c.x, c.z) + out * rng.randf_range(2.8, 5.0)
+		dir = Vector2(out.y, -out.x).rotated(deg_to_rad(rng.randf_range(-25.0, 25.0))) * (1.0 if rng.randf() < 0.5 else -1.0)
+		var clear := true
+		for back: float in [0.0, 1.5, 3.0, 4.5]:
+			var body := Vector2(c.x, c.z) - ahead * back
+			clear = clear and absf((body - by).dot(Vector2(dir.y, -dir.x))) > 2.5 + minf(back, 1.0) * 0.6
+		if clear:
+			break
+	var from := by - dir * rng.randf_range(10.0, 12.0)
+	var cruise := rng.randf_range(H22_SPEED.x, H22_SPEED.y)
+	# Some stop as soon as the marker is green, some roll on until they are beside it.
+	var react := rng.randf_range(H22_REACT.x, H22_REACT.y + 2.0)
+	await _park(truck, Transform3D(Basis(Vector3.UP, atan2(dir.x, dir.y) + deg_to_rad(rng.randf_range(-4.0, 4.0))),
+			Vector3(from.x, TerrainData.height(from.x, from.y) + 0.35, from.y)))
+	await _seconds(0.3)
+	player.enter_vehicle(truck)
+	await _frames(10)
+	var phase := rng.randf() * TAU
+	var wander := rng.randf_range(0.1, 0.4)
+	var normal := Vector2(dir.y, -dir.x)
+	var green_for := -1.0
+	var saw := false
+	var t := 0.0
+	while t < 20.0:
+		await _seconds(0.05)
+		t += 0.05
+		var here := Vector2(truck.global_position.x, truck.global_position.z)
+		var along := (here - from).dot(dir)
+		var aim := from + dir * (along + 6.0) + normal * sin(t * 1.3 + phase) * wander
+		var to := truck.global_transform.affine_inverse() * Vector3(aim.x, truck.global_position.y, aim.y)
+		_t22_steer(clampf(atan2(to.x, to.z) / 0.45 + sin(t * 3.1 + phase) * H22_WOBBLE, -1.0, 1.0))
+		if truck.speed_kmh() < cruise:
+			Input.action_press("move_forward", 0.7)
+		else:
+			Input.action_release("move_forward")
+		if _h22_green(stock):
+			saw = true
+			if green_for < 0.0:
+				green_for = 0.0
+		if green_for >= 0.0:
+			green_for += 0.05
+			if green_for >= react:
+				break
+		if along > 21.0:
+			break
+	await _t22_stop(truck)
+	var ball := truck.global_transform * Trailer.hitch_of(truck)
+	var green := _h22_green(stock)
+	player.exit_vehicle()
+	await _frames(5)
+	var beside := stock.global_transform.affine_inverse() * truck.global_position
+	return {"green": green, "saw": saw, "ball": Vector2(ball.x - c.x, ball.z - c.z).length(), "side": -1.0 if beside.x > 0.0 else 1.0}
+
+
+## The middle of a patch of open, even ground `size` m square near the farmyard
+## (Vector3.INF: none).
+func _h22_open_ground(size: float) -> Vector3:
+	var space := Game.player.get_world_3d().direct_space_state
+	var q := PhysicsShapeQueryParameters3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(size, 2.0, size)
+	q.shape = box
+	q.collision_mask = 1 | 16
+	var skip: Array[RID] = [(Game.player as CollisionObject3D).get_rid()]
+	for v: Vehicle in Vehicle.all:
+		skip.append(v.get_rid())
+	q.exclude = skip
+	var yard := WorldLayout.FARM_TRUCK_SPOT
+	var spots: Array[Vector2] = []
+	for ix in range(-12, 13):
+		for iz in range(-12, 13):
+			spots.append(yard + Vector2(ix, iz) * 5.0)
+	spots.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.distance_squared_to(yard) < b.distance_squared_to(yard))
+	for s in spots:
+		var low := INF
+		var high := -INF
+		for fx: float in [-0.5, 0.0, 0.5]:
+			for fz: float in [-0.5, 0.0, 0.5]:
+				var h := TerrainData.height(s.x + fx * size, s.y + fz * size)
+				low = minf(low, h)
+				high = maxf(high, h)
+		if high - low > 0.45:
+			continue
+		q.transform = Transform3D(Basis(), Vector3(s.x, high + 1.7, s.y))
+		if space.intersect_shape(q, 1).is_empty():
+			return Vector3(s.x, TerrainData.height(s.x, s.y), s.y)
+	return Vector3.INF
+
+
+## A picture of the street in front of the bay as it is this frame.
+func _h22_snap(path: String) -> void:
+	await _idle_frames(2)
+	tree.root.get_viewport().get_texture().get_image().save_png(path)
+	print("SHOT ", path)
+
+
+## An empty trailer is wheeled to the pickup by hand (round 22). Grandpa's trailer still
+## wants its tyre bill first. Where a pickup standing along the kerb in front of the
+## dealer's bay can have it (the marker's green stretch, either way round, measured). A
+## sloppy driver pulls up along the kerb there, from the farm and from the other end,
+## never on the pavement, gets out and presses E at the tongue: the trailer rolls out
+## behind the pickup and couples, nine goes in ten at least, and nothing else in the
+## street moves; the same past the trailer on open ground at the farm. The roll takes its
+## time, on the tyres and the jockey wheel, the wheels turning, colliding with nothing,
+## and ends coupled straight behind. Each refusal with its line: the pickup too far; a
+## wall, another vehicle, a person behind the pickup; the farmer in its place; a loaded
+## trailer, which the exact back-up still couples. The story's lines say it the new way.
+## A save made in the middle of the roll loads coupled.
+## With -- --hitch-shots=/abs/dir it saves three pictures of a roll at the bay there.
+func _scenario_hitch22() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var shots := String(DebugTools.args.get("hitch-shots", ""))
+	# -- --hitch-only=field skips the goes along the kerb (to look at the rest alone).
+	var kerb_goes := 0 if String(DebugTools.args.get("hitch-only", "")) == "field" else H22_GOES
+	if player.driving:
+		player.exit_vehicle()
+	GameClock.set_time_of_day(10.5)
+	Weather.force(Weather.Kind.SUNNY)
+	Quests.skip_tutorial()
+	await _frames(20)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var truck := town.farm_truck
+	var stock := Trailer.of_kind(&"trailer_stock")
+	var flat := Trailer.of_kind(&"trailer_flat")
+	_check(stock != null and flat != null and not stock.owned and stock.tow == null, "Grandpa's stock trailer stands in the dealer's bay, not the farmer's yet")
+	if stock == null or flat == null:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = H22_SEED
+	var ball_local := Trailer.hitch_of(truck)
+	var kerb := Town.WALK_N.end.y
+	var c0 := stock.coupling()
+
+	# (1) Not paid yet: with the pickup at the kerb in front, E at the tongue is the tyre bill.
+	await _park(truck, TrailerYard.kerb_place())
+	await _seconds(1.5)
+	Economy.money = 0
+	_check(stock.wheel_choice(true)["to"] == null and not stock.can_couple(), "not the farmer's yet: nothing to wheel")
+	var first := await _h22_press(stock, notes)
+	_check(not stock.owned and not stock.rolling() and _last_prompt.contains(tr("ACTION_TRAILER_FEE") % UiTheme.money(stock.price)),
+			"with the pickup at the kerb, E at the tongue of the trailer not paid yet asks for the tyre bill ('%s'; said: '%s')" % [_last_prompt.replace("\n", " / "), first])
+	Economy.money = 200
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(stock.owned and not stock.rolling() and stock.tow == null, "paid: it is his, and stands where it stood")
+
+	# (2) Where along the kerb the marker is green: the pickup stood every half metre along
+	# the street in front of the bay, both ways round, near the kerb and a lane's width out.
+	for heading: float in [-1.0, 1.0]:
+		for gap: float in [0.3, 1.2]:
+			var z := kerb + truck._footprint.size.x * 0.5 + gap
+			var from_ball := INF
+			var to_ball := -INF
+			var holes := 0
+			var count := 0
+			var slowest := 0
+			for i in range(0, 41):
+				var bx := c0.x - 10.0 + i * 0.5
+				var at := Vector3(bx, 0.0, z) - Basis(Vector3.UP, heading * PI * 0.5) * Vector3(ball_local.x, 0.0, ball_local.z)
+				truck.teleport(Transform3D(Basis(Vector3.UP, heading * PI * 0.5), Vector3(at.x, TerrainData.height(at.x, at.z) + 0.3, at.z)))
+				await _frames(2)
+				var began := Time.get_ticks_usec()
+				var plan := stock.wheel_choice(true)
+				slowest = maxi(slowest, Time.get_ticks_usec() - began)
+				if String(plan["why"]) == "":
+					count += 1
+					if to_ball > -INF and bx - to_ball > 0.6:
+						holes += 1
+					from_ball = minf(from_ball, bx)
+					to_ball = maxf(to_ball, bx)
+			_check(count >= 8 and holes == 0, "pickup nose %s, %.1f m off the kerb: the trailer can be wheeled to it with its ball from x %.1f to %.1f (%.1f m of street in one stretch, %d gaps; the coupling at x %.1f); the slowest look took %.1f ms" % ["east" if heading > 0.0 else "west",
+					gap, from_ball, to_ball, to_ball - from_ball, holes, c0.x, slowest / 1000.0])
+
+	# (3) The sloppy driver at the bay, from the farm and from the other end.
+	var cam: Camera3D = null
+	var was_cam := tree.root.get_viewport().get_camera_3d()
+	var worst_moved := 0.0
+	var worst_truck := 0.0
+	var times := Vector2(INF, -INF)
+	var ways := Vector2(INF, -INF)
+	var top := 0.0
+	var retries := 0
+	var told := false
+	var told_early := 0
+	for heading: float in [1.0, -1.0]:
+		var coupled := 0
+		var room := INF
+		var stops := Vector2(INF, -INF)
+		var bad := PackedStringArray()
+		for go in kerb_goes:
+			stock.unhitch(true)
+			stock.teleport(TrailerYard.bay_place(stock.kind))
+			await _frames(6)
+			notes.clear()
+			var drive := await _h22_kerb_go(truck, stock, heading, rng, notes)
+			told = told or notes.has(tr("MSG_TRAILER_IN_REACH"))
+			told_early += 1 if bool(drive["early"]) else 0
+			room = minf(room, float(drive["room"]))
+			var ball: Vector2 = drive["ball"]
+			stops = Vector2(minf(stops.x, ball.x), maxf(stops.y, ball.x))
+			var places := _h22_places([truck, stock])
+			var truck_at := truck.global_transform
+			var snap := shots != "" and go == 0 and heading < 0.0
+			if snap:
+				cam = Camera3D.new()
+				town.add_child(cam)
+				cam.fov = 60.0
+				cam.global_transform = Transform3D(Basis(), Vector3(c0.x + 9.5, TerrainData.height(c0.x, kerb) + 3.4, kerb + 8.5)).looking_at(Vector3(c0.x + 0.5, TerrainData.height(c0.x, kerb) + 0.8, kerb - 1.0), Vector3.UP)
+			var why := await _h22_press(stock, notes, 1.0, 4.0)
+			var watch := {"time": 0.0, "top": 0.0, "way": 0.0}
+			if stock.rolling():
+				if snap:
+					cam.make_current()
+					Game.hud.visible = false
+					var total := float(stock._roll["time"])
+					await _seconds(total * 0.3)
+					await _h22_snap(shots.path_join("hitch22_roll_1.png"))
+					await _seconds(total * 0.25)
+					await _h22_snap(shots.path_join("hitch22_roll_2.png"))
+				watch = await _h22_watch(stock)
+			await _seconds(0.6)
+			if snap:
+				await _h22_snap(shots.path_join("hitch22_roll_3.png"))
+				Game.hud.visible = true
+				cam.queue_free()
+				if was_cam and is_instance_valid(was_cam):
+					was_cam.make_current()
+			var state := _h22_coupled(stock, truck)
+			worst_moved = maxf(worst_moved, _h22_moved(places))
+			worst_truck = maxf(worst_truck, truck.global_position.distance_to(truck_at.origin))
+			if bool(state["ok"]):
+				coupled += 1
+				if not snap:
+					times = Vector2(minf(times.x, float(watch["time"])), maxf(times.y, float(watch["time"])))
+					top = maxf(top, float(watch["top"]))
+				ways = Vector2(minf(ways.x, float(watch["way"])), maxf(ways.y, float(watch["way"])))
+			else:
+				bad.append("go %d: ball at (%.1f, %.1f), marker %s, '%s', coupling %.2f m off" % [go + 1, ball.x, ball.y, "green" if bool(drive["green"]) else "amber", why, float(state["off"])])
+			print("H22 bay %s go %d: ball (%.2f, %.2f), %.2f m to the coupling, marker %s; %s; rolled %.1f m in %.2f s" % ["east" if heading > 0.0 else "west", go + 1, ball.x, ball.y,
+					ball.distance_to(Vector2(c0.x, c0.z)), "green" if bool(drive["green"]) else "amber", "coupled" if bool(state["ok"]) else "NOT coupled: " + why, float(watch["way"]), float(watch["time"])])
+		_check(coupled * 10 >= kerb_goes * 9, "nose %s along the kerb, %d goes: out of the cab, E at the tongue, the trailer coupled behind the pickup %d times (stopped with the ball from x %.1f to %.1f, %.1f m apart)%s" % ["east (from the farm)" if heading > 0.0 else "west",
+				kerb_goes, coupled, stops.x, stops.y, stops.y - stops.x, "" if bad.is_empty() else "; " + "; ".join(bad)])
+		_check(room > 0.0 and stops.y - stops.x >= 2.0, "never on the pavement (the body %.2f m from the kerb at the nearest), the stopping points scattered over %.1f m" % [room, stops.y - stops.x])
+	_check(worst_moved < 0.01 and worst_truck < 0.03, "nothing else in the street moved (the furthest any other vehicle: %.4f m; the pickup while the trailer came and coupled: %.4f m)" % [worst_moved, worst_truck])
+	_check(times.x >= Trailer.WHEEL_TIME.x - 0.05 and times.y <= Trailer.WHEEL_TIME.y + Trailer.WHEEL_WAIT + 0.2 and top <= Trailer.WHEEL_SPEED + 0.3,
+			"the rolls at the bay took %.2f to %.2f s over %.1f to %.1f m, at a walk (the fastest moment %.1f m/s over the ground; no faster than %.1f)" % [times.x, times.y, ways.x, ways.y, top, Trailer.WHEEL_SPEED])
+	_check(told and told_early == 0, "the driver was told from his seat once he had stopped, never while he still drove along the green stretch (told early on %d goes): '%s'" % [told_early, tr("MSG_TRAILER_IN_REACH")])
+
+	# (4) Somebody stands in the trailer's place behind the pickup: no room; gone, it rolls.
+	stock.unhitch(true)
+	stock.teleport(TrailerYard.bay_place(stock.kind))
+	var good := Vector3(c0.x - 2.5, 0.0, kerb + truck._footprint.size.x * 0.5 + 0.6)
+	var at_kerb := good - Basis(Vector3.UP, -PI * 0.5) * Vector3(ball_local.x, 0.0, ball_local.z)
+	await _park(truck, Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(at_kerb.x, TerrainData.height(at_kerb.x, at_kerb.z) + 0.3, at_kerb.z)))
+	await _seconds(1.5)
+	_check(String(stock.wheel_choice(true)["why"]) == "", "the pickup stood past the bay, nose west: it can be wheeled out")
+	var person: Townsperson = null
+	var people := town.get_node_or_null("TownPeople")
+	if people:
+		for child in people.get_children():
+			if child is Townsperson and person == null:
+				person = child
+	var stand_in: AnimatableBody3D = null
+	var person_was := Transform3D()
+	var behind := truck.global_transform * (ball_local - Vector3(0, 0, 3.0))
+	behind.y = TerrainData.height(behind.x, behind.z)
+	if person != null:
+		person_was = person.global_transform
+		person.set_physics_process(false)
+		person.set_process(false)
+		person.global_position = behind
+	else:
+		stand_in = _h22_body(town, behind)
+	await _frames(6)
+	var said := await _h22_press(stock, notes)
+	_check(said == tr("HINT_TRAILER_WHEEL_WAIT") and not stock.rolling() and stock.tow == null,
+			"%s standing behind the pickup where the trailer would go: told to wait for them, not to move the pickup: '%s'" % ["a townsman" if person != null else "a person (a stand-in body)", said])
+	if person != null:
+		person.global_transform = person_was
+		person.set_physics_process(true)
+		person.set_process(true)
+	else:
+		stand_in.queue_free()
+	await _frames(6)
+	# The farmer straight in front of the tongue, where he arrives walking up from the
+	# kerb, and the trailer can only come straight out at him: he is stepped aside, it never
+	# passes over his feet or through his view.
+	var ahead_go := await _h22_ahead_go(stock, notes, 1.4, 4.0)
+	await _seconds(0.6)
+	var ahead_state := _h22_coupled(stock, truck)
+	_check(String(ahead_go["why"]) == "" and int(ahead_go["under"]) == 0 and float(ahead_go["moved"]) > 0.3 and float(ahead_go["moved"]) < 4.5 and bool(ahead_state["ok"]),
+			"E from straight in front of the tongue at the bay (1.4 m off its tip): the trailer came out past him and coupled (%s, coupling %.3f m from the ball); his feet were under its body for %d ticks, he was stepped %.2f m aside in %.2f s (%s)" % [bool(ahead_state["ok"]),
+			float(ahead_state["off"]), int(ahead_go["under"]), float(ahead_go["moved"]), float(ahead_go["time"]), "it went" if String(ahead_go["why"]) == "" else "refused: " + String(ahead_go["why"])])
+
+	# (5) Open ground at the farm.
+	stock.unhitch(true)
+	var yard_at := WorldLayout.FARM_TRUCK_SPOT
+	player.global_position = Vector3(yard_at.x + 3.0, TerrainData.height(yard_at.x + 3.0, yard_at.y + 4.0) + 0.3, yard_at.y + 4.0)
+	player.velocity = Vector3.ZERO
+	await _seconds(2.0)
+	var ground := _h22_open_ground(30.0)
+	if ground == Vector3.INF:
+		ground = _h22_open_ground(24.0)
+	_check(ground != Vector3.INF, "found open ground by the farm (%s)" % ground)
+	if ground == Vector3.INF:
+		Events.notification_requested.disconnect(on_note)
+		return
+	var field_coupled := 0
+	var field_bad := PackedStringArray()
+	var reach := Vector2(INF, -INF)
+	var field_times := Vector2(INF, -INF)
+	for go in H22_GOES:
+		var drive := await _h22_field_go(truck, stock, ground, rng)
+		var truck_at := truck.global_position
+		var why := await _h22_press(stock, notes, float(drive["side"]), 1.0)
+		var watch := {"time": 0.0, "way": 0.0}
+		if stock.rolling():
+			watch = await _h22_watch(stock)
+		await _seconds(0.5)
+		var state := _h22_coupled(stock, truck)
+		reach = Vector2(minf(reach.x, float(drive["ball"])), maxf(reach.y, float(drive["ball"])))
+		if bool(state["ok"]) and truck.global_position.distance_to(truck_at) < 0.01:
+			field_coupled += 1
+			field_times = Vector2(minf(field_times.x, float(watch["time"])), maxf(field_times.y, float(watch["time"])))
+		else:
+			field_bad.append("go %d: ball %.1f m off, marker %s, '%s', coupling %.2f m off (looking at %s: '%s'; the farmer at %s of the trailer, driving %s, gate %s, reason now '%s')" % [go + 1, float(drive["ball"]),
+					"green" if bool(drive["green"]) else "amber", why, float(state["off"]), (player.target as Node).name if player.target is Node else "nothing", _last_prompt.replace("\n", " / "),
+					stock.global_transform.affine_inverse() * player.global_position, player.driving != null, stock.gate_open, String(stock.wheel_choice(true)["why"])])
+		print("H22 field go %d: ball %.2f m from the coupling, marker %s; %s; rolled %.1f m in %.2f s" % [go + 1, float(drive["ball"]), "green" if bool(drive["green"]) else "amber",
+				"coupled" if bool(state["ok"]) else "NOT coupled: " + why, float(watch["way"]), float(watch["time"])])
+	_check(field_coupled * 10 >= H22_GOES * 9, "on open ground at the farm, the pickup pulled up past the tongue from any side, %d goes: coupled %d times (the ball %.1f to %.1f m from the coupling; rolls of %.2f to %.2f s)%s" % [H22_GOES,
+			field_coupled, reach.x, reach.y, field_times.x, field_times.y, "" if field_bad.is_empty() else "; " + "; ".join(field_bad)])
+
+	# (6) The roll itself, and the refusals, the trailer at the middle of the open ground
+	# heading north, the pickup put where each needs it.
+	stock.unhitch(true)
+	stock.teleport(Transform3D(Basis(Vector3.UP, PI), ground + Vector3(0, 0.05, 0)))
+	await _frames(8)
+	var c := stock.coupling()
+	var park_ball := func(ball_at: Vector3, yaw: float) -> void:
+		var o := ball_at - Basis(Vector3.UP, yaw) * Vector3(ball_local.x, 0.0, ball_local.z)
+		truck.freeze = false
+		truck._settle_t = 0.0
+		truck.teleport(Transform3D(Basis(Vector3.UP, yaw), Vector3(o.x, TerrainData.height(o.x, o.z) + 0.3, o.z)))
+	# Too far.
+	park_ball.call(c + Vector3(3.0, 0, -11.0), PI)
+	await _seconds(1.5)
+	said = await _h22_press(stock, notes)
+	_check(said == tr("HINT_TRAILER_BACK_UP") and not stock.rolling() and _last_prompt.contains(tr("HINT_TRAILER_BACK_UP")), "the pickup %.0f m off: '%s' (under the prompt too: '%s')" % [(truck.global_transform * ball_local).distance_to(c),
+			said, _last_prompt.replace("\n", " / ")])
+	# Near, at an angle: a wall behind it, then another vehicle, then nothing.
+	park_ball.call(c + Vector3(3.5, 0, -3.0), PI + 0.5)
+	await _seconds(1.5)
+	var place := truck.global_transform * (ball_local - Vector3(0, 0, 3.4))
+	var wall := StaticBody3D.new()
+	var wall_shape := CollisionShape3D.new()
+	var wall_box := BoxShape3D.new()
+	wall_box.size = Vector3(3.0, 2.0, 0.3)
+	wall_shape.shape = wall_box
+	wall.add_child(wall_shape)
+	town.add_child(wall)
+	wall.global_transform = Transform3D(truck.global_basis.orthonormalized(), Vector3(place.x, TerrainData.height(place.x, place.z) + 1.0, place.z))
+	await _frames(6)
+	said = await _h22_press(stock, notes)
+	_check(said == tr("HINT_TRAILER_WHEEL_NO_ROOM") and not stock.rolling(), "a wall behind the pickup: '%s'" % said)
+	wall.queue_free()
+	var flat_home := flat.global_transform
+	flat.teleport(Transform3D(Basis(Vector3.UP, atan2(truck.global_basis.z.x, truck.global_basis.z.z) + PI * 0.5), Vector3(place.x, TerrainData.height(place.x, place.z) + 0.05, place.z)))
+	await _frames(8)
+	var flat_at := flat.global_transform
+	said = await _h22_press(stock, notes)
+	_check(said == tr("HINT_TRAILER_WHEEL_NO_ROOM") and not stock.rolling() and flat.global_position.distance_to(flat_at.origin) < 0.001, "another vehicle (the cargo trailer) behind the pickup: '%s'" % said)
+	# The pickup near, with the cargo trailer on its ball already: that is the reason given.
+	var flat_owned := flat.owned
+	flat.owned = true
+	flat.hitch(truck, true)
+	await _frames(8)
+	said = await _h22_press(stock, notes)
+	_check(said == tr("HINT_TRAILER_WHEEL_TAKEN") and not stock.rolling() and stock.tow == null and _last_prompt.contains(tr("HINT_TRAILER_WHEEL_TAKEN")),
+			"the pickup %.1f m off with another trailer on its ball: '%s' (under the prompt too: '%s')" % [(truck.global_transform * ball_local).distance_to(c), said, _last_prompt.replace("\n", " / ")])
+	flat.unhitch(true)
+	flat.owned = flat_owned
+	flat.teleport(flat_home)
+	await _frames(8)
+	# The farmer himself where it would stand: straight ahead of the tongue.
+	park_ball.call(c + Vector3(0.0, 0, -2.2), PI)
+	await _seconds(1.5)
+	player.global_position = stock.global_transform * Vector3(0.0, 0.15, 3.9)
+	player.velocity = Vector3.ZERO
+	_look_at(player, stock.global_transform * Vector3(0.0, 0.5, 2.6))
+	await _frames(8)
+	notes.clear()
+	await _press_key(KEY_E)
+	await _frames(2)
+	said = notes.back() if not notes.is_empty() else "?"
+	_check(said == tr("HINT_TRAILER_WHEEL_SELF") and not stock.rolling() and player.target == stock, "the farmer standing where it would go: '%s'" % said)
+	# Loaded: not by hand; the exact back-up couples it as before.
+	stock.cargo.add(&"wood", 2)
+	said = await _h22_press(stock, notes)
+	_check(said == tr("HINT_TRAILER_WHEEL_LOADED") and not stock.rolling() and stock.tow == null, "loaded (2 wood aboard), the pickup %.1f m off: '%s'" % [(truck.global_transform * ball_local).distance_to(c), said])
+	park_ball.call(c + Vector3(0.0, 0, -0.35), PI)
+	await _seconds(1.5)
+	_check(stock.tow_in_reach() == truck, "the pickup backed right up to the loaded trailer's tongue is in reach")
+	said = await _h22_press(stock, notes)
+	_check(said == "" and stock.tow == truck and not stock.rolling() and stock.cargo.count(&"wood") == 2 and stock.coupling().distance_to(truck.global_transform * ball_local) < 0.5,
+			"E there couples the loaded trailer at once, as before ('%s')" % ("; ".join(notes)))
+	await _seconds(1.0)
+	_check(bool(_h22_coupled(stock, truck)["ok"]), "and it sits on the ball")
+	stock.unhitch(true)
+	stock.cargo.take(&"wood", 2)
+	# The roll: the pickup 5 m off, across its bows.
+	stock.teleport(Transform3D(Basis(Vector3.UP, PI), ground + Vector3(0, 0.05, 0)))
+	park_ball.call(c + Vector3(3.5, 0, -3.5), PI * 0.5)
+	await _seconds(1.5)
+	var before := truck.global_transform
+	var apart := (truck.global_transform * ball_local).distance_to(stock.coupling())
+	said = await _h22_press(stock, notes)
+	var rolling_at_once := stock.rolling() and stock.tow == null
+	var seen := await _h22_watch(stock)
+	await _seconds(0.3)
+	var end_state := _h22_coupled(stock, truck)
+	_check(said == "" and rolling_at_once and float(seen["time"]) >= Trailer.WHEEL_TIME.x - 0.05 and float(seen["time"]) <= Trailer.WHEEL_TIME.y + 0.1 and float(seen["top"]) <= Trailer.WHEEL_SPEED + 0.3,
+			"E at the tongue with the pickup %.1f m off across its bows: it rolls there over %.2f s (%.1f m of way, %.1f m/s at its fastest, turning %.0f degrees a second at the most)" % [apart, float(seen["time"]), float(seen["way"]), float(seen["top"]), float(seen["turn"])])
+	var bed_point := stock.get_node_or_null("BedPoint") as CollisionObject3D
+	_check(bool(seen["bed"]) and bool(seen["goal"]) and int(seen["under"]) == 0 and bed_point != null and bed_point.collision_layer == 4,
+			"all the way its bed is nothing to look at (no window on a second E, no cargo aboard; back once it stands: %s), the story's line stays '%s' (%s), and it is never over the farmer's feet (%d ticks)" % [bed_point != null and bed_point.collision_layer == 4,
+			tr("HINT_TRAILER_HITCH_FOOT"), bool(seen["goal"]), int(seen["under"])])
+	_check(bool(seen["layer"]) and bool(seen["jockey"]) and float(seen["spun"]) > 1.0 and float(seen["low"]) < 0.06,
+			"while it rolls it is no body to run into, the jockey wheel is down, the wheels turn (%.1f rad) and the tyres stay on the ground (%.3f m off at the most)" % [float(seen["spun"]), float(seen["low"])])
+	_check(bool(end_state["ok"]) and truck.global_position.distance_to(before.origin) < 0.01 and notes.has(tr("MSG_TRAILER_HITCHED") % [stock.display_name(), truck.display_name()]),
+			"and ends coupled straight behind the pickup (coupling %.3f m from the ball, swing %.1f deg, tyres %.3f m off the ground), which has not moved; '%s'" % [float(end_state["off"]),
+			float(end_state["swing"]), float(end_state["tyres"]), "; ".join(notes)])
+	await _seconds(1.2)
+	_check(stock._jockey_up > 0.9, "the jockey wheel has wound up")
+	# Somebody walks into its way once it rolls: it waits for them and goes on after.
+	stock.unhitch(true)
+	stock.teleport(Transform3D(Basis(Vector3.UP, PI), ground + Vector3(0, 0.05, 0)))
+	await _seconds(1.0)
+	said = await _h22_press(stock, notes)
+	var waits := stock.rolling()
+	var walker: AnimatableBody3D = null
+	var touched := 0
+	var stood := 0.0
+	var waited_at := Vector3.ZERO
+	if waits:
+		var goes_to: Vector3 = (stock._roll["end"] as Transform3D).origin
+		walker = _h22_body(town, Vector3(goes_to.x, TerrainData.height(goes_to.x, goes_to.z), goes_to.z))
+		var ticks := 0
+		while stock.rolling() and ticks < 600 and stood < 1.0:
+			await tree.physics_frame
+			ticks += 1
+			if not stock.rolling():
+				break
+			var f := stock.global_basis.z
+			if stock._wheel_over(Vector3(stock.global_position.x, stock.global_position.z, atan2(f.x, f.z)), Vector2(goes_to.x, goes_to.z), 0.35):
+				touched += 1
+			if float(stock._roll["pace"]) < 0.02:
+				if stood == 0.0:
+					waited_at = stock.global_position
+				stood += 1.0 / Engine.physics_ticks_per_second
+		waits = stock.rolling() and stood >= 1.0 and stock.tow == null and stock.global_position.distance_to(waited_at) < 0.02
+		walker.queue_free()
+		await _frames(3)
+		await _h22_watch(stock)
+		await _seconds(0.4)
+	_check(said == "" and waits and touched == 0 and bool(_h22_coupled(stock, truck)["ok"]),
+			"somebody steps into its place behind the pickup once it rolls: it stops short and waits (stood %.1f s, touched them for %d ticks), and rolls on and couples when they have gone" % [stood, touched])
+
+	# (7) The story's lines.
+	stock.unhitch(true)
+	stock.teleport(Transform3D(Basis(Vector3.UP, PI), ground + Vector3(0, 0.05, 0)))
+	park_ball.call(c + Vector3(3.5, 0, -3.5), PI * 0.5)
+	await _seconds(1.5)
+	player.global_position = stock.global_transform * Vector3(1.5, 0.15, 2.3)
+	await _frames(20)
+	var near_hint := String(TrailerGoals.place("hitch")["hint"])
+	park_ball.call(c + Vector3(3.0, 0, -14.0), PI)
+	await _seconds(1.0)
+	var far_hint := String(TrailerGoals.place("hitch")["hint"])
+	player.enter_vehicle(truck)
+	await _frames(5)
+	var drive_hint := String(TrailerGoals.place("hitch")["hint"])
+	player.exit_vehicle()
+	await _frames(5)
+	_check(near_hint == tr("HINT_TRAILER_HITCH_FOOT") and far_hint == tr("HINT_TRAILER_HITCH_TRUCK") and drive_hint == tr("HINT_TRAILER_HITCH_DRIVE"),
+			"the goal's line: the pickup near '%s'; far off '%s'; at the wheel '%s'" % [near_hint, far_hint, drive_hint])
+	var back_up := 0
+	for key: String in ["HINT_TRAILER_HITCH_DRIVE", "HINT_TRAILER_HITCH_TRUCK", "MSG_TRAILER_BOUGHT", "HINT_TRAILER_BACK_UP"]:
+		if tr(key).contains("geri geri") or tr(key).to_lower().contains("back up") or tr(key) == key:
+			back_up += 1
+	_check(back_up == 0 and tr("HINT_TRAILER_WHEEL_LOADED") != "HINT_TRAILER_WHEEL_LOADED" and tr("HINT_TRAILER_WHEEL_NO_ROOM") != "HINT_TRAILER_WHEEL_NO_ROOM",
+			"no line that explains hitching asks for backing up any more, bar the loaded trailer's ('%s')" % tr("HINT_TRAILER_WHEEL_LOADED"))
+
+	# (8) Saved in the middle of the roll: loaded, it is coupled behind the pickup.
+	park_ball.call(c + Vector3(4.5, 0, -4.5), PI * 0.5)
+	await _seconds(1.5)
+	said = await _h22_press(stock, notes)
+	await _seconds(0.5)
+	var mid_roll := stock.rolling()
+	var slot := "slot_hitch22"
+	var saved: bool = SaveGame.save(slot)
+	var truck_was := truck.global_position
+	var went: bool = SaveGame.load_game(slot)
+	await _until_loaded()
+	await _seconds(2.5)
+	SaveGame.delete(slot)
+	town = tree.get_first_node_in_group(&"town") as Town
+	truck = town.farm_truck
+	stock = Trailer.of_kind(&"trailer_stock")
+	var loaded_state := _h22_coupled(stock, truck)
+	_check(said == "" and mid_roll and saved and went, "saved %s of the roll and loaded again" % ("in the middle" if mid_roll else "NOT in the middle"))
+	_check(bool(loaded_state["ok"]) and not stock.rolling() and truck.global_position.distance_to(truck_was) < 0.5,
+			"the loaded game has it coupled straight behind the pickup, wheels on the ground (coupling %.3f m from the ball, swing %.1f deg, tyres %.3f m; the pickup %.2f m from where it stood)" % [float(loaded_state["off"]),
+			float(loaded_state["swing"]), float(loaded_state["tyres"]), truck.global_position.distance_to(truck_was)])
+	if Events.notification_requested.is_connected(on_note):
+		Events.notification_requested.disconnect(on_note)
+	await _frames(5)
+
+
+## The car radio never starts afresh, and all the music plays at one loudness: every
+## track is in MusicLevels (the world's play at their trim, calm; the fair's level with
+## each other and livelier; the radio's in the cab above the world's); in the truck the
+## station sounds at once where its broadcast is; out for a few seconds and in again, the
+## set off and on again, the same track has carried on (not one new start); back in while
+## it still fades, it is neither re-seeked nor dropped to silence; T round the dial and
+## back finds the track further on; a station that went on meanwhile is joined where it is.
+## Also: the trims are measured through the speaker as the game builds it; no list comes
+## round soon; the world's track is gone as fast as the set comes up (the two are not
+## heard together); a driver asleep at the wheel while the track runs out wakes to the
+## station, not to a dead set. (The tracks are loaded beforehand and the clock follows the
+## test's slow sound card while the driver is away, so a busy machine changes nothing.)
+func _scenario_radio22() -> void:
+	var player: Player = Game.player
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck
+	var radio := Audio.radio
+	var kept_flags := FarmState.flags.duplicate(true)
+	var live := not Audio._silent
+	var n := CarRadio.STATIONS.size()
+	GameClock.set_time_of_day(13.0)
+
+	# --- The table: every track measured, each played at its trim ---
+	var unmeasured := ""
+	var world: Array[String] = []
+	world.append_array(Audio.DAY_MUSIC)
+	world.append_array(Audio.NIGHT_MUSIC)
+	var on_radio: Array[String] = []
+	for st: Dictionary in CarRadio.STATIONS:
+		for t: Array in st["tracks"]:
+			on_radio.append(String(t[0]))
+	for rel: String in world + Audio.CARNIVAL_MUSIC + on_radio:
+		if not MusicLevels.TRIM.has(rel) or not MusicLevels.SPEAKER_TRIM.has(rel):
+			unmeasured += " " + rel
+	_check(unmeasured == "", "every track of the world, the fair and the radio is in MusicLevels (run tools/music_levels.py):%s" % unmeasured)
+	# The file that needs the largest cut and the one that needs the smallest: after their
+	# trims both play at the reference.
+	var loud := world[0]
+	var quiet := world[0]
+	var exact := true
+	for rel in world:
+		if MusicLevels.trim(rel) < MusicLevels.trim(loud):
+			loud = rel
+		if MusicLevels.trim(rel) > MusicLevels.trim(quiet):
+			quiet = rel
+		exact = exact and is_equal_approx(Audio.music_db(rel), MusicLevels.trim(rel) + Audio.MUSIC_DB)
+	_check(exact and Audio.music_db(loud) <= Audio.music_db(quiet) and MusicLevels.REFERENCE + Audio.MUSIC_DB <= -18.0,
+			"the world's music plays calm, at %.0f LUFS, every track at its trim: the loudest file (%s) %.1f dB, the quietest (%s) %.1f dB" % [
+			MusicLevels.REFERENCE + Audio.MUSIC_DB, loud.get_file(), Audio.music_db(loud), quiet.get_file(), Audio.music_db(quiet)])
+	var fair := true
+	for rel in Audio.CARNIVAL_MUSIC:
+		fair = fair and is_equal_approx(Audio.music_db(rel), MusicLevels.trim(rel) + Audio.CARNIVAL_DB)
+	_check(fair and Audio.CARNIVAL_DB > Audio.MUSIC_DB and Audio.CARNIVAL_DB <= 8.0,
+			"the fair's tunes are level with each other, %.0f dB livelier than the world's" % (Audio.CARNIVAL_DB - Audio.MUSIC_DB))
+	_check(is_equal_approx(MusicLevels.trim("music/not_measured.ogg"), MusicLevels.DEFAULT_TRIM)
+			and is_equal_approx(MusicLevels.speaker_trim("music/not_measured.ogg"), MusicLevels.DEFAULT_SPEAKER_TRIM)
+			and MusicLevels.DEFAULT_TRIM < 0.0,
+			"a file the table does not know plays at the usual trim (%.1f dB; %.1f dB on the radio)" % [MusicLevels.DEFAULT_TRIM, MusicLevels.DEFAULT_SPEAKER_TRIM])
+	var above := CarRadio.VOLUME_DB - Audio.MUSIC_DB
+	_check(above >= 4.0 and above <= 6.0, "in the cab the radio is %.0f dB above the world's music (as heard through its speaker)" % above)
+	# (A filter runs db + 1 biquads; measured through more of them than the game's speaker
+	# has, every station played 1 to 2.5 dB over its level.)
+	_check(MusicLevels.SPEAKER_STAGES == int(radio._highpass.db) + 1 and MusicLevels.SPEAKER_STAGES == int(radio._lowpass.db) + 1,
+			"the radio's trims are measured through the speaker as the game builds it: %d filter stage(s) in the table, %d and %d on the bus (STAGES in tools/music_levels.py)" % [
+			MusicLevels.SPEAKER_STAGES, int(radio._highpass.db) + 1, int(radio._lowpass.db) + 1])
+	var fewest := 99
+	var soonest := 1e9
+	for i in n:
+		fewest = mini(fewest, (CarRadio.STATIONS[i]["tracks"] as Array).size())
+		soonest = minf(soonest, CarRadio.playlist_seconds(i))
+	var home_list := CarRadio.playlist_seconds(0)
+	_check(fewest >= 4 and soonest >= 480.0 and home_list >= 600.0,
+			"no station comes round to the same tune soon: %d tracks at least, the shortest list %.1f min, %s (a new farm's) %.1f min" % [
+			fewest, soonest / 60.0, String(CarRadio.STATIONS[0]["name"]), home_list / 60.0])
+
+	# --- On foot: the world's track at its level ---
+	var world_db := 0.0
+	if live:
+		Audio._music_gap = 0.0
+		for i in 80:
+			if Audio._music.playing:
+				break
+			await _seconds(0.1)
+		Audio._music_fade = 1.0
+		await _idle_frames(3)
+		world_db = Audio._music.volume_db
+		_check(Audio._music.playing and absf(world_db - Audio.music_db(Audio._last_track)) < 0.1,
+				"on foot the world's music (%s) plays at %.1f dB (its trim %.1f dB)" % [Audio._last_track.get_file(), world_db, MusicLevels.trim(Audio._last_track)])
+
+	# --- Getting in: the station at once, where its broadcast is ---
+	var s := 1 % n
+	var tracks: Array = CarRadio.STATIONS[s]["tracks"]
+	var total := CarRadio.playlist_seconds(s)
+	var file := String(tracks[0][0])
+	FarmState.flags.erase("radio_off")
+	FarmState.flags["radio_station"] = String(CarRadio.STATIONS[s]["id"])
+	radio.clock_shift = 0.0
+	radio.clock_shift = fposmod(RADIO22_IN - s * CarRadio.STAGGER - fposmod(radio.now(), total), total)
+	# (The test's sound card runs a little slow: the clock is set by the track before each
+	# step, so that only the step's own seconds count.)
+	var follow := func() -> void:
+		radio.clock_shift += radio._player.get_playback_position() - float(CarRadio.joined_at(s, radio.now())["at"])
+	var behind := func() -> float:
+		return absf(radio._player.get_playback_position() - float(CarRadio.joined_at(s, radio.now())["at"]))
+	# (No file is read from the disk inside the timed steps.)
+	if live:
+		for rel in on_radio:
+			radio._stream(rel)
+	var starts := radio.starts
+	var world_up := Audio._music.playing and Audio._music_fade >= 1.0
+	player.enter_vehicle(truck)
+	var came := await _radio22_comes_up(radio, 0.8)
+	_check(radio.is_listening() and radio._on_station == s and radio._on_air == 0, "in the truck the set is on %s" % CarRadio.station_title(s))
+	if not live:
+		# (Nothing plays in a run without sound: the rest is about what is heard.)
+		player.exit_vehicle()
+		await _frames(5)
+		radio.clock_shift = 0.0
+		FarmState.flags = kept_flags
+		await _park(truck, Town.farm_truck_home())
+		return
+	var p := radio._player
+	_check(p.playing and radio._playing == file and radio.starts == starts + 1 and behind.call() < 0.6 and came[0] >= 0.0 and came[0] < 0.7,
+			"it sounds at once, no pause for tuning: %.1f s into %s (the broadcast %.1f s), up after %.2f s at %.1f dB" % [
+			p.get_playback_position(), file.get_file(), float(CarRadio.joined_at(s, radio.now())["at"]), came[0], p.volume_db])
+	_check(world_up and came[1] < 0.4 and not Audio._music.playing and Audio._music_held >= 0.0,
+			"getting in, the world's track is gone as the set comes up: the two are heard together for %.2f s (both within 12 dB of their levels), and it keeps its place (%.1f s)" % [
+			came[1], Audio._music_held])
+	_check(absf(radio.cab_db() - (CarRadio.VOLUME_DB + MusicLevels.speaker_trim(file))) < 0.01
+			and absf(p.volume_db - radio.cab_db()) < 0.1
+			and (p.volume_db - MusicLevels.speaker_trim(file)) - (world_db - MusicLevels.trim(Audio._last_track)) >= 4.0,
+			"the track plays at its speaker trim (%.1f dB) and the set's level: %.1f dB, %.1f dB louder in the cab than the world's music was" % [
+			MusicLevels.speaker_trim(file), p.volume_db, (p.volume_db - MusicLevels.speaker_trim(file)) - (world_db - MusicLevels.trim(Audio._last_track))])
+
+	# --- Out for a few seconds and in again: the same track, those seconds on, never restarted ---
+	follow.call()
+	starts = radio.starts
+	var p0 := p.get_playback_position()
+	var t0 := Time.get_ticks_usec()
+	# (While he is away the clock keeps to the test's sound card, frame by frame.)
+	tree.process_frame.connect(follow)
+	player.exit_vehicle()
+	await _seconds(CarRadio.FADE_EXIT + 0.4)
+	var unheard := p.volume_db
+	await _seconds(RADIO22_AWAY - CarRadio.FADE_EXIT - 0.4)
+	tree.process_frame.disconnect(follow)
+	player.enter_vehicle(truck)
+	came = await _radio22_comes_up(radio, 0.7)
+	var p1 := p.get_playback_position()
+	var took := (Time.get_ticks_usec() - t0) / 1e6
+	_check(unheard < -60.0 and p.playing and radio._playing == file and radio.starts == starts and p1 > p0 + took * 0.5
+			and behind.call() < 0.5 and came[0] >= 0.0 and came[0] < 0.65,
+			"%.0f s out of the truck (not heard: %.0f dB) and in again: the same track has carried on, %.1f s -> %.1f s in %.1f s (%.2f s off the broadcast), %d new starts, and is up again after %.2f s (%.1f dB)" % [
+			RADIO22_AWAY, unheard, p0, p1, took, behind.call(), radio.starts - starts, came[0], p.volume_db])
+
+	# --- Back in while it still fades: neither re-seeked nor dropped to silence ---
+	follow.call()
+	starts = radio.starts
+	p0 = p.get_playback_position()
+	t0 = Time.get_ticks_usec()
+	player.exit_vehicle()
+	await _seconds(0.3)
+	var fading := p.volume_db
+	player.enter_vehicle(truck)
+	var lowest := 0.0
+	var steady := true
+	var last := p.get_playback_position()
+	for i in 70:
+		await tree.process_frame
+		lowest = minf(lowest, p.volume_db - radio.cab_db())
+		var at := p.get_playback_position()
+		# (A re-seek shows as a step back, or one ahead of the time that has passed.)
+		steady = steady and at >= last - 0.001 and at - p0 <= (Time.get_ticks_usec() - t0) / 1e6 + 0.15
+		last = at
+	_check(fading < radio.cab_db() - 2.0 and fading > -40.0 and radio.starts == starts and steady and p.playing
+			and lowest > fading - radio.cab_db() - 9.0 and p.volume_db > radio.cab_db() - 0.5,
+			"out and in again while it fades (%.1f dB): it goes on without a new start or a jump, never under %.1f dB, and comes back up (%.1f dB)" % [
+			fading, lowest + radio.cab_db(), p.volume_db])
+
+	# --- R off and on again: it carried on meanwhile ---
+	follow.call()
+	starts = radio.starts
+	p0 = p.get_playback_position()
+	t0 = Time.get_ticks_usec()
+	tree.process_frame.connect(follow)
+	await _press_key(KEY_R)
+	await _seconds(RADIO22_AWAY)
+	var off_db := p.volume_db
+	# (With the set off the world's track came back; it is up by now.)
+	world_up = Audio._music.playing and Audio._music_fade > 0.7
+	tree.process_frame.disconnect(follow)
+	await _press_key(KEY_R)
+	came = await _radio22_comes_up(radio, 0.7)
+	p1 = p.get_playback_position()
+	took = (Time.get_ticks_usec() - t0) / 1e6
+	_check(off_db < -60.0 and radio.is_on() and p.playing and radio._playing == file and radio.starts == starts and p1 > p0 + took * 0.5
+			and behind.call() < 0.5 and came[0] >= 0.0 and came[0] < 0.65,
+			"R off for %.0f s (%.0f dB) and on: the same track has carried on, %.1f s -> %.1f s in %.1f s, not started anew, up again after %.2f s" % [
+			RADIO22_AWAY, off_db, p0, p1, took, came[0]])
+	_check(world_up and came[1] < 0.4 and not Audio._music.playing,
+			"switched on again, the world's track that had come back is gone as the set comes up: heard together for %.2f s" % came[1])
+
+	# --- T round the dial and back: the track is further on, where its broadcast is ---
+	follow.call()
+	starts = radio.starts
+	p0 = p.get_playback_position()
+	t0 = Time.get_ticks_usec()
+	var others := true
+	for i in n:
+		await _press_key(KEY_T)
+		await _seconds(CarRadio.WAIT_STATIC + 0.9)
+		others = others and p.playing and radio._on_station == radio.station() and absf(p.volume_db - radio.cab_db()) < 0.1
+	took = (Time.get_ticks_usec() - t0) / 1e6
+	p1 = p.get_playback_position()
+	_check(others and radio.station() == s and radio._playing == file and radio.starts == starts + n and p1 > p0 + took * 0.8 and behind.call() < 0.6,
+			"T round the dial (%d stations, each at its own trim) and back after %.1f s: the same track, %.1f s -> %.1f s, where the broadcast is" % [n, took, p0, p1])
+
+	# --- Asleep at the wheel (passed out at 02:00; the morning's report waits for a click)
+	# while the track runs out: awake, the station is there again ---
+	var next_file := String(tracks[1 % tracks.size()][0])
+	radio.clock_shift = 0.0
+	radio.clock_shift = fposmod(float(tracks[0][2]) - RADIO22_LEFT - s * CarRadio.STAGGER - fposmod(radio.now(), total), total)
+	p.seek(float(tracks[0][2]) - RADIO22_LEFT)
+	await _idle_frames(3)
+	starts = radio.starts
+	Game.push_ui(&"sleep")
+	var ran_out := false
+	for i in 120:
+		await _seconds(0.1)
+		if not p.playing:
+			ran_out = true
+			break
+	await _idle_frames(3)
+	var asleep := not radio.is_listening() and not radio.holds_music() and not p.playing and radio.starts == starts
+	Game.pop_ui(&"sleep")
+	came = await _radio22_comes_up(radio, 1.5)
+	_check(ran_out and asleep and p.playing and radio._playing == next_file and radio.starts == starts + 1 and radio._on_station == s
+			and came[0] >= 0.0 and came[0] < 0.7 and radio.holds_music() and not Audio._music.playing,
+			"asleep at the wheel while the track ran out (nothing played meanwhile): awake, the station is on again with its next one (%s, %.1f s in), up after %.2f s, the world's music held" % [
+			radio._playing.get_file(), p.get_playback_position(), came[0]])
+
+	# --- The station went on to its next track meanwhile: that one is joined, where it is ---
+	player.exit_vehicle()
+	await _seconds(0.5)
+	radio.clock_shift = 0.0
+	radio.clock_shift = fposmod(float(tracks[0][2]) + 20.0 - s * CarRadio.STAGGER - fposmod(radio.now(), total), total)
+	starts = radio.starts
+	player.enter_vehicle(truck)
+	await _seconds(0.9)
+	_check(p.playing and radio._playing == next_file and radio.starts == starts + 1 and absf(p.get_playback_position() - 20.9) < 0.6
+			and absf(radio.cab_db() - (CarRadio.VOLUME_DB + MusicLevels.speaker_trim(next_file))) < 0.01,
+			"back after the track ran out: the station's next one (%s), %.1f s in as its broadcast is, at its own trim (%.1f dB)" % [
+			next_file.get_file(), p.get_playback_position(), MusicLevels.speaker_trim(next_file)])
+
+	player.exit_vehicle()
+	await _seconds(CarRadio.FADE_EXIT + 0.3)
+	radio.clock_shift = 0.0
+	FarmState.flags = kept_flags
+	await _park(truck, Town.farm_truck_home())
+
+
+## radio22: watches the set for `limit` seconds of frames (the game's own time, so a slow
+## machine reads the same) after the driver got in, switched it on or woke: [seconds until
+## a track plays within 1 dB of its level in the cab (-1: it never did), seconds the set
+## and the world's track were heard together, both within 12 dB of their levels].
+func _radio22_comes_up(radio: CarRadio, limit: float) -> Array[float]:
+	var p := radio._player
+	var t := 0.0
+	var up := -1.0
+	var both := 0.0
+	while t < limit:
+		await tree.process_frame
+		var dt := tree.root.get_process_delta_time()
+		t += dt
+		if p.playing and p.volume_db > radio.cab_db() - 12.0 and Audio._music.playing and Audio._music.volume_db > Audio._music_db - 12.0:
+			both += dt
+		if up < 0.0 and p.playing and p.volume_db > radio.cab_db() - 1.0:
+			up = t
+	return [up, both]
+
+
+
+## fishgoal22: "fishing pays" (FishGoal), the side goal for a farmer short of the barn's
+## price. With the barn the story's goal: it stays away with the money in hand or without
+## a rod, comes up short of it with its line of why (on the compact card, two lines at
+## most, in English and Turkish) and its dot on the pond's bank, and stays when money
+## comes; five catches through the rod give giants exactly at the places drawn (an old
+## boot between them changes nothing), a save and load keep the count and the places; at
+## the contest's pond nothing is made a giant and nothing counts; the fifth fish gives the
+## experience and the line with what the catch fetches, and the story's own line then
+## names the fish to sell; other draws (and a giant by luck) through the angler's two
+## calls; the barn built first takes the card away for good. And what a second look
+## found: it waits for an open window to shut before it comes up, and so does its closing
+## line; out of bait the hint says so and the dot's pill reads "Bait"; at the contest the
+## card's own line (always in view) says the fish count for the contest alone; the fish
+## are named before eggs and crops under the barn goal until the barn stands; the pooled
+## rings and spray of a world gone with a load are dropped without losing the live ones.
+## And a third: every promised giant is one worth showing (FishGoal.WORTH at the market's
+## list price or more: the water is asked again for it), in numbers over many seeded goes
+## with each bait, at noon, at dusk and at night, dry and in rain (_fishgoal22_worth). And
+## a fourth: it is big on the scale too (no giant crayfish of half a kilo), no legend
+## unless one bites as a giant by itself, and never the third giant of one species where
+## the water gives another (the species landed are saved with the goal).
+func _scenario_fishgoal22() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var goal := SideStory.fish_goal
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(3)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var money_had := Economy.money
+	var bag_had := inv.to_array()
+	var day_had := GameClock.day
+	var minute_had := GameClock.minute
+	var locale_had := TranslationServer.get_locale()
+	GameClock.running = false
+	GameClock.day = 5
+	GameClock.set_time_of_day(10.0)
+	Weather.force(Weather.Kind.SUNNY)
+	inv.from_array([])
+	PlayerState.hotbar_unlocked = true
+	PlayerState.fish_since_trophy = 0
+	FarmState.built.erase(FishGoal.PROJECT)
+	var price := FishGoal.price()
+	var bank := Vector3(WorldLayout.POND_CENTER.x + 10.7, 0.0, WorldLayout.POND_CENTER.y + 1.0)
+	bank.y = TerrainData.height(bank.x, bank.z) + 0.1
+	player.global_position = bank
+	player.velocity = Vector3.ZERO
+	await _frames(6)
+
+	# (1) The barn is the story's goal. Money in hand, or no rod: no side goal.
+	goal.testing = true
+	goal.load_data({})
+	Economy.money = price + 50
+	inv.add_item(&"fishing_rod", 1)
+	inv.add_item(&"worm", 30)
+	await _tut20_goal("barn")
+	goal.update()
+	await _idle_frames(3)
+	_check(Quests.current()["id"] == "barn" and price > 0 and not goal.up and not goal.is_up(),
+			"fishgoal22: with the barn's $%d in hand no side goal comes up" % price)
+	inv.remove_item(&"fishing_rod", 1)
+	Economy.money = 20
+	goal.update()
+	_check(not goal.up and not goal.is_up(), "fishgoal22: short of money but without a rod: none either (nobody is sent fishing with empty hands)")
+	Economy.money = price + 50
+	inv.add_item(&"fishing_rod", 1)
+	_select(&"fishing_rod")
+
+	# (2) Short of the price with a rod: the card, its line of why, the dot on the bank.
+	goal._rng.seed = FISHGOAL22_DRAWS[0]
+	notes.clear()
+	Economy.money = 20
+	# Behind an open window (the level-up's, when level 3 brings the barn goal) it waits:
+	# its toast, the only place its name is said, would come and go unseen.
+	Game.push_ui(&"fishgoal22")
+	goal.update()
+	var waited := not goal.up and not goal.is_up() and notes.is_empty()
+	Game.pop_ui(&"fishgoal22")
+	_check(waited, "fishgoal22: with a window open it doesn't come up yet (no toast behind the level-up window)")
+	goal.update()
+	await _idle_frames(4)
+	var card := goal.goal()
+	var drawn: Array[int] = goal.slots.duplicate()
+	var distinct := {}
+	for i: int in drawn:
+		if i >= 0 and i < FishGoal.FISH:
+			distinct[i] = true
+	_check(goal.up and goal.is_up() and card.quiet and card.text == tr("FISH_GOAL_TEXT") % [FishGoal.FISH, 0, FishGoal.FISH]
+			and card.needs == tr("FISH_GOAL_WHY") and card.needs != "FISH_GOAL_WHY" and notes.has(tr("MSG_SIDE_NEW") % tr("FISH_GOAL_TITLE")),
+			"fishgoal22: short of the barn's price with a rod: '%s' with its line '%s'" % [card.text, card.needs])
+	_check(drawn.size() == FishGoal.BIG and distinct.size() == FishGoal.BIG and FishGoal.BIG == 3 and FishGoal.FISH == 5,
+			"fishgoal22: three of the five catches are drawn as giants (%s)" % str(drawn))
+	_check(card.point is Vector3 and absf(_flat_dist(card.point, Vector3(WorldLayout.POND_CENTER.x, 0.0, WorldLayout.POND_CENTER.y)) - (WorldLayout.POND_RADIUS - 0.5)) < 0.1
+			and _flat_dist(card.point, player.global_position) < 3.0 and card.label == tr("SPOT_POND") and card.hint == "",
+			"fishgoal22: its dot is on the bank of Grandpa's pond, on his side ('%s')" % card.label)
+	var lines := {}
+	for lang: String in ["en", "tr"]:
+		TranslationServer.set_locale(lang)
+		goal.update()
+		await _idle_frames(4)
+		var e: Dictionary = Game.hud._goal_cards.get(card, {})
+		var why: Label = e.get("needs")
+		lines[lang] = why.get_line_count() if why != null and why.visible and why.text == tr("FISH_GOAL_WHY") and (e["card"] as Control).visible else 99
+		if lang == "tr":
+			print("  tr: %s | %s | %s" % [tr("FISH_GOAL_TITLE"), card.text, card.needs])
+			# -- --fishgoal-shots=<dir>: the card as the farmer sees it.
+			var shots := String(DebugTools.args.get("fishgoal-shots", ""))
+			if shots != "":
+				DirAccess.make_dir_recursive_absolute(shots)
+				await _shot(shots.path_join("fishgoal22_card.png"))
+	TranslationServer.set_locale(locale_had)
+	goal.update()
+	await _idle_frames(2)
+	_check(int(lines["en"]) <= 2 and int(lines["tr"]) <= 2, "fishgoal22: the compact card shows the line of why, on two lines at most (%s)" % str(lines))
+	# Money coming doesn't take it away.
+	Economy.money = price + 500
+	goal.update()
+	await _idle_frames(3)
+	_check(goal.is_up() and goal.slots == drawn, "fishgoal22: once up it stays when money comes (and nothing is drawn again)")
+	# Out of bait: the hint says so before where bait is sold, the dot's pill names it.
+	var worms := inv.count_item(&"worm")
+	inv.remove_item(&"worm", worms)
+	goal.update()
+	var bait_hint := card.hint
+	var bait_ok := (bait_hint == "%s\n%s" % [tr("HINT_NEED_BAIT"), tr("HINT_MARKET")] and card.label == tr("CAT_BAIT") and card.label != "CAT_BAIT"
+			and card.point != null and card.needs == tr("FISH_GOAL_WHY"))
+	# -- --fishgoal-shots=<dir>: the card out of bait.
+	if String(DebugTools.args.get("fishgoal-shots", "")) != "":
+		await _shot(String(DebugTools.args["fishgoal-shots"]).path_join("fishgoal22_no_bait.png"))
+	inv.add_item(&"worm", worms)
+	goal.update()
+	_check(bait_ok and card.hint == "" and card.label == tr("SPOT_POND"),
+			"fishgoal22: out of bait the card says so ('%s') and the dot's pill reads '%s'; with bait again the dot is back on the bank" % [bait_hint.replace("\n", " | "), tr("CAT_BAIT")])
+	Economy.money = 20
+
+	# (3) Five catches through the rod: giants exactly at the places drawn. An old boot
+	# between them and a save and load change nothing; at the contest nothing counts.
+	var xp := 0
+	var got := {}
+	var landed: Array[StringName] = []
+	var boot_ok := false
+	var saved_ok := false
+	var contest_ok := false
+	var dry_ok := true
+	var tries := 0
+	var last_fish: FloppingFish = null
+	notes.clear()
+	while goal.count < FishGoal.FISH and tries < 9 and not goal.done:
+		tries += 1
+		xp = Progress.xp
+		var k := goal.count
+		var owed := goal.slots.has(k)
+		player.global_position = bank
+		player.angler.bait = &"worm"
+		var dice := _fishgoal22_plain_bite(player.angler, FISHGOAL22_BITES + tries * 40)
+		if owed and not contest_ok:
+			# The contest on (nothing here waits a frame, so it never really starts): at its
+			# pond the bite stays as it was rolled and a landing doesn't count; at home, even
+			# then, the giant is still owed.
+			var c := WorldLayout.TOWN_POND_CENTER
+			var venue := Vector3(c.x + WorldLayout.TOWN_POND_RADIUS + 1.0, 0.0, c.y)
+			venue.y = TerrainData.height(venue.x, venue.z) + 0.1
+			FishingContest.testing = true
+			GameClock.day = FishingContest.next_contest_day(FishingContest.FIRST_DAY)
+			var owed_home := FishingContest.is_on() and not goal.suspended() and goal.owes_giant()
+			player.global_position = venue
+			var on := FishingContest.is_on() and goal.suspended() and not goal.owes_giant()
+			player.angler._rng.seed = dice
+			var there: Dictionary = player.angler.roll_catch()
+			var slots_then: Array[int] = goal.slots.duplicate()
+			goal.note_landed(there["id"])
+			goal.update()
+			# Said on the card's own line (always in view), not in the hint that comes and goes.
+			var said := card.needs
+			var said_label: Label = Game.hud._goal_cards.get(card, {}).get("needs")
+			var said_shown := said_label != null and said_label.visible and said_label.text == tr("FISH_GOAL_CONTEST")
+			var dot_home := card.label == tr("SPOT_POND")
+			player.global_position = bank
+			FishingContest.testing = false
+			GameClock.day = 5
+			goal.update()
+			contest_ok = (owed_home and on and not there.get("trophy", false) and FishTable.is_fish(there["id"]) and goal.count == k
+					and goal.slots == slots_then and said == tr("FISH_GOAL_CONTEST") and said_shown and dot_home
+					and card.needs == tr("FISH_GOAL_WHY") and card.hint == "")
+			_check(contest_ok, "fishgoal22: at the contest's pond while it is on the bite is no giant and doesn't count (the card's line there, always shown: '%s'); the giant stays owed for home" % said)
+		if k == 1 and not boot_ok:
+			var boot := await _fishgoal22_catch(player, bank, dice, FishTable.catch_of(&"old_boot", 0.5))
+			var plain_boot: Dictionary = goal.shape(FishTable.catch_of(&"old_boot", 0.5))
+			boot_ok = (boot != null and boot.item_id == &"old_boot" and goal.count == 1 and goal.slots.size() + _fishgoal22_giants(got) == FishGoal.BIG
+					and plain_boot["id"] == &"old_boot")
+			_check(boot_ok, "fishgoal22: an old boot on the line doesn't count and uses up no giant (%d/5, %s still owed)" % [goal.count, str(goal.slots)])
+			if boot != null:
+				boot.interact(player)
+			await _frames(3)
+		if k == 2 and not saved_ok:
+			var slots_then: Array[int] = goal.slots.duplicate()
+			var kinds_then: Array[StringName] = goal.kinds.duplicate()
+			var slot := "fishgoal22_test"
+			_check(SaveGame.save(slot), "fishgoal22: saved with two of the five caught")
+			goal.load_data({})
+			_check(SaveGame.load_game(slot), "fishgoal22: loading it")
+			await _until_loaded()
+			player = Game.player
+			inv = PlayerState.inventory
+			GameClock.running = false
+			Weather.force(Weather.Kind.SUNNY)
+			_select(&"fishing_rod")
+			await _idle_frames(4)
+			await _seconds(0.8)
+			card = goal.goal()
+			saved_ok = (goal.up and not goal.done and goal.count == 2 and goal.slots == slots_then and goal.is_up()
+					and goal.kinds == kinds_then and kinds_then.size() == _fishgoal22_giants(got) and not kinds_then.is_empty()
+					and card.text == tr("FISH_GOAL_TEXT") % [FishGoal.FISH, 2, FishGoal.FISH] and not Game.hud._goal_cards.get(card, {}).is_empty())
+			_check(saved_ok, "fishgoal22: after the load: 2/5, the same giants owed (%s) and the same species of giants landed (%s), the card up again" % [str(goal.slots), str(goal.kinds)])
+			SaveGame.delete(slot)
+			# The rings and spray pooled before the load went with that world: the pools drop
+			# the freed ones and keep the live (the first cast after a load logged two errors
+			# and threw the whole pool away).
+			var ring_live := MeshInstance3D.new()
+			ring_live.visible = false
+			Game.world.add_child(ring_live)
+			var ring_dead := MeshInstance3D.new()
+			PondFx._rings.append(ring_dead)
+			PondFx._rings.append(ring_live)
+			ring_dead.free()
+			var spray_live := CPUParticles3D.new()
+			spray_live.emitting = false
+			Game.world.add_child(spray_live)
+			var spray_dead := CPUParticles3D.new()
+			PondFx._spray.append(spray_dead)
+			PondFx._spray.append(spray_live)
+			spray_dead.free()
+			var water := Vector3(WorldLayout.POND_CENTER.x, WorldLayout.WATER_LEVEL, WorldLayout.POND_CENTER.y)
+			PondFx.ring(water, 0.3, 0.2)
+			PondFx.drops(water, 3, 0.5)
+			var all_valid := func(n: Variant) -> bool: return is_instance_valid(n)
+			_check(PondFx._rings.has(ring_live) and PondFx._rings.all(all_valid) and PondFx._spray.has(spray_live) and PondFx._spray.all(all_valid),
+					"fishgoal22: after the load the pond's pooled rings and spray drop the freed ones and keep the live (%d rings, %d emitters)" % [PondFx._rings.size(), PondFx._spray.size()])
+			PondFx._rings.erase(ring_live)
+			PondFx._spray.erase(spray_live)
+			ring_live.free()
+			spray_live.free()
+			dice = _fishgoal22_plain_bite(player.angler, FISHGOAL22_BITES + tries * 40)
+		var fish := await _fishgoal22_catch(player, bank, dice)
+		if fish == null:
+			continue
+		got[k] = FishTable.is_trophy(fish.item_id)
+		landed.append(fish.item_id)
+		if got[k]:
+			dry_ok = dry_ok and PlayerState.fish_since_trophy == 0
+		last_fish = fish
+		if goal.count < FishGoal.FISH:
+			_check(goal.count == k + 1 and card.text == tr("FISH_GOAL_TEXT") % [FishGoal.FISH, k + 1, FishGoal.FISH] and bool(got[k]) == drawn.has(k),
+					"fishgoal22: catch %d: %s (%s), the card says %d/5" % [k + 1, ItemDB.get_item(fish.item_id).display_name(),
+						"a giant, as drawn" if drawn.has(k) else "an ordinary fish", goal.count])
+			fish.interact(player)
+			await _frames(3)
+	var at_drawn := got.size() == FishGoal.FISH
+	for k: int in got:
+		at_drawn = at_drawn and bool(got[k]) == drawn.has(k)
+	var fanfares := 0
+	for n in notes:
+		if n.begins_with(tr("MSG_FISH_TROPHY").get_slice("%", 0)):
+			fanfares += 1
+	_check(at_drawn and _fishgoal22_giants(got) == FishGoal.BIG and fanfares == FishGoal.BIG and dry_ok and boot_ok and saved_ok and contest_ok,
+			"fishgoal22: five fish through the rod: giants exactly at the places drawn %s (%s), each with its fanfare, the dry run starting over" % [str(drawn), str(landed)])
+	var rod_giants: Array[String] = []
+	var rod_least := 1 << 30
+	var rod_shown := true
+	var rod_kinds := {}
+	for id: StringName in landed:
+		if FishTable.is_trophy(id):
+			rod_least = mini(rod_least, FishGoal.giant_price(id))
+			rod_shown = rod_shown and _fishgoal22_shows(id)
+			rod_kinds[FishTable.species_of(id)] = int(rod_kinds.get(FishTable.species_of(id), 0)) + 1
+			rod_giants.append("%s %s" % [ItemDB.get_item(id).display_name(), UiTheme.money(FishGoal.giant_price(id))])
+	_check(rod_giants.size() == FishGoal.BIG and rod_least >= FishGoal.WORTH and FishGoal.WORTH * FishGoal.BIG * 10 >= price * 9
+			and rod_shown and rod_kinds.size() >= 2,
+			"fishgoal22: the three giants through the rod are each worth showing, %s or more at the market's list price, big on the scale, no legend and not three of a kind (%s): three fetch %s of the barn's %s at the least" % [
+				UiTheme.money(FishGoal.WORTH), ", ".join(rod_giants), UiTheme.money(FishGoal.WORTH * FishGoal.BIG), UiTheme.money(price)])
+
+	# (4) The fifth fish: the experience, what the catch fetches, and the story's line.
+	var worth := 0
+	var counted := {}
+	for st: ItemStack in inv.slots:
+		if st != null and st.item.category == "fish":
+			worth += Economy.quote(st.item.id, st.count, st.quality, 1.0, int(counted.get(st.item.id, 0)))
+			counted[st.item.id] = int(counted.get(st.item.id, 0)) + st.count
+	if last_fish != null and is_instance_valid(last_fish):
+		worth += Economy.quote(last_fish.item_id, 1, last_fish.quality, 1.0, int(counted.get(last_fish.item_id, 0)))
+	var closing := tr("MSG_SIDE_DONE") % (tr("FISH_GOAL_DONE") % UiTheme.money(worth))
+	var giants_worth := 0
+	for id: StringName in landed:
+		if FishTable.is_trophy(id):
+			giants_worth += ItemDB.get_item(id).sell_price
+	_check(goal.done and not goal.is_up() and Progress.xp == xp + FishGoal.XP and Economy.money == 20,
+			"fishgoal22: the fifth fish ends it: +%d XP, the card gone, no money paid" % FishGoal.XP)
+	_check(notes.has(closing) and worth > 0 and worth >= roundi(giants_worth * 0.8),
+			"fishgoal22: the closing line says what the catch fetches (the bag's four and the one on the bank): '%s'" % closing)
+	if last_fish != null and is_instance_valid(last_fish):
+		last_fish.interact(player)
+	await _frames(3)
+	# Eggs and crops in the bag as well (a farmer's usual bag): the fish are still named
+	# first, until the barn stands.
+	inv.add_item(&"egg", 4)
+	inv.add_item(&"wheat", 6)
+	inv.add_item(&"carrot", 3)
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var names := Quests.sellable_names(3, Quests._goal_keep())
+	var fish_kinds := {}
+	for st: ItemStack in inv.slots:
+		if st != null and st.item.category == "fish":
+			fish_kinds[st.item.display_name()] = true
+	var all_fish := not names.is_empty() and not fish_kinds.is_empty() and inv.count_item(&"egg") > 0 and inv.count_item(&"wheat") > 0
+	for i in mini(names.size(), fish_kinds.size()):
+		all_fish = all_fish and fish_kinds.has(names[i])
+	var sell_line := tr("HINT_SELL_GOODS_HOME") % UiTheme.join_list(PackedStringArray(names))
+	_check(all_fish and Quests.goal_hint() == "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(price - 20), sell_line],
+			"fishgoal22: the barn goal's own line then names the fish to sell, before the eggs and crops in the bag ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	FarmState.built[FishGoal.PROJECT] = true
+	var after_barn := Quests.sellable_names(1)
+	FarmState.built.erase(FishGoal.PROJECT)
+	_check(after_barn.size() == 1 and after_barn[0] == ItemDB.get_item(&"egg").display_name(),
+			"fishgoal22: once the barn stands the goods are named in their usual order again ('%s' first)" % (after_barn[0] if not after_barn.is_empty() else ""))
+	goal.update()
+	var again := goal.is_up()
+	var kept: Dictionary = goal.save_data()
+	goal.load_data(kept)
+	goal.update()
+	_check(not again and goal.done and not goal.is_up(), "fishgoal22: done once, it never comes up again (saved so)")
+
+	# (5) Other draws through the angler's own two calls (the bite as play rolls it, the
+	# landing): giants exactly where drawn; one that comes by luck takes none of them.
+	var draws: Array = [drawn]
+	for draw: int in FISHGOAL22_DRAWS.slice(1):
+		goal.load_data({})
+		goal._rng.seed = draw
+		goal.update()
+		var places: Array[int] = goal.slots.duplicate()
+		draws.append(places)
+		var luck := -1
+		var ok := goal.is_up() and places.size() == FishGoal.BIG
+		var giants := 0
+		for k in FishGoal.FISH:
+			var bite: Dictionary
+			if luck < 0 and not places.has(k) and draw == FISHGOAL22_DRAWS[2]:
+				# A giant by luck on a catch that owed none.
+				luck = k
+				bite = FishTable.trophy_of(FishTable.catch_of(&"fish_carp", 0.4))
+			else:
+				player.angler._rng.seed = _fishgoal22_plain_bite(player.angler, FISHGOAL22_BITES + 500 + k * 40)
+				bite = player.angler.roll_catch()
+				ok = ok and bool(bite.get("trophy", false)) == places.has(k)
+				ok = ok and (not places.has(k) or _fishgoal22_shows(bite["id"]))
+			if bite.get("trophy", false):
+				giants += 1
+			var hold := draw == FISHGOAL22_DRAWS[1] and k == FishGoal.FISH - 1
+			if hold:
+				# A window open at the fifth fish (the level-up's, should it bring a level): the
+				# closing line waits until it is shut.
+				notes.clear()
+				Game.push_ui(&"fishgoal22")
+			player.angler._on_fish_landed(bite)
+			if hold:
+				var done_line := tr("MSG_SIDE_DONE").get_slice("%", 0)
+				var is_closing := func(n: String) -> bool: return n.begins_with(done_line)
+				goal._poll = 0.0
+				await _idle_frames(3)
+				var held := goal.done and not notes.any(is_closing)
+				Game.pop_ui(&"fishgoal22")
+				goal._poll = 0.0
+				await _idle_frames(3)
+				var said_after := notes.filter(is_closing)
+				_check(held and said_after.size() == 1, "fishgoal22: a window open at the fifth fish: the closing line waits until it is shut ('%s')" % (said_after[0] if not said_after.is_empty() else ""))
+		ok = ok and goal.done and goal.slots.is_empty() and giants == FishGoal.BIG + (1 if luck >= 0 else 0)
+		_check(ok, "fishgoal22: drawn %s: giants there and only there, each worth showing (%s or more)%s" % [str(places), UiTheme.money(FishGoal.WORTH),
+				" (and one by luck on catch %d: %d giants in all)" % [luck + 1, giants] if luck >= 0 else ""])
+	_check(draws[0] != draws[1] or draws[1] != draws[2], "fishgoal22: the places differ from draw to draw (%s)" % str(draws))
+
+	# (6) A save from before the goal: it comes up; the barn built first: it goes for good,
+	# without a word.
+	goal.load_data({})
+	goal.update()
+	var up_again := goal.is_up() and goal.count == 0 and goal.slots.size() == FishGoal.BIG
+	xp = Progress.xp
+	notes.clear()
+	FarmState.built[FishGoal.PROJECT] = true
+	goal.update()
+	var gone := not goal.is_up() and goal.done and Progress.xp == xp and notes.is_empty()
+	FarmState.built.erase(FishGoal.PROJECT)
+	goal.update()
+	_check(up_again and gone and not goal.is_up(), "fishgoal22: a save without it brings it up; the barn built first takes it away for good, no reward, no word")
+
+	# (7) Each promised giant is one worth showing.
+	await _fishgoal22_worth(goal, player, price)
+
+	goal.testing = false
+	goal.load_data({})
+	Quests.step = Quests.TUTORIAL.size()
+	Quests.tutorial_changed.emit()
+	inv.from_array(bag_had)
+	Economy.money = money_had
+	GameClock.day = day_had
+	GameClock.minute = minute_had
+	GameClock.running = true
+	Events.notification_requested.disconnect(on_note)
+	await _frames(5)
+
+
+## fishgoal22: how many of the catches so far were giants.
+func _fishgoal22_giants(got: Dictionary) -> int:
+	var n := 0
+	for k: int in got:
+		if got[k]:
+			n += 1
+	return n
+
+
+## fishgoal22: a promised giant is one worth showing (FishGoal.WORTH or more at the
+## market's list price; the giants of the common fish fetch $20 to $40). (a) shape() on
+## water that answers as told: asked again until a fish bites whose giant is worth it and
+## no further, the most valuable kept where nothing better bites, a boot never asked
+## about, a worthy giant by luck kept as it is, a catch that owes none left alone. (b)
+## The angler's own roll asks the very water of the cast (its bait, the hour, the weather,
+## its rod, its dice), and a cast that owes none rolls once, as ever. (c) The numbers:
+## FISHGOAL22_GOES seeded goes with each bait at noon, at dusk and at night, dry and in
+## rain, on the standard rod and the cane pole, as it was (the giant of whatever bit) and
+## as it is: no promised giant under the sum, what the five fish fetch at the least and
+## in the middle. And in all three: it is big on the scale (no giant crayfish), no legend
+## unless one bit as a giant by itself, not the third giant of its kind where the water
+## gives another (_fishgoal22_shows; FishGoal.fit).
+func _fishgoal22_worth(goal: FishGoal, player: Player, price: int) -> void:
+	var sum := FishGoal.WORTH
+	goal.set_process(false)
+	goal._take_down()
+	goal.kinds.clear()
+	var owed3: Array[int] = [0, 1, 2]
+	var later3: Array[int] = [1, 2, 3]
+	goal.up = true
+	goal.done = false
+	goal.count = 0
+	goal.slots = owed3.duplicate()
+
+	# (a) shape() by itself.
+	var st := {"asks": 0}
+	var poor: Dictionary = goal.shape(FishTable.catch_of(&"fish_gudgeon", 0.5), _fishgoal22_water([&"fish_gudgeon", &"fish_bleak"], st))
+	var poor_asks := int(st["asks"])
+	var best: Dictionary = goal.shape(FishTable.catch_of(&"fish_bleak", 0.5), _fishgoal22_water([&"fish_gudgeon", &"fish_perch", &"old_boot", &"fish_rudd"], st))
+	var best_asks := int(st["asks"])
+	_check(poor["id"] == &"fish_gudgeon_trophy" and poor_asks == FishGoal.ASKS and best["id"] == &"fish_perch_trophy" and best_asks == FishGoal.ASKS
+			and FishGoal.giant_price(&"fish_perch") < sum and FishGoal.giant_price(&"fish_gudgeon") < FishGoal.giant_price(&"fish_perch"),
+			"fishgoal22: water that holds nothing worth %s: asked %d times and no more, then the most valuable giant that bit is the catch (%s; %s where nothing else bites)" % [
+				UiTheme.money(sum), best_asks, ItemDB.get_item(best["id"]).display_name(), ItemDB.get_item(poor["id"]).display_name()])
+	var first_worthy: Dictionary = goal.shape(FishTable.catch_of(&"fish_rudd", 0.5), _fishgoal22_water([&"fish_roach", &"old_boot", &"fish_carp", &"fish_sturgeon"], st))
+	var first_asks := int(st["asks"])
+	var tench := FishTable.catch_of(&"fish_tench", 0.6)
+	var worthy: Dictionary = goal.shape(tench, _fishgoal22_water([&"fish_sturgeon"], st))
+	var worthy_asks := int(st["asks"])
+	_check(first_worthy["id"] == &"fish_carp_trophy" and first_asks == 3 and worthy["id"] == &"fish_tench_trophy" and worthy_asks == 0
+			and is_equal_approx(float(worthy["kg"]), float(tench["kg"]) * FishTable.TROPHY_KG),
+			"fishgoal22: asked again only until a fish bites whose giant is worth it (a rudd, then roach, boot, carp: the carp, %d asks, the sturgeon behind it never asked for); a fish worth it is made the giant at once (a tench of %.1f kg: %.1f kg)" % [
+				first_asks, float(tench["kg"]), float(worthy["kg"])])
+	var boot: Dictionary = goal.shape(FishTable.catch_of(&"old_boot", 0.5), _fishgoal22_water([&"fish_sturgeon"], st))
+	var boot_asks := int(st["asks"])
+	var lucky := FishTable.trophy_of(FishTable.catch_of(&"fish_carp", 0.4))
+	var lucky_kept: Dictionary = goal.shape(lucky.duplicate(), _fishgoal22_water([&"fish_sturgeon"], st))
+	var lucky_asks := int(st["asks"])
+	var lucky_small: Dictionary = goal.shape(FishTable.trophy_of(FishTable.catch_of(&"fish_gudgeon", 0.5)), _fishgoal22_water([&"fish_tench"], st))
+	var small_asks := int(st["asks"])
+	var nobody: Dictionary = goal.shape(FishTable.catch_of(&"fish_gudgeon", 0.5))
+	goal.slots = later3.duplicate()
+	var plain := FishTable.catch_of(&"fish_gudgeon", 0.5)
+	var plain_kept: Dictionary = goal.shape(plain.duplicate(), _fishgoal22_water([&"fish_sturgeon"], st))
+	var plain_asks := int(st["asks"])
+	var luck := FishTable.trophy_of(plain)
+	var luck_kept: Dictionary = goal.shape(luck.duplicate(), _fishgoal22_water([&"fish_sturgeon"], st))
+	var luck_asks := int(st["asks"])
+	_check(boot["id"] == &"old_boot" and boot_asks == 0 and lucky_kept == lucky and lucky_asks == 0
+			and lucky_small["id"] == &"fish_tench_trophy" and small_asks == 1 and nobody["id"] == &"fish_gudgeon_trophy"
+			and plain_kept == plain and plain_asks == 0 and luck_kept == luck and luck_asks == 0,
+			"fishgoal22: an old boot stays a boot and the water isn't asked again for it; a giant that bites by luck where one is owed is kept as it is when it is worth the sum (a carp of %.1f kg), asked about like any small bite when it isn't; a catch that owes none is left as it bit, a little giant by luck too" % float(lucky["kg"]))
+
+	# Big on the scale too, no legend, not the third of its kind.
+	goal.slots = owed3.duplicate()
+	var cray: Dictionary = goal.shape(FishTable.catch_of(&"fish_crayfish", 0.5), _fishgoal22_water([&"fish_crayfish", &"old_boot", &"fish_bream", &"fish_pike"], st))
+	var cray_asks := int(st["asks"])
+	var cray_alone: Dictionary = goal.shape(FishTable.catch_of(&"fish_perch", 0.5), _fishgoal22_water([&"fish_crayfish", &"fish_gudgeon"], st))
+	var cray_alone_asks := int(st["asks"])
+	var cray_top := float(FishTable.trophy_of(FishTable.catch_of(&"fish_crayfish", 1.0))["kg"])
+	var shown: Array[StringName] = []
+	for id: StringName in FishTable.SPECIES:
+		if FishTable.is_fish(id) and _fishgoal22_shows(id) and goal.fit(FishTable.catch_of(id, 0.0)) == FishGoal.Fit.GOOD:
+			shown.append(id)
+		elif FishTable.is_fish(id) and (_fishgoal22_shows(id) or goal.fit(FishTable.catch_of(id, 0.0)) != FishGoal.Fit.POOR):
+			shown.append(&"?")
+	var lightest := 1000.0
+	for id: StringName in shown:
+		if FishTable.is_fish(id):
+			lightest = minf(lightest, float(FishTable.trophy_of(FishTable.catch_of(id, 0.0))["kg"]))
+	var shown_set := {}
+	for id: StringName in shown:
+		shown_set[id] = true
+	_check(cray["id"] == &"fish_bream_trophy" and cray_asks == 3 and cray_alone["id"] == &"fish_crayfish_trophy" and cray_alone_asks == FishGoal.ASKS
+			and FishGoal.giant_price(&"fish_crayfish") >= sum and cray_top < FishGoal.KG and float(cray["kg"]) >= FishGoal.KG
+			and shown.size() == FISHGOAL22_SHOWN.size() and shown_set.has_all(FISHGOAL22_SHOWN) and lightest >= FishGoal.KG,
+			"fishgoal22: a promised giant is big on the scale too: the giant crayfish (%s, but %.1f kg at its heaviest) is asked about again like a small one (a crayfish, then a boot, a bream: the bream, %.1f kg), and is the catch only where nothing better bites; the %d giants that can be promised weigh %.1f kg at the lightest" % [
+				UiTheme.money(FishGoal.giant_price(&"fish_crayfish")), cray_top, float(cray["kg"]), shown.size(), lightest])
+	var legend: Dictionary = goal.shape(FishTable.catch_of(&"fish_sturgeon", 0.5), _fishgoal22_water([&"fish_catfish", &"fish_roach", &"fish_pike", &"fish_tench"], st))
+	var legend_asks := int(st["asks"])
+	var by_itself := FishTable.trophy_of(FishTable.catch_of(&"fish_catfish", 0.4))
+	var legend_kept: Dictionary = goal.shape(by_itself.duplicate(), _fishgoal22_water([&"fish_tench"], st))
+	var legend_kept_asks := int(st["asks"])
+	_check(legend["id"] == &"fish_pike_trophy" and legend_asks == 3 and legend_kept == by_itself and legend_kept_asks == 0
+			and FishGoal.giant_price(&"fish_pike") <= FishGoal.TOP and FishGoal.giant_price(&"fish_catfish") > FishGoal.TOP
+			and FishGoal.giant_price(&"fish_sturgeon") > FishGoal.TOP,
+			"fishgoal22: the pond's legends are no promise (a giant fetches %s at the most: a sturgeon bites, then a catfish, a roach, a pike: the pike, %d asks); one that bites as a giant by itself is luck and kept (a catfish of %.0f kg, %s)" % [
+				UiTheme.money(FishGoal.TOP), legend_asks, float(by_itself["kg"]), UiTheme.money(FishGoal.giant_price(&"fish_catfish"))])
+	var two_chub: Array[StringName] = [&"fish_chub", &"fish_chub"]
+	var one_chub: Array[StringName] = [&"fish_chub"]
+	goal.kinds = two_chub.duplicate()
+	var third: Dictionary = goal.shape(FishTable.catch_of(&"fish_chub", 0.5), _fishgoal22_water([&"fish_chub", &"fish_gudgeon", &"fish_barbel", &"fish_pike"], st))
+	var third_asks := int(st["asks"])
+	var third_alone: Dictionary = goal.shape(FishTable.catch_of(&"fish_gudgeon", 0.5), _fishgoal22_water([&"fish_chub", &"fish_perch"], st))
+	var third_alone_asks := int(st["asks"])
+	goal.kinds = one_chub.duplicate()
+	var second: Dictionary = goal.shape(FishTable.catch_of(&"fish_chub", 0.5), _fishgoal22_water([&"fish_barbel"], st))
+	var second_asks := int(st["asks"])
+	# The landings note the species of the giants (promised or by luck), not of the others.
+	goal.kinds.clear()
+	goal.count = 0
+	goal.slots = owed3.duplicate()
+	goal.note_landed(&"fish_chub_trophy")
+	goal.note_landed(&"fish_roach")
+	goal.note_landed(&"old_boot")
+	goal.note_landed(&"fish_chub_trophy")
+	var noted := goal.kinds == two_chub and goal.count == 3 and goal.fit(FishTable.catch_of(&"fish_chub", 0.5)) == FishGoal.Fit.REPEAT
+	var kept_kinds: Dictionary = goal.save_data()
+	goal.load_data(kept_kinds)
+	noted = noted and goal.kinds == two_chub
+	goal.load_data({"up": true, "count": 3, "slots": [3, 4]})
+	noted = noted and goal.kinds.is_empty() and goal.up and goal.count == 3
+	goal.count = 0
+	goal.slots = owed3.duplicate()
+	_check(third["id"] == &"fish_barbel_trophy" and third_asks == 3 and third_alone["id"] == &"fish_chub_trophy" and third_alone_asks == FishGoal.ASKS
+			and second["id"] == &"fish_chub_trophy" and second_asks == 0 and noted and FishGoal.KIND == 2,
+			"fishgoal22: two giants of a kind at the most: with two giant chub landed a third chub is asked about again (a chub, a gudgeon, a barbel: the barbel, %d asks) and is the catch only where nothing else worth showing bites; the second of a kind is taken as it bites; the species are noted at each giant's landing and saved (a save from before them: none noted)" % third_asks)
+
+	# (b) The angler's roll (roll_catch): the same water asked by hand, with the same dice.
+	var angler := player.angler
+	var rng := RandomNumberGenerator.new()
+	var hour_had := GameClock.get_hour_float()
+	var as_asked := true
+	var as_ever := true
+	var asked := 0
+	var rained := 0
+	var named: Array[String] = []
+	for setup: Array in [[&"worm", 12.0, Weather.Kind.SUNNY], [&"maggot", 12.0, Weather.Kind.SUNNY], [&"dough", 19.0, Weather.Kind.RAIN], [&"minnow", 19.0, Weather.Kind.SUNNY],
+			[&"cheese_bait", 23.0, Weather.Kind.SUNNY]]:
+		angler.bait = setup[0]
+		GameClock.set_time_of_day(float(setup[1]))
+		Weather.force(int(setup[2]))
+		if Weather.is_raining():
+			rained += 1
+		for i in FISHGOAL22_ROLLS:
+			var dice := FISHGOAL22_DICE + i
+			# A giant owed.
+			goal.count = 0
+			goal.slots = owed3.duplicate()
+			angler._rng.seed = dice
+			var got: Dictionary = angler.roll_catch()
+			rng.seed = dice
+			var want := FishTable.roll(angler.bait, GameClock.get_hour_float(), Weather.is_raining(), rng, angler.rod_id(), PlayerState.fish_since_trophy)
+			var giant := FishGoal._giant(want)
+			if not giant.is_empty():
+				var by_luck := bool(want.get("trophy", false))
+				var rank := goal.fit(want)
+				want = giant
+				var n := 0
+				while rank < FishGoal.Fit.GOOD and n < FishGoal.ASKS:
+					n += 1
+					asked += 1
+					var bite := FishTable.roll(angler.bait, GameClock.get_hour_float(), Weather.is_raining(), rng, angler.rod_id(),
+							PlayerState.fish_since_trophy)
+					var more := FishGoal._giant(bite)
+					if more.is_empty():
+						continue
+					var r := goal.fit(bite)
+					if r > rank or (r == rank and FishGoal.giant_price(more["id"]) > FishGoal.giant_price(want["id"])):
+						want = more
+						rank = r
+						by_luck = bool(bite.get("trophy", false))
+				as_asked = as_asked and bool(got.get("trophy", false)) and FishGoal.giant_price(got["id"]) >= sum and _fishgoal22_shows(got["id"], by_luck)
+			as_asked = as_asked and got == want and angler._rng.state == rng.state
+			if i == 0:
+				named.append("%s: %s" % [ItemDB.get_item(angler.bait).display_name(), ItemDB.get_item(got["id"]).display_name()])
+			# None owed on this catch; and the goal not up at all.
+			for off in 2:
+				goal.slots = later3.duplicate()
+				goal.up = off == 0
+				angler._rng.seed = dice
+				got = angler.roll_catch()
+				rng.seed = dice
+				want = FishTable.roll(angler.bait, GameClock.get_hour_float(), Weather.is_raining(), rng, angler.rod_id(), PlayerState.fish_since_trophy)
+				as_ever = as_ever and got == want and angler._rng.state == rng.state
+			goal.up = true
+	angler.bait = &"worm"
+	GameClock.set_time_of_day(hour_had)
+	Weather.force(Weather.Kind.SUNNY)
+	_check(as_asked and asked > 0 and rained == 1,
+			"fishgoal22: the angler's roll with a giant owed is this cast's own water asked again (its bait, the hour, the weather, its rod, its dice): %d casts on five baits, noon, dusk and night, dry and rain, give the very fish of %d more asks by hand, each worth showing (%s or more; %s)" % [
+				FISHGOAL22_ROLLS * 5, asked, UiTheme.money(sum), "; ".join(named)])
+	_check(as_ever, "fishgoal22: a cast that owes no giant (not this catch, or no side goal at all) is the water's one roll as ever: the same fish, the dice no further on")
+
+	# (c) The numbers. At list prices (the day's market moves each fish by up to 15%).
+	var cases := 0
+	var can_cases := 0
+	var wrong := 0
+	var promised := 0
+	var small_was := 0
+	var tiny_was := 0
+	var small_is := 0
+	var light_was := 0
+	var light_is := 0
+	var light_most := 0.0
+	var light_case := ""
+	var legend_was := 0
+	var legend_is := 0
+	var third_was := 0
+	var third_is := 0
+	var guard_is := 0
+	var rich_was := 0
+	var rich_is := 0
+	var most_was := 0
+	var most_is := 0
+	var asks_most := 0
+	var asks_mean_most := 0.0
+	var asks_mean_least := 1000.0
+	var was_least := Vector2i(1 << 30, 0)
+	var was_median := Vector2i(1 << 30, 0)
+	var is_least := Vector2i(1 << 30, 0)
+	var is_median := Vector2i(1 << 30, 0)
+	var three_is := Vector2i(1 << 30, 1 << 30)
+	var three_was := Vector2i(1 << 30, 1 << 30)
+	var worst_case := ""
+	print("  fishgoal22: what the five fish fetch at list prices, least/median, as it was > as it is (%d goes each; the barn costs %s)" % [FISHGOAL22_GOES, UiTheme.money(price)])
+	for rod: StringName in FISHGOAL22_RODS:
+		for rain: bool in [false, true]:
+			for hour: float in FISHGOAL22_HOURS:
+				var row := ""
+				for bait: StringName in FishTable.BAITS:
+					cases += 1
+					var can := false
+					var shares: Dictionary = FishTable.chances(bait, hour, rain, rod)
+					for id: StringName in shares:
+						if FishTable.is_fish(id) and float(shares[id]) > 0.0 and _fishgoal22_shows(id):
+							can = true
+					if can:
+						can_cases += 1
+					var was := _fishgoal22_goes(goal, cases, bait, hour, rain, rod, false)
+					var now := _fishgoal22_goes(goal, cases, bait, hour, rain, rod, true)
+					wrong += int(was["wrong"]) + int(now["wrong"])
+					promised += int(now["promised"])
+					small_was += int(was["small"])
+					tiny_was += int(was["tiny"])
+					if can:
+						small_is += int(now["small"])
+					var case_name := "%s, %s at %d:00%s" % [ItemDB.get_item(rod).display_name(), ItemDB.get_item(bait).display_name(), int(hour), ", rain" if rain else ""]
+					light_was += int(was["light"])
+					light_is += int(now["light"])
+					if float(was["light"]) / maxf(float(was["promised"]), 1.0) > light_most:
+						light_most = float(was["light"]) / maxf(float(was["promised"]), 1.0)
+						light_case = case_name
+					legend_was += int(was["legend"])
+					legend_is += int(now["legend"])
+					third_was += int(was["third"])
+					third_is += int(now["third"])
+					guard_is += int(now["guard"])
+					asks_most = maxi(asks_most, int(now["most"]))
+					var mean := float(now["asks"]) / maxf(float(now["promised"]), 1.0)
+					if mean > asks_mean_most:
+						asks_mean_most = mean
+						worst_case = case_name
+					asks_mean_least = minf(asks_mean_least, mean)
+					var w_was: Array = was["worth"]
+					var w_now: Array = now["worth"]
+					var t_was: Array = was["three"]
+					var t_now: Array = now["three"]
+					most_was = maxi(most_was, int(w_was[-1]))
+					most_is = maxi(most_is, int(w_now[-1]))
+					for w: int in w_was:
+						if w > price * 5:
+							rich_was += 1
+					for w: int in w_now:
+						if w > price * 5:
+							rich_is += 1
+					was_least = Vector2i(mini(was_least.x, int(w_was[0])), maxi(was_least.y, int(w_was[0])))
+					was_median = Vector2i(mini(was_median.x, int(w_was[w_was.size() / 2])), maxi(was_median.y, int(w_was[w_was.size() / 2])))
+					is_least = Vector2i(mini(is_least.x, int(w_now[0])), maxi(is_least.y, int(w_now[0])))
+					is_median = Vector2i(mini(is_median.x, int(w_now[w_now.size() / 2])), maxi(is_median.y, int(w_now[w_now.size() / 2])))
+					# The three giants: the least of any go, and the lowest middle of any case.
+					three_was = Vector2i(mini(three_was.x, int(t_was[0])), mini(three_was.y, int(t_was[t_was.size() / 2])))
+					three_is = Vector2i(mini(three_is.x, int(t_now[0])), mini(three_is.y, int(t_now[t_now.size() / 2])))
+					row += "  %s %d/%d > %d/%d" % [String(bait).left(6), int(w_was[0]), int(w_was[w_was.size() / 2]), int(w_now[0]), int(w_now[w_now.size() / 2])]
+				print("    %-11s %2d:00 %-4s%s" % [String(rod), int(hour), "rain" if rain else "dry", row])
+				await _frames(1)
+	_check(wrong == 0 and cases == FishTable.BAITS.size() * FISHGOAL22_HOURS.size() * 2 * FISHGOAL22_RODS.size(),
+			"fishgoal22: %d goes (%d baits x noon, dusk and night x dry and rain x %d rods, as it was and as it is): three giants promised in each and no more, a catch that owes none always the water's own roll, a boot never asked about, a bite worth showing never changed, one that isn't never the catch short of the guard's %d asks" % [
+				cases * FISHGOAL22_GOES * 2, FishTable.BAITS.size(), FISHGOAL22_RODS.size(), FishGoal.ASKS])
+	_check(small_is == 0 and can_cases == cases and promised == cases * FISHGOAL22_GOES * FishGoal.BIG and small_was > 0 and tiny_was > 0,
+			"fishgoal22: of %d promised giants none fetches under %s now (something worth showing can bite in all %d cases; as it was, %d%% did, %d%% of all the $20 kind)" % [
+				promised, UiTheme.money(sum), cases, roundi(100.0 * small_was / maxf(promised, 1.0)), roundi(100.0 * tiny_was / maxf(promised, 1.0))])
+	_check(light_is == 0 and light_was > 0 and legend_is == 0 and legend_was > 0,
+			"fishgoal22: none of them is a giant crayfish now (as it was: %.1f%% of all, %d%% with %s) and none a legend that didn't bite as a giant by itself (as it was: %d of %d); goes whose five fish fetch over %s: %d of %d now, %d as it was (the most in any go: %s, it was %s)" % [
+				100.0 * light_was / maxf(promised, 1.0), roundi(100.0 * light_most), light_case, legend_was, promised,
+				UiTheme.money(price * 5), rich_is, cases * FISHGOAL22_GOES, rich_was, UiTheme.money(most_is), UiTheme.money(most_was)])
+	_check(third_is * 100 < third_was and guard_is >= third_is,
+			"fishgoal22: a third giant of one species in a go: %d of %d goes now (only where %d asks gave nothing else worth showing), %d as it was" % [
+				third_is, cases * FISHGOAL22_GOES, FishGoal.ASKS, third_was])
+	_check(asks_most <= FishGoal.ASKS and asks_mean_most < 12.0,
+			"fishgoal22: the water asked again %.1f to %.1f times a giant on average (the most: %s), %d times at the very most; the guard of %d reached for %d of %d giants" % [
+				asks_mean_least, asks_mean_most, worst_case, asks_most, FishGoal.ASKS, guard_is, promised])
+	_check(three_is.x >= sum * FishGoal.BIG and is_least.x >= sum * FishGoal.BIG and is_median.x >= price,
+			"fishgoal22: against the barn's %s the three giants alone fetch %s at the least and %s in the middle of the leanest case (it was %s and %s); the five fish %s to %s at the least and %s to %s in the middle, case by case (it was %s to %s and %s to %s)" % [
+				UiTheme.money(price), UiTheme.money(three_is.x), UiTheme.money(three_is.y), UiTheme.money(three_was.x), UiTheme.money(three_was.y),
+				UiTheme.money(is_least.x), UiTheme.money(is_least.y), UiTheme.money(is_median.x), UiTheme.money(is_median.y),
+				UiTheme.money(was_least.x), UiTheme.money(was_least.y), UiTheme.money(was_median.x), UiTheme.money(was_median.y)])
+	goal.load_data({})
+	goal.set_process(true)
+
+
+## fishgoal22: water that answers as told: a roll that gives `ids` one after the other
+## (round and round), counting its asks in `st`.
+func _fishgoal22_water(ids: Array, st: Dictionary) -> Callable:
+	st["asks"] = 0
+	return func() -> Dictionary:
+		var id: StringName = ids[int(st["asks"]) % ids.size()]
+		st["asks"] = int(st["asks"]) + 1
+		return FishTable.catch_of(id, 0.5)
+
+
+## fishgoal22: FISHGOAL22_GOES goes at the side goal's five fish with `bait` at `hour`
+## (rain or not) on `rod`, through FishGoal's own shaping and counting (the fifth fish's
+## landing left out: it would end the goal). `fixed`: as it is (the water asked again);
+## else as it was (the giant of whatever bit). Seeded by `case_no`, the giants' places the
+## same in both. What the five fetch at list prices go by go ("worth", sorted), the three
+## promised giants ("three", sorted), how many promised ("promised") and how many of them
+## under the sum ("small") or of the $20 kind ("tiny"), worth the sum but light on the
+## scale ("light": the giant crayfish), a legend that didn't bite as a giant by itself
+## ("legend") or the third giant of its species in the go ("third"), the asks in all, the
+## most for one giant and how often the guard was reached ("asks", "most", "guard"), and
+## whatever went against the rules ("wrong").
+func _fishgoal22_goes(goal: FishGoal, case_no: int, bait: StringName, hour: float, rain: bool, rod: StringName, fixed: bool) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	var st := {"asks": 0, "dry": 0, "luck": {}}
+	var ask := func() -> Dictionary:
+		st["asks"] = int(st["asks"]) + 1
+		var more := FishTable.roll(bait, hour, rain, rng, rod, int(st["dry"]))
+		if more.get("trophy", false):
+			(st["luck"] as Dictionary)[more["id"]] = true
+		return more
+	var worths: Array[int] = []
+	var threes: Array[int] = []
+	var out := {"promised": 0, "small": 0, "tiny": 0, "light": 0, "legend": 0, "third": 0, "asks": 0, "most": 0, "guard": 0, "wrong": 0}
+	for g in FISHGOAL22_GOES:
+		goal._rng.seed = FISHGOAL22_DICE + g
+		rng.seed = FISHGOAL22_DICE + case_no * 100003 + g * 131
+		goal.up = true
+		goal.done = false
+		goal.count = 0
+		goal.slots = goal._draw()
+		goal.kinds.clear()
+		st["dry"] = 0
+		var worth := 0.0
+		var three := 0
+		var giants := 0
+		var fish := 0
+		var casts := 0
+		while fish < FishGoal.FISH and casts < 80:
+			casts += 1
+			var owed := goal.owes_giant()
+			st["asks"] = 0
+			st["luck"] = {}
+			var first := FishTable.roll(bait, hour, rain, rng, rod, int(st["dry"]))
+			var bit := first.duplicate()
+			var bit_fit := goal.fit(first)
+			var c: Dictionary = goal.shape(first, ask) if fixed else goal.shape(first)
+			var asked := int(st["asks"])
+			var id: StringName = c["id"]
+			if not FishTable.is_fish(FishTable.species_of(id)):
+				# An old boot: as it bit, the water not asked again, and it counts for nothing.
+				if c != bit or asked > 0:
+					out["wrong"] = int(out["wrong"]) + 1
+				continue
+			var is_giant := bool(c.get("trophy", false))
+			var item := ItemDB.get_item(id)
+			if owed:
+				var fetches := FishGoal.giant_price(id)
+				giants += 1
+				three += fetches
+				out["promised"] = int(out["promised"]) + 1
+				out["asks"] = int(out["asks"]) + asked
+				out["most"] = maxi(int(out["most"]), asked)
+				if fetches < FishGoal.WORTH:
+					out["small"] = int(out["small"]) + 1
+				if fetches <= 20:
+					out["tiny"] = int(out["tiny"]) + 1
+				# By luck: it bit as this very giant (at first, or when asked again).
+				var by_luck: bool = (bool(bit.get("trophy", false)) and bit["id"] == id) or (st["luck"] as Dictionary).has(id)
+				var third: bool = goal.kinds.count(FishTable.species_of(id)) >= FishGoal.KIND
+				if fetches >= FishGoal.WORTH and not _fishgoal22_shows(id, true):
+					out["light"] = int(out["light"]) + 1
+				if fetches > FishGoal.TOP and not by_luck:
+					out["legend"] = int(out["legend"]) + 1
+				if third:
+					out["third"] = int(out["third"]) + 1
+				if asked >= FishGoal.ASKS:
+					out["guard"] = int(out["guard"]) + 1
+				# A giant for sure, at its item's price; a bite worth showing is the catch itself
+				# (made the giant, or kept as the giant it bit as), nothing asked; and as it is,
+				# one that isn't worth showing is the catch only when the guard's asks ran out.
+				var shows := _fishgoal22_shows(id, by_luck) and not third
+				if (not is_giant or item.sell_price != fetches or (bit_fit == FishGoal.Fit.GOOD and (asked > 0 or c != FishGoal._giant(bit)))
+						or (fixed and not shows and asked < FishGoal.ASKS)):
+					out["wrong"] = int(out["wrong"]) + 1
+			elif c != bit or asked > 0:
+				# Owes none: the water's own roll (a giant by luck among them), nothing asked.
+				out["wrong"] = int(out["wrong"]) + 1
+			worth += item.sell_price * (1.0 if is_giant else float(Economy.FISH_QUALITY_MULT[int(c["quality"])]))
+			st["dry"] = 0 if is_giant else int(st["dry"]) + 1
+			fish += 1
+			if fish < FishGoal.FISH:
+				goal.note_landed(id)
+				if goal.count != fish:
+					out["wrong"] = int(out["wrong"]) + 1
+		if fish != FishGoal.FISH or giants != FishGoal.BIG:
+			out["wrong"] = int(out["wrong"]) + 1
+		worths.append(roundi(worth))
+		threes.append(three)
+	worths.sort()
+	threes.sort()
+	out["worth"] = worths
+	out["three"] = threes
+	return out
+
+
+## fishgoal22: the giant of fish `id` (or giant `id`) is one worth showing, whatever was
+## landed before it: FishGoal.WORTH or more at the market's list price, FishGoal.KG or
+## more on the scale at its lightest, and no legend over FishGoal.TOP (`by_luck`: it bit
+## as a giant by itself, so a legend is as good).
+func _fishgoal22_shows(id: StringName, by_luck := false) -> bool:
+	var sp := FishTable.species_of(id)
+	if not FishTable.is_fish(sp):
+		return false
+	var kg: Vector2 = FishTable.get_species(sp)["kg"]
+	var fetches := FishGoal.giant_price(sp)
+	return fetches >= FishGoal.WORTH and (by_luck or fetches <= FishGoal.TOP) and kg.x * FishTable.TROPHY_KG >= FishGoal.KG
+
+
+## fishgoal22: a seed for the angler's dice, from `start` on, whose bite as play rolls it
+## now (the bait, the hour, the weather, the rod) is an ordinary fish: no giant, no boot.
+## What the side goal makes of it is then its doing alone.
+func _fishgoal22_plain_bite(angler: Angler, start: int) -> int:
+	var rng := RandomNumberGenerator.new()
+	for s in range(start, start + 400):
+		rng.seed = s
+		var c := FishTable.roll(angler.bait, GameClock.get_hour_float(), Weather.is_raining(), rng, angler.rod_id(), PlayerState.fish_since_trophy)
+		if FishTable.is_fish(c["id"]) and not c.get("trophy", false):
+			return s
+	return start
+
+
+## fishgoal22: one catch through the rod as play makes it: the cast from the bank, the bite
+## (brought forward, rolled with the angler's dice at `dice`), the strike, the fish flying
+## onto the bank and the line coming back in. `instead`: what is on the hook instead (the
+## old boot). The catch lying on the bank (null: nothing landed).
+func _fishgoal22_catch(player: Player, bank: Vector3, dice: int, instead := {}) -> FloppingFish:
+	var angler := player.angler
+	player.global_position = bank
+	player.velocity = Vector3.ZERO
+	player.look_at_yaw_pitch(PI * 0.5, deg_to_rad(-8.0))
+	await _frames(8)
+	for i in 400:
+		if angler.state == Angler.State.IDLE:
+			break
+		await tree.physics_frame
+	angler.bait = &"worm"
+	angler._rng.seed = dice
+	await _hold_use(0.9)
+	for i in 240:
+		await tree.physics_frame
+		if angler.state == Angler.State.WAIT:
+			break
+	if angler.state != Angler.State.WAIT:
+		print("  fishgoal22: the cast didn't reach the water (%s)" % Angler.State.keys()[angler.state])
+		return null
+	if not instead.is_empty():
+		angler.catch_info = instead
+	angler._nibbles.clear()
+	angler._bite_at = angler._t + 0.2
+	for i in 120:
+		await tree.physics_frame
+		if angler.state == Angler.State.BITE:
+			break
+	await _seconds(0.3)
+	await _hold_use(0.1)
+	var fish: FloppingFish = null
+	for i in 240:
+		await tree.physics_frame
+		for n: Node in tree.get_nodes_in_group(&"caught_fish"):
+			var f := n as FloppingFish
+			if f != null and not f.is_queued_for_deletion() and not f.is_flying():
+				fish = f
+		if fish != null:
+			break
+	for i in 400:
+		if angler.state == Angler.State.IDLE:
+			break
+		await tree.physics_frame
+	return fish

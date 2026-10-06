@@ -38,7 +38,8 @@ extends Node
 ## Other side goals can be up at the same time as hers (`goals`: SideGoal, each on a card
 ## of its own with a dot of its own): the wolves' lesson and the vet's (WolfRaids) add and
 ## take away theirs, and day two's getting to know the town (TownGoals: town_goals, kept
-## and saved here).
+## and saved here), and "fishing pays" for a farmer short of the barn's price (FishGoal:
+## fish_goal, kept and saved here too).
 
 ## The side goal, its dot or its hint changed (the HUD refreshes).
 signal changed
@@ -125,6 +126,8 @@ var test_kind := ""
 var goals: Array[SideGoal] = []
 ## Day two's quiet goals in town (meet the townspeople, the vet, the filling station).
 var town_goals: TownGoals
+## "Fishing pays": five fish, three of them giants, for a farmer short of the barn's price.
+var fish_goal: FishGoal
 
 ## When she last opened the door to a knock with nothing to bring (GameClock.total_minutes).
 var _last_knock := -INF
@@ -142,6 +145,9 @@ func _ready() -> void:
 	town_goals = TownGoals.new()
 	town_goals.name = "TownGoals"
 	add_child(town_goals)
+	fish_goal = FishGoal.new()
+	fish_goal.name = "FishGoal"
+	add_child(fish_goal)
 	Events.day_started.connect(func(_d: int) -> void: _poll = 0.0)
 	PlayerState.inventory.changed.connect(func() -> void: _poll = 0.0)
 	Mail.opened.connect(_on_letter_opened)
@@ -659,7 +665,7 @@ func save_data() -> Dictionary:
 	return {"met": met, "met_day": met_day, "errand": errand.duplicate(), "next": next_errand_day,
 		"deliveries": deliveries, "gift_day": gift_day, "announced": announced, "chat_day": chat_day,
 		"turn": turn, "puppy_day": puppy_day, "puppy_letter": puppy_letter, "invite_sent": invite_sent,
-		"visit_day": visit_day, "town": town_goals.save_data()}
+		"visit_day": visit_day, "town": town_goals.save_data(), "fish": fish_goal.save_data()}
 
 
 ## After GameClock.load_data.
@@ -678,6 +684,7 @@ func load_data(data: Dictionary) -> void:
 	invite_sent = bool(data.get("invite_sent", false))
 	visit_day = int(data.get("visit_day", 0))
 	town_goals.load_data(data.get("town", {}))
+	fish_goal.load_data(data.get("fish", {}))
 	_last_knock = -INF
 	_goal = goal()
 	_waypoint = null

@@ -85,7 +85,6 @@ MIXKIT_SFX = {
 MIXKIT_MUSIC = {
     "music/day_relaxing_country.mp3": 23,
     "music/day_relaxing_in_nature.mp3": 522,
-    "music/day_wind_leaves.mp3": 617,
     "music/day_the_long_road.mp3": 52,
     "music/night_relaxation.mp3": 749,
     # The fair's tunes on a carnival night in town (Carnival).

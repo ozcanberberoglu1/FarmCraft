@@ -56,6 +56,18 @@ func zeynep_spot() -> Dictionary:
 	return {}
 
 
+## Whether Zeynep is on her way to the event (or there) by now: ZeynepHome asks while the
+## town is out. (The contest: everyone leaves at his own time.)
+func zeynep_out() -> bool:
+	return true
+
+
+## Whether Zeynep walks to the event whoever sees it, even on a load (the crowd then puts
+## her where she would be by now), instead of simply being there when nobody is about.
+func zeynep_walks() -> bool:
+	return false
+
+
 ## The way from `from` to the event (world points, ground level), the last one where the
 ## event's own places begin.
 func _path_to_venue(_from: Vector3) -> Array[Vector3]:

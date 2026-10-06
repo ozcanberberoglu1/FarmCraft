@@ -2073,8 +2073,10 @@ func _seeds_short() -> Variant:
 
 
 ## Names of the goods the farmer has to sell (the bag, then the bed of his pickup), the
-## best sellers first (SELLABLE's order), `most` at most. `keep` (item -> count): that
-## many of each are spoken for (a goal's own materials) and only what is over them counts.
+## best sellers first (SELLABLE's order; his fish before all once the five of "fishing
+## pays" are caught for the barn: FishGoal.catch_first), `most` at most. `keep` (item ->
+## count): that many of each are spoken for (a goal's own materials) and only what is
+## over them counts.
 func sellable_names(most := 3, keep := {}) -> Array[String]:
 	var have := {}
 	for st: ItemStack in PlayerState.inventory.slots:
@@ -2090,8 +2092,12 @@ func sellable_names(most := 3, keep := {}) -> Array[String]:
 	for id: StringName in have:
 		if int(have[id]) > int(keep.get(id, 0)):
 			ids.append(id)
+	var order := SELLABLE.duplicate()
+	if SideStory.fish_goal != null and SideStory.fish_goal.catch_first():
+		order.erase("fish")
+		order.push_front("fish")
 	ids.sort_custom(func(a: StringName, b: StringName) -> bool:
-		return SELLABLE.find(ItemDB.get_item(a).category) < SELLABLE.find(ItemDB.get_item(b).category))
+		return order.find(ItemDB.get_item(a).category) < order.find(ItemDB.get_item(b).category))
 	var names: Array[String] = []
 	for id: StringName in ids.slice(0, most):
 		names.append(ItemDB.get_item(id).display_name())

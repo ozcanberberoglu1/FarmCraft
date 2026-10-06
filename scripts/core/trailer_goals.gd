@@ -3,7 +3,8 @@ extends RefCounted
 ## The barn chapter's lesson with Grandpa's stock trailer (Trailer, TrailerYard), as the
 ## story's goals see it (Quests: checks "trailer:<what>", places "trailer:<where>"):
 ##   trailer_get    pay Kemal the tyre bill for the trailer at the dealership ("owned");
-##   trailer_hitch  back the pickup up to its tongue and hitch it ("hitched");
+##   trailer_hitch  stop the pickup near it and hitch it at its tongue, wheeled over by
+##                  hand while it is empty ("hitched");
 ##   sheep_buy      a sheep from the Animal Market ("sheep_owned");
 ##   sheep_load     the rope on it (G), up the ramp (E), the gate shut ("sheep_loaded");
 ##   sheep_ride     home to the farm ("sheep_at_farm");
@@ -70,9 +71,10 @@ static func _hitch_place(stock: Trailer, p: Player) -> Dictionary:
 	var over := stock.coupling() + Vector3(0, 1.1, 0)
 	if p.driving != null:
 		return {"at": over, "hint": _t("HINT_TRAILER_HITCH_DRIVE")}
-	if stock.tow_in_reach() != null:
+	# (On its way to the pickup it is as good as coupled: the same line until it is.)
+	if stock.can_couple() or stock.rolling():
 		return {"at": over, "hint": _t("HINT_TRAILER_HITCH_FOOT")}
-	# On foot with no vehicle at the tongue: the pickup first (when it stands far off).
+	# On foot with no vehicle near enough: the pickup first (when it stands far off).
 	var truck := Quests.place_for("truck")
 	if truck["at"] != null and _flat(p.global_position, stock.global_position) > 25.0:
 		return {"at": truck["at"], "hint": _t("HINT_TRAILER_HITCH_TRUCK")}

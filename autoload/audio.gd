@@ -88,11 +88,17 @@ const LOOPS := {
 	"contest_crowd": "ambience/carnival_crowd.ogg",
 }
 const DAY_MUSIC: Array[String] = ["music/day_relaxing_country.mp3", "music/day_relaxing_in_nature.mp3",
-	"music/day_wind_leaves.mp3", "music/day_the_long_road.mp3"]
+	"music/day_the_long_road.mp3", "music/day_carpe_diem.ogg", "music/day_laid_back_guitars.ogg",
+	"music/day_heartwarming.ogg"]
 const NIGHT_MUSIC: Array[String] = ["music/night_relaxation.mp3"]
 ## A carnival night in town (Carnival.music_on): the fair's tunes, one after another.
 const CARNIVAL_MUSIC: Array[String] = ["music/carnival_band_organ.ogg", "music/carnival_kidding_around.mp3",
 	"music/carnival_fun_and_games.mp3"]
+## How loud the music plays (dB above MusicLevels.REFERENCE, the loudness every track is
+## trimmed to, whatever its file's own level): the day's and the night's tracks stay calm
+## in the background; the fair's tunes are livelier. (The car radio: CarRadio.VOLUME_DB.)
+const MUSIC_DB := 0.0
+const CARNIVAL_DB := 4.0
 ## What each finished action sounds like: [set, volume dB, optional pitch, optional
 ## seconds]. It plays on the final stroke's impact tick (see Player._fire_cue); swings add
 ## a swoosh before it. With seconds, a long recording is faded out that far in, so it
@@ -157,6 +163,8 @@ var _music: AudioStreamPlayer
 var _music_state := ""
 var _music_gap := 6.0
 var _music_fade := 0.0
+## The level (dB) of the track that plays (music_db), under its fade.
+var _music_db := 0.0
 var _last_track := ""
 ## The track that plays after the current gap; it loads in the background meanwhile.
 var _next_track := ""
@@ -764,11 +772,12 @@ func _update_animals(delta: float, player: Node3D) -> void:
 ## player leaves town.
 func _update_music(delta: float) -> void:
 	# The car radio plays instead (CarRadio): the track here fades out and keeps its place
-	# for when the set goes off or the driver gets out.
+	# for when the set goes off or the driver gets out. (As fast as the set comes up: it
+	# sounds at once on getting in, and two tunes are not heard together.)
 	if radio.holds_music():
 		if _music.playing:
-			_music_fade = maxf(_music_fade - delta / 1.2, 0.0)
-			_music.volume_db = linear_to_db(maxf(_music_fade, 0.0001))
+			_music_fade = maxf(_music_fade - delta / CarRadio.FADE_SWITCH, 0.0)
+			_music.volume_db = linear_to_db(maxf(_music_fade, 0.0001)) + _music_db
 			if _music_fade <= 0.0:
 				_music_held = _music.get_playback_position()
 				_music.stop()
@@ -795,7 +804,7 @@ func _update_music(delta: float) -> void:
 				_music_gap = 0.5 if state == "carnival" or _music_state == "carnival" else 4.0
 		else:
 			_music_fade = minf(_music_fade + delta / 4.0, 1.0)
-		_music.volume_db = linear_to_db(maxf(_music_fade, 0.0001))
+		_music.volume_db = linear_to_db(maxf(_music_fade, 0.0001)) + _music_db
 		return
 	if sleeping:
 		return
@@ -821,8 +830,15 @@ func _update_music(delta: float) -> void:
 	_music.stream = _stream(track)
 	_music_state = state
 	_music_fade = 0.0
+	_music_db = music_db(track)
 	_music.volume_db = -80.0
 	_music.play()
+
+
+## The level (dB) the world's music plays `track` at: the trim that brings the file to the
+## common loudness (MusicLevels) and how far above it its kind of music plays.
+static func music_db(track: String) -> float:
+	return MusicLevels.trim(track) + (CARNIVAL_DB if track in CARNIVAL_MUSIC else MUSIC_DB)
 
 
 ## Two players taking turns on one recording: the next pass starts a few seconds before

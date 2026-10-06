@@ -37,8 +37,10 @@ static func ring(at: Vector3, radius := 0.8, life := 2.2, strength := 1.0) -> vo
 
 
 static func _free_ring() -> MeshInstance3D:
-	# (assign: filter() hands back an untyped Array.)
-	_rings.assign(_rings.filter(func(n: MeshInstance3D) -> bool: return is_instance_valid(n) and n.get_parent() == Game.world))
+	# (assign: filter() hands back an untyped Array. The lambda takes a Variant: the rings
+	# of a world gone since (a save loaded) are freed, and a typed parameter refuses those
+	# with an error before is_instance_valid can drop them.)
+	_rings.assign(_rings.filter(func(n: Variant) -> bool: return is_instance_valid(n) and (n as Node).get_parent() == Game.world))
 	for r in _rings:
 		if not r.visible:
 			return r
@@ -111,7 +113,8 @@ static func spray(at: Vector3, size := 1.0) -> void:
 
 
 static func _emitter(mesh: Mesh, puff := false) -> CPUParticles3D:
-	_spray.assign(_spray.filter(func(n: CPUParticles3D) -> bool: return is_instance_valid(n) and n.get_parent() == Game.world))
+	# (A Variant, as in _free_ring: the emitters of a world gone since are freed.)
+	_spray.assign(_spray.filter(func(n: Variant) -> bool: return is_instance_valid(n) and (n as Node).get_parent() == Game.world))
 	for e in _spray:
 		if not e.emitting and e.has_meta(&"puff") == puff:
 			return e

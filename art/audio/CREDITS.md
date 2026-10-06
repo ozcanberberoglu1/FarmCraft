@@ -59,7 +59,6 @@ Downloaded by `tools/fetch_audio.py`; the recorded farm-work sounds are built by
 | sfx/money/money_bag.mp3 | Money bag drop | 1989 |
 | music/day_relaxing_country.mp3 | Relaxing Country | music 23 |
 | music/day_relaxing_in_nature.mp3 | Relaxing in Nature | music 522 |
-| music/day_wind_leaves.mp3 | Wind Leaves (Eugenio Mininni) | music 617 |
 | music/day_the_long_road.mp3 | The Long Road (Ahjay Stelino) | music 52 |
 | music/night_relaxation.mp3 | Relaxation 05 | music 749 |
 | music/carnival_kidding_around.mp3 | Kidding Around | music 9 |
@@ -261,7 +260,7 @@ The contest's crowd round the pond, made by `tools/build_contest_crowd_audio.py`
 synthesised by `tools/build_radio_audio.py` (no source recording; project-owned).
 
 The stations (`CarRadio.STATIONS`) play five recordings of their own between them (`music/radio/*.ogg`: two, two
-and one), downloaded and prepared by `tools/fetch_radio_music.py` (no account needed; none is on two stations); the
+and one) and the four day tunes below, downloaded and prepared by `tools/fetch_radio_music.py` (no account needed; none is on two stations); the
 game's own tracks above fill the rest of each list. **Two of the three sets need attribution (CC BY 4.0)**: the game names their authors on the title screen
 (`UI_CREDITS`) and beside each track on the radio's line. Changes made to every recording: the silence before and
 after it cut, its loudness matched to the others (-14 LUFS, ITU-R BS.1770, under a limiter), re-encoded as Ogg Vorbis.
@@ -283,6 +282,19 @@ License (http://creativecommons.org/licenses/by/4.0/).
 |---|---|---|
 | music/radio/yol_bama_country.ogg | Bama Country | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Bama%20Country.mp3 |
 | music/radio/yol_cattails.ogg | Cattails | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Cattails.mp3 |
+
+**The farm's day music, also on the stations** (Carpe Diem on Radyo Yol, Laid Back Guitars on Yeşilova FM, the other two on Radyo Huzur; `music/day_carpe_diem.ogg`, `day_laid_back_guitars.ogg`,
+`day_heartwarming.ogg`, `day_bathed_in_the_light.ogg`; added 2026-10-06 in place of Mixkit's "Wind Leaves", which the
+owner found grating): by **Kevin MacLeod** (https://incompetech.com). Licensed under Creative Commons: By Attribution 4.0
+License (http://creativecommons.org/licenses/by/4.0/). Prepared by the same tool with the same changes. "Bathed in the
+Light" is long held tones: it plays on Radyo Huzur only, not in the day's own music.
+
+| File | Title | Source |
+|---|---|---|
+| music/day_carpe_diem.ogg | Carpe Diem | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Carpe%20Diem.mp3 |
+| music/day_laid_back_guitars.ogg | Laid Back Guitars | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Laid%20Back%20Guitars.mp3 |
+| music/day_heartwarming.ogg | Heartwarming | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Heartwarming.mp3 |
+| music/day_bathed_in_the_light.ogg | Bathed in the Light | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Bathed%20in%20the%20Light.mp3 |
 
 **Radyo Huzur 88.4**: solo piano, public domain (no attribution needed; the player is named all the same).
 The file is the copy on Wikimedia Commons.

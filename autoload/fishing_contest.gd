@@ -10,9 +10,12 @@ extends Node
 ##
 ## The morning before, a letter from Nuri Hoca announces it (through the mailbox when the
 ## game has one, else on the letter sheet like Beyza's carnival letter; once: letter_day
-## is saved). At 09:00 a banner opens it: five anglers fish from the shore round the pond
-## (RIVALS: four townspeople and Cemal Usta from the lake villages, landing a fish every
-## half hour or so), the town comes to watch (ContestCrowd moves them): a murmur of voices
+## is saved). The town sets out early enough to be at the pond by then (ContestCrowd: each
+## at his own time). At 09:00 a banner opens it: five anglers cast from the shore round
+## the pond (RIVALS: four townspeople and Cemal Usta from the lake villages). A rival
+## lands fish only while he stands at his place with his line in the water: the first a
+## while after his cast (FIRST_CATCH), then one every half hour or so; the board and the
+## card list nobody before his first fish. The town watches: a murmur of voices
 ## over the pond (Audio's "contest_crowd" loop), a call or a laugh now and then, and a
 ## cheer each time the board gets a new biggest fish (new_leader), whoever caught it. The player
 ## takes part by fishing there: every fish he lands within VENUE_RADIUS of the pond is
@@ -70,6 +73,11 @@ const RIVALS := {&"fisher": &"minnow", &"young": &"sweetcorn", &"farmer": &"worm
 	&"sweeper": &"maggot"}
 ## Game minutes between a rival's fish (a random wait in this range).
 const CATCH_EVERY := Vector2(30.0, 75.0)
+## Game minutes from a rival's cast to his first fish (a random wait in this range).
+const FIRST_CATCH := Vector2(20.0, 60.0)
+## A fish landed within this many game minutes is shown at the pond (rival_caught); older
+## ones (the clock was skipped) are only weighed.
+const CATCH_SHOWN := 6.0
 ## The rivals' fish run a little smaller than the pond allows (a share of the weight roll):
 ## a good fish of the player's beats most days' winners, a giant always does.
 const RIVAL_ROLL := 0.8
@@ -123,6 +131,14 @@ var _on := false
 var _ceremony_t := -1.0
 var _announced := false
 var _next_catch := {}
+## The game minute each rival's fish are counted from: his cast (rival id -> minute), and
+## who was seen away from the water since.
+var _cast := {}
+var _away := {}
+## A game loaded in the middle of a contest from a save without the casts: the rivals'
+## waits start again from this minute (0: none).
+var _cast_floor := 0.0
+var _crowd: Node
 var _rng := RandomNumberGenerator.new()
 var _card: GlassPanel
 var _card_label: Label
@@ -217,8 +233,10 @@ func player_caught(id: StringName, kg: float, at: Vector3) -> bool:
 	return true
 
 
-## Records `catch` for entrant `who` (kept when it is his biggest).
+## Records `catch` for entrant `who` (kept when it is his biggest): while the contest is on.
 func record(who: String, catch: Dictionary) -> void:
+	if not is_on():
+		return
 	_open_board()
 	var kg := float(catch.get("kg", 0.0))
 	if kg > float((entries.get(who, {}) as Dictionary).get("kg", 0.0)):
@@ -250,6 +268,9 @@ func _open_board() -> void:
 		day_held = GameClock.day
 		entries.clear()
 		_next_catch.clear()
+		_cast.clear()
+		_away.clear()
+		_cast_floor = 0.0
 		board_changed.emit()
 
 
@@ -282,8 +303,9 @@ func _fish_name(id: StringName) -> String:
 	return item.display_name() if item else String(id)
 
 
-## The board's lines: the top three and the player's best while a contest has a board;
-## between contests the next date and the last winner.
+## The board's lines: the top three and the player's best while a contest has a board
+## (nobody is listed before his first fish: until the first one it says the contest has
+## begun); between contests the next date and the last winner.
 func board_text(with_title := true) -> String:
 	var lines := PackedStringArray()
 	if with_title:
@@ -292,7 +314,7 @@ func board_text(with_title := true) -> String:
 	if live or (is_on()):
 		var s := standings()
 		if s.is_empty():
-			lines.append(tr("CONTEST_BOARD_EMPTY"))
+			lines.append(tr("CONTEST_BOARD_BEGUN"))
 		for i in mini(3, s.size()):
 			lines.append("%d. %s — %s" % [i + 1, entrant_name(s[i][0]), FloppingFish.weight_text(float(s[i][1]))])
 		if entries.has("player"):
@@ -342,21 +364,56 @@ func _process(delta: float) -> void:
 	_update_card(delta)
 
 
-## The rivals land a fish now and then (by the game clock), each kept if his biggest.
+## The town's contest crowd (null: no town in this world).
+func crowd() -> Node:
+	if _crowd == null or not is_instance_valid(_crowd):
+		_crowd = null
+		for n: Node in get_tree().get_nodes_in_group(EventCrowd.GROUP):
+			if n is ContestCrowd:
+				_crowd = n
+	return _crowd
+
+
+## The game minute rival `id` cast the line that is in the water now; -1 while he is not
+## fishing (not at his place yet, not cast yet, away). Without a town: from the opening.
+func rival_cast(id: StringName) -> float:
+	var c := crowd() as ContestCrowd
+	return c.cast_minute(id) if c else float(START_MINUTE)
+
+
+## The rivals land a fish now and then (by the game clock), each kept if his biggest: only
+## one whose line is in the water, the first a while after his cast. A skipped clock is
+## caught up with (the fish he would have landed meanwhile).
 func _sim_rivals() -> void:
+	var now := GameClock.minute
 	for id: StringName in RIVALS:
 		var key := String(id)
-		if not _next_catch.has(key):
-			_next_catch[key] = GameClock.minute + _rng.randf_range(4.0, CATCH_EVERY.y)
+		var cast := rival_cast(id)
+		if cast < 0.0:
+			if _cast.has(key):
+				_away[key] = true
 			continue
-		if GameClock.minute < float(_next_catch[key]):
-			continue
-		_next_catch[key] = GameClock.minute + _rng.randf_range(CATCH_EVERY.x, CATCH_EVERY.y)
-		var c := rival_catch(id)
-		if c.is_empty():
-			continue
-		record(key, c)
-		rival_caught.emit(id, c)
+		# His first cast, or a new one after he was away: the wait starts from it.
+		if not _cast.has(key) or (_away.has(key) and cast > float(_cast[key]) + 1.0):
+			_cast[key] = clampf(maxf(cast, _cast_floor), float(START_MINUTE), now)
+			_next_catch[key] = float(_cast[key]) + _rng.randf_range(FIRST_CATCH.x, FIRST_CATCH.y)
+		_away.erase(key)
+		for guard in 24:
+			var at := float(_next_catch.get(key, INF))
+			if now < at:
+				break
+			_next_catch[key] = at + _rng.randf_range(CATCH_EVERY.x, CATCH_EVERY.y)
+			var c := rival_catch(id)
+			if c.is_empty():
+				continue
+			record(key, c)
+			if now - at < CATCH_SHOWN:
+				rival_caught.emit(id, c)
+
+
+## The game minute rival `id`'s fish are counted from today (his cast); -1: none yet.
+func cast_of(id: StringName) -> float:
+	return float(_cast.get(String(id), -1.0))
 
 
 ## A fish for rival `id` as the pond gives it to his bait at this hour (no giants: those
@@ -718,11 +775,13 @@ func new_game() -> void:
 
 func save_data() -> Dictionary:
 	return {"entries": entries.duplicate(true), "day_held": day_held, "result_day": result_day,
-		"last_winner": last_winner.duplicate(), "letter_day": letter_day, "goal_day": goal_day, "prep_day": prep_day}
+		"last_winner": last_winner.duplicate(), "letter_day": letter_day, "goal_day": goal_day, "prep_day": prep_day,
+		"cast": _cast.duplicate(), "next_catch": _next_catch.duplicate()}
 
 
-## After GameClock.load_data: the board as saved; a morning before a contest whose letter
-## wasn't read yet brings it.
+## After GameClock.load_data: the board as saved, the rivals' casts and next fish with it
+## (nothing is fished again that was fished before the save); a morning before a contest
+## whose letter wasn't read yet brings it.
 func load_data(data: Dictionary) -> void:
 	entries = (data.get("entries", {}) as Dictionary).duplicate(true)
 	day_held = int(data.get("day_held", 0))
@@ -735,7 +794,11 @@ func load_data(data: Dictionary) -> void:
 	# Loaded mid-contest: no opening banner again.
 	_on = is_on()
 	_ceremony_t = -1.0
-	_next_catch.clear()
+	_next_catch = (data.get("next_catch", {}) as Dictionary).duplicate()
+	_cast = (data.get("cast", {}) as Dictionary).duplicate()
+	_away.clear()
+	# (an older save made in the middle of a contest: the waits start again from now)
+	_cast_floor = GameClock.minute if _on and day_held == GameClock.day and not data.has("cast") else 0.0
 	_letter_noted = false
 	_letter_wait = LETTER_DELAY
 	letter_pending = enabled() and is_contest_day(GameClock.day + 1) and letter_day != GameClock.day

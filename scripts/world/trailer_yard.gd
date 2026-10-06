@@ -1,23 +1,38 @@
 class_name TrailerYard
 extends RefCounted
-## The town's side of the trailers (Trailer). At the dealership (Yeşilova Oto Galeri):
-## Grandpa's stock trailer, left there for new tyres, and the cargo trailer for sale stand
-## at the kerb in front of the lot, tongues east (a pickup come from the farm pulls past
-## one and backs up to it, nothing in its way), the cargo trailer with its price board on
-## the pavement. At the Animal Market: the loading pen by the gate, where a sheep, cow or horse
-## bought at the market waits for the farmer to put the rope on it (G) and lead it up his
-## trailer's ramp. With no stock trailer of his in town the dealer brings it over himself
-## the next morning for DELIVERY_FEE (it waits in the pen meanwhile, and goes home with
-## the morning as any animal left away does: Animals._on_day_started), so nobody is ever
-## stuck. An animal brought to the market in the trailer sells for SALE_BONUS more than
-## one sold off the farm's list.
+## The town's side of the trailers (Trailer). The dealership's (Yeşilova Oto Galeri)
+## trailer bay is the concrete yard between the market and the dealer's building, behind
+## the north pavement under his "RÖMORK" board (Town.MARKET_SIDE_YARD): Grandpa's stock
+## trailer, left with him for new tyres, and the cargo trailer for sale stand there side
+## by side in a marked bay each, off the street and the pavement, tongues to the street
+## (a pickup stops at the kerb in front of the bay, either way round, and the farmer
+## wheels the empty trailer out behind it by hand: Trailer.wheel_choice; a loaded one is
+## backed up to across the bevelled kerb, and pulled straight out onto the street), the
+## cargo trailer with its price board at the bay's front (in a wheeled trailer's way while
+## it stands: Trailer.WHEEL_POSTS). One of his that still stands unhitched in the
+## bay is not "at the market" (trailer_at_market): it has to be collected. At the Animal Market:
+## the loading pen by the gate, where a sheep, cow or horse bought at the market waits for
+## the farmer to put the rope on it (G) and lead it up his trailer's ramp. With no stock
+## trailer of his by the market the dealer brings it over himself the next morning for
+## DELIVERY_FEE (it waits in the pen meanwhile, and goes home with the morning as any
+## animal left away does: Animals._on_day_started), so nobody is ever stuck. An animal
+## brought to the market in the trailer sells for SALE_BONUS more than one sold off the
+## farm's list.
 
-## Where the trailers stand at the dealership: x, z and heading (degrees; 90: tongue
-## east). Clear of the zebra crossing, a pickup's length and more between them.
+## Where the trailers stand in the dealer's trailer bay: x, z (the axle) and heading
+## (degrees; 0: tongue south, to the street). One in each marked bay of the yard
+## (Town.TRAILER_BAY_LINES), tails short of its back edge, tongues short of the pavement;
+## Grandpa's in the east bay, nearest the dealer's.
 const SPOTS := {
-	&"trailer_stock": Vector3(236.2, 17.95, 90.0),
-	&"trailer_flat": Vector3(246.6, 17.95, 90.0),
+	&"trailer_stock": Vector3(223.0, 9.2, 0.0),
+	&"trailer_flat": Vector3(220.2, 9.2, 0.0),
 }
+## Where the cargo trailer's price board stands (x, z): at the bay's front beside its
+## tongue, turned to the street.
+const BOARD := Vector2(219.3, 12.85)
+## At the kerb in front of the bays: x, z and heading (degrees; -90: nose west, as the
+## traffic on that side goes).
+const KERB := Vector3(221.6, 17.75, -90.0)
 ## The loading pen: on the verge east of the market's gate, open to the pavement.
 const PEN := Rect2(252.6, 27.0, 2.8, 2.6)
 ## What the dealer takes to bring an animal out to the farm himself.
@@ -31,22 +46,33 @@ const ANCHOR := &"trailer_stock"
 const PEN_ANCHOR := &"loading_pen"
 
 
-## Puts the trailers out at the dealership (a loaded game moves the farmer's own to where
-## he left them) and the cargo trailer's price board beside it.
+## Puts the trailers out in the dealer's trailer bay (a loaded game moves the farmer's
+## own to where he left them) and the cargo trailer's price board beside it.
 static func spawn(town: Town) -> void:
+	var floor_y := Town.side_yard_top()
 	for kind: StringName in VehicleTable.TRAILERS:
-		var spot: Vector3 = SPOTS[kind]
-		var p := Vector3(spot.x, TerrainData.height(spot.x, spot.y) + 0.02, spot.y)
-		var t := Trailer.make(kind, Transform3D(Basis(Vector3.UP, deg_to_rad(spot.z)), p), true)
+		var t := Trailer.make(kind, bay_place(kind), true)
 		town.add_child(t)
 		t.reset_physics_interpolation()
 		if kind == &"trailer_stock":
 			WaypointMarker.tag(t.waypoint_roof(), ANCHOR)
 			t.waypoint_roof().add_to_group(&"waypoints")
 		else:
-			# On the pavement's edge beside it, turned to the street.
-			var board := _price_board(town, t, Vector3(spot.x + 0.9, TerrainData.height(spot.x + 0.9, 16.0) + 0.15, 16.0))
+			# At the bay's front beside its tongue, turned to the street.
+			var board := _price_board(town, t, Vector3(BOARD.x, floor_y, BOARD.y))
 			t.changed.connect(func() -> void: board.visible = not t.owned)
+
+
+## Where trailer `kind` stands in the dealer's trailer bay (SPOTS), on its concrete.
+static func bay_place(kind: StringName) -> Transform3D:
+	var spot: Vector3 = SPOTS[kind]
+	return Transform3D(Basis(Vector3.UP, deg_to_rad(spot.z)), Vector3(spot.x, Town.side_yard_top() + 0.02, spot.y))
+
+
+## Where a vehicle that a save left standing in a bay is put (Vehicle._leave_bay): at the
+## kerb in front of the bays, along the street.
+static func kerb_place() -> Transform3D:
+	return Transform3D(Basis(Vector3.UP, deg_to_rad(KERB.z)), Vector3(KERB.x, TerrainData.height(KERB.x, KERB.y) + 0.3, KERB.y))
 
 
 ## A yellow A-board with the price, turned to the street.
@@ -69,6 +95,9 @@ static func _price_board(town: Town, t: Trailer, base: Vector3) -> Node3D:
 	label.rotation.x = deg_to_rad(-8.0)
 	label.visibility_range_end = 60.0
 	root.visible = not t.owned
+	# It has no body: a trailer wheeled by hand goes round it all the same.
+	root.set_meta("post", Vector3(base.x, base.z, 0.6))
+	root.add_to_group(Trailer.WHEEL_POSTS)
 	return root
 
 
@@ -130,11 +159,19 @@ static func pen_center() -> Vector3:
 
 
 ## The farmer's stock trailer standing in town by the market (hitched or not), or null.
+## One still standing unhitched in the dealer's trailer bay is not there yet: it has to
+## be collected; on the pickup's ball it is with him, wherever in town the rig stands
+## (still at the bay across the street, too).
 static func trailer_at_market() -> Trailer:
 	for t in Trailer.every():
-		if t.owned and t.takes_animals() and t.global_position.distance_to(pen_center()) < MARKET_NEAR:
+		if t.owned and t.takes_animals() and t.global_position.distance_to(pen_center()) < MARKET_NEAR and (t.tow != null or not in_bay(t)):
 			return t
 	return null
+
+
+## Whether `t` stands in the dealer's trailer bay (Town.MARKET_SIDE_YARD).
+static func in_bay(t: Trailer) -> bool:
+	return Town.MARKET_SIDE_YARD.grow(0.5).has_point(Vector2(t.global_position.x, t.global_position.z))
 
 
 ## What bringing an animal out costs now: nothing with his trailer at the market.

@@ -335,10 +335,13 @@ func _land_in_water(at: Vector3) -> void:
 
 
 ## The fish that will bite this cast, as play rolls it: the bait on the hook, the hour,
-## the weather, the rod in hand and the fish landed since the last trophy.
+## the weather, the rod in hand and the fish landed since the last trophy; and a giant for
+## sure when the side goal "fishing pays" owes one (FishGoal.shape: it may ask this same
+## water again for a giant worth showing; otherwise the roll is made once, as ever).
 func roll_catch() -> Dictionary:
-	return FishTable.roll(bait, GameClock.get_hour_float(), Weather.is_raining(), _rng, rod_id(),
-			PlayerState.fish_since_trophy)
+	var ask := func() -> Dictionary:
+		return FishTable.roll(bait, GameClock.get_hour_float(), Weather.is_raining(), _rng, rod_id(), PlayerState.fish_since_trophy)
+	return SideStory.fish_goal.shape(ask.call(), ask)
 
 
 func _land_on_ground(at: Vector3) -> void:
@@ -411,6 +414,8 @@ func _on_fish_landed(info: Dictionary) -> void:
 	_announce(id, info)
 	# Landed at the town pond during the fishing contest: weighed for it.
 	FishingContest.player_caught(id, float(info.get("kg", 0.0)), player.global_position)
+	# One of the five of "fishing pays" (not at the contest).
+	SideStory.fish_goal.note_landed(id)
 	if state != State.STRIKE:
 		return
 	# The hook comes out: the float swings back up to the rod on the line.

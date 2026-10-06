@@ -1466,7 +1466,7 @@ func _event_now() -> EventCrowd:
 	if not SideStory.moved_in():
 		return null
 	var ev := EventCrowd.active(get_tree())
-	return ev if ev and not ev.zeynep_spot().is_empty() else null
+	return ev if ev and ev.zeynep_out() and not ev.zeynep_spot().is_empty() else null
 
 
 ## On the pavement in front of her garden gate; just inside the gate.
@@ -1501,7 +1501,8 @@ func _go_to_event(ev: EventCrowd, instant: bool) -> void:
 	zeynep.act = Townsperson.Act.STAND
 	zeynep.set_indoors(false)
 	where = &"event"
-	if instant or (not watched and _camera_pos().distance_to(to) > EventCrowd.SEEN):
+	# (to the contest she walks whoever sees it: it starts once everyone is there)
+	if not ev.zeynep_walks() and (instant or (not watched and _camera_pos().distance_to(to) > EventCrowd.SEEN)):
 		_at_event()
 		return
 	var path: Array[Vector3] = []

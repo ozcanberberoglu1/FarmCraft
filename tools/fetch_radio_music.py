@@ -11,6 +11,9 @@ rest of each station's list; see art/audio/CREDITS.md for the full credits):
   Radyo Yol     two easy country tunes for the road: Kevin MacLeod, incompetech.com (CC BY 4.0).
   Radyo Huzur   quiet piano: Satie's first Gymnopédie from Musopen (public domain; the file
                 on Wikimedia Commons).
+Four calm tunes for the farm's day music as well (Audio.DAY_MUSIC, in art/audio/music/;
+the owner approved them on 2026-10-06 in place of "Wind Leaves"): Kevin MacLeod,
+incompetech.com (CC BY 4.0).
 No account is needed for any of them. Every download is checked against the size (and,
 for Wikimedia Commons, the SHA-1) the source published.
 
@@ -67,6 +70,11 @@ TRACKS = {
     "music/radio/huzur_satie_gymnopedie_1.ogg": (
         COMMONS + "9/90/Erik_Satie_-_gymnopedies_-_la_1_ere._lent_et_douloureux.ogg",
         3696351, "96b2343c81047abd9723488d8540b5a2af688233"),
+    # --- The farm's day music: Kevin MacLeod, incompetech.com (CC BY 4.0) ---
+    "music/day_carpe_diem.ogg": (INCOMPETECH + "Carpe Diem.mp3", 9443931, None),
+    "music/day_laid_back_guitars.ogg": (INCOMPETECH + "Laid Back Guitars.mp3", 3906145, None),
+    "music/day_heartwarming.ogg": (INCOMPETECH + "Heartwarming.mp3", 2971312, None),
+    "music/day_bathed_in_the_light.ogg": (INCOMPETECH + "Bathed in the Light.mp3", 6765750, None),
 }
 
 
@@ -201,6 +209,9 @@ def set_seconds(lengths):
     for rel, seconds in lengths.items():
         row = re.compile(r'(\["%s", "[^"\n]*", )[0-9.]+(\])' % re.escape(rel))
         if not row.search(text):
+            if not rel.startswith("music/radio/"):
+                # A day track no station plays.
+                continue
             raise RuntimeError(f"{rel} is not in CarRadio.STATIONS ({RADIO_GD})")
         new = row.sub(lambda m: "%s%.2f%s" % (m.group(1), seconds, m.group(2)), text)
         changed += new != text

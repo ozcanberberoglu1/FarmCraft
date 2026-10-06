@@ -176,6 +176,10 @@ var _door_w := 0.0
 var _path: Array[Vector3] = []
 var _path_done := Callable()
 var _way_blocked := false
+## A walk_to() waits where she is while this is set (its way and callback kept: she goes
+## on when it is let go); a new walk, a stop or arriving lets it go (ContestCrowd: one
+## ahead of his time on the way to the pond).
+var walk_held := false
 ## talk(): seconds of the line left.
 var _talk_t := 0.0
 ## receive(): the thing (held once it is in her hands: a child of the body), seconds
@@ -434,6 +438,7 @@ func is_speaking() -> bool:
 func walk_to(points: Array[Vector3], on_arrive: Callable = Callable()) -> void:
 	_path = points.duplicate()
 	_path_done = on_arrive
+	walk_held = false
 	_yaw = rotation.y
 	_wait = 0.0
 	act = Act.WALK
@@ -454,6 +459,7 @@ func blocked_by_player() -> bool:
 func stop_walk() -> void:
 	_path.clear()
 	_path_done = Callable()
+	walk_held = false
 	_speed = 0.0
 	_way_blocked = false
 	if act == Act.WALK:
@@ -678,7 +684,7 @@ func _walk_path(delta: float) -> void:
 	var want := walk_speed
 	if last:
 		want = minf(walk_speed, to.length() * 1.3 + 0.12)
-	if _kneel > 0.0:
+	if _kneel > 0.0 or walk_held:
 		want = 0.0
 	var player := Game.player as Player
 	_way_blocked = false
@@ -711,6 +717,7 @@ func _walk_path(delta: float) -> void:
 
 func _arrive() -> void:
 	_path.clear()
+	walk_held = false
 	_speed = 0.0
 	_way_blocked = false
 	act = Act.STAND
