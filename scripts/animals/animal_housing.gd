@@ -554,13 +554,32 @@ func random_outdoor_point(rng: RandomNumberGenerator) -> Vector3:
 
 
 func random_indoor_point(rng: RandomNumberGenerator) -> Vector3:
-	var inner := building.grow(-0.9)
-	# Keep clear of the trough row along the back wall.
-	inner.position.y += 1.0
-	inner.size.y -= 1.0
+	var inner := open_floor()
 	var p := Vector2(rng.randf_range(inner.position.x, inner.end.x), rng.randf_range(inner.position.y, inner.end.y))
 	var w := frame * Vector3(p.x, 0.0, p.y)
 	w.y = _floor_at(TerrainData.height(w.x, w.z))
+	return w
+
+
+## The open floor inside the building (a rect of the frame): clear of the walls, of the
+## trough row along the back wall and of a coop's nest boxes along its west wall. Its
+## animals stand about and sleep there, in sight.
+func open_floor() -> Rect2:
+	var inner := building.grow(-0.9)
+	inner.position.y += 1.0
+	inner.size.y -= 1.0
+	return inner
+
+
+## `p` (in the building) brought onto its open floor: an animal bolting indoors keeps to
+## it, never in among the nest boxes or the troughs (where nobody would see it again).
+func keep_on_floor(p: Vector3) -> Vector3:
+	var f := open_floor()
+	var l := _inv * p
+	l.x = clampf(l.x, f.position.x, f.end.x)
+	l.z = clampf(l.z, f.position.y, f.end.y)
+	var w := frame * l
+	w.y = ground_height(w)
 	return w
 
 
@@ -634,6 +653,14 @@ func egg_spot(rng: RandomNumberGenerator) -> Vector3:
 		nb.y = _floor_at(TerrainData.height(nb.x, nb.z)) + 0.45
 		return nb
 	return random_outdoor_point(rng) + Vector3(0, 0.05, 0)
+
+
+## How full the feed and the water are, as one line ("Feed: 62% · Water: 40%"; "" before
+## the troughs stand): shown at a kit-built coop's door (CoopDoor).
+func levels_text() -> String:
+	if feed == null or water == null:
+		return ""
+	return "%s · %s" % [feed.level_text(), water.level_text()]
 
 
 ## Closed buildings have plumbing: the water trough refills every morning.

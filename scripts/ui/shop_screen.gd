@@ -86,6 +86,12 @@ func close_screen() -> void:
 	hide_screen()
 
 
+## The window is the Yeşilova Market's (the one shop that buys a pickup's load): the
+## story's grocer stands behind it (Quests' first seeds).
+func is_town_market() -> bool:
+	return bool(_shop.get("cargo", false))
+
+
 func _set_tab(tab: String) -> void:
 	_tab = tab
 	if _tabs.current != tab:

@@ -48,6 +48,10 @@ const SHARPNESS_SPATIAL := 1.2
 ## bark and far leaves do not glitter in motion.
 const MIP_BIAS_TEMPORAL := 0.35
 const MIP_BIAS_FXAA := 0.25
+## How long a day can be (real minutes, see day_length_minutes): a brisk one, the
+## default and a leisurely one.
+const DAY_LENGTHS: Array[float] = [8.0, 10.0, 12.0]
+const DEFAULT_DAY_LENGTH := 10.0
 
 ## First launch follows the system language (see detect_language).
 var language := ""
@@ -61,8 +65,10 @@ var music_volume := 0.55
 var effects_volume := 0.9
 var ambience_volume := 0.8
 var ui_volume := 0.7
-## Real-time minutes for one in-game hour span of 06:00-02:00 (20 game hours).
-var day_length_minutes := 15.0
+## Real-time minutes for one in-game day, 06:00-02:00 (20 game hours): one of
+## DAY_LENGTHS (the settings offer just these; a saved value from the old 5-40 slider
+## snaps to the nearest: snap_day_length).
+var day_length_minutes := DEFAULT_DAY_LENGTH
 var wolf_raids := Raids.NORMAL
 ## Big cartoon eyes on the poultry and the fish, and a few silly moments (ComicFx); off,
 ## the animals look as real as they can.
@@ -300,6 +306,15 @@ func game_minutes_per_second() -> float:
 	return (20.0 * 60.0) / maxf(day_length_minutes * 60.0, 1.0)
 
 
+## The day length on offer (DAY_LENGTHS) nearest to `minutes`.
+static func snap_day_length(minutes: float) -> float:
+	var best := DEFAULT_DAY_LENGTH
+	for option: float in DAY_LENGTHS:
+		if absf(option - minutes) < absf(best - minutes):
+			best = option
+	return best
+
+
 ## The game language closest to the system's (pt_PT -> pt_BR, zh_HK -> zh_TW, ...),
 ## English when there is none.
 static func detect_language() -> String:
@@ -325,7 +340,7 @@ func reset_defaults() -> void:
 	effects_volume = 0.9
 	ambience_volume = 0.8
 	ui_volume = 0.7
-	day_length_minutes = 15.0
+	day_length_minutes = DEFAULT_DAY_LENGTH
 	wolf_raids = Raids.NORMAL
 	comic_animals = true
 	test_shortcuts = true
@@ -344,7 +359,7 @@ func load_settings(path := PATH) -> void:
 	language = cfg.get_value("general", "language", language)
 	if language not in LANGUAGES:
 		language = ""
-	day_length_minutes = cfg.get_value("general", "day_length_minutes", day_length_minutes)
+	day_length_minutes = snap_day_length(float(cfg.get_value("general", "day_length_minutes", day_length_minutes)))
 	wolf_raids = clampi(cfg.get_value("general", "wolf_raids", wolf_raids), Raids.OFF, Raids.NORMAL) as Raids
 	comic_animals = bool(cfg.get_value("general", "comic_animals", comic_animals))
 	test_shortcuts = bool(cfg.get_value("general", "test_shortcuts", test_shortcuts))

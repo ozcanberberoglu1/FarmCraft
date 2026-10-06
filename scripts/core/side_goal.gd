@@ -1,8 +1,9 @@
 class_name SideGoal
 extends RefCounted
 ## A side goal up beside the story's and Zeynep's (SideStory.goals: the wolves' lesson, the
-## vet's): what its card says (a title with a glyph in its own colour, the goal, a hint
-## under it) and where its dot points. Its owner keeps it up to date (set); the HUD shows
+## vet's): what its card says (a title with a glyph in its own colour, the goal, what it
+## takes against what he has when it asks for things ("Wood 3/8 · $10/10 ✓": `needs`), a
+## hint under it) and where its dot points. Its owner keeps it up to date (set); the HUD shows
 ## a card and a dot for each one in SideStory.goals (a goal with no text shows neither).
 
 ## Its text, hint, dot or label changed (the HUD refreshes its card).
@@ -15,6 +16,9 @@ var glyph := "info"
 var color := Color.WHITE
 var text := ""
 var hint := ""
+## What the goal takes against what the farmer has ("Rod 1/1 ✓ · Bait 2/5"; "" for none):
+## a line of its own under the goal, always shown (a quiet goal's hint comes and goes).
+var needs := ""
 ## The line on the dot's pill (who or what it points at).
 var label := ""
 ## Where the dot points: a Vector3, a Node3D it follows, or null for no dot.
@@ -42,6 +46,14 @@ func set_goal(goal_text: String, goal_hint := "", where: Variant = null, where_l
 	hint = goal_hint
 	label = where_label
 	point = where
+	changed.emit()
+
+
+## Sets the requirements line under the goal; `changed` when it did.
+func set_needs(goal_needs: String) -> void:
+	if goal_needs == needs:
+		return
+	needs = goal_needs
 	changed.emit()
 
 

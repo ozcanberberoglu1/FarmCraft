@@ -9,10 +9,12 @@ extends ModalScreen
 ## "Show" that puts the dot over it) and the player picks one first.
 ## Opened while a story goal needs a project (Quests.board_project: the coop kit of the
 ## first day, the workbench kit of the second...), the board opens on that card: picked,
-## scrolled into view and tagged "Goal". While the first day's coop is still to be made
-## (Quests.coop_comes_first) everything else that costs money is locked ("the coop
-## first"), and a farmer whose money is gone gets that first coop kit for its wood alone
-## (Grandpa paid for it: Quests.coop_kit_is_gift), so the story never dead-ends here.
+## scrolled into view and tagged "Goal" (only as it opens: after that the list stays
+## where the player scrolls it, whatever is clicked or refreshed). While the first
+## day's coop is still to be made (Quests.coop_comes_first) everything else that costs
+## money is locked ("the coop first"), and a farmer whose money is gone gets that first
+## coop kit for its wood alone (Grandpa paid for it: Quests.coop_kit_is_gift), so the
+## story never dead-ends here.
 
 const GROUP_ICONS := {"field": "wheat", "animals": "paw", "house": "home", "storage": "warehouse", "workshop": "hammer"}
 
@@ -66,6 +68,7 @@ func open(focus: StringName = &"") -> void:
 		_selected = goal if goal != &"" else _first_open()
 	_refresh()
 	show_screen()
+	# Only here, as the board opens: the list goes to the card picked for the player.
 	_reveal_selected()
 
 
@@ -106,7 +109,21 @@ func _reveal_selected() -> void:
 ## Whether the board shows `id`: listed for this farm and not built by hand (the
 ## repairs of Grandpa's house and warehouse, see RepairSpot).
 static func on_board(id: StringName) -> bool:
+	if ProjectTable.needs_pet(id) and not Pet.has_dog():
+		# The doghouse: only once there is a dog to live in it.
+		return false
 	return FarmState.is_listed(id) and not ProjectTable.is_hands_on(id)
+
+
+## Whether the one `id` the farm needs stands already (the doghouse: put up, or going up).
+static func single_stands(id: StringName) -> bool:
+	var kit := ProjectTable.kit_of(id)
+	if not ProjectTable.is_single(id) or kit == &"":
+		return false
+	for e: Dictionary in FarmState.placed:
+		if StringName(e["id"]) == kit:
+			return true
+	return false
 
 
 ## The first project on the board that can be built now, else the first one not built
@@ -132,11 +149,11 @@ func close_screen() -> void:
 	hide_screen()
 
 
+## Builds the list and the detail again (something was built or paid for, a coop was
+## picked for the expansion). The list stays where it was scrolled to: its old rows leave
+## at once (_clear), so it is never taller or shorter than before on the way.
 func _refresh() -> void:
-	# The list is rebuilt: it stays where it was scrolled to (_keep_scroll).
-	var scrolled := _scroll.scroll_vertical
-	for c in _list.get_children():
-		c.queue_free()
+	_clear(_list)
 	_cards.clear()
 	var group := ""
 	for id: StringName in ProjectTable.ORDER:
@@ -144,31 +161,44 @@ func _refresh() -> void:
 			continue
 		var p := ProjectTable.get_project(id)
 		if p["group"] != group:
-			group = p["group"]
-			if _list.get_child_count() > 0:
+			# (a little room over every group but the first)
+			if group != "":
 				_list.add_child(UiTheme.spacer(6))
+			group = p["group"]
 			_list.add_child(UiTheme.section(tr("BUILD_GROUP_" + group.to_upper()), GROUP_ICONS.get(group, "")))
 		var card := _make_card(id)
 		_cards[id] = card
 		_list.add_child(card)
 	_show_detail(_selected)
-	if scrolled > 0:
-		_keep_scroll(scrolled)
 
 
-## Puts the list back where it was scrolled to once its rebuilt rows are laid out (the
-## old rows leaving would otherwise jump it back to the top).
-func _keep_scroll(to: int) -> void:
-	await get_tree().process_frame
-	await get_tree().process_frame
-	if visible:
-		_scroll.scroll_vertical = to
+## Takes `box`'s rows away: out of the layout at once, freed when the frame is over. Rows
+## only queued to be freed stand beside the new ones for a frame: the detail, twice as
+## tall for that frame, stretched the window and the list's view with it, and a view as
+## tall as the whole list has nothing to scroll: it went back to its top and stayed there.
+static func _clear(box: Container) -> void:
+	for c in box.get_children():
+		if c is CanvasItem:
+			(c as CanvasItem).visible = false
+		c.queue_free()
+
+
+## Picks project `id`: its card lit (the one picked before plain again) and its detail
+## shown. The list itself is left alone, so it stays where the player scrolled it.
+func _select(id: StringName) -> void:
+	var was := _selected
+	_selected = id
+	for other: StringName in [was, id]:
+		var card := _cards.get(other) as Button
+		if card and is_instance_valid(card):
+			_style_card(card, other == id)
+	_show_detail(id)
 
 
 func _status(id: StringName) -> String:
 	if ProjectTable.is_per_coop(id):
 		return "locked" if Progress.level < UnlockTable.project_level(id) or story_lock(id) != "" else "available"
-	if FarmState.is_built(id):
+	if FarmState.is_built(id) or single_stands(id):
 		return "built"
 	if not FarmState.can_build(id) or story_lock(id) != "":
 		return "locked"
@@ -181,17 +211,7 @@ func _make_card(id: StringName) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var status := _status(id)
-	var active := id == _selected
-	var normal := UiTheme.box(UiTheme.CARD_ACTIVE if active else UiTheme.CARD, 12, 1,
-			Color(UiTheme.GOLD, 0.7) if active else Color(1, 1, 1, 0.07))
-	if active:
-		normal.border_width_left = 4
-	var hover := normal.duplicate() as StyleBoxFlat
-	hover.bg_color = normal.bg_color.lightened(0.06) if active else UiTheme.CARD_HOVER
-	b.add_theme_stylebox_override("normal", normal)
-	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", hover)
-	b.add_theme_stylebox_override("hover_pressed", hover)
+	_style_card(b, id == _selected)
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	var row := HBoxContainer.new()
 	row.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -233,15 +253,27 @@ func _make_card(id: StringName) -> Button:
 				chip = UiTheme.price(0 if is_gift(id) else int(ProjectTable.get_project(id)["cost"]), 21)
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(chip)
-	b.pressed.connect(func() -> void:
-		_selected = id
-		_refresh())
+	b.pressed.connect(_select.bind(id))
 	return b
 
 
+## A project card's look: the one picked (`active`) lit, with a gold edge.
+func _style_card(b: Button, active: bool) -> void:
+	var normal := UiTheme.box(UiTheme.CARD_ACTIVE if active else UiTheme.CARD, 12, 1,
+			Color(UiTheme.GOLD, 0.7) if active else Color(1, 1, 1, 0.07))
+	if active:
+		normal.border_width_left = 4
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = normal.bg_color.lightened(0.06) if active else UiTheme.CARD_HOVER
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", hover)
+	b.add_theme_stylebox_override("hover_pressed", hover)
+	b.set_meta(&"active", active)
+
+
 func _show_detail(id: StringName) -> void:
-	for c in _detail.get_children():
-		c.queue_free()
+	_clear(_detail)
 	if id == &"":
 		return
 	var p := ProjectTable.get_project(id)
@@ -291,9 +323,7 @@ func _show_detail(id: StringName) -> void:
 			_detail.add_child(r)
 	var kit := ProjectTable.kit_of(id)
 	if kit != &"":
-		var info := PlaceableTable.get_info(kit)
-		var minutes := ceili(float(info.get("build_seconds", 60.0)) / 60.0)
-		_detail.add_child(UiTheme.icon_row(UiTheme.glyph("clock"), tr("BUILD_TIME_MIN") % minutes, UiTheme.TEXT, 20, 20))
+		_detail.add_child(UiTheme.icon_row(UiTheme.glyph("clock"), build_time_text(kit), UiTheme.TEXT, 20, 20))
 		_detail.add_child(UiTheme.paragraph(tr("BUILD_KIT_HINT"), 16, UiTheme.TEXT_MUTED, 510))
 		var have := PlayerState.inventory.count_item(kit)
 		if have > 0:
@@ -326,6 +356,15 @@ func _show_detail(id: StringName) -> void:
 
 ## Icon, name, have / need and a progress meter for one cost.
 ## `dollars`: the amounts are money (else counts of a material); no `tex`: no picture.
+## How long kit `kit` takes to go up if it is put down now: "about 1 min", or "about 10
+## seconds" for the story's first coop and workbench (Quests.build_seconds).
+func build_time_text(kit: StringName) -> String:
+	var secs := Quests.build_seconds(kit)
+	if secs < 60.0:
+		return tr("BUILD_TIME_SEC") % ceili(secs)
+	return tr("BUILD_TIME_MIN") % ceili(secs / 60.0)
+
+
 func _cost_row(tex: Texture2D, label: String, have: int, need: int, dollars := false) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)

@@ -1,7 +1,8 @@
 class_name TitleScreen
 extends ModalScreen
 ## Title screen over the live farm, filmed by a slowly circling camera: continue the
-## latest save, a new game, load, settings, quit, and the asset credits.
+## latest save (the newest of any slot, the autosave included: SaveGame.latest), a new
+## game, load, settings, quit (a game in progress is saved first), and the asset credits.
 
 const ORBIT_CENTER := Vector3(18, 0, -6)
 const ORBIT_RADIUS := 52.0
@@ -71,7 +72,7 @@ func _fill_buttons() -> void:
 	if latest != "":
 		specs.append(["UI_LOAD_GAME", "secondary", "folder", func() -> void: Game.hud.open_saves("load")])
 	specs.append(["SETTINGS_TITLE", "secondary", "gear", func() -> void: Game.hud.open_settings()])
-	specs.append(["UI_QUIT", "ghost", "exit", func() -> void: Game.quit_game()])
+	specs.append(["UI_QUIT", "ghost", "exit", func() -> void: SaveGame.save_and_quit()])
 	for spec: Array in specs:
 		var b := UiTheme.button(tr(spec[0]), spec[1], Vector2(420, 64), spec[2], 26)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT

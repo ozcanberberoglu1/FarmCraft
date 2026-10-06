@@ -13,6 +13,12 @@ const VEHICLES := {
 		## Modelled tyres, rims, brakes and steering wheel that replace the model's own
 		## (tools/build_pickup_hd.py, VehicleLook.add_detail).
 		"detail": "res://art/models/vehicles/pickup_90/hd_parts.glb",
+		## The modelled cab (dashboard, seats, door cards...: tools/blender/build_pickup_interior.py)
+		## that replaces the model's low-poly one, and how dusty and worn it is
+		## (vehicle_interior.gdshader).
+		"interior": "res://art/models/vehicles/pickup_90/interior.glb",
+		"interior_hides": ["UTLTRUCK90_Interior"],
+		"cab": {"dust": 0.12, "wear": 0.15},
 		"price": 550,
 		## vehicle_paint.gdshader parameters (the rest keep the shader's defaults): a
 		## metallic navy under a deep clear coat, only road dust low down.
@@ -106,6 +112,8 @@ const VEHICLES := {
 			"covers": ["Headlights_Glass", "Taillights_Glass"], "cover_tint": Color(0.93, 0.85, 0.66),
 			"cover_haze": 0.3},
 		"plate": "res://art/models/vehicles/plates/pickup_old.png",
+		## Thirty years of farm dust on the dash and the floor, the vinyl handled smooth.
+		"cab": {"dust": 0.7, "wear": 0.85},
 		## Old sealed-beam headlamps: warmer and weaker.
 		"lamp_color": Color(1.0, 0.84, 0.6),
 		"lamp_energy": 0.75,
@@ -127,6 +135,7 @@ const VEHICLES := {
 		"glass": {"grime": 0.3, "panes": ["Windshield", "Glass_Rear", "Glass_Driver", "Glass_Passenger", "Glass_Canopy"],
 			"wiped": "Windshield", "covers": ["Headlights_Glass", "Taillights_Glass"]},
 		"plate": "res://art/models/vehicles/plates/pickup_canopy.png",
+		"cab": {"dust": 0.3, "wear": 0.4},
 		"brakelights": ["Brakelights", "Lamp_Brake"],
 		"mass": 1540.0,
 		"engine_force": 4300.0,
@@ -156,6 +165,7 @@ const VEHICLES := {
 			"wiped": "Windshield", "covers": ["Headlights_Glass", "Taillights_Glass"], "cover_tint": Color(0.96, 0.9, 0.78),
 			"cover_haze": 0.18},
 		"plate": "res://art/models/vehicles/plates/pickup_stake.png",
+		"cab": {"dust": 0.5, "wear": 0.65},
 		"lamp_color": Color(1.0, 0.86, 0.64),
 		"lamp_energy": 0.85,
 		"mass": 1480.0,
@@ -194,6 +204,7 @@ const VEHICLES := {
 		"glass": {"grime": 0.25, "panes": ["Windshield", "Glass_Rear", "Glass_Driver", "Glass_Passenger"],
 			"wiped": "Windshield", "covers": ["Headlights_Glass", "Taillights_Glass"]},
 		"plate": "res://art/models/vehicles/plates/pickup_box.png",
+		"cab": {"dust": 0.25, "wear": 0.35},
 		"brakelights": ["Brakelights", "Lamp_Brake"],
 		"reverselights": ["Reverse_UCB", "Lamp_Reverse"],
 		"mass": 1720.0,
@@ -298,6 +309,7 @@ const VEHICLES := {
 		"glass": {"grime": 0.5, "clarity_loss": 0.24, "panes": ["Windshield", "Glass_"], "wiped": "Windshield",
 			"covers": ["Lens"], "cover_tint": Color(0.97, 0.94, 0.86), "cover_haze": 0.12},
 		"plate": "res://art/models/vehicles/plates/wagon.png",
+		"cab": {"dust": 0.4, "wear": 0.5},
 		## The cab runs from the dash to the tailgate; the door mirrors stand off the doors.
 		"body_shape": {"cab": Vector4(0.29, 1.0, 0.0, 1.26), "cab_half_w": 0.78, "cab_front": 1.6, "cab_width": 0.78,
 			"mirrors": Vector4(1.33, 1.47, 0.9, 1.02), "gap_x": 99.0, "bed_box": Vector4(0, 0, 0, 0),
@@ -358,6 +370,7 @@ const VEHICLES := {
 		"glass": {"grime": 0.55, "clarity_loss": 0.24, "panes": ["Windshield", "Glass_"], "covers": ["Lens"],
 			"cover_haze": 0.1},
 		"plate": "res://art/models/vehicles/plates/offroad.png",
+		"cab": {"dust": 0.55, "wear": 0.6},
 		"body_shape": {"cab": Vector4(0.62, 1.5, 0.0, 1.32), "cab_half_w": 0.82, "cab_front": 2.0, "cab_width": 0.82,
 			"mirrors": Vector4(2.55, 2.7, 1.35, 1.55), "gap_x": 99.0, "bed_box": Vector4(0, 0, 0, 0),
 			"low_band": Vector2(0.45, 1.0), "sill_band": Vector2(0.55, 0.85)},
@@ -416,6 +429,7 @@ const VEHICLES := {
 			"rubber": Color(0.15, 0.15, 0.15)},
 		"glass": {"grime": 0.4, "panes": ["Windshield", "Glass_"], "wiped": "Windshield", "covers": ["Lens"]},
 		"plate": "res://art/models/vehicles/plates/truck.png",
+		"cab": {"dust": 0.4, "wear": 0.45},
 		"body_shape": {"cab": Vector4(3.1, 1.6, 0.0, 0.8), "cab_half_w": 0.95, "cab_front": 3.95, "cab_width": 0.95,
 			"mirrors": Vector4(3.7, 3.9, 1.5, 1.9), "gap_x": 99.0, "bed_box": Vector4(0, 0, 0, 0),
 			"low_band": Vector2(0.55, 1.4), "sill_band": Vector2(0.6, 1.0)},

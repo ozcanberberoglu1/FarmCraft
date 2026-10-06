@@ -9,10 +9,11 @@ extends Dog
 ##              (Dog's roaming: sniffing, standing looking at him, sitting, lying down);
 ##              outside the farmhouse door while he is in the house. Left far behind out
 ##              of sight it catches up (CATCH_UP).
-##   &"home"    by its bed at the farmhouse while he is away (driving, off the farm); when
-##              he comes back on foot it runs to greet him, barking.
-##   &"bed"     asleep on its bed at night (NIGHT_FROM .. NIGHT_TO); grown (Pet.guards)
-##              it keeps watch by the animals instead:
+##   &"home"    by its doghouse (Pet.kennel; until one is built, its bed at the farmhouse)
+##              while he is away (driving, off the farm); when he comes back on foot it
+##              runs to greet him, barking.
+##   &"bed"     asleep in its doghouse (on its bed) at night (NIGHT_FROM .. NIGHT_TO); grown
+##              (Pet.guards) it keeps watch by the animals instead:
 ##   &"guard"   lying near the animals with its head up; wolves within WOLF_BARK: up,
 ##              facing the nearest, barking; one closer than WOLF_BACK_OFF it backs away
 ##              from (the wolves never go for it).
@@ -25,6 +26,19 @@ extends Dog
 ##              into his bag as any pickup does), once it has learnt to, or else
 ##              &"play": trotting about with it, dropping it, pouncing on it again, and
 ##              in the end leaving it lying.
+##   &"held"    picked up (G, AnimalHandler): in the farmer's arms in front of the view,
+##              sitting on his forearm, out of the world's goings-on (no body to bump
+##              into), looking about and up at him, wagging, now and then a happy whine.
+##   &"ride"    on the passenger seat of the vehicle he got into carrying it: sitting
+##              there, looking about and out, panting; out beside him with a bark when he
+##              gets out (leave_vehicle).
+##   &"wait"    left off the farm (he drove off without it, or walked LEFT_FAR away): it
+##              stays where it was left, pottering about, greets him when he comes back,
+##              and after Pet.WAIT_MINUTES goes home on its own (it is by its doghouse the
+##              next time he looks: never lost in town).
+## Off the farm with him (`out_with_him`: brought in the pickup or carried out, set down
+## there) it follows him as on the farm, by night too, until they are back on the farm. On
+## foot it never leaves the farm after him: he walks off, it turns home.
 ## Obstacles (walls, fences, the house) are felt for ahead (_steer) and never walked
 ## through. Cheap: a ground ray a tick, a ray ahead while it moves, a few probes five
 ## times a second while it heads somewhere, its choices four times a second.
@@ -53,6 +67,18 @@ const WOLF_BACK_OFF := 3.5
 const GUARD_OFF := 7.0
 ## Seconds between looks ahead for obstacles while heading somewhere.
 const PROBE := 0.2
+## Off the farm with him: he has left it once he is this far off (m), and is back this near.
+const LEFT_FAR := 45.0
+const BACK_NEAR := 35.0
+## Half the side of the patch it keeps to while it waits where it was left (m).
+const WAIT_PATCH := 2.2
+## In his arms: seconds between its looks up at him (and how long one lasts), between its
+## happy whines and its wriggles.
+const HELD_LOOK_EVERY := Vector2(3.0, 7.0)
+const HELD_LOOK_TIME := Vector2(1.6, 3.2)
+const HELD_WHINE_EVERY := Vector2(6.0, 14.0)
+## On the seat: seconds between its looks out of the side window and at the driver.
+const RIDE_LOOK_EVERY := Vector2(2.5, 6.0)
 
 var task: StringName = &"follow"
 ## Its size against Karamel's (Pet.size()).
@@ -64,6 +90,11 @@ var holding_ball := false
 var fetched := 0
 var played := 0
 var came := 0
+## The vehicle it rides in (&"ride").
+var vehicle: Vehicle
+## Set down off the farm (out of the pickup, out of his arms): out with him, until it is
+## back on the farm.
+var out_with_him := false
 
 var _task_t := 0.0
 var _going := false
@@ -86,6 +117,14 @@ var _post := Vector3.INF
 var _wolf: Node3D
 var _grow_t := 0.0
 var _ball_mesh: MeshInstance3D
+## Held or riding: seconds to its next look (at him, out of the window), how long the look
+## lasts, what it looks at (0 about, 1 at him, 2 out of the side window), and to its next whine.
+var _gaze_wait := 2.0
+var _gaze_t := 0.0
+var _gaze := 0
+var _whine_wait := 5.0
+## Going to its bed in the doghouse: it has reached the doorstep and goes in.
+var _at_door := false
 
 
 func _init() -> void:
@@ -136,7 +175,7 @@ static func on_farm(p: Vector3) -> bool:
 ## looks up and goes on.
 func whistled(heeded: bool) -> void:
 	_look_up = 1.6
-	if not heeded or task == &"carry":
+	if not heeded or task == &"carry" or is_carried():
 		return
 	if holding_ball:
 		_drop_ball(Vector3.ZERO)
@@ -147,6 +186,8 @@ func whistled(heeded: bool) -> void:
 
 ## "Sit!" (learnt): it sits where it is, looking up at him.
 func sit_down() -> void:
+	if is_carried():
+		return
 	if task != &"sit" and task != &"petted":
 		_after = task
 	_set_task(&"sit")
@@ -162,6 +203,8 @@ func puzzled() -> void:
 
 ## A pat: it sits and leans into the hand a moment.
 func petted_by(petter: Node3D) -> void:
+	if is_carried():
+		return
 	if holding_ball:
 		# It lets the ball drop to be petted.
 		_drop_ball(Vector3.ZERO)
@@ -182,7 +225,7 @@ func look_toward(p: Vector3) -> void:
 
 ## A ball thrown: it goes after it (not while he is away, nor with wolves to watch).
 func chase(b: Pickup) -> void:
-	if b == null or task == &"home" or (task == &"guard" and _wolf != null):
+	if b == null or task == &"home" or task == &"wait" or is_carried() or (task == &"guard" and _wolf != null):
 		return
 	if holding_ball:
 		return
@@ -214,9 +257,141 @@ func info_interact(_player: Node) -> void:
 	Pet.command_sit()
 
 
+# --- Carried, and riding along (AnimalHandler) ---------------------------------------------------
+
+## Whether G picks it up now (not with wolves to bark at).
+func can_carry() -> bool:
+	return task != &"held" and task != &"ride" and not (task == &"guard" and _wolf != null)
+
+
+## In his arms or on the seat: nothing in the world acts on it.
+func is_carried() -> bool:
+	return task == &"held" or task == &"ride"
+
+
+## Picked up into the farmer's arms: out of the world's goings-on (no body to bump into or
+## aim at, no shadow of a dog in mid air) until put down; the handler places it in front of
+## the view every frame (pose_held).
+func pick_up() -> void:
+	if holding_ball:
+		_drop_ball(Vector3.ZERO)
+	ball = null
+	_set_task(&"held")
+	_leave_world()
+	_gaze = 1
+	_gaze_t = 1.5
+	_gaze_wait = randf_range(HELD_LOOK_EVERY.x, HELD_LOOK_EVERY.y)
+	_whine_wait = randf_range(2.0, 5.0)
+	_sound("dog_whine", -10.0)
+
+
+## Set down at `p` facing `yaw`: on its feet in the world again, with him.
+func put_down(p: Vector3, yaw: float) -> void:
+	vehicle = null
+	_shape.set_deferred("disabled", false)
+	add_to_group(&"interactable")
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
+	rig.held = false
+	for mi in rig.meshes:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_yaw = yaw
+	global_transform = Transform3D(Basis(Vector3.UP, yaw), p)
+	out_with_him = not on_farm(p)
+	_floor_y = p.y
+	_speed = 0.0
+	reset_physics_interpolation()
+	_set_task(&"follow")
+	_look_up = 2.0
+
+
+## Onto the passenger seat of `v` (he got in carrying it): it rides along, sitting.
+func seat_in(v: Vehicle) -> void:
+	if task != &"held":
+		_leave_world()
+	vehicle = v
+	_set_task(&"ride")
+	_gaze = 0
+	_gaze_wait = randf_range(1.0, 2.5)
+	_place_on_seat()
+	reset_physics_interpolation()
+
+
+## Out of the vehicle with him: down at `p` facing `yaw`, with a bark for having arrived.
+func leave_vehicle(p: Vector3, yaw: float) -> void:
+	put_down(p, yaw)
+	_barks_left = 1
+	_bark_wait = 0.35
+
+
+## Its body out of the world while it is carried or rides.
+func _leave_world() -> void:
+	_shape.set_deferred("disabled", true)
+	remove_from_group(&"interactable")
+	# Moved per rendered frame (with the view, with the vehicle as it is drawn).
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	rig.held = true
+	for mi in rig.meshes:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_speed = 0.0
+	_want_speed = 0.0
+
+
+## The handler has just put it in front of the view: its pose for this frame (sitting on his
+## forearm, looking about, up at him for a moment now and then, wagging; a soft whine).
+func pose_held(delta: float) -> void:
+	_gaze_wait -= delta
+	_gaze_t -= delta
+	if _gaze_t <= 0.0:
+		_gaze = 0
+	if _gaze_wait <= 0.0:
+		_gaze_wait = randf_range(HELD_LOOK_EVERY.x, HELD_LOOK_EVERY.y)
+		_gaze_t = randf_range(HELD_LOOK_TIME.x, HELD_LOOK_TIME.y)
+		_gaze = 1
+	_whine_wait -= delta
+	if _whine_wait <= 0.0:
+		_whine_wait = randf_range(HELD_WHINE_EVERY.x, HELD_WHINE_EVERY.y)
+		_sound("dog_whine", -14.0)
+	_bark_cd = maxf(_bark_cd - delta, 0.0)
+	_mood()
+	rig.animate(delta, 0.0)
+
+
+## On the seat as the vehicle is drawn this frame.
+func _place_on_seat() -> void:
+	global_transform = vehicle.get_global_transform_interpolated() * vehicle.passenger_seat()
+	_yaw = global_rotation.y
+	_floor_y = global_position.y
+
+
+## Riding: on the seat, looking about, now out of the side window, now at the driver.
+func _ride(delta: float) -> void:
+	if vehicle == null or not is_instance_valid(vehicle) or not vehicle.is_inside_tree():
+		# The vehicle is gone from under it: down where it is.
+		var at := global_position
+		put_down(Vector3(at.x, TerrainData.height(at.x, at.z), at.z), _yaw)
+		return
+	_place_on_seat()
+	_gaze_wait -= delta
+	_gaze_t -= delta
+	if _gaze_t <= 0.0:
+		_gaze = 0
+	if _gaze_wait <= 0.0:
+		_gaze_wait = randf_range(RIDE_LOOK_EVERY.x, RIDE_LOOK_EVERY.y)
+		_gaze_t = randf_range(1.5, 4.0)
+		_gaze = 2 if randf() < 0.6 else 1
+	_mood()
+	rig.animate(delta, 0.0)
+
+
 # --- Frame ---------------------------------------------------------------------------------
 
 func _process(delta: float) -> void:
+	if task == &"held":
+		# Posed by the handler, right after it is put in front of the view (pose_held).
+		return
+	if task == &"ride":
+		_ride(delta)
+		return
 	super(delta)
 	if holding_ball:
 		_ball_mesh.global_position = _mouth_point()
@@ -227,6 +402,14 @@ func _physics_process(delta: float) -> void:
 	_mode_t += delta
 	_task_t += delta
 	_look_up -= delta
+	if is_carried():
+		# In his arms or on the seat: placed and posed per rendered frame (_process); only
+		# its growing goes on.
+		_think -= delta
+		if _think <= 0.0:
+			_think = 0.25
+			_decide()
+		return
 	_bark_cd = maxf(_bark_cd - delta, 0.0)
 	_sound_t -= delta
 	_notice_player(delta)
@@ -239,6 +422,8 @@ func _physics_process(delta: float) -> void:
 			_follow(delta)
 		&"home":
 			_stay_home(delta)
+		&"wait":
+			_roam(delta)
 		&"bed", &"guard":
 			_night_watch(delta)
 		&"come":
@@ -270,10 +455,33 @@ func _decide() -> void:
 		_grow_t = 5.0
 		if absf(Pet.size() - size) > 0.002:
 			grow()
+	if is_carried():
+		return
+	if out_with_him and on_farm(global_position):
+		out_with_him = false
 	var away := _away()
-	var night := _night_now()
+	var out := out_with_him
+	# Off the farm with him it keeps to him by night too (its bed is at the farm).
+	var night := _night_now() and not out
 	_wolf = _nearest_wolf() if task == &"guard" else null
+	if out and away:
+		# Left behind off the farm: it waits there a while, then goes home on its own.
+		if task != &"wait":
+			if holding_ball:
+				_drop_ball(Vector3.ZERO)
+			ball = null
+			_set_task(&"wait")
+			Pet.note_left()
+		elif Pet.wait_over():
+			_go_home()
+		return
 	match task:
+		&"wait":
+			# He is back: a run and a bark or two to greet him.
+			Pet.left_at = -1.0
+			_set_task(&"come")
+			_barks_left = 2
+			_bark_wait = 0.3
 		&"follow":
 			if away:
 				_set_task(&"home")
@@ -307,6 +515,9 @@ func _decide() -> void:
 
 
 func _set_task(t: StringName) -> void:
+	if task == &"wait" and t != &"wait":
+		# No longer left behind (he is back, it was whistled for, it went home).
+		Pet.left_at = -1.0
 	task = t
 	_task_t = 0.0
 	_going = false
@@ -314,7 +525,11 @@ func _set_task(t: StringName) -> void:
 	_stuck_t = 0.0
 	_mouth_t = 0.0
 	_play_goal = Vector3.INF
+	_at_door = false
 	home_area = _home_area() if t == &"home" else Rect2()
+	if t == &"wait":
+		# The patch it keeps to where it was left.
+		home_area = Rect2(global_position.x - WAIT_PATCH, global_position.z - WAIT_PATCH, WAIT_PATCH * 2.0, WAIT_PATCH * 2.0)
 	if mode != &"roam":
 		set_mode(&"roam")
 	else:
@@ -332,12 +547,45 @@ func _night_task() -> StringName:
 	return &"guard" if Pet.guards() else &"bed"
 
 
-## The farmer away: driving, or off the farm's valley (gone to town).
+## The farmer away: driving (without it), or, the dog on the farm, off the farm's valley
+## (gone to town); off the farm with him, once he has gone LEFT_FAR from it (back again
+## within BACK_NEAR; whistled for, it comes from as far as it heard him).
 func _away() -> bool:
 	var p := Game.player as Player
 	if p == null or not is_instance_valid(p):
 		return true
-	return p.driving != null or not on_farm(p.global_position)
+	if p.driving != null:
+		return true
+	if not out_with_him:
+		return not on_farm(p.global_position)
+	var limit := LEFT_FAR
+	if task == &"wait":
+		limit = BACK_NEAR
+	elif task == &"come":
+		limit = Pet.WHISTLE_RANGE + 10.0
+	return _flat(p.global_position - global_position).length() > limit
+
+
+## It has waited long enough where it was left: home to its doghouse (its bed), once nobody
+## is looking at it.
+func _go_home() -> void:
+	if _on_screen.is_on_screen() and _camera_pos().distance_to(global_position) < 70.0:
+		return
+	send_home()
+	Pet.note_home()
+
+
+## Straight to its place at the farm (the doghouse's doorstep, its bed), whatever it was doing.
+func send_home() -> void:
+	if is_carried():
+		return
+	if holding_ball:
+		_drop_ball(Vector3.ZERO)
+	ball = null
+	Pet.left_at = -1.0
+	out_with_him = false
+	_warp(Pet.home_point())
+	_set_task(&"home")
 
 
 # --- The day ---------------------------------------------------------------------------------
@@ -402,24 +650,30 @@ func _warp(at: Vector3) -> void:
 	reset_physics_interpolation()
 
 
-## Its patch round the bed while the farmer is away (x, z rect: in front of the house).
+## Its patch while the farmer is away (x, z rect): in front of its doghouse, or round its
+## bed in front of the house.
 func _home_area() -> Rect2:
+	if Pet.kennel != null:
+		var c := Pet.kennel.yard_point()
+		return Rect2(c.x - 2.3, c.z - 2.3, 4.6, 4.6)
 	var bed := Pet.bed_point()
 	return Rect2(bed.x - 1.4, bed.z - 0.8, 4.2, 4.0)
 
 
-## By its bed while he is away (back there first), roaming its patch.
+## By its doghouse (its bed) while he is away (back there first), roaming its patch.
 func _stay_home(delta: float) -> void:
-	var bed := Pet.bed_point()
+	var bed := Pet.home_point()
 	if not _home_area().grow(-0.5).has_point(Vector2(global_position.x, global_position.z)):
 		var d := _flat(bed - global_position).length()
 		var cam := _camera_pos()
+		# (Beside the bed by the house; on the doghouse's doorstep.)
+		var beside := bed if Pet.kennel != null else bed + Vector3(1.4, 0.0, 1.2)
 		if d > 30.0 and not _on_screen.is_on_screen() and cam.distance_to(bed) > 30.0:
-			_warp(bed + Vector3(1.4, 0.0, 1.2))
+			_warp(beside)
 			return
 		_steer(bed, (TROT if d > 8.0 else WALK) * size, delta)
 		if _stuck_t > 6.0 and not _on_screen.is_on_screen():
-			_warp(bed + Vector3(1.4, 0.0, 1.2))
+			_warp(beside)
 		return
 	_roam(delta)
 
@@ -440,19 +694,45 @@ func _night_watch(delta: float) -> void:
 			_sound_t = randf_range(0.7, 1.4)
 			bark()
 		return
+	var in_kennel := task == &"bed" and Pet.kennel != null
 	if not _settled:
 		var d := _flat(spot - global_position).length()
-		if d > 0.3 and _stuck_t < 5.0 and _task_t < 120.0:
+		if d > (0.12 if in_kennel else 0.3) and _stuck_t < 5.0 and _task_t < 120.0:
 			_act = Act.STAND
-			_steer(spot, (TROT if d > 6.0 else WALK) * size, delta)
+			if in_kennel and not _at_door:
+				# To its doorstep first, then in through the door.
+				var step := Pet.kennel.porch_point()
+				var ds := _flat(step - global_position).length()
+				if ds < 0.3 or Pet.kennel.in_doorway(global_position):
+					_at_door = true
+				else:
+					_steer(step, (TROT if ds > 6.0 else WALK) * size, delta)
+			else:
+				_steer(spot, (TROT if d > 6.0 else WALK) * size, delta)
 			if d > 30.0 and not _on_screen.is_on_screen() and _camera_pos().distance_to(spot) > 30.0:
 				_warp(spot)
+				_face_out()
 			return
+		if in_kennel and d > 0.5 and not _on_screen.is_on_screen():
+			# It never found its way in (something in the way): it is in there all the same.
+			_warp(spot)
+			_face_out()
 		_settled = true
-		_start_act(Act.LIE)
+		_start_act(Act.STAND if in_kennel else Act.LIE)
 	_want_speed = 0.0
+	if in_kennel and rig.lie_amount() < 0.05 and not _facing(Pet.kennel.porch_point(), 0.25):
+		# Round to face out of the door before it lies down.
+		_act = Act.STAND
+		_turn_to(Pet.kennel.porch_point(), delta * 1.6)
+		return
 	_act = Act.LIE
 	_act_t += delta
+
+
+## Turned at once to look out of its doghouse's door.
+func _face_out() -> void:
+	if Pet.kennel != null:
+		look_toward(Pet.kennel.porch_point())
 
 
 ## Where it keeps watch: from the animals GUARD_OFF toward the farmhouse.
@@ -707,6 +987,9 @@ func _place_collider() -> void:
 func _mood() -> void:
 	super()
 	var p := _player_pos()
+	if is_carried():
+		_mood_carried()
+		return
 	match task:
 		&"follow", &"home":
 			if _going or _speed > 0.3:
@@ -715,7 +998,7 @@ func _mood() -> void:
 				rig.head_rest = false
 				rig.wag = maxf(rig.wag, 0.6)
 		&"bed":
-			if _settled:
+			if _settled and _act == Act.LIE:
 				rig.pose = DogRig.Pose.LIE
 				rig.head_rest = _act_t > 3.0
 				rig.wag = 0.0 if rig.head_rest else 0.3
@@ -765,3 +1048,31 @@ func _mood() -> void:
 		rig.look_at_point = p + Vector3(0, 1.4, 0)
 		rig.head_rest = false
 		rig.wag = maxf(rig.wag, 0.7)
+
+
+## In his arms, on the seat: sitting up, happy; its eyes about, on him, out of the window.
+func _mood_carried() -> void:
+	rig.pose = DogRig.Pose.SIT
+	rig.nose_down = 0.0
+	rig.head_rest = false
+	rig.chewing = false
+	rig.lean = 0.0
+	rig.look_at_point = Vector3.INF
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if task == &"held":
+		rig.wag = 0.85
+		rig.ears_back = 0.6 if _gaze == 1 else 0.3
+		rig.panting = _gaze == 1
+		if _gaze == 1 and cam:
+			# Up at his face (a little above the eyes he looks out of).
+			rig.look_at_point = cam.global_position + cam.global_basis.y * 0.06
+	else:
+		rig.wag = 0.55
+		rig.ears_back = 0.0
+		rig.panting = true
+		if _gaze == 1 and vehicle:
+			rig.look_at_point = vehicle.driver_eye_global()
+		elif _gaze == 2:
+			# Out of its own window: off to the side it sits on, a little ahead.
+			var side := global_basis.x * (1.0 if to_local(vehicle.global_position).x < 0.0 else -1.0) if vehicle else global_basis.x
+			rig.look_at_point = global_position + side * 4.0 - global_basis.z * 2.0 + Vector3(0, 0.5 * size, 0)

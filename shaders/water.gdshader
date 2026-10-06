@@ -141,3 +141,32 @@ void fragment() {
 	ROUGHNESS = mix(mix(0.03, 0.08, wetness), 0.5, snow_amount);
 	SPECULAR = 0.5 * (1.0 - refl.a * 0.85);
 }
+
+
+// The sun (or the moon, a lamp) on the water. A pond's surface is close to a mirror
+// (ROUGHNESS 0.03), and the engine's own highlight on a mirror is a pinpoint many
+// times brighter than the sky: with the glow on it blew out into a white, blooming
+// blob in the afternoon and at sunset. Here the highlight is a glitter path, a little
+// wider than the mirror's (GLINT_ROUGHNESS) and never brighter than GLINT_MAX, so it
+// reads as bright water and stays under what the glow spreads.
+const float GLINT_ROUGHNESS = 0.075;
+const float GLINT_MAX = 0.6;
+
+void light() {
+	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	DIFFUSE_LIGHT += ndl * ATTENUATION * LIGHT_COLOR / PI;
+	vec3 h = normalize(VIEW + LIGHT);
+	float ndh = clamp(dot(NORMAL, h), 0.0, 1.0);
+	float a = max(ROUGHNESS, GLINT_ROUGHNESS);
+	float a2 = a * a * a * a;
+	float den = ndh * ndh * (a2 - 1.0) + 1.0;
+	float d = a2 / (PI * den * den);
+	float f = 0.02 + 0.98 * pow(1.0 - clamp(dot(VIEW, h), 0.0, 1.0), 5.0);
+	vec3 glint = d * f * 0.25 * ndl * ATTENUATION * LIGHT_COLOR / PI;
+	float peak = max(glint.r, max(glint.g, glint.b));
+	if (peak > GLINT_MAX) {
+		glint *= GLINT_MAX / peak;
+	}
+	SPECULAR_LIGHT += glint;
+}
+

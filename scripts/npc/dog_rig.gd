@@ -113,6 +113,9 @@ var lie_reach := LIE_REACH
 ## paws drawn this much bigger than the model's, about their joints (1: as modelled).
 var head_scale := 1.0
 var paw_scale := 1.0
+## Carried in the farmer's arms or riding on a seat (PetDog): the paws go with the body, set
+## on its own floor (the rig's y = 0), never left planted in the world behind it.
+var held := false
 
 var _b := {}  # rig bone -> bone index
 var _conv := {}  # bone index -> [A, C, parent rest basis inverse]
@@ -665,6 +668,19 @@ func _duty() -> float:
 ## Standing, a paw left off its place steps back to it at its turn and the clock stops
 ## once all stand square.
 func _update_gait(delta: float, speed: float, xf: Transform3D) -> void:
+	if held:
+		_trot = 0.0
+		_gamp = move_toward(_gamp, 0.0, delta * 3.0)
+		for leg: String in _legs:
+			var L: Dictionary = _legs[leg]
+			var n: Vector3 = L["foot0"]
+			L["cur"] = n
+			L["lock"] = xf * n
+			L["planted"] = true
+			L["swing"] = false
+			L["phi"] = L["phi0"]
+			L["curl"] = 0.0
+		return
 	var v := maxf(speed, 0.0)
 	var moving := v > 0.04
 	_trot = move_toward(_trot, 1.0 if v > trot_from else 0.0, delta * 2.5)

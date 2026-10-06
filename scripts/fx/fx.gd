@@ -73,7 +73,26 @@ static func warm_up(at: Vector3) -> void:
 		for id: StringName in [&"wood", SaplingGrove.ITEM]:
 			if ItemDB.has_item(id):
 				warm_pickup(id, at)
+		# What a ripe bed pops when it is reaped: every crop's produce and its byproduct
+		# (wheat's hay). The first wheat harvest of a session stalled for over a second on
+		# the frame its sheaves were first drawn.
+		for id: StringName in harvest_drops():
+			warm_pickup(id, at)
 	_warming = false
+
+
+## The items the beds drop at harvest: each crop's produce and its byproduct, once each.
+static func harvest_drops() -> Array[StringName]:
+	var out: Array[StringName] = []
+	for crop: StringName in CropTable.CROPS:
+		var d: Dictionary = CropTable.CROPS[crop]
+		var ids: Array[StringName] = [d.get("item", crop)]
+		if d.has("extra"):
+			ids.append((d["extra"] as Array)[0])
+		for id in ids:
+			if ItemDB.has_item(id) and not out.has(id):
+				out.append(id)
+	return out
 
 
 ## Builds an item's pickup model and draws it for a moment, tiny and moving as a thrown

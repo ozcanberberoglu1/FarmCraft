@@ -38,3 +38,15 @@ wheel (tools/build_pickup_hd.py) fitted to each tyre size; the tractor's bar-lug
 ribbed tyres, rims and lettering are modelled in build_tractor.py (lettering in Barlow
 Condensed Bold, SIL Open Font License 1.1). No outside assets; Turkish number plates
 by tools/make_vehicle_plates.py.
+
+## The pickup's cab (pickup_90/interior.glb) and the cabs' textures (art/textures/cab)
+
+The pickup's cab interior (dashboard with its instruments, vents, radio and heater
+panel, steering column, seats, door cards, console, pedals, matting, headliner, sun
+visors, mirror, seat belts and the trim round them) is modelled for this game by
+tools/blender/build_pickup_interior.py with the shared cab kit tools/blender/cab_kit.py
+(Blender, headless) and replaces the downloaded model's low-poly cab. The grain sets of
+every cab (moulded plastic, vinyl, woven cloth, ribbed rubber, perforated headliner) and
+the sheet of printed faces (dials, radio, heater panel, speaker grille, gear pattern,
+visor label) are drawn by tools/make_cab_textures.py (noise, weaves and line drawing;
+lettering in Barlow Condensed Bold, art/fonts, SIL Open Font License 1.1). No outside assets.

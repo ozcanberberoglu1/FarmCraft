@@ -24,9 +24,13 @@ extends Node3D
 ##                     then gives up too.
 ##   &"howl"           stops, sits and howls, now and then, until told otherwise.
 ##   &"flee"           runs flat out, tail tucked, to `target` (a Vector3 far off) and is
-##                     gone (freed) when there or out of sight far away.
+##                     gone (freed) when there or out of sight far away. Held up on the way
+##                     (`stuck`: a fence corner, a door shut on it) it tries another way out
+##                     of the valley, and is gone as soon as nobody is looking at it (or the
+##                     farmer is far off): none is left standing on the farm.
 ## It never goes into a building (save the open coop or barn of a hunted animal or of the
-## farmer), keeps FIRE_KEEP off
+## farmer); in one it has no more business in (its prey taken, told to prowl or to go) it
+## first trots back out by the door it came in by (_leave_building). It keeps FIRE_KEEP off
 ## a burning campfire, out of the pond and out of town. It steers round what is in its
 ## way by short rays (fences, walls, trees, rocks), round a vehicle by its corners, and
 ## keeps its distance from the rest of the pack. It never steps into a vehicle (its body
@@ -118,6 +122,13 @@ const VEHICLE_BERTH := 0.9
 ## going for the farmer).
 const LEAP_HEIGHT := 1.3
 const LEAP_TIME := 0.55
+## Fleeing: it has got nowhere (under STUCK_MOVE m) for STUCK_TIME s: stuck. Stuck, or
+## still not away after FLEE_LONG s, it is gone once the farmer isn't looking at it or is
+## GONE_FAR m off (he never sees one stand about, or vanish).
+const STUCK_MOVE := 2.0
+const STUCK_TIME := 5.0
+const FLEE_LONG := 40.0
+const GONE_FAR := 60.0
 ## A carcass goes after this many game hours (when nobody is looking at it).
 const CARCASS_HOURS := 6.0
 const ANIMATE_RANGE := 70.0
@@ -201,6 +212,14 @@ var _path: Array[Vector3] = []
 var _inside_ok: AnimalHousing = null
 ## The building its waypoints lead into or out of (after the farmer).
 var _path_for: AnimalHousing = null
+## The building it is on its way out of by the door (_leave_building).
+var _leaving: AnimalHousing = null
+## Fleeing and getting nowhere (see STUCK_TIME): where it last got on from, for how long
+## it has not since, and how often it turned another way.
+var stuck := false
+var _stuck_from := Vector3.INF
+var _stuck_t := 0.0
+var _stuck_turns := 0
 
 
 func _init() -> void:
@@ -280,6 +299,11 @@ func set_goal(new_goal: StringName, new_target: Variant = null) -> void:
 		_path.clear()
 		_path_for = null
 		_inside_ok = null
+		_leaving = null
+		stuck = false
+		_stuck_from = Vector3.INF
+		_stuck_t = 0.0
+		_stuck_turns = 0
 		_release_turn()
 		_going_in = false
 		_back_off = 0.0
@@ -474,9 +498,11 @@ func _physics_process(delta: float) -> void:
 		&"idle":
 			_want_speed = 0.0
 		&"approach":
-			_approach(delta)
+			if not _leave_building(delta):
+				_approach(delta)
 		&"prowl":
-			_prowl(delta, _target_point())
+			if not _leave_building(delta):
+				_prowl(delta, _target_point())
 		&"hunt":
 			_hunt(delta)
 		&"attack_player":
@@ -620,6 +646,15 @@ func _hunt(delta: float) -> void:
 	var housing := n.get("housing") as AnimalHousing
 	var indoors: Variant = n.get("indoors")
 	var inside := indoors is bool and bool(indoors)
+	# In a building its prey isn't in (it got out, or is another coop's): out by the door.
+	var mine := _housing_at(global_position)
+	if (mine != null or _leaving != null) and not (inside and housing != null and housing == (mine if mine else _leaving)):
+		if _leave_building(delta):
+			return
+	elif _leaving != null:
+		# Its prey is back in here: it stays.
+		_leaving = null
+		_path.clear()
 	if inside and housing and housing.level >= 2:
 		if not housing.can_pass():
 			# Shut in: round the building, nose to the ground; no way in.
@@ -897,17 +932,88 @@ func _howl(delta: float) -> void:
 		_howl_t = HOWL_TIME
 
 
-## Away to `target` flat out, tail tucked; gone when there or far off unseen.
+## Away to `target` flat out, tail tucked (out of a coop or barn by its door first); gone
+## when there or far off unseen. The safety net: one that gets nowhere (`stuck`: it turns
+## another way out of the valley) or is still about after FLEE_LONG s is gone as soon as
+## the farmer isn't looking at it, or is far off (unwatched).
 func _flee(delta: float) -> void:
 	var p := _target_point()
 	if not p.is_finite():
 		p = flee_point(global_position)
 		target = p
+	var out := _leave_building(delta)
+	if not out:
+		_steer_to(p, RUN, delta, true)
+	_watch_stuck(delta, out)
 	var d := _flat(p - global_position).length()
-	_steer_to(p, RUN, delta, true)
-	var far_unseen := _camera_pos().distance_to(global_position) > 60.0 and not _on_screen.is_on_screen()
-	if d < 2.5 or (far_unseen and _goal_t > 3.0) or _goal_t > 90.0:
+	var far := _camera_pos().distance_to(global_position) > GONE_FAR
+	if d < 2.5 or (far and not _on_screen.is_on_screen() and _goal_t > 3.0):
 		queue_free()
+	elif (stuck or _goal_t > FLEE_LONG) and unwatched():
+		queue_free()
+
+
+## Fleeing: has it got anywhere lately? Not for STUCK_TIME s: `stuck`, and (out in the
+## open: `indoors` is on its way out of a building) it heads for the valley's rim another
+## way round, further each time.
+func _watch_stuck(delta: float, indoors: bool) -> void:
+	if not _stuck_from.is_finite() or _flat(global_position - _stuck_from).length() >= STUCK_MOVE:
+		_stuck_from = global_position
+		_stuck_t = 0.0
+		stuck = false
+		return
+	_stuck_t += delta
+	if _stuck_t < STUCK_TIME:
+		return
+	stuck = true
+	_stuck_t = 0.0
+	if indoors:
+		return
+	_stuck_turns += 1
+	var side := _ring_dir if _stuck_turns % 2 == 1 else -_ring_dir
+	var dir := _flat(global_position).normalized().rotated(Vector3.UP, side * minf(0.8 * float(_stuck_turns), 2.6))
+	if dir == Vector3.ZERO:
+		dir = Vector3.RIGHT
+	var to := dir * (LAND_RADIUS - 5.0)
+	target = Vector3(to.x, TerrainData.height(to.x, to.z), to.z)
+	_detour = INF
+
+
+## Nobody is looking at it: off the farmer's screen, or GONE_FAR m and more from him.
+func unwatched() -> bool:
+	return not _on_screen.is_on_screen() or _camera_pos().distance_to(global_position) > GONE_FAR
+
+
+## In a coop or barn it has no business in any more (its prey taken, the raid over, told
+## to prowl or to go): out at a trot by the door it came in by, before anything else (true
+## while it is on its way out). A door shut on it meanwhile keeps it in: it waits there.
+func _leave_building(delta: float) -> bool:
+	var mine := _housing_at(global_position)
+	if mine != null and _leaving != mine:
+		_leaving = mine
+		_path_for = mine
+		_path.assign([mine.door_inside(), mine.door_outside()])
+		# Already in the doorway: straight on out.
+		var l := mine.flat(global_position)
+		if absf(l.x - mine.door_x()) < 0.35 and l.y > mine.flat(mine.door_inside()).y:
+			_path.pop_front()
+	if _leaving == null:
+		return false
+	while not _path.is_empty() and _flat(_path[0] - global_position).length() < 0.6:
+		_path.pop_front()
+	if _path.is_empty():
+		_leaving = null
+		_path_for = null
+		_inside_ok = null
+		return false
+	_inside_ok = _leaving
+	_windup_t = -1.0
+	if mine != null and not mine.can_pass():
+		_want_speed = 0.0
+		_turn_to(mine.door_outside(), delta)
+		return true
+	_steer_to(_path[0], TROT, delta)
+	return true
 
 
 ## A point far off in the forest, away from `from` and the farm.

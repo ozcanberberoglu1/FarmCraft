@@ -99,7 +99,7 @@ void fragment() {
 	ALPHA = alpha;
 	ALPHA_SCISSOR_THRESHOLD = alpha_cut;
 	ALPHA_ANTIALIASING_EDGE = 0.0;
-	ROUGHNESS = mix(roughness, 0.4, wetness);
+	ROUGHNESS = mix(roughness, 0.56, wetness);
 	// No sheen where the crown turns away from the camera (against the sun it would
 	// blow up into grey leaves).
 	SPECULAR = specular * clamp(dot(v_crown, VIEW) * 2.0 + 0.3, 0.0, 1.0);

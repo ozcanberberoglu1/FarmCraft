@@ -1,7 +1,8 @@
 class_name PauseMenu
 extends ModalScreen
 ## Esc menu over the blurred game: resume, save, load, settings, back to the title
-## screen or quit, beside a card summarising the farm today.
+## screen or quit (both save the game first: SaveGame's autosave), beside a card
+## summarising the farm today.
 
 var _summary: VBoxContainer
 
@@ -34,7 +35,7 @@ func _ready() -> void:
 			["UI_LOAD_GAME", "secondary", "folder", func() -> void: Game.hud.open_saves("load")],
 			["SETTINGS_TITLE", "secondary", "gear", func() -> void: Game.hud.open_settings()],
 			["UI_MAIN_MENU", "secondary", "home", _to_title],
-			["UI_QUIT", "ghost", "exit", func() -> void: Game.quit_game()]]:
+			["UI_QUIT", "ghost", "exit", func() -> void: SaveGame.save_and_quit()]]:
 		var b := UiTheme.button(tr(spec[0]), spec[1], Vector2(420, 56), spec[2], 23)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.pressed.connect(spec[3])
@@ -87,5 +88,6 @@ func _fill_summary() -> void:
 
 
 func _to_title() -> void:
+	SaveGame.autosave_for_title()
 	hide_screen()
 	Game.hud.show_title()

@@ -3,9 +3,10 @@ extends StaticBody3D
 ## The plank door of a kit-built coop, hung on its left jamb. E opens and shuts it
 ## (AnimalHousing.door_open, saved with the coop); shut, the hens inside stay in and
 ## the ones outside wait by the ramp. With a crated hen in hand, E lets her out into
-## the coop instead. The node sits on the hinge and stays put: the leaf (its mesh and
-## its collider) swings outward to lie back against the front wall, and the open
-## doorway answers for the door too (a walk-through target on the interaction layer).
+## the coop instead. Under its prompt it tells how full the feeder and the waterer are.
+## The node sits on the hinge and stays put: the leaf (its mesh and its collider) swings
+## outward to lie back against the front wall, and the open doorway answers for the door
+## too (a walk-through target on the interaction layer).
 
 const OPEN_ANGLE := -PI * 0.94
 const SWING_TIME := 0.5
@@ -88,6 +89,11 @@ func interact_prompt(_player: Node) -> String:
 	if held_crate() != &"":
 		return release_prompt()
 	return tr("ACTION_COOP_DOOR_CLOSE") if housing.door_open else tr("ACTION_COOP_DOOR_OPEN")
+
+
+## Under the door's prompt: how full the coop's feeder and waterer are.
+func hint_prompt() -> String:
+	return housing.levels_text() if housing else ""
 
 
 ## "Let the hen in" / "Let the rooster in", by the crate in hand.
@@ -210,3 +216,6 @@ class Doorway extends StaticBody3D:
 
 	func interact(player: Node) -> void:
 		door.interact(player)
+
+	func hint_prompt() -> String:
+		return door.hint_prompt()

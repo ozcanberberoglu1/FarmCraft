@@ -2,7 +2,7 @@ class_name Trough
 extends StaticBody3D
 ## Feed or water trough. The player fills it with the right item (or the watering
 ## can); animals eat and drink rations from it. Open-air water troughs refill in
-## the rain.
+## the rain. Looked at, it tells how full it is ("Feed: 62%", "Water: 40%": hint_prompt).
 
 signal changed
 ## The farmer filled it (feed or water poured in by hand).
@@ -148,6 +148,18 @@ func is_empty() -> bool:
 	return amount < 0.05
 
 
+## How full it is, in whole percent (0 only when there is nothing in it at all).
+func percent() -> int:
+	if is_empty() or capacity <= 0:
+		return 0
+	return clampi(roundi(amount / float(capacity) * 100.0), 1, 100)
+
+
+## Its level as a line of text: "Feed: 62%" or "Water: 40%".
+func level_text() -> String:
+	return tr("TROUGH_WATER_LEVEL" if kind == Kind.WATER else "TROUGH_FEED_LEVEL") % percent()
+
+
 ## How far either side of its middle an animal may stand along it to eat or drink.
 func reach() -> float:
 	return 0.7 if long else maxf(0.15, _length * 0.5 - 0.3)
@@ -173,6 +185,11 @@ func rain(hours: float) -> void:
 
 func interact_prompt(_player: Node) -> String:
 	return ""
+
+
+## How full it is, as a plain line under the prompt (whatever is in the hand).
+func hint_prompt() -> String:
+	return level_text()
 
 
 func use_prompt(_player: Node, stack: ItemStack) -> String:

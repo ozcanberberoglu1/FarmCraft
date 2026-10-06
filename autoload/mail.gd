@@ -22,7 +22,7 @@ signal opened(letter: Dictionary)
 ## The mailbox (placeable item id).
 const ITEM := &"mailbox"
 ## The side goal to put one up comes up on this day at GOAL_MINUTE.
-const MAILBOX_DAY := 8
+const MAILBOX_DAY := 5
 const GOAL_MINUTE := 7 * 60
 ## A townsperson writes a thank-you note on reaching these friendship levels (their
 ## letters' keys: MAIL_THANKS_<n>_TITLE/_BODY, n the place in this list + 1); the last

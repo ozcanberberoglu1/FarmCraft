@@ -1,6 +1,6 @@
 extends Node
-## Carnival nights in Yeşilova: the first on day 5, then one every EVERY_DAYS days (day 9,
-## 13...); the fishing contest falls two days off each (FishingContest: 7, 11, 15...).
+## Carnival nights in Yeşilova: the first on day 4, then one every EVERY_DAYS days (day 8,
+## 12...); the fishing contest falls two days off each (FishingContest: 6, 10, 14...).
 ##
 ## In the morning of a carnival day Beyza of the Yeşilova Market sends a letter: it opens
 ## once the player is free (after the night's report, never over another window) and
@@ -19,7 +19,7 @@ extends Node
 signal began
 signal finished
 
-const FIRST_DAY := 5
+const FIRST_DAY := 4
 const EVERY_DAYS := 4
 ## The town dresses up from here; the fun and the double pay run START..END.
 const DRESS_MINUTE := 19 * 60 + 30
@@ -53,7 +53,7 @@ func _ready() -> void:
 	Events.day_started.connect(_on_day_started)
 
 
-## Whether day `d` has a carnival night (5, 9, 13...).
+## Whether day `d` has a carnival night (4, 8, 12...).
 static func is_carnival_day(d: int) -> bool:
 	return d >= FIRST_DAY and (d - FIRST_DAY) % EVERY_DAYS == 0
 

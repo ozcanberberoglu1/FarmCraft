@@ -2,7 +2,8 @@
 class_name Bed
 extends StaticBody3D
 ## Rustic wooden bed. Interacting after 18:00 ends the day; so does it at any hour once
-## the farmer is worn out (Needs.sleepy), sleeping through to the next morning.
+## the farmer is worn out (Needs.sleepy) or the day's story is done and its next goal
+## waits for the morning (Quests.day_work_done), sleeping through to the next morning.
 ## Local origin = floor center of the bed; the headboard is at -Z.
 
 const FRAME := Color(0.36, 0.3, 0.26)
@@ -81,10 +82,16 @@ func interact_prompt(_player: Node) -> String:
 
 
 func interact(_player: Node) -> void:
-	if daytime() and not PlayerState.needs.sleepy():
+	if not can_sleep_now():
 		Game.notify(tr("MSG_SLEEP_NOT_TIRED"))
 		return
 	Game.hud.sleep_screen.start_sleep()
+
+
+## Whether the bed takes the farmer now: in the evening and at night, by day when he is
+## worn out, and at any hour once the day's story is done (nothing left to wait up for).
+static func can_sleep_now() -> bool:
+	return not daytime() or PlayerState.needs.sleepy() or Quests.day_work_done()
 
 
 ## The working day (06:00 to 18:00): only a worn-out farmer goes to bed then.

@@ -2,7 +2,7 @@ extends Node
 ## The side track beside the story's goals (Quests), never in their way: Zeynep, the
 ## new neighbour.
 ##
-## On day 6 at 07:00 Zeynep moves into the last house on the left at the far end of
+## On day 3 at 07:00 Zeynep moves into the last house on the left at the far end of
 ## Yeşilova's street (Town's first house) with her dog Karamel: a banner says so and a
 ## side goal comes up, to meet her. Its dot (HUD.side_waypoint, beside the story's own)
 ## shows her in her front garden, crouched petting Karamel, from 07:00 to 20:00 until
@@ -11,7 +11,7 @@ extends Node
 ## Karamel and goes in: one heart of friendship (Relations).
 ##
 ## From then on she asks now and then for a favour (an errand): the day after the
-## meeting (day 7 at the earliest) a welcome gift for Karamel, a bag of dog food from
+## meeting (day 4 at the earliest) a welcome gift for Karamel, a bag of dog food from
 ## the town market brought to her door (knocked on: she stays indoors until she has it,
 ## and the rest of that day; her garden days start after it); then, every 2 to 4 days
 ## after the last delivery, another favour in turn (ERRAND_TURN): a bottle of milk (the
@@ -49,10 +49,10 @@ const WHO := &"zeynep"
 const DOG := &"karamel"
 const ITEM := &"dog_food"
 ## She moves in on MOVE_DAY at MOVE_MINUTE (the house is for sale before).
-const MOVE_DAY := 6
+const MOVE_DAY := 3
 const MOVE_MINUTE := 7 * 60
 ## The welcome gift is asked for from this day (and never on the day they met).
-const GIFT_DAY := 7
+const GIFT_DAY := 4
 ## A new errand comes up at this hour of its day.
 const ERRAND_MINUTE := 7 * 60
 ## Days from one delivery to the next errand.
@@ -70,9 +70,9 @@ const ERRAND_ITEMS := {
 }
 ## Errands she fills Karamel's bowl after.
 const FEEDS_KARAMEL: Array[String] = ["gift", "food"]
-## At this many hearts she calls him over for Karamel's pup; at INVITE_LEVEL (after the
-## pup) she writes to invite him over.
-const PUPPY_LEVEL := 4
+## At this many hearts she calls him over for Karamel's pup (the meeting, the welcome gift
+## and one more favour); at INVITE_LEVEL (after the pup) she writes to invite him over.
+const PUPPY_LEVEL := 3
 const INVITE_LEVEL := 6
 ## Days after the pup her letter asking after it comes.
 const PUPPY_LETTER_DAYS := 2
@@ -403,8 +403,8 @@ func _on_letter_opened(letter: Dictionary) -> void:
 		visit_day = GameClock.day + 1
 
 
-## The day-6 banner once she has moved in, when the player is free (no window open, not
-## at the night's report).
+## The moving-in banner (MOVE_DAY) once she has moved in, when the player is free (no
+## window open, not at the night's report).
 func _update_banner(delta: float) -> void:
 	if announced or not moved_in() or not is_instance_valid(Game.hud):
 		return
@@ -468,7 +468,11 @@ func _target(g: String) -> Variant:
 	_label = ItemDB.get_item(item).display_name()
 	var price := Economy.buy_price(item) * errand_count()
 	if Economy.money < price:
-		_hint = tr("HINT_NEED_MONEY") % UiTheme.money(price - Economy.money)
+		# Short of its price: how much, how to earn it, and the dot where that line says.
+		var short: Dictionary = Quests.money_short(price)
+		_hint = String(short["hint"])
+		_label = ""
+		return short["at"]
 	elif errand_kind() == "milk":
 		_hint = tr("SIDE_HINT_MILK")
 	else:

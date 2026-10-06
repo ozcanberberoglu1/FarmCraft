@@ -87,6 +87,8 @@ var letter_screen: LetterScreen
 ## Conversations with townspeople at the bottom of the screen (Zeynep).
 var dialogue_screen: DialogueScreen
 var vehicle_hud: VehicleHUD
+## The car radio's station and track, for a few seconds (CarRadio).
+var radio_line: RadioLine
 ## Growth ring and card beside the crosshair while a planted bed is aimed at.
 var crop_card: CropCard
 ## The story's guide dot (Quests.waypoint()), and the side story's (SideStory).
@@ -200,6 +202,8 @@ func _ready() -> void:
 	needs_bars.visible = PlayerState.hotbar_unlocked
 	vehicle_hud = VehicleHUD.new()
 	_root.add_child(vehicle_hud)
+	radio_line = RadioLine.new()
+	_root.add_child(radio_line)
 	title_screen = TitleScreen.new()
 	_root.add_child(title_screen)
 	inventory_screen = InventoryScreen.new()
@@ -278,6 +282,7 @@ func _process(_delta: float) -> void:
 	if _note_left > 0.0 and not Game.is_ui_open():
 		_note_left -= _delta
 		if _note_left <= 0.0:
+			# (the card closes up where the note was: _fit_cards below)
 			_quest_note.visible = false
 	# Catches what no signal reports (getting in or out of a vehicle, the lock set
 	# directly); compares with what the hotbar should be, so a locked one stays quiet.
@@ -295,6 +300,7 @@ func _process(_delta: float) -> void:
 	if GameClock.day != _shown_day:
 		_refresh_day()
 	_update_side_hints(_delta)
+	_fit_cards()
 	_place_side_cards()
 	# The dots riding the screen's left edge keep clear of the goal cards.
 	var cards: Array[Rect2] = []
@@ -429,6 +435,8 @@ func _refresh_quest() -> void:
 	_quest_chapter.text = UiTheme.caps("%s · %s" % [tr("HUD_CHAPTER") % (Quests.chapter() + 1), Quests.chapter_title(Quests.chapter())])
 	if _crosshair != null:
 		_sync_hud_visibility()
+	# A shorter goal (or one whose hint went): the card closes up round it.
+	_fit_cards()
 
 
 ## The side story's goal (SideStory) on a compact card of its own under the story's: one
@@ -509,6 +517,23 @@ func _update_side_hints(delta: float) -> void:
 			(e["card"] as Control).reset_size()
 
 
+## The goal cards' glass always fits what they say now. A card grows with its content by
+## itself but never shrinks back (it is no container's child): a long goal, a chapter's
+## note or a hint that has gone would leave its height behind a short goal. Looked at
+## every frame (and whenever a card's text changes or it comes back from behind a menu),
+## as a wrapped label only knows its height once it has its width.
+func _fit_cards() -> void:
+	var cards: Array[Control] = [_quest_card, _side_card]
+	for e: Dictionary in _goal_cards.values():
+		cards.append(e["card"])
+	for card in cards:
+		if card == null or not card.visible:
+			continue
+		var fit := card.get_combined_minimum_size()
+		if card.size.x > fit.x + 0.5 or card.size.y > fit.y + 0.5:
+			card.reset_size()
+
+
 ## Under the story's goal card (or in its place when there is none): the other side goals'
 ## cards first (SideStory.goals, in order), then Zeynep's.
 func _place_side_cards() -> void:
@@ -545,8 +570,9 @@ func _sync_goal_cards() -> void:
 		_refresh_goal_card(g)
 
 
-## A side goal's card (its glyph and "TITLE · SIDE GOAL" in its colour over the goal and
-## its hint) and its dot, ringed in its colour, beside the others. A quiet one (an errand
+## A side goal's card (its glyph and "TITLE · SIDE GOAL" in its colour over the goal, what
+## it takes against what he has (SideGoal.needs) and its hint) and its dot, ringed in its
+## colour, beside the others. A quiet one (an errand
 ## that can wait) is compact like Zeynep's: one line, the glyph and the goal, its hint
 ## for a while; its dot smaller and fainter.
 func _build_goal_card(g: SideGoal) -> Dictionary:
@@ -577,6 +603,13 @@ func _build_goal_card(g: SideGoal) -> Dictionary:
 		head.add_child(text)
 	else:
 		col.add_child(text)
+	# What the goal takes against what he has ("Rod 1/1 ✓ · Bait 2/5"), when it asks for
+	# things: always in view, in the goal's colour.
+	var needs := UiTheme.make_label("", UiTheme.text(13 if g.quiet else 15, g.color.lerp(UiTheme.TEXT, 0.35), 600))
+	needs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	needs.custom_minimum_size = Vector2(250 if g.quiet else 300, 0)
+	needs.visible = false
+	col.add_child(needs)
 	var hint := UiTheme.make_label("", UiTheme.text(13 if g.quiet else 15, UiTheme.TEXT_MUTED, 500))
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.custom_minimum_size = Vector2(250 if g.quiet else 300, 0)
@@ -588,7 +621,7 @@ func _build_goal_card(g: SideGoal) -> Dictionary:
 	dot.quiet = g.quiet
 	_root.add_child(dot)
 	_root.move_child(dot, side_waypoint.get_index() + 1)
-	return {"card": card, "title": title, "text": text, "hint": hint, "dot": dot}
+	return {"card": card, "title": title, "text": text, "needs": needs, "hint": hint, "dot": dot}
 
 
 func _refresh_goal_card(g: SideGoal) -> void:
@@ -599,9 +632,13 @@ func _refresh_goal_card(g: SideGoal) -> void:
 	card.set_meta("active", g.text != "")
 	(e["title"] as Label).text = UiTheme.caps(tr("HUD_SIDE_GOAL") % g.title)
 	var text: Label = e["text"]
-	if g.quiet and text.text != g.text:
+	var needs: Label = e["needs"]
+	# A quiet goal that changed (or what it still takes did): its hint shows for a while.
+	if g.quiet and (text.text != g.text or needs.text != g.needs):
 		e["hint_left"] = SIDE_HINT_SECONDS
 	text.text = g.text
+	needs.text = g.needs
+	needs.visible = g.needs != ""
 	var hint: Label = e["hint"]
 	hint.text = g.hint
 	hint.visible = g.hint != "" and (not g.quiet or float(e.get("hint_left", 0.0)) > 0.0
@@ -771,6 +808,9 @@ func _sync_hud_visibility() -> void:
 	for e: Dictionary in _goal_cards.values():
 		var gc: Control = e["card"]
 		gc.visible = not title and not menu and bool(gc.get_meta("active", false))
+	# A goal that changed behind a menu: its card comes back the right size.
+	if _side_card:
+		_fit_cards()
 	if title:
 		# Nothing of the last game lingers over the title (their tweens end on their own).
 		if _sale_badge:

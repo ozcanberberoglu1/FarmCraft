@@ -28,6 +28,8 @@ uniform float translucency = 0.4;
 // How much trampled ground thins and shortens the clumps (0 for grass that stands
 // where it is put, like the scythe's wild grass patches).
 uniform float worn_response = 1.0;
+// Roughness of a soaked sward: a soft sheen at grazing angles, never a mirror of the sky.
+uniform float wet_roughness : hint_range(0.3, 1.0) = 0.64;
 
 varying vec3 v_col;
 varying float v_h;
@@ -95,7 +97,9 @@ void fragment() {
 	if (!FRONT_FACING) {
 		NORMAL = -NORMAL;
 	}
-	ALBEDO = col * (1.0 - wetness * 0.2);
+	// Wet grass is darker and deeper in colour, not brighter.
+	float grey = dot(col, vec3(0.3, 0.59, 0.11));
+	ALBEDO = mix(vec3(grey), col, 1.0 + 0.25 * wetness) * (1.0 - wetness * 0.2);
 	ALPHA = tex.a * (1.0 + lod * 0.35);
 	ALPHA_SCISSOR_THRESHOLD = alpha_cut;
 	// Antialiased blade edges (alpha to coverage with MSAA): the edge is added to the
@@ -103,7 +107,8 @@ void fragment() {
 	ALPHA_ANTIALIASING_EDGE = 0.0;
 	ALPHA_TEXTURE_COORDINATE = UV * vec2(tex_size, tex_size * 0.5);
 	// Little sheen: at grazing angles a glossier sward turns milky with sky light.
-	ROUGHNESS = mix(0.85, 0.5, wetness);
+	ROUGHNESS = mix(0.85, wet_roughness, wetness);
+	METALLIC = 0.0;
 	SPECULAR = 0.12;
 	AO = mix(0.55, 1.0, v_h);
 	AO_LIGHT_AFFECT = 0.25;

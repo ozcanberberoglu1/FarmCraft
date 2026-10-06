@@ -6,10 +6,15 @@ extends Node
 ## bodies into their housing. A farm can have several coops (Grandpa's run and the ones
 ## put up from kits): each animal keeps its home (`_homes`), and crated hens bought in
 ## town move into a coop when they are let out at its door (release).
+## The morning report tells of an animal that went hungry only when it wakes hungry
+## (HUNGRY_LEVEL): feed and water in its troughs overnight are eaten and drunk in the
+## night's hours, whenever it came to the farm that day.
 ## Poultry: a fed hen lays an egg most days and a content one now and then two
 ## (eggs_today); with a rooster in her coop the eggs left in the nest hatch a day later
 ## (ChickenCoop calls hatch): the chick follows its mother (Animal) and grows up into a
-## hen, now and then a rooster, which then lays (or crows) like any other.
+## hen, now and then a rooster, which then lays (or crows) like any other. The farm's
+## very first chick brings a quiet side goal: go and see it and give it a name
+## (FIRST_CHICK_FLAG).
 ## Wolves (WolfRaids) can hurt an animal (injure) or kill it (kill). A hurt one limps,
 ## gives nothing and dies INJURY_MINUTES later unless the vet in town treats it in time
 ## (send_to_vet: it leaves the farm for the clinic, can't die there and comes back healed
@@ -34,6 +39,9 @@ const INJURY_MINUTES := 24.0 * 60.0
 const INJURY_REMIND := 6.0 * 60.0
 const INJURED_HEALTH := 35.0
 const HEALED_HEALTH := 85.0
+## An animal whose fullness is under this is hungry (the badge over it: Animal.status); one
+## that wakes like that went hungry (the morning report's line, _on_day_started).
+const HUNGRY_LEVEL := 25.0
 
 var animals: Array[AnimalData] = []
 ## Lines for the morning report (cleared when shown: take_report_lines).
@@ -63,6 +71,20 @@ var _naming: PetNameScreen
 ## Animals let in waiting for their name, and the one whose prompt is open.
 var _to_name: Array[AnimalData] = []
 var _naming_now: AnimalData
+## The farm's first chick: the first time an egg hatches, a note and a quiet side goal
+## ("Your first chick has hatched: go and see it and give it a name") send the farmer to
+## it. Its dot follows the chick; E on the chick opens the naming prompt (the hens' own,
+## with names for a little one: ANIMAL_NAME_IDEAS_CHICK). Done when it has its name, once
+## a save: FarmState.flags[FIRST_CHICK_FLAG] is the chick's id while it waits for its
+## name and 0 once that is over (named, or grown up or gone before it was). Automated
+## runs have none unless a test turns `chick_goal_in_tests` on.
+const FIRST_CHICK_FLAG := "first_chick"
+const CHICK_GOAL_COLOR := Color("f6d98a")
+const CHICK_GOAL_XP := 3
+const CHICK_GOAL_POLL := 0.5
+var chick_goal_in_tests := false
+var _chick_goal: SideGoal
+var _chick_poll := 0.0
 
 
 func _ready() -> void:
@@ -70,6 +92,16 @@ func _ready() -> void:
 	Events.day_started.connect(_on_day_started)
 	Events.day_ending.connect(_on_day_ending)
 	Events.time_skipped.connect(_on_time_skipped)
+
+
+func _process(delta: float) -> void:
+	if SaveGame.loading or Game.player == null or not is_instance_valid(Game.player):
+		return
+	_chick_poll -= delta
+	if _chick_poll > 0.0:
+		return
+	_chick_poll = CHICK_GOAL_POLL
+	_update_chick_goal()
 
 
 # --- Queries -------------------------------------------------------------------------------
@@ -309,17 +341,19 @@ func _next_name() -> void:
 		_naming = PetNameScreen.new()
 		_naming.named.connect(_on_named)
 		Game.hud.add_child(_naming)
-	var rooster := _naming_now.species == &"rooster"
+	var kind := "CHICK" if _naming_now.is_chick() else ("ROOSTER" if _naming_now.species == &"rooster" else "HEN")
 	var ideas := name_ideas(_naming_now.species, _naming_now)
 	var first: String = ideas[0] if not ideas.is_empty() else _naming_now.name
-	_naming.open(first, tr("ANIMAL_NAME_TITLE_ROOSTER" if rooster else "ANIMAL_NAME_TITLE_HEN"),
-			tr("ANIMAL_NAME_SUB_ROOSTER" if rooster else "ANIMAL_NAME_SUB_HEN"), "paw", ideas)
+	_naming.open(first, tr("ANIMAL_NAME_TITLE_" + kind), tr("ANIMAL_NAME_SUB_" + kind), "paw", ideas)
 
 
 ## The funny names offered for a `species` bird (ANIMAL_NAME_IDEAS_*, in the player's
-## language), those other animals (not `own`) already have left out.
+## language; a chick's own little ones when `own` is one), those other animals (not
+## `own`) already have left out.
 func name_ideas(species: StringName, own: AnimalData = null) -> PackedStringArray:
 	var key := "ANIMAL_NAME_IDEAS_ROOSTER" if species == &"rooster" else "ANIMAL_NAME_IDEAS_HEN"
+	if own != null and own.is_chick():
+		key = "ANIMAL_NAME_IDEAS_CHICK"
 	var taken := animals.filter(func(x: AnimalData) -> bool: return x != own).map(func(x: AnimalData) -> String: return x.name)
 	var out := PackedStringArray()
 	for n: String in tr(key).split("|", false):
@@ -334,7 +368,10 @@ func _on_named(chosen: String) -> void:
 	var a := _naming_now
 	if a != null and a in animals:
 		a.name = chosen.strip_edges().left(18)
-		Game.notify(tr("MSG_ANIMAL_NAMED") % a.name, Color(0.55, 1.0, 0.45))
+		if a == chick_to_name():
+			_chick_named(a)
+		else:
+			Game.notify(tr("MSG_ANIMAL_NAMED") % a.name, Color(0.55, 1.0, 0.45))
 		changed.emit()
 	_naming_now = null
 	_next_name.call_deferred()
@@ -375,10 +412,83 @@ func hatch(housing: AnimalHousing, at: Vector3, mother: AnimalData = null) -> An
 		n.hatch_in(at)
 	Events.chick_hatched.emit(n)
 	var msg := tr("MSG_CHICK_HATCHED") % ([a.name, mother.name] if mother else [a.name, "?"])
-	Game.notify(msg, Color(0.55, 1.0, 0.45))
+	if _first_chick(a):
+		# The farm's first: the side goal's own note asks for its name instead.
+		Game.notify(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CHICK"), CHICK_GOAL_COLOR)
+		Audio.ui("notify", -8.0)
+	else:
+		Game.notify(msg, Color(0.55, 1.0, 0.45))
 	report_notes.append(msg)
 	changed.emit()
 	return a
+
+
+# --- The first chick -----------------------------------------------------------------------
+
+## Whether the first chick's side goal happens in this run (see FIRST_CHICK_FLAG).
+func chick_goal_enabled() -> bool:
+	return chick_goal_in_tests or not DebugTools.is_automated()
+
+
+## `a` has just hatched: the farm's first chick ever (then it waits for its name and true).
+func _first_chick(a: AnimalData) -> bool:
+	if not chick_goal_enabled() or SaveGame.loading or FarmState.flags.has(FIRST_CHICK_FLAG):
+		return false
+	FarmState.flags[FIRST_CHICK_FLAG] = a.id
+	_chick_poll = 0.0
+	return true
+
+
+## The id of the chick waiting for its name (0: none, or over).
+func _chick_waiting() -> int:
+	var id: Variant = FarmState.flags.get(FIRST_CHICK_FLAG, 0)
+	return int(id) if id is int or id is float else 0
+
+
+## The chick waiting for the farmer to name it (null: none).
+func chick_to_name() -> AnimalData:
+	return by_id(_chick_waiting())
+
+
+## Whether E on `a` gives it its name (the first chick, out of its shell, not named yet).
+func wants_name(a: AnimalData) -> bool:
+	return a != null and a.is_chick() and a == chick_to_name() and a != _naming_now
+
+
+## The first chick's side goal (null before there was one; tests).
+func chick_goal() -> SideGoal:
+	return _chick_goal
+
+
+## Keeps the first chick's card and dot up while it waits for its name; a chick grown up
+## or gone before it was named ends it without a word.
+func _update_chick_goal() -> void:
+	var a := chick_to_name()
+	if a == null or not a.is_chick():
+		if _chick_waiting() != 0:
+			FarmState.flags[FIRST_CHICK_FLAG] = 0
+		a = null
+	if a == null or not chick_goal_enabled():
+		if _chick_goal != null:
+			SideStory.remove_goal(_chick_goal)
+		return
+	if _chick_goal == null:
+		_chick_goal = SideGoal.new(&"first_chick", tr("SIDE_CHICK_TITLE"), "heart", CHICK_GOAL_COLOR)
+		_chick_goal.quiet = true
+	var n := node_of(a)
+	_chick_goal.set_goal(tr("SIDE_GOAL_CHICK"), tr("SIDE_HINT_CHICK"), n if n != null and n.is_inside_tree() else null,
+			species_name(a.species, false))
+	SideStory.add_goal(_chick_goal)
+
+
+## The first chick has its name: the side goal is done (a note, a little farm experience).
+func _chick_named(a: AnimalData) -> void:
+	FarmState.flags[FIRST_CHICK_FLAG] = 0
+	if _chick_goal != null:
+		SideStory.remove_goal(_chick_goal)
+	Progress.add(CHICK_GOAL_XP)
+	Game.notify(tr("MSG_CHICK_NAMED") % a.name, UiTheme.GOLD)
+	Audio.ui("confirm", -6.0)
 
 
 ## A grown hen of `housing` (the healthiest), or null.
@@ -913,7 +1023,11 @@ func _on_day_started(_day: int) -> void:
 					grown.append(a)
 		if not a.petted_today:
 			a.affection = maxf(a.affection - 15.0, 0.0)
-		if not fed:
+		# Went hungry: it wakes with an empty belly (the night's hours have eaten and drunk
+		# from the troughs by now, so one with feed in reach never does). Not by the day's
+		# fed hours: a hen let in that afternoon, or the short first day, can't have sixteen
+		# however full her feeder is, and was told of as hungry all the same.
+		if a.fullness < HUNGRY_LEVEL:
 			a.affection = maxf(a.affection - 25.0, 0.0)
 			report_notes.append(tr("MSG_ANIMAL_HUNGRY") % a.name)
 		if a.injured():
@@ -1072,6 +1186,9 @@ func new_game() -> void:
 	_next_id = 1
 	_to_name.clear()
 	_naming_now = null
+	if _chick_goal != null:
+		SideStory.remove_goal(_chick_goal)
+	_chick_poll = 0.0
 
 
 func save_data() -> Dictionary:

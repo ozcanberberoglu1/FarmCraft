@@ -67,6 +67,9 @@ var worker := false
 var away := false
 ## Heights above the floor: the work surface (counter) and the seat.
 var work_height := 1.0
+## What lies on the work top under the hands of someone writing (a clipboard with its
+## sheet, a ledger): this much thicker (m). The hands rest on it.
+var work_pad := 0.0
 var seat_height := 0.45
 var waves := false
 var hands_behind := false
@@ -834,6 +837,10 @@ func _animate(delta: float, cam: Vector3) -> void:
 	_arms(delta, greeting)
 	if hand > 0.0:
 		_arms_greet(hand)
+		if act == Act.WRITE:
+			# (off the work top to the heart and back: over it all the way, never through it)
+			rig.rest_hand("_r", work_height + work_pad, true)
+			rig.arm_over("_r", work_height)
 	_place_props()
 	if _speed > 0.05 and act == Act.WALK:
 		var ph := fposmod(rig.gait_phase * 2.0, 1.0)
@@ -1046,6 +1053,11 @@ func _arms_write() -> void:
 	rig.reach("_r", Vector3(-0.12, top + 0.02, 0.4) + s, _pole("_r"))
 	rig.orient_hand("_r", Vector3(0.5, -0.2, 1.0), Vector3(0.1, -1, -0.2))
 	rig.curl("_r", 0.55, 0.5)
+	# Both hands down on the work top (or what lies on it): on it, not in it, not over it;
+	# the elbows and forearms over the top.
+	for side: String in ["_l", "_r"]:
+		rig.rest_hand(side, work_height + work_pad)
+		rig.arm_over(side, work_height)
 
 
 func _wiping() -> bool:

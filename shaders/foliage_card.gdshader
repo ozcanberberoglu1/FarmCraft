@@ -123,7 +123,7 @@ void fragment() {
 	// leaves' real edges are smoothed; a band above the cut would dither whole distant
 	// cards into a lace.
 	ALPHA_ANTIALIASING_EDGE = 0.0;
-	ROUGHNESS = mix(0.78, 0.4, wetness);
+	ROUGHNESS = mix(0.78, 0.56, wetness);
 	// No sheen where the crown normal faces away from the camera (the far side of a
 	// crown seen against the sun): the specular there would blow up into grey leaves.
 	SPECULAR = 0.18 * clamp(dot(NORMAL, VIEW) * 3.0, 0.0, 1.0);

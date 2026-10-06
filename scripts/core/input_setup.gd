@@ -26,6 +26,9 @@ static func register_actions() -> void:
 	_key(&"test_plus_hour", KEY_F8)
 	_key(&"vehicle_camera", KEY_V)
 	_key(&"vehicle_lights", KEY_L)
+	# The car radio (CarRadio): on and off, the next station.
+	_key(&"radio_toggle", KEY_R)
+	_key(&"radio_next", KEY_T)
 	# Whistling for the farmer's own dog (Pet).
 	_key(&"whistle", KEY_H)
 	# Taking hold of an animal: a bird into the arms, a halter on a big one (AnimalHandler).

@@ -9,7 +9,7 @@ const CATEGORIES := [["general", "SETTINGS_GENERAL", "globe"], ["video", "SETTIN
 	["audio", "SETTINGS_AUDIO", "speaker"], ["controls", "SETTINGS_CONTROLS", "keyboard"]]
 const BINDINGS := [["BIND_MOVE", ["W", "A", "S", "D"]], ["BIND_SPRINT", ["SHIFT"]], ["BIND_JUMP", ["SPACE"]],
 	["BIND_USE", ["LMB"]], ["BIND_INTERACT", ["E"]], ["BIND_INFO", ["F"]], ["BIND_INVENTORY", ["TAB", "I"]],
-	["BIND_DROP", ["Q"]], ["BIND_HOTBAR", ["1", "–", "8"]], ["BIND_VEHICLE", ["V", "L"]], ["BIND_WHISTLE", ["H"]],
+	["BIND_DROP", ["Q"]], ["BIND_HOTBAR", ["1", "–", "8"]], ["BIND_VEHICLE", ["V", "L"]], ["BIND_RADIO", ["R", "T"]], ["BIND_WHISTLE", ["H"]],
 	["BIND_PAUSE", ["ESC"]]]
 ## The test shortcuts (TestKeys), listed while Settings.test_shortcuts is on.
 const TEST_BINDINGS := [["BIND_TEST_FAST", ["F6"]], ["BIND_TEST_MORNING", ["F7"]], ["BIND_TEST_HOUR", ["F8"]]]
@@ -175,9 +175,13 @@ func _choice(title_key: String, desc_key: String, options: Array, index: int, ap
 func _general() -> void:
 	_rows.add_child(UiTheme.section(tr("SETTINGS_GENERAL"), "globe"))
 	_languages()
-	_slider("SETTINGS_DAY_LENGTH", "SETTINGS_DAY_LENGTH_DESC", 5.0, 40.0, 1.0, Settings.day_length_minutes,
-			func(v: float) -> String: return tr("SETTINGS_MINUTES") % int(v),
-			func(v: float) -> void: Settings.day_length_minutes = v)
+	# A day is 8, 10 or 12 real minutes long (Settings.DAY_LENGTHS).
+	var lengths: Array = []
+	for minutes: float in Settings.DAY_LENGTHS:
+		lengths.append(tr("SETTINGS_MINUTES") % int(minutes))
+	_choice("SETTINGS_DAY_LENGTH", "SETTINGS_DAY_LENGTH_DESC", lengths,
+			Settings.DAY_LENGTHS.find(Settings.snap_day_length(Settings.day_length_minutes)),
+			func(i: int) -> void: Settings.day_length_minutes = Settings.DAY_LENGTHS[i]).name = "DayLength"
 	_choice("SETTINGS_WOLF_RAIDS", "SETTINGS_WOLF_RAIDS_DESC",
 			[tr("WOLF_RAIDS_OFF"), tr("WOLF_RAIDS_RARE"), tr("WOLF_RAIDS_NORMAL")], Settings.wolf_raids,
 			func(i: int) -> void: Settings.wolf_raids = i as Settings.Raids)

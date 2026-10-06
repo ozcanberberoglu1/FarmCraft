@@ -8,9 +8,11 @@ extends Node
 ## into the coop: Animals), a coop put up from a kit, the ripe beds he left behind, the
 ## shipping bin, the coop looked after (feed from the warehouse, water from the well, straw
 ## in the nests), the first egg, then the farm tidied up (the broken boards of the house and
-## the warehouse renewed by hand with wood from the trees) and a walk round the land with
-## Grandpa (his favourite spots: EXPLORE_SPOTS, a line from him at each), stone from the
-## quarry, wild berries and a bite to eat; the evening is free. Day two is a farmer's day:
+## the warehouse renewed by hand with wood from the trees) and a short walk with Grandpa
+## (his two spots near the house: EXPLORE_SPOTS, a line from him at each), stone from the
+## rocks at the second one, wild berries there and a bite to eat; the evening is free (a
+## goal that waits for the morning lets the farmer go to bed at any hour: day_work_done,
+## and brings a few quiet farm chores to pass the time: FarmChores). Day two is a farmer's day:
 ## the wheat sold at the town market and seeds bought there, three more beds sown, a
 ## sapling from the felled trees planted, a workbench put up near the house and a knife
 ## made at it for the night (the wolves' lesson comes that night: WolfRaids.LESSON_NIGHT).
@@ -89,7 +91,11 @@ const CHAIN := 8
 ## "at": where the dot points while the goal is up (see _target). When it points
 ## somewhere else first (the trees for wood, the shipping bin for money, the market for
 ## rope), the goal's text says why (goal_hint): the dot never sends the player off to
-## buy something without saying what, nor to a shop that doesn't sell it.
+## buy something without saying what, nor to a shop that doesn't sell it. A goal short of
+## money says how much more it takes and, under that, how to earn it from what the farmer
+## has or can do right now (money_short, earn_plan): the dot goes where that line says.
+## A goal that builds something from the construction board shows what it takes against
+## what he has under its text ("Wood 32/50 · $120/200": goal_needs).
 const TUTORIAL := [
 	# Day one. Homecoming: the stuck front door, and Grandpa's things on the worktable inside.
 	{"chapter": 0, "id": "door", "kind": "check", "arg": "flag:house_door_open", "count": 1, "at": "house_door", "past": "took"},
@@ -107,8 +113,9 @@ const TUTORIAL := [
 	{"chapter": 2, "id": "buy_chickens", "kind": "check", "arg": "hens:owned", "count": 2, "at": "stall"},
 	{"chapter": 2, "id": "drive_home", "kind": "check", "arg": "home", "count": 1, "xp": 4, "at": "home", "past": "crates:warehouse"},
 	{"chapter": 2, "id": "crates_in", "kind": "check", "arg": "crates:warehouse", "count": 2, "xp": 5, "at": "crates"},
-	# The coop: wood, a kit from the construction board, a spot, a minute's work, the hens in
-	# (each of the first two named by the farmer as she goes in: Animals).
+	# The coop: wood, a kit from the construction board, a spot, ten seconds' work (the
+	# story's first: build_seconds), the hens in (each of the first two named by the farmer
+	# as she goes in: Animals).
 	{"chapter": 3, "id": "coop_wood", "kind": "picked", "arg": "wood", "count": 15, "xp": 5, "ever": true, "at": "trees", "past": "kit"},
 	{"chapter": 3, "id": "coop_kit", "kind": "check", "arg": "kit", "count": 1, "at": "board"},
 	{"chapter": 3, "id": "coop_place", "kind": "check", "arg": "coop:started", "count": 1, "xp": 4, "at": "coop_spot"},
@@ -134,21 +141,28 @@ const TUTORIAL := [
 	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 8, "xp": 2, "at": "trees", "past": "built:house_1"},
 	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 8, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
 	{"chapter": 6, "id": "wh_patch", "kind": "patched", "arg": "warehouse", "count": 6, "xp": 8, "ever": true, "at": "warehouse_repair", "past": "built:warehouse_1"},
-	# A walk round the land with Grandpa before dusk: his spots one after another (the dot
-	# goes to the next one; any reached counts, each with a line from him), ending at the
-	# quarry: stone for the knife of tomorrow night, then wild berries off the bushes and a
-	# bite to eat (the hunger bar; too full to eat passes it). A valley with no berries left
-	# on any bush passes the berries (any picked earlier count).
-	{"chapter": 7, "id": "explore", "kind": "visit", "arg": "", "count": 4, "xp": 6, "ever": true, "at": "explore"},
-	{"chapter": 7, "id": "stones", "kind": "picked", "arg": "stone", "count": 5, "xp": 3, "ever": true, "at": "rocks"},
-	{"chapter": 7, "id": "berries", "kind": "forage", "arg": "", "count": 6, "xp": 3, "ever": true, "at": "berries", "past": "nobush"},
+	# A short walk with Grandpa before dusk: his two spots near the house, one after the
+	# other (the dot goes to the next one; any reached counts, each with a line from him),
+	# ending at the forest's edge behind the house, where the rest is at hand: stone for the
+	# knife of tomorrow night from the rocks lying there (two give the four asked for), then
+	# wild berries off the bushes beside them (two bushes give the four) and a bite to eat
+	# (the hunger bar; too full to eat passes it). A valley with no berries left on any bush
+	# passes the berries (any picked earlier count). Saves from when the walk had four spots
+	# and asked for more stone and berries keep what they did: a count already met passes.
+	{"chapter": 7, "id": "explore", "kind": "visit", "arg": "", "count": 2, "xp": 6, "ever": true, "at": "explore"},
+	{"chapter": 7, "id": "stones", "kind": "picked", "arg": "stone", "count": 4, "xp": 3, "ever": true, "at": "rocks"},
+	{"chapter": 7, "id": "berries", "kind": "forage", "arg": "", "count": 4, "xp": 3, "ever": true, "at": "berries", "past": "nobush"},
 	{"chapter": 7, "id": "snack", "kind": "eaten", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "food", "past": "full"},
 	# The first day's story is done: the farm is the player's own until the next morning
 	# (no dot, no task; Grandpa's note says so).
 	{"chapter": 8, "id": "free", "kind": "check", "arg": "day:2", "count": 1},
 	# Day two, market day: yesterday's wheat reaped, loaded into the pickup's bed and sold
-	# at the Yeşilova market (the money for the workbench later in the day), and seeds
-	# bought on the same trip (any seed the market has: none is out of season).
+	# at the Yeşilova market (the money for the workbench later in the day; Grandpa's note
+	# and the line under the goal say what sells and where: HINT_WHAT_SELLS), and seeds
+	# bought on the same trip (any seed the market has: none is out of season). Short of
+	# money for them, the dot shows where his own goods sell and the line names them
+	# (_seeds_short); with nothing to sell either, the grocer gives the first three packets
+	# (seed_gift_due): the goal never dead-ends.
 	{"chapter": 9, "id": "harvest2", "kind": "check", "arg": "crops", "count": 3, "xp": 4, "at": "plot:ripe", "past": "bench:kit"},
 	{"chapter": 9, "id": "load_crops", "kind": "check", "arg": "cargo:crop", "count": 3, "xp": 3, "at": "truck_load", "past": "bench:kit"},
 	{"chapter": 9, "id": "sell_market", "kind": "sold", "arg": "", "count": 3, "xp": 4, "at": "sell_market", "past": "bench:kit"},
@@ -164,7 +178,7 @@ const TUTORIAL := [
 	{"chapter": 10, "id": "water2", "kind": "action", "arg": "water", "count": 3, "xp": 3, "at": "plot:dry", "past": "nodry"},
 	{"chapter": 10, "id": "sapling", "kind": "sapling", "arg": "", "count": 1, "xp": 4, "ever": true, "at": "sapling", "past": "nosapling"},
 	# The workshop before nightfall: the workbench kit from the construction board (bought,
-	# like everything), put up near the house with a minute's work like the coop, then a
+	# like everything), put up near the house in ten seconds like the coop, then a
 	# knife made at it: Grandpa's advice for the nights, when the wolves are about (the
 	# lesson comes tonight: WolfRaids.LESSON_NIGHT).
 	{"chapter": 11, "id": "bench_kit", "kind": "check", "arg": "bench:kit", "count": 1, "xp": 4, "at": "bench_board"},
@@ -198,17 +212,20 @@ const TUTORIAL := [
 	# From here the farm is the player's to run: a few milestones as it grows (sheep, a
 	# cow and a bigger house). The barn and its sheep come after the pond's day, not
 	# before: $200 and 50 wood for the barn and a sheep's price are beyond a three-day-old
-	# farm (the pasture's spot on the first day's walk says it is coming).
+	# farm (the pasture's spot on the first day's walk says it is coming). The building
+	# goals' cards say what they take (goal_needs) and their dots show where it comes from
+	# (the trees, the rocks, where money is earned), then the board; the animals' dots the
+	# Animal Market's pen once their price is in hand.
 	{"chapter": 14, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
-	{"chapter": 14, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10},
-	{"chapter": 14, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10},
+	{"chapter": 14, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10, "at": "project:barn_1"},
+	{"chapter": 14, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10, "at": "animal:sheep"},
 	{"chapter": 14, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
 	{"chapter": 15, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
-	{"chapter": 15, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10},
+	{"chapter": 15, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10, "at": "animal:cow"},
 	{"chapter": 15, "id": "milk", "kind": "action", "arg": "milk", "count": 1, "xp": 10},
 	{"chapter": 15, "id": "cheese", "kind": "product", "arg": "cheese", "count": 1, "xp": 10},
 	{"chapter": 16, "id": "level_5", "kind": "check", "arg": "level", "count": 5},
-	{"chapter": 16, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10},
+	{"chapter": 16, "id": "house", "kind": "check", "arg": "built:house_2", "count": 1, "xp": 10, "at": "project:house_2"},
 ]
 ## Goals of the chain before the first day's story (saves without "chain") and where
 ## such a save goes on (MOVED_V3 then takes it on to this chain): its first day counts
@@ -305,41 +322,58 @@ const V8_MARKET: Array[String] = ["harvest2", "load_crops", "sell_market"]
 ## A goal a save did under an older chain (tally key "done:<id>"): it passes, without its
 ## experience again, when it comes up.
 const DONE_MARK := "done:%s"
-## Grandpa's spots on the first day's walk round the land, in the order the dot takes
-## them (any reached counts): where (world XZ), how near counts as there (m) and how high
-## the dot floats over the ground (or the pond's water). The pond he fished (the fourth
-## day's), the old forest the wolves come down from (the second night's), the old
-## pasture where the barn and its sheep will go, and the quarry up the north path (stone
-## for the knife). Each has a name (SPOT_<ID>) and a line from him (EXPLORE_<ID>_LINE).
+## Grandpa's spots on the first day's walk, in the order the dot takes them (any reached
+## counts): where (world XZ), how near counts as there (m) and how high the dot floats
+## over the ground (or the pond's water). Only two, both a short walk from the house
+## (EXPLORE_NEAR at most from its door): the pond he fished (the fourth day's), beside the
+## yard, and the edge of the old forest behind the house, where the wolves come down from
+## (the second night's) and where the walk's stone and berries are at hand (two field
+## rocks and two blueberry bushes stand within a few steps: NatureSpawner's fixed seeds).
+## The far ones went (the old pasture across the farm, the quarry up the north path): the
+## walk had become a hike. Each has a name (SPOT_<ID>) and a line from him
+## (EXPLORE_<ID>_LINE).
 const EXPLORE_SPOTS := {
 	"pond": {"at": Vector2(-44, -4), "reach": 16.0, "lift": 2.2},
-	"woods": {"at": Vector2(-62, -20), "reach": 13.0, "lift": 3.0},
-	"pasture": {"at": Vector2(48, 0), "reach": 15.0, "lift": 2.5},
-	"quarry": {"at": Vector2(10, -63), "reach": 13.0, "lift": 2.2},
+	"woods": {"at": Vector2(-20, -47), "reach": 12.0, "lift": 3.0},
 }
-## The first day keeps time for the story: the clock runs at FIRST_DAY_PACE and from
-## LINGER_HOUR the late afternoon lingers (LINGER_PACE: the mending, the walk round the
-## land and the berries still come in daylight); once the day's story is done the clock
-## runs as usual, and the evening is the player's own. Multiplies GameClock.time_scale;
-## the day length setting still applies.
-## The day starts at 13:00 (GameClock.FIRST_DAY_START_MINUTE): at the default 15-minute
-## day (Settings: 80 game minutes a real minute) 13:00 to 17:00 (240 game minutes at 11.2
-## a real minute) takes 21 real minutes and the linger to sundown (about 19:15: 135 at
-## 8.8) 15 more, about 37 in all, and to nightfall (20:00) 42: the first day's story
-## (about 25 minutes to the first egg, then the mending, the walk and the berries) fits
-## in daylight for a brisk player; what isn't done by night simply carries on the next
-## morning. The first egg (ChickenCoop FIRST_EGG_MINUTES, game time) comes about half a
-## real minute after the hens go in.
-const FIRST_DAY_PACE := 0.14
+## No spot of the walk lies farther than this from the house door (m).
+const EXPLORE_NEAR := 40.0
+## The first day keeps time for the story: the clock runs at FIRST_DAY_RATE game minutes
+## a real minute and from LINGER_HOUR the late afternoon lingers (LINGER_RATE: the
+## mending, the walk and the berries still come in daylight); once the day's story is
+## done the clock runs as usual, and the evening is the player's own. Set on
+## GameClock.time_scale, worked out against the day length setting (_pace_of), so the
+## story's days take the same real time whether a day is 8, 10 or 12 minutes long
+## (Settings.DAY_LENGTHS).
+## The day starts at 13:00 (GameClock.FIRST_DAY_START_MINUTE): 13:00 to 17:00 (240 game
+## minutes at 11.2 a real minute) takes 21 real minutes and the linger to sundown (about
+## 19:15: 135 at 8.8) 15 more, about 37 in all, and to nightfall (20:00) 42: the first
+## day's story (about 25 minutes to the first egg, then the mending, the walk and the
+## berries) fits in daylight for a brisk player; what isn't done by night simply carries
+## on the next morning. The first egg (ChickenCoop FIRST_EGG_MINUTES, game time) comes
+## about half a real minute after the hens go in.
+const FIRST_DAY_RATE := 11.2
 const LINGER_HOUR := 17.0
-const LINGER_PACE := 0.11
+const LINGER_RATE := 8.8
 ## The second day's farm work (the market, the new beds, the workbench and the knife)
 ## gets a gentler clock too while its goals are up: 06:00 to sundown (about 795 game
-## minutes at 32 a real minute) is about 25 real minutes instead of 10, so the knife is
-## made before the wolves' night. Once the day's goals are done (rooster_wait) the clock
-## runs as usual.
-const SECOND_DAY_PACE := 0.4
+## minutes at 32 a real minute) is about 25 real minutes instead of the 6.6 of a
+## 10-minute day, so the knife is made before the wolves' night. Once the day's goals
+## are done (rooster_wait) the clock runs as usual.
+const SECOND_DAY_RATE := 32.0
 const SECOND_DAY_UNTIL := 19.5
+## The same as time scales at the default 10-minute day (Settings.DEFAULT_DAY_LENGTH: 120
+## game minutes a real minute): about 0.093, 0.073 and 0.267 (pace_for and
+## second_day_pace give the scale for the day length set).
+const DEFAULT_RATE := 120.0
+const FIRST_DAY_PACE := FIRST_DAY_RATE / DEFAULT_RATE
+const LINGER_PACE := LINGER_RATE / DEFAULT_RATE
+const SECOND_DAY_PACE := SECOND_DAY_RATE / DEFAULT_RATE
+## What sells (ItemTable categories), best first: the seeds goal names the farmer's own
+## goods of these when he is short of money (sellable_names).
+const SELLABLE: Array[String] = ["animal_product", "crop", "fish", "food", "artisan", "forage", "resource"]
+## Set once the grocer gave the first seeds (FarmState.flags, saved with the farm).
+const SEED_GIFT_FLAG := "seed_gift"
 ## Grandpa's beds: the far end of the first field is ripe on a new farm, so the first
 ## harvest can be made on day one (the player's own wheat needs 20 wet hours and ripens
 ## overnight, see FIRST_NIGHT_GROWTH). Carrots, or wheat out of the carrot seasons. Set
@@ -402,6 +436,15 @@ var _sapling_spot_searched := false
 ## Why the dot points where it does when that isn't the goal's own place (a translated
 ## line under the goal, "" for none): set with the dot (_target), read by goal_hint().
 var _hint := ""
+## What the current goal's project takes against what the farmer has ("Wood 32/50 ·
+## $120/200", "" for a goal that builds nothing): kept up to date with the dot, shown
+## under the goal's text (goal_needs).
+var _needs := ""
+## The mark after a requirement that is met ("Wood 50/50 ✓").
+const NEED_MET := "✓"
+## From this hour on, goods waiting in the shipping bin are a reason to go to bed (they
+## are paid for in the morning): earn_plan.
+const BIN_BED_HOUR := 18.0
 ## Crates in hand in town go to the pickup's bed when it is parked within this many
 ## metres (_waiting_crates); farther away they are on their way home by hand.
 const CRATES_TO_TRUCK := 80.0
@@ -420,6 +463,8 @@ var _new_building_shown := 0.0
 ## Automated runs leave new buildings unmarked (their checks read the goal's dot)
 ## unless a test turns this on.
 var guide_in_tests := false
+## The quiet farm chores of the days the story leaves free (FarmChores; saved here).
+var chores: FarmChores
 
 
 func _ready() -> void:
@@ -481,6 +526,15 @@ func _ready() -> void:
 	# A building just finished: the dot shows where it went up.
 	FarmState.project_built.connect(_on_project_built)
 	Events.building_completed.connect(_on_building_completed)
+	# The grocer's first seeds for a farmer with no money and nothing to sell: looked at
+	# when the market's window opens and after each sale in it.
+	Events.ui_opened.connect(func(ui: StringName) -> void:
+		if ui == &"shop":
+			_offer_seed_gift.call_deferred())
+	Events.item_sold.connect(func(_id: StringName, _n: int, _g: int) -> void: _offer_seed_gift.call_deferred())
+	chores = FarmChores.new()
+	chores.name = "FarmChores"
+	add_child(chores)
 	_start.call_deferred()
 
 
@@ -535,6 +589,38 @@ func passed(id: String) -> bool:
 	return tutorial_done() or (i >= 0 and step > i)
 
 
+## The day's story is done and its next goal waits for a morning to come ("day:<n>": the
+## free evening, the waits for the rooster's and the pond's day): the bed takes the
+## farmer at any hour (Bed), the goal's card says so (HINT_DAY_DONE), and the quiet farm
+## chores come up meanwhile (FarmChores).
+func day_work_done() -> bool:
+	if tutorial_done():
+		return false
+	var g := current()
+	return String(g["kind"]) == "check" and String(g["arg"]).begins_with("day:")
+
+
+## The story has nothing for the farmer to do right now: its goal waits for a morning
+## (day_work_done) or for the farm to grow a level (the milestones after the pond's day).
+## FarmChores fills such hours on the first days.
+func story_idle() -> bool:
+	return day_work_done() or (not tutorial_done() and String(current()["arg"]) == "level")
+
+
+## Real seconds a building of kit `id` takes to go up if it is put down now: the story's
+## first coop and first workbench (their goals up or still ahead, none put down yet) go
+## up in PlaceableTable.TUTORIAL_BUILD_SECONDS, so nobody stands a minute before a site
+## with a goal waiting on it; every later one takes its usual time. (Placer keeps it in
+## the site's entry; the construction board and the note read it too.)
+func build_seconds(id: StringName) -> float:
+	if not tutorial_done():
+		if id == &"coop_kit" and step <= index_of("coop_built") and not FarmState.coop_started():
+			return PlaceableTable.TUTORIAL_BUILD_SECONDS
+		if id == &"workbench" and step <= index_of("bench_built") and _placed_count(&"workbench") == 0:
+			return PlaceableTable.TUTORIAL_BUILD_SECONDS
+	return PlaceableTable.build_seconds(id)
+
+
 func goal_text(goal: Dictionary = {}) -> String:
 	var g := goal if not goal.is_empty() else current()
 	if g.is_empty():
@@ -554,16 +640,58 @@ func goal_text(goal: Dictionary = {}) -> String:
 		var bench := _bench_going_up()
 		if bench:
 			text += " · %s" % ConstructionSite.clock_text(bench.seconds_left())
-	# Why the dot is somewhere else first (the current goal only).
+	# What its project takes against what he has, then why the dot is somewhere else
+	# first (the current goal only).
+	if goal.is_empty() and _needs != "":
+		text += "\n%s" % _needs
 	if goal.is_empty() and _hint != "":
 		text += "\n%s" % _hint
 	return text
 
 
 ## The line under the current goal saying why the dot points where it does ("" when it
-## points at the goal's own place).
+## points at the goal's own place). Short of money it is two lines: how much more it
+## takes, and how to earn it (money_short).
 func goal_hint() -> String:
 	return _hint
+
+
+## What the current goal's project from the construction board takes against what the
+## farmer has ("Wood 32/50 · $120/200", the ones met ticked; "" for a goal that builds
+## nothing): the kit or the building the board opens on for it (board_project), so nobody
+## walks to the board to read what is missing. The coop's wood goal counts its wood
+## itself; a kit Grandpa pays for (coop_kit_is_gift) asks for its wood only.
+func goal_needs() -> String:
+	if tutorial_done() or String(current()["id"]) == "coop_wood":
+		return ""
+	var id := board_project()
+	var p := ProjectTable.get_project(id)
+	if p.is_empty() or FarmState.is_built(id):
+		return ""
+	var gift := id == &"coop_kit" and coop_kit_is_gift()
+	return needs_text(p.get("items", {}), 0 if gift else int(p.get("cost", 0)))
+
+
+## "Wood 32/50 · $120/200": the materials `items` (id -> count) from the bag and `cost`
+## dollars (none for 0) against what the farmer has, each ticked once it is met. The goal
+## cards' requirement line (the story's, the doghouse's).
+static func needs_text(items: Dictionary, cost := 0) -> String:
+	var parts := PackedStringArray()
+	for id: StringName in items:
+		parts.append(need_part(ItemDB.get_item(id).display_name(), PlayerState.inventory.count_item(id), int(items[id])))
+	if cost > 0:
+		# "$120/200" where the sign comes first, "120/200 $" where it follows.
+		var need := UiTheme.number(cost)
+		var pair := "%s/%s" % [UiTheme.number(clampi(Economy.money, 0, cost)), need]
+		var text := UiTheme.money(cost).replace(need, pair)
+		parts.append("%s %s" % [text, NEED_MET] if Economy.money >= cost else text)
+	return " · ".join(parts)
+
+
+## One requirement on a goal's card: "Wood 32/50", ticked once it is met ("Wood 50/50 ✓").
+static func need_part(what: String, have: int, need: int) -> String:
+	var text := "%s %d/%d" % [what, clampi(have, 0, need), need]
+	return "%s %s" % [text, NEED_MET] if have >= need else text
 
 
 ## Index in CHAPTERS of the current goal (the last chapter once the story is done).
@@ -782,6 +910,7 @@ func _process(delta: float) -> void:
 	_tick_new_building(delta)
 	if tutorial_done() or SaveGame.loading:
 		_waypoint = null
+		_needs = ""
 		return
 	_wp_left -= delta
 	if _wp_left <= 0.0:
@@ -791,9 +920,14 @@ func _process(delta: float) -> void:
 		if String(current()["kind"]) == "visit":
 			_visit_spots()
 		var hint := _hint
+		var needs := _needs
 		_hint = ""
 		_waypoint = _target(String(current().get("at", "")))
-		if _hint != hint:
+		_needs = goal_needs()
+		# Waiting for the morning: the card says the bed is open at any hour.
+		if _hint == "" and day_work_done():
+			_hint = tr("HINT_DAY_DONE")
+		if _hint != hint or _needs != needs:
 			tutorial_changed.emit()
 	_poll -= delta
 	if _poll > 0.0:
@@ -1226,12 +1360,12 @@ func _sync_drawer_lock() -> void:
 		FarmState.flags.erase(FarmHouse.DRAWER_LOCK_FLAG)
 
 
-## The first day's clock (see FIRST_DAY_PACE, and SECOND_DAY_PACE for the second day's
+## The first day's clock (see FIRST_DAY_RATE, and SECOND_DAY_RATE for the second day's
 ## work): set while it runs, given back after (the night, a skip, a load).
 func _pace() -> void:
 	if _paces_day():
 		# Hours past midnight count on (25.0 is 01:00): the day ends at the first sleep.
-		var want := pace_for(GameClock.minute / 60.0) if GameClock.day == 1 else SECOND_DAY_PACE
+		var want := pace_for(GameClock.minute / 60.0) if GameClock.day == 1 else second_day_pace()
 		if GameClock.time_scale != want:
 			GameClock.time_scale = want
 		_paced = true
@@ -1252,9 +1386,23 @@ func _paces_day() -> bool:
 
 
 ## The first day's time scale at `hour` (from 13.0, past 24 after midnight) while its
-## story runs (tests check it).
+## story runs, at the day length set (FIRST_DAY_PACE and LINGER_PACE at the default;
+## tests check it).
 func pace_for(hour: float) -> float:
-	return FIRST_DAY_PACE if hour < LINGER_HOUR else LINGER_PACE
+	return _pace_of(FIRST_DAY_RATE if hour < LINGER_HOUR else LINGER_RATE)
+
+
+## The second day's time scale while its goals are up (SECOND_DAY_PACE at the default
+## day length).
+func second_day_pace() -> float:
+	return _pace_of(SECOND_DAY_RATE)
+
+
+## The time scale at which the clock runs `rate` game minutes a real minute at the day
+## length set (Settings.game_minutes_per_second): a longer day's clock is slower to
+## begin with and is slowed less, so the story's days last the same real time.
+func _pace_of(rate: float) -> float:
+	return rate / maxf(Settings.game_minutes_per_second() * 60.0, 0.001)
 
 
 # --- Waypoints ----------------------------------------------------------------------------
@@ -1437,12 +1585,9 @@ func _target(at: String) -> Variant:
 			if has_coop_kit() or FarmState.coop_started():
 				return _target("coop_spot")
 			# The kit takes wood from the bag: short of it, the trees first, and the line
-			# under the goal says how much is missing.
-			var need := int((ProjectTable.get_project(&"coop_kit").get("items", {}) as Dictionary).get(&"wood", 0))
-			if PlayerState.inventory.count_item(&"wood") < need:
-				_hint = tr("HINT_NEED_ITEM") % _short_of(&"wood", need)
-				return _target("trees")
-			return _ground(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z, 1.9)
+			# under the goal says how much is missing. (Its price too, once Grandpa no
+			# longer pays for it: coop_kit_is_gift.)
+			return _project_target(&"coop_kit", from, coop_kit_is_gift())
 		"coop_spot":
 			# The kit is on the ground (dropped, or the bag was full when it was made): pick
 			# it up; gone altogether with no coop going up: the board makes another.
@@ -1536,7 +1681,9 @@ func _target(at: String) -> Variant:
 		"earn":
 			return _earn_target(from)
 		"sell_market":
-			# To town at the wheel of the loaded pickup, then the market counter.
+			# To town at the wheel of the loaded pickup, then the market counter. The line
+			# under the goal says what sells and where (the first sale of the story).
+			_hint = tr("HINT_WHAT_SELLS")
 			var pl := _player()
 			if _near("town") or (pl and pl.driving != null):
 				return _target("market")
@@ -1550,14 +1697,22 @@ func _target(at: String) -> Variant:
 			return _anchor(&"truck", _truck_roof_point())
 		"bench_board":
 			# The kit costs money and wood: short of either, where to get it first.
-			var p_kit := ProjectTable.get_project(&"workbench")
-			if not _can_pay(int(p_kit.get("cost", 0))):
+			return _project_target(&"workbench", from)
+		"project":
+			# A building from the construction board (the barn, the bigger house): the
+			# same, then the board.
+			return _project_target(StringName(at.get_slice(":", 1)), from)
+		"animal":
+			# A grown animal from the Animal Market: short of its price, where to earn it
+			# first; then its pen there.
+			var kind := StringName(at.get_slice(":", 1))
+			if not _can_pay(LiveCrates.price(kind)):
 				return _earn_target(from)
-			var wood_need := int((p_kit.get("items", {}) as Dictionary).get(&"wood", 0))
-			if PlayerState.inventory.count_item(&"wood") < wood_need:
-				_hint = tr("HINT_NEED_ITEM") % _short_of(&"wood", wood_need)
-				return _target("trees")
-			return _ground(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z, 1.9)
+			var market := _town()
+			var pen: Variant = market.market_pens.get(kind) if market else null
+			if pen is Node3D and (pen as Node3D).is_inside_tree():
+				return (pen as Node3D).global_position + Vector3(0, 1.2, 0)
+			return _target("stall")
 		"bench_spot":
 			if PlayerState.inventory.count_item(&"workbench") == 0 and _placed_count(&"workbench") == 0:
 				return _target("bench_board")
@@ -1611,6 +1766,9 @@ func _target(at: String) -> Variant:
 			var seed_id := _seed_to_buy()
 			if seed_id == &"":
 				return null
+			# Short of money: where his own goods sell, named under the goal.
+			if Economy.money < seeds_cost():
+				return _seeds_short()
 			return _buy_target(seed_id, maxi(int(current().get("count", 1)) - step_count, 1))
 		"sapling":
 			# Hold the sapling and plant it: the dot suggests open ground by the pond.
@@ -1667,40 +1825,96 @@ func _waiting_crates(crate: StringName, every := false) -> Variant:
 	return null
 
 
-## Where money comes from for the goals that buy something: goods to sell in the bag go
-## to the shipping bin (the market when in town, which pays at once), else the ripe beds,
-## eggs lying about, the hens' coop.
+## A goal short of money: the line under it goes on (after "$28 more needed", set by
+## _can_pay) with how to earn it, and the dot goes where that line says (earn_plan).
 func _earn_target(from: Vector3) -> Variant:
-	# A goal short of money says how much; the earning goal itself says how.
-	var own := _hint == ""
-	if _has_goods_to_sell() or _crop_units_in_cargo() > 0:
-		if _near("town"):
-			if own:
-				_hint = tr("HINT_SELL_MARKET")
-			return _target("market")
-		# Into the pickup and off to the market (the bin only pays the next morning).
-		if own:
-			_hint = tr("HINT_SELL_TOWN")
-		var pl := _player()
-		if pl and pl.driving != null:
-			return _target("market")
-		return _anchor(&"truck", _truck_roof_point())
-	if own:
-		_hint = tr("HINT_EARN")
+	var plan := earn_plan(from, _goal_keep())
+	_hint = String(plan["line"]) if _hint == "" else "%s\n%s" % [_hint, plan["line"]]
+	return plan["at"]
+
+
+## How the farmer can earn money right now, from what he has or can do: {"line": what the
+## goal's card says, "at": where the dot goes for it}. Never a silent detour:
+##   goods to sell (the bag's and the pickup's; `keep`: materials the goal itself asks for,
+##   item -> count, are not offered): named ("Eggs, Wood"), sold at the market counter
+##   when he is in town or at the wheel, else taken there in the pickup (the line says the
+##   shipping bin pays too, next morning);
+##   nothing in hand but goods waiting in the bin, in the evening: they are paid for in the
+##   morning, so to bed;
+##   nothing to sell: what there is to gather first: a ripe bed, an egg lying in the coop,
+##   else wood from the trees (the line says eggs and fish sell too).
+func earn_plan(from: Vector3, keep := {}) -> Dictionary:
+	var goods := sellable_names(3, keep)
+	var pl := _player()
+	if not goods.is_empty():
+		var names := UiTheme.join_list(PackedStringArray(goods))
+		if _near("town") or (pl and pl.driving != null):
+			return {"line": tr("HINT_SELL_GOODS") % names, "at": _target("market")}
+		return {"line": tr("HINT_SELL_GOODS_HOME") % names, "at": _anchor(&"truck", _truck_roof_point())}
+	var waiting := _bin_value()
+	if waiting > 0 and GameClock.minute >= BIN_BED_HOUR * 60.0:
+		var house := _house()
+		return {"line": tr("HINT_BIN_WAIT") % UiTheme.money(waiting), "at": house.door_point() if house else null}
 	var ripe: Variant = _plot_spot("ripe", from)
 	if ripe != null:
-		return ripe
-	var egg: Variant = _nearest_pickup(&"egg", from, 60.0)
+		return {"line": tr("HINT_EARN_HARVEST"), "at": ripe}
+	var egg: Variant = _nearest_pickup(&"egg", from, 400.0)
 	if egg != null:
-		return egg
-	# Goods waiting in the bin are paid for in the morning: bed, once it is evening.
-	if _bin_value() > 0 and GameClock.minute >= 18 * 60:
-		if own:
-			_hint = tr("HINT_BIN_MORNING")
-		var house := _house()
-		return house.door_point() if house else null
-	var coop := _newest_coop()
-	return _target("coop") if coop else _target("bin")
+		return {"line": tr("HINT_EARN_EGGS"), "at": egg}
+	var logs: Variant = _nearest_pickup(&"wood", from, 30.0)
+	return {"line": tr("HINT_EARN_GATHER"), "at": logs if logs != null else _nearest_tree(from)}
+
+
+## The two lines of a goal short of `amount` dollars and where its dot goes, for the side
+## goals (the doghouse's kit, the dog's ball, the contest's bait, Zeynep's errands):
+## {"hint": "$28 more needed" over how to earn it (earn_plan), "at": the place that line
+## names}. `keep`: materials the goal itself asks for.
+func money_short(amount: int, keep := {}) -> Dictionary:
+	var p := _player()
+	var plan := earn_plan(p.global_position if p else Vector3.ZERO, keep)
+	return {"hint": "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(amount - Economy.money), plan["line"]], "at": plan["at"]}
+
+
+## The materials the current goal itself asks for (item -> count): the earning line never
+## offers them for sale (the kit's wood, the rod's).
+func _goal_keep() -> Dictionary:
+	if tutorial_done():
+		return {}
+	var project := board_project()
+	if project != &"":
+		return ProjectTable.get_project(project).get("items", {})
+	var at := String(current().get("at", ""))
+	if at.begins_with("craft:"):
+		return RecipeTable.crafting(StringName(at.get_slice(":", 1))).get("items", {})
+	if at == "buy:rope":
+		return RecipeTable.crafting(&"fishing_rod").get("items", {})
+	return {}
+
+
+## The dot for a goal that makes project `id` at the construction board: short of its
+## price, where to earn it (the line says how much and how); short of a material, where it
+## comes from (the line says what is missing); else the board. `gift`: nothing to pay.
+func _project_target(id: StringName, from: Vector3, gift := false) -> Variant:
+	var p := ProjectTable.get_project(id)
+	if not gift and not _can_pay(int(p.get("cost", 0))):
+		return _earn_target(from)
+	var items: Dictionary = p.get("items", {})
+	for mat: StringName in items:
+		if PlayerState.inventory.count_item(mat) < int(items[mat]):
+			return _material_target(mat, int(items[mat]), from)
+	return _ground(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z, 1.9)
+
+
+## Where the dot would point for `at` (see _target) and the line saying why, for the side
+## goals that go by the story's places (the contest's rod at the workbench): {"at",
+## "hint"}. The story's own line is left alone.
+func place_for(at: String) -> Dictionary:
+	var kept := _hint
+	_hint = ""
+	var point: Variant = _target(at)
+	var why := _hint
+	_hint = kept
+	return {"at": point, "hint": why}
 
 
 ## What the shipping bin's goods will fetch in the morning (the courier's cut taken).
@@ -1710,15 +1924,6 @@ func _bin_value() -> int:
 		if st != null:
 			n += Economy.quote(st.item.id, st.count, st.quality, ShippingBin.COMMISSION_FACTOR)
 	return n
-
-
-## Goods in the bag that sell for something and aren't wanted for the story's making:
-## crops, eggs, milk, wool, artisan goods, fish.
-func _has_goods_to_sell() -> bool:
-	for st: ItemStack in PlayerState.inventory.slots:
-		if st != null and st.item.sell_price > 0 and st.item.category in ["crop", "animal_product", "artisan", "fish", "food"]:
-			return true
-	return false
 
 
 ## Crops (ItemTable category "crop") in the bag.
@@ -1769,27 +1974,33 @@ func _short_of(id: StringName, need: int) -> String:
 func _craft_target(id: StringName, from: Vector3) -> Variant:
 	var items: Dictionary = RecipeTable.crafting(id).get("items", {})
 	for mat: StringName in items:
-		var need := int(items[mat])
-		if PlayerState.inventory.count_item(mat) >= need:
-			continue
-		_hint = tr("HINT_NEED_ITEM") % _short_of(mat, need)
-		match mat:
-			&"wood":
-				return _target("trees")
-			&"stone":
-				return _target("rocks")
-			&"wheat":
-				var ripe: Variant = _plot_spot("ripe", from)
-				if ripe != null:
-					return ripe
-		if _sold_at_market(mat):
-			var short := _hint
-			var at: Variant = _buy_target(mat, need - PlayerState.inventory.count_item(mat))
-			if _hint == tr("HINT_MARKET"):
-				_hint = "%s · %s" % [short, _hint]
-			return at
-		return null
+		if PlayerState.inventory.count_item(mat) < int(items[mat]):
+			return _material_target(mat, int(items[mat]), from)
 	return _target("bench")
+
+
+## Where the material `mat` a goal is short of comes from (`need`: how many it takes;
+## the line under the goal says what is missing, "Short of Wood ×3"): wood from the trees,
+## stone from the rocks, wheat from the ripe beds, the market's goods from the market
+## (short of their price: where to earn it); null when it is nowhere to be had.
+func _material_target(mat: StringName, need: int, from: Vector3) -> Variant:
+	_hint = tr("HINT_NEED_ITEM") % _short_of(mat, need)
+	match mat:
+		&"wood":
+			return _target("trees")
+		&"stone":
+			return _target("rocks")
+		&"wheat":
+			var ripe: Variant = _plot_spot("ripe", from)
+			if ripe != null:
+				return ripe
+	if _sold_at_market(mat):
+		var short := _hint
+		var at: Variant = _buy_target(mat, need - PlayerState.inventory.count_item(mat))
+		if _hint == tr("HINT_MARKET"):
+			_hint = "%s · %s" % [short, _hint]
+		return at
+	return null
 
 
 ## The seed the second day's goal sends the player to buy: carrots or potatoes when the
@@ -1804,6 +2015,90 @@ func _seed_to_buy() -> StringName:
 		if ItemDB.has_item(id) and ItemDB.get_item(id).category == "seed":
 			return id
 	return &""
+
+
+## What the seeds still asked for cost at the market (0 off the seeds goal, or when the
+## market has none).
+func seeds_cost() -> int:
+	if tutorial_done() or String(current()["id"]) != "seeds":
+		return 0
+	var seed_id := _seed_to_buy()
+	if seed_id == &"":
+		return 0
+	return Economy.buy_price(seed_id) * maxi(int(current()["count"]) - step_count, 0)
+
+
+## Short of money at the seeds goal: the dot goes to where the farmer's own goods sell
+## (the market counter in town or at the wheel, else the pickup that takes them there),
+## and the lines under the goal say how much is short and name what he has ("$6 more
+## needed" over "Sell your Eggs, Wood: the market counter pays at once").
+## With nothing to sell either, the grocer helps out at the counter (seed_gift_due).
+func _seeds_short() -> Variant:
+	var goods := sellable_names()
+	_hint = "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(seeds_cost() - Economy.money),
+			tr("HINT_SEEDS_GIFT") if goods.is_empty() else tr("HINT_SELL_GOODS") % UiTheme.join_list(PackedStringArray(goods))]
+	var pl := _player()
+	if _near("town") or (pl and pl.driving != null):
+		return _target("market")
+	return _anchor(&"truck", _truck_roof_point())
+
+
+## Names of the goods the farmer has to sell (the bag, then the bed of his pickup), the
+## best sellers first (SELLABLE's order), `most` at most. `keep` (item -> count): that
+## many of each are spoken for (a goal's own materials) and only what is over them counts.
+func sellable_names(most := 3, keep := {}) -> Array[String]:
+	var have := {}
+	for st: ItemStack in PlayerState.inventory.slots:
+		if st != null and st.item.sell_price > 0 and st.item.category in SELLABLE:
+			have[st.item.id] = int(have.get(st.item.id, 0)) + st.count
+	for v: Vehicle in get_tree().get_nodes_in_group(Vehicle.GROUP):
+		if v.owned and v.cargo != null:
+			for e: Dictionary in v.cargo.entries():
+				var item := ItemDB.get_item(e["id"])
+				if item and item.sell_price > 0 and item.category in SELLABLE:
+					have[item.id] = int(have.get(item.id, 0)) + int(e["count"])
+	var ids: Array[StringName] = []
+	for id: StringName in have:
+		if int(have[id]) > int(keep.get(id, 0)):
+			ids.append(id)
+	ids.sort_custom(func(a: StringName, b: StringName) -> bool:
+		return SELLABLE.find(ItemDB.get_item(a).category) < SELLABLE.find(ItemDB.get_item(b).category))
+	var names: Array[String] = []
+	for id: StringName in ids.slice(0, most):
+		names.append(ItemDB.get_item(id).display_name())
+	return names
+
+
+## The seeds goal can't be met any other way: it is up, the money doesn't reach, the
+## farmer has nothing to sell, and the grocer hasn't helped yet (SEED_GIFT_FLAG).
+func seed_gift_due() -> bool:
+	if tutorial_done() or String(current()["id"]) != "seeds" or FarmState.flags.has(SEED_GIFT_FLAG):
+		return false
+	var cost := seeds_cost()
+	return cost > 0 and Economy.money < cost and sellable_names(1).is_empty()
+
+
+## At the town market's counter (its window open): the grocer hands over the seeds still
+## asked for, once, when seed_gift_due ("The first seeds are on me, neighbour"). They
+## count as the goal's.
+func _offer_seed_gift() -> void:
+	if not seed_gift_due() or Game.top_ui() != &"shop" or not _near("town"):
+		return
+	var hud := Game.hud as HUD
+	if hud == null or hud.shop_screen == null or not hud.shop_screen.is_town_market():
+		return
+	give_seed_gift()
+
+
+## The grocer's gift itself (see _offer_seed_gift; tests call it too).
+func give_seed_gift() -> void:
+	var seed_id := _seed_to_buy()
+	var want := maxi(int(current()["count"]) - step_count, 1)
+	FarmState.flags[SEED_GIFT_FLAG] = true
+	PlayerState.give(seed_id, want, false)
+	Game.notify(tr("MSG_SEED_GIFT") % [tr("PERSON_SHOPKEEPER"), want, ItemDB.get_item(seed_id).display_name()], UiTheme.GOLD)
+	Audio.ui("confirm", -6.0)
+	_count("purchased", "seed", want)
 
 
 ## The town market's counter for buying `count` × `id` (only for goods it sells: no dot
@@ -2239,6 +2534,7 @@ func new_game() -> void:
 	orders = []
 	_next_order_id = 1
 	_reset_cache()
+	chores.load_data({})
 	_post_first_order()
 	refill_board()
 	tutorial_changed.emit()
@@ -2257,13 +2553,15 @@ func _reset_cache() -> void:
 	_sapling_spot = null
 	_sapling_spot_searched = false
 	_hint = ""
+	_needs = ""
 
 
 ## The goal is kept by its id (and the index, for reference), so goals can be added;
 ## "chain" tells this chain from older ones.
 func save_data() -> Dictionary:
 	return {"chain": CHAIN, "step": step, "id": String(current().get("id", "")), "count": step_count,
-		"tally": tally.duplicate(), "orders": orders.duplicate(true), "next": _next_order_id}
+		"tally": tally.duplicate(), "orders": orders.duplicate(true), "next": _next_order_id,
+		"chores": chores.save_data()}
 
 
 func load_data(d: Dictionary) -> void:
@@ -2322,6 +2620,7 @@ func load_data(d: Dictionary) -> void:
 		step_count = clampi(step_count, 0, int(current()["count"]))
 	orders = (d.get("orders", []) as Array).duplicate(true)
 	_next_order_id = int(d.get("next", 1))
+	chores.load_data(d.get("chores", {}))
 	if orders.is_empty():
 		refill_board()
 	tutorial_changed.emit()

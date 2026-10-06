@@ -1,8 +1,8 @@
 extends Node
 ## The farmer's own dog: one of Karamel's pups, weaned, that Zeynep gives him (her
 ## story calls adopt). Its body in the world is a PetDog (spawned whenever the farm is
-## built: by its bed at the farmhouse, or beside the farmer by day); everything about it
-## that lasts is kept here and saved:
+## built: at its doghouse or its bed at the farmhouse, or beside the farmer by day);
+## everything about it that lasts is kept here and saved:
 ##   - its name (the farmer names it as it is given: PetNameScreen, "Fındık" unless he
 ##     types another), its age (game time since adoption; it grows from a pup of
 ##     PUPPY_SIZE to Karamel's size over GROW_DAYS) and its affection for him (petting it,
@@ -15,7 +15,16 @@ extends Node
 ##     once it is FETCH_AGE days old (before that it plays with the ball and leaves it);
 ##   - grown to GUARD_AGE days it keeps watch by the animals at night (PetDog &"guard"):
 ##     on a raid night a bite about to land is stopped GUARD_SAVE of the time and the pack
-##     leaves (WolfRaids._guard_foils), awake or asleep.
+##     leaves (WolfRaids._guard_foils), awake or asleep;
+##   - where it is when it is not on the farm. G picks it up (AnimalHandler) and carried
+##     into a vehicle it rides on the passenger seat, so it can be out with him; left
+##     behind out there (he drove off, or walked away) it waits WAIT_MINUTES of game time
+##     and then is home again (`left_at`; PetDog &"wait");
+##   - its home on the farm: the doghouse put up from the construction board's kit
+##     (Doghouse, `kennel`: it sleeps in it, waits by it); until one stands, a bed by the
+##     farmhouse door;
+##   - the quiet side goals that come with it (DogGoals, `goals`): a doghouse, a ball, the
+##     first command, bringing the ball back.
 
 signal adopted(dog_name: String)
 ## It learnt a command (&"sit", &"fetch").
@@ -53,6 +62,8 @@ const GUARD_SAVE := 0.5
 ## house), and its turn (yaw).
 const BED_SPOTS: Array[Vector2] = [Vector2(-21.3, -12.9), Vector2(-21.4, -11.1), Vector2(-7.2, -15.6)]
 const BED_YAW := PI * 0.5
+## Game minutes it waits where it was left off the farm before it goes home on its own.
+const WAIT_MINUTES := 90.0
 
 ## Saved.
 var has_pet := false
@@ -64,9 +75,15 @@ var practice := {&"sit": 0, &"fetch": 0}
 var skills := {&"sit": false, &"fetch": false}
 ## The grown-up note was given (it guards from now on).
 var guard_told := false
+## GameClock.total_minutes when it was left behind off the farm (-1: it wasn't).
+var left_at := -1.0
+## Its side goals (a doghouse, a ball, the first command, fetching).
+var goals: DogGoals
 
 ## The body in the world (null while the farm is rebuilt or before adoption).
 var dog: PetDog
+## Its doghouse on the farm (the first finished one), null while it has only its bed.
+var kennel: Doghouse
 ## Counters for tests: whistles heeded and not.
 var whistles_heeded := 0
 var whistles_missed := 0
@@ -80,11 +97,16 @@ var _bed: Node3D
 ## The bed's spot on this build of the farm (BED_SPOTS).
 var _bed_at := Vector2.INF
 var _check := 0.0
+## Loaded: where it was off the farm (INF: on the farm), until its body is out again.
+var _out_at := Vector3.INF
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	_rng.randomize()
+	goals = DogGoals.new()
+	goals.name = "DogGoals"
+	add_child(goals)
 
 
 func _process(delta: float) -> void:
@@ -100,6 +122,7 @@ func _process(delta: float) -> void:
 	if not has_pet or SaveGame.loading or Game.world == null or not is_instance_valid(Game.world) \
 			or Game.player == null or not is_instance_valid(Game.player):
 		return
+	_find_kennel()
 	if dog == null or not is_instance_valid(dog) or dog.is_queued_for_deletion():
 		_build_bed()
 		_spawn(_start_spot())
@@ -150,6 +173,23 @@ func growth() -> float:
 ## Its size against Karamel's.
 func size() -> float:
 	return lerpf(PUPPY_SIZE, 1.0, growth())
+
+
+## It was left behind off the farm just now (PetDog): its wait begins.
+func note_left() -> void:
+	if left_at < 0.0:
+		left_at = GameClock.total_minutes
+
+
+## Left off the farm, it has waited long enough (PetDog sends it home).
+func wait_over() -> bool:
+	return left_at >= 0.0 and GameClock.total_minutes - left_at >= WAIT_MINUTES
+
+
+## It went home on its own after waiting (PetDog): the farmer is told where it is.
+func note_home() -> void:
+	left_at = -1.0
+	Game.notify(tr("MSG_PET_WENT_HOME") % dog_name, Color(0.95, 0.8, 0.5))
 
 
 ## Grown enough to keep watch at night (WolfRaids asks).
@@ -294,6 +334,9 @@ func _finish_adopt(pet_name: String) -> void:
 	practice = {&"sit": 0, &"fetch": 0}
 	skills = {&"sit": false, &"fetch": false}
 	guard_told = false
+	left_at = -1.0
+	_out_at = Vector3.INF
+	goals.load_data({})
 	if Game.world and Game.player and is_instance_valid(Game.player):
 		var p := Game.player as Node3D
 		var side := p.global_basis.x
@@ -302,17 +345,26 @@ func _finish_adopt(pet_name: String) -> void:
 		dog.look_toward(p.global_position)
 	Game.notify(tr("MSG_PET_ADOPTED") % dog_name, Color(0.95, 0.8, 0.5))
 	Game.notify(tr("MSG_PET_HOWTO"), Color(0.85, 0.85, 0.8))
+	Game.notify(tr("MSG_PET_CARRY_HOWTO"), Color(0.85, 0.85, 0.8))
 	adopted.emit(dog_name)
 
 
-## Where it is when the farm is built: beside the farmer by day on the farm, else on its bed.
+## Where it is when the farm is built: where it was off the farm (out with him, or left
+## there and still waiting); else beside the farmer by day on the farm, else at its
+## doghouse (its bed).
 func _start_spot() -> Vector3:
+	if _out_at.is_finite():
+		var at := _out_at
+		_out_at = Vector3.INF
+		if not wait_over():
+			return at
+		left_at = -1.0
 	var p := Game.player as Node3D
 	var h := GameClock.get_hour_float()
 	var night := h >= PetDog.NIGHT_FROM or h < PetDog.NIGHT_TO
 	if not night and p and PetDog.on_farm(p.global_position):
 		return p.global_position + p.global_basis.x * 1.5 - p.global_basis.z * 1.2
-	return bed_point()
+	return bed_point() if night else home_point()
 
 
 func _spawn(at: Vector3) -> void:
@@ -321,14 +373,56 @@ func _spawn(at: Vector3) -> void:
 	_build_bed()
 	dog = PetDog.new()
 	dog.position = Vector3(at.x, TerrainData.height(at.x, at.z), at.z)
+	# (Loaded where it was off the farm: out with him, or left there.)
+	dog.out_with_him = not PetDog.on_farm(at)
 	Game.world.add_child(dog)
 	dog.grow()
 
 
-## The bed's middle on the ground.
+## Where it sleeps: in its doghouse, just inside the door; else the bed's middle on the ground.
 func bed_point() -> Vector3:
+	if kennel != null:
+		return kennel.sleep_point(size())
 	var s := _bed_at if _bed_at.is_finite() else BED_SPOTS[0]
 	return Vector3(s.x, TerrainData.height(s.x, s.y), s.y)
+
+
+## Where it waits for him at the farm: its doghouse's doorstep, or its bed.
+func home_point() -> Vector3:
+	return kennel.porch_point() if kennel != null else bed_point()
+
+
+## Looks for its doghouse (the first finished one on the farm). When one comes to stand
+## the bed by the farmhouse goes, and the dog takes to its new place.
+func _find_kennel() -> void:
+	var found: Doghouse = null
+	for n in get_tree().get_nodes_in_group(Doghouse.GROUP):
+		var k := n as Doghouse
+		if k and k.is_built() and k.is_inside_tree() and not k.is_queued_for_deletion():
+			found = k
+			break
+	if kennel != null and not is_instance_valid(kennel):
+		kennel = null
+	if found == kennel:
+		return
+	kennel = found
+	_home_moved()
+
+
+## A doghouse is leaving the farm (picked up again): at once, so nothing asks it anything.
+func kennel_gone(k: Doghouse) -> void:
+	if kennel != k:
+		return
+	kennel = null
+	_home_moved.call_deferred()
+
+
+func _home_moved() -> void:
+	if not has_pet or Game.world == null or not is_instance_valid(Game.world) or not Game.world.is_inside_tree():
+		return
+	_build_bed()
+	if dog and is_instance_valid(dog) and dog.task in [&"home", &"bed"]:
+		dog._set_task(dog.task)
 
 
 ## The first of BED_SPOTS with nothing solid (a wall, a bin, a crate) on its ground.
@@ -348,6 +442,13 @@ func _pick_bed_spot() -> Vector2:
 
 ## Its bed by the farmhouse: a round cushion in a stuffed bolster, worn and warm.
 func _build_bed() -> void:
+	if kennel != null:
+		# It has a doghouse now: the old bed by the door is taken away.
+		var old := Game.world.get_node_or_null("PetBed") as Node3D
+		if old:
+			old.free()
+		_bed = null
+		return
 	if _bed and is_instance_valid(_bed) and _bed.is_inside_tree():
 		return
 	var existing := Game.world.get_node_or_null("PetBed") as Node3D
@@ -392,9 +493,34 @@ func new_game() -> void:
 func save_data() -> Dictionary:
 	if not has_pet:
 		return {}
-	return {"name": dog_name, "at": adopted_at, "affection": affection,
+	var d := {"name": dog_name, "at": adopted_at, "affection": affection,
 		"practice": {"sit": int(practice[&"sit"]), "fetch": int(practice[&"fetch"])},
-		"skills": {"sit": knows(&"sit"), "fetch": knows(&"fetch")}, "guard_told": guard_told}
+		"skills": {"sit": knows(&"sit"), "fetch": knows(&"fetch")}, "guard_told": guard_told,
+		"goals": goals.save_data()}
+	var out := _out_spot()
+	if out.is_finite():
+		d["out"] = [out.x, out.y, out.z]
+		d["left"] = left_at
+	return d
+
+
+## Where it is off the farm, to save (INF: on the farm). In his arms or on the seat it is
+## put beside where he will stand.
+func _out_spot() -> Vector3:
+	if dog == null or not is_instance_valid(dog) or not dog.is_inside_tree():
+		return _out_at
+	var at := dog.global_position
+	var p := Game.player as Player
+	if dog.task == &"ride" and dog.vehicle != null and is_instance_valid(dog.vehicle):
+		var spot := dog.vehicle.exit_point()
+		var off := spot - dog.vehicle.global_position
+		off.y = 0.0
+		at = spot + off.normalized() * 0.8
+	elif dog.task == &"held" and p != null and is_instance_valid(p):
+		at = p.global_position + p.global_basis.x * 0.9
+	elif not dog.out_with_him:
+		return Vector3.INF
+	return at if not PetDog.on_farm(at) else Vector3.INF
 
 
 func load_data(d: Dictionary) -> void:
@@ -410,5 +536,10 @@ func load_data(d: Dictionary) -> void:
 	practice = {&"sit": int(p.get("sit", 0)), &"fetch": int(p.get("fetch", 0))}
 	skills = {&"sit": bool(s.get("sit", false)), &"fetch": bool(s.get("fetch", false))}
 	guard_told = bool(d.get("guard_told", false))
+	var out: Array = d.get("out", [])
+	_out_at = Vector3(float(out[0]), float(out[1]), float(out[2])) if out.size() == 3 else Vector3.INF
+	left_at = float(d.get("left", -1.0)) if _out_at.is_finite() else -1.0
+	kennel = null
+	goals.load_data(d.get("goals", {}))
 	_window.clear()
 	_check = 0.0

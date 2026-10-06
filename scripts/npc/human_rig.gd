@@ -38,6 +38,13 @@ const BODY := [&"pelvis", &"spine_01", &"spine_02", &"spine_03", &"neck_01", &"h
 	&"clavicle_l", &"upperarm_l", &"lowerarm_l", &"hand_l", &"clavicle_r", &"upperarm_r", &"lowerarm_r", &"hand_r",
 	&"thigh_l", &"calf_l", &"foot_l", &"ball_l", &"thigh_r", &"calf_r", &"foot_r", &"ball_r"]
 const FINGERS := [&"index", &"middle", &"ring", &"pinky"]
+## The fingers and the thumb, and half the hand's thickness (m) under a bone's head: at
+## the wrist, in the palm, at a finger's knuckle and its two joints, at its tip, on the
+## thumb.
+const HAND_FINGERS := [&"index", &"middle", &"ring", &"pinky", &"thumb"]
+const HAND_HALF := [0.02, 0.013, 0.011, 0.009, 0.008, 0.007, 0.01]
+## Half the arm's thickness in its sleeve: [how far from the elbow to the wrist, m].
+const ARM_HALF := [[0.0, 0.036], [0.33, 0.033], [0.66, 0.028]]
 
 var model_name: StringName
 var skeleton: Skeleton3D
@@ -729,6 +736,85 @@ func palm_on(side: String, at: Vector3, normal: Vector3, fingers: Vector3, pole:
 	var w := hand_rot(side, (fingers - n * fingers.dot(n)).normalized(), -n)
 	reach(side, at - w * (_palm0[side] as Vector3), pole)
 	set_hand(side, w)
+
+
+## How low the hand's skin reaches as it is posed now (body frame height): the lowest of
+## the wrist, the palm, the knuckles and every finger's joints and tip, bent as curl() set
+## them, each less half the hand's thickness there (HAND_HALF).
+func hand_low(side: String) -> float:
+	var h := bi("hand" + side)
+	var wrist := pos(h)
+	var w := acc(h)
+	var low := wrist.y - float(HAND_HALF[0])
+	var knuckle := wrist + w * (pos_rest("middle_01" + side) - (_rest_pos[h] as Vector3))
+	low = minf(low, (wrist.y + knuckle.y) * 0.5 - float(HAND_HALF[1]))
+	for f: StringName in HAND_FINGERS:
+		var thumb := f == &"thumb"
+		var d := w
+		var at := wrist
+		var from: Vector3 = _rest_pos[h]
+		var bone := Vector3.ZERO
+		for k in 3:
+			var b := bi("%s_0%d%s" % [f, k + 1, side])
+			if b < 0:
+				break
+			bone = (_rest_pos[b] as Vector3) - from
+			at += d * bone
+			low = minf(low, at.y - float(HAND_HALF[6 if thumb else 2 + k]))
+			# (the joint bends about the bone's own X, as commit() turns it)
+			var r: Quaternion = _rest_rot[b]
+			d = d * (r * Quaternion(Vector3.RIGHT, float(_curl.get(b, 0.0))) * r.inverse())
+			from = _rest_pos[b]
+		if not thumb:
+			# The fingertip: on from the last joint, most of the bone before it again.
+			low = minf(low, (at + d * bone * 0.8).y - float(HAND_HALF[5]))
+	return low
+
+
+## Moves the hand (posed with reach, set_hand and curl) straight up or down so that its
+## lowest skin lies on the level `y` (body frame): a hand on a table rests on it, not in
+## it and not over it. `up_only`: only out of it (a hand on its way somewhere else).
+func rest_hand(side: String, y: float, up_only := false) -> void:
+	if not (_last_reach.has(side) and _last_hand.has(side)):
+		return
+	var lift := y - hand_low(side)
+	if absf(lift) < 0.0005 or (up_only and lift < 0.0):
+		return
+	var last: Array = _last_reach[side]
+	var w: Quaternion = _last_hand[side]
+	reach(side, (last[0] as Vector3) + Vector3(0.0, lift, 0.0), last[1])
+	set_hand(side, w)
+
+
+## Keeps the arm (the elbow and the forearm, by half their thickness: ARM_HALF) over the
+## level `y` (body frame) with the hand where it is: the elbow swung up round the line
+## from the shoulder to the wrist until it clears (an arm over a counter lies on it at
+## most, whatever the hand is doing).
+func arm_over(side: String, y: float) -> void:
+	if not (_last_reach.has(side) and _last_hand.has(side)):
+		return
+	var up := "upperarm" + side
+	var low := "lowerarm" + side
+	var hand := "hand" + side
+	var last: Array = _last_reach[side]
+	var w: Quaternion = _last_hand[side]
+	var pole: Vector3 = last[1]
+	var moved := false
+	for k in 6:
+		var e := pos(bi(low))
+		var wrist := pos(bi(hand))
+		var under := 0.0
+		for pr: Array in ARM_HALF:
+			under = maxf(under, y + float(pr[1]) - e.lerp(wrist, pr[0]).y)
+		if under <= 0.0005:
+			break
+		# (the pole through where the elbow would be clear, as reach() does for the torso)
+		pole = e + Vector3(0.0, under * 2.0 + 0.004, 0.0) - pos(bi(up))
+		ik(up, low, hand, last[0], pole, arm_hinge(side))
+		moved = true
+	if moved:
+		_last_reach[side] = [last[0], pole]
+		set_hand(side, w)
 
 
 ## The heart's place on the clothes over the left breast (body frame, this frame's

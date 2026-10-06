@@ -8,11 +8,15 @@ extends RefCounted
 ## goes, "build_seconds" the real seconds of play the site stands before it is
 ## finished, "build_id" their id in Events.construction_started/building_completed and
 ## "name_key" what the building is called. The workbench goes up the same way on a
-## small plot (the bench and room to work at it; Workbench.BENCH is the bench itself).
+## small plot (the bench and room to work at it; Workbench.BENCH is the bench itself),
+## and the doghouse (Doghouse: the farmer's own dog's, half a minute's work).
 ## The campfire and the grills are put down anywhere outdoors (not in a building or a yard).
 
 ## A minute of work for each building put up from a kit.
 const BUILD_SECONDS := 60.0
+## The story's first coop and first workbench go up in ten seconds (Quests.build_seconds:
+## the player is waiting on them with a goal up); every later one takes its usual time.
+const TUTORIAL_BUILD_SECONDS := 10.0
 
 const PLACEABLES := {
 	&"workbench": {"kind": "workbench", "size": Vector3(2.4, 1.0, 1.6), "building": true, "reach": 7.0,
@@ -39,6 +43,10 @@ const PLACEABLES := {
 	&"mailbox": {"kind": "mailbox", "size": Vector3(0.36, 1.25, 0.5)},
 	&"coop_kit": {"kind": "coop", "size": Vector3(11.0, 2.8, 10.0), "building": true, "reach": 12.0,
 		"build_seconds": BUILD_SECONDS, "build_id": &"coop", "name_key": "HOUSING_COOP"},
+	## The dog's house (scripts/placement/doghouse.gd): its plot is the house itself and a
+	## step of ground round it; the dog's doorstep is in front of its door (+Z).
+	&"doghouse": {"kind": "doghouse", "size": Vector3(1.6, 1.2, 1.8), "building": true, "reach": 5.5,
+		"build_seconds": 30.0, "build_id": &"doghouse", "name_key": "ITEM_DOGHOUSE"},
 }
 
 
@@ -54,6 +62,7 @@ static func is_building(id: StringName) -> bool:
 	return bool(get_info(id).get("building", false))
 
 
-## Real seconds a building of `id` takes to go up.
+## Real seconds a building of `id` usually takes to go up (the one being put down now:
+## Quests.build_seconds; one going up: its own build_seconds(), kept in its entry).
 static func build_seconds(id: StringName) -> float:
 	return float(get_info(id).get("build_seconds", BUILD_SECONDS))

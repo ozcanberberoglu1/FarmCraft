@@ -66,7 +66,7 @@ func _ready() -> void:
 	if town.vet_clinic:
 		var clinic := town.vet_clinic
 		var vet := _person(&"vet", &"vet", Townsperson.Act.WRITE, clinic.vet_spot(), clinic.vet_yaw(),
-				{"service": clinic.counter, "worker": true, "work_height": VetClinic.COUNTER_H})
+				{"service": clinic.counter, "worker": true, "work_height": clinic.work_height(), "work_pad": VetClinic.CLIPBOARD})
 		clinic.set_vet(vet)
 	# The shop boy sweeping the forecourt west of the door.
 	var fz := Town.MARKET.end.y + 2.4
@@ -121,6 +121,9 @@ func _staff_points() -> void:
 		match p.person:
 			&"shopkeeper", &"vet":
 				at = Vector3(point.global_position.x - 0.3, at.y + p.work_height, point.global_position.z)
+				if p.person == &"vet":
+					# (on her work top itself: she is only put on the floor's slab after this)
+					at.y = town.vet_clinic.work_top()
 			&"salesman":
 				at = Vector3(point.global_position.x + 0.45, at.y + 0.95, point.global_position.z + 0.1)
 			&"rancher":

@@ -1,8 +1,8 @@
 extends Node
 ## Yeşilova's fishing contest, "En Büyük Balık Yarışması": the biggest fish of the day wins.
-## The first on day 7, then one every EVERY_DAYS days (11, 15...), 09:00 to 17:00 at the
+## The first on day 6, then one every EVERY_DAYS days (10, 14...), 09:00 to 17:00 at the
 ## town pond behind the filling station (ContestVenue: its shore and the board): always two
-## days off a carnival (Carnival: 5, 9, 13...). Never on a carnival day: a contest that
+## days off a carnival (Carnival: 4, 8, 12...). Never on a carnival day: a contest that
 ## would fall on one (were the two cadences to change) is held the day after. On the day
 ## a side goal (SideStory.goals: "join the fishing contest", its dot over the pond) is up
 ## from the morning until he gets there while it is on (or until 17:00); the first
@@ -26,9 +26,20 @@ extends Node
 ## goes back to its day. A contest missed by sleeping through its end is settled quietly
 ## the next morning (result_day keeps a prize from coming twice). The leaderboard is saved.
 ##
+## The afternoon before (from PREP_MINUTE on the day the letter comes) a second side goal
+## says to get ready, "Get ready for the fishing contest": a fishing rod of any kind and
+## PREP_BAIT bait, what he has of them ticked on its card ("Fishing rod 1/1 ✓ · Bait
+## 2/5": SideGoal.needs). Its dot goes to what is missing and its hint says which: the
+## workbench for a rod, the market for bait (short of the bait's price: where to earn it).
+## Once he has it all it is a done line for the rest of that day ("You're all set", a
+## note once: prep_day); it stays through the next morning while something is still
+## missing and goes when the contest starts ("join the fishing contest" takes over). A
+## farmer who has it all before it would come up is not asked. The first contest's is
+## prominent, later ones' quiet.
+##
 ## Automated runs (tests, screenshots) have no contests unless the run asks for them
 ## (`--contest`, or `testing` set by the contest scenario), so other checks' town stays as
-## it is.
+## it is; the getting-ready goal only when a test turns `prep_testing` on as well.
 
 signal began
 signal finished
@@ -41,7 +52,7 @@ signal board_changed
 ## The board has a new biggest fish (`who`: "player" or a rival's id): the crowd cheers.
 signal new_leader(who: String, kg: float)
 
-const FIRST_DAY := 7
+const FIRST_DAY := 6
 const EVERY_DAYS := 4
 const START_MINUTE := 9 * 60
 const END_MINUTE := 17 * 60
@@ -77,6 +88,10 @@ const CALL_RADIUS := 60.0
 ## The side goal's colour and how often it is looked at (seconds).
 const GOAL_COLOR := Color("f2c66d")
 const GOAL_POLL := 0.5
+## The getting-ready goal: up from this minute of the day before a contest, and the bait
+## it asks for.
+const PREP_MINUTE := 13 * 60
+const PREP_BAIT := 5
 
 ## The day's leaderboard: entrant ("player" or a rival's id) -> {"kg": float, "fish": String}.
 var entries := {}
@@ -90,12 +105,16 @@ var last_winner := {}
 var letter_day := 0
 ## The last contest day the player came to (its side goal done).
 var goal_day := 0
+## The last contest day he was told he is all set for (the getting-ready goal's note).
+var prep_day := 0
 var letter_pending := false
 ## Set by the contest scenario: contests happen in this automated run (`testing_letter`:
 ## the letter opens by itself as in play). `ceremony_speed` hurries the ceremony.
 var testing := false
 var testing_letter := false
 var ceremony_speed := 1.0
+## Set by a test: the getting-ready goal comes up in this automated run.
+var prep_testing := false
 
 var _letter_wait := LETTER_DELAY
 var _letter_noted := false
@@ -109,6 +128,7 @@ var _card: GlassPanel
 var _card_label: Label
 var _card_t := 0.0
 var _goal: SideGoal
+var _prep: SideGoal
 var _goal_t := 0.0
 var _call_t := 4.0
 
@@ -117,12 +137,13 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	_rng.randomize()
 	_goal = SideGoal.new(&"contest", "", "star", GOAL_COLOR)
+	_prep = SideGoal.new(&"contest_prep", "", "star", GOAL_COLOR)
 	Events.day_started.connect(_on_day_started)
 
 
 # --- Schedule --------------------------------------------------------------------------------
 
-## A contest is due on day `d` by the count (7, 11, 15...), before a carnival moves it.
+## A contest is due on day `d` by the count (6, 10, 14...), before a carnival moves it.
 static func _due(d: int) -> bool:
 	return d >= FIRST_DAY and (d - FIRST_DAY) % EVERY_DAYS == 0
 
@@ -306,6 +327,7 @@ func _process(delta: float) -> void:
 	if _goal_t <= 0.0:
 		_goal_t = GOAL_POLL
 		_update_goal()
+		_update_prep()
 	# The end: the horn at the pond, or (missed, slept through, loaded later) settled quietly.
 	if _ceremony_t < 0.0 and day_held > 0 and result_day != day_held and enabled() \
 			and (GameClock.day > day_held or GameClock.minute >= END_MINUTE):
@@ -453,6 +475,87 @@ func _update_goal() -> void:
 	var hint := tr("SIDE_HINT_CONTEST_ON") % _clock(END_MINUTE) if is_on() else tr("SIDE_HINT_CONTEST_SOON") % _clock(START_MINUTE)
 	var c := WorldLayout.TOWN_POND_CENTER
 	_goal.set_goal(tr("SIDE_GOAL_CONTEST"), hint, Vector3(c.x, WorldLayout.WATER_LEVEL + 1.2, c.y), tr("SIDE_LABEL_CONTEST"))
+
+
+## The contest the getting-ready goal is for now: tomorrow's from PREP_MINUTE on, today's
+## until it starts (0: none, or not in this run).
+func prep_for() -> int:
+	if not enabled() or (DebugTools.is_automated() and not prep_testing):
+		return 0
+	var d := GameClock.day
+	if is_contest_day(d + 1) and GameClock.minute >= PREP_MINUTE:
+		return d + 1
+	if is_contest_day(d) and GameClock.minute < START_MINUTE:
+		return d
+	return 0
+
+
+## The getting-ready goal: what he has of the rod and the bait on its card, its dot at
+## what is missing; a done line the day before once he has it all, gone on the contest's
+## morning then, and at its start whatever he has. (All set from the start: never up.)
+func _update_prep() -> void:
+	var contest := prep_for()
+	var up := SideStory.goals.has(_prep)
+	if contest == 0:
+		if up:
+			SideStory.remove_goal(_prep)
+		return
+	var rods := Quests._rod_count()
+	var bait := Quests._bait_count()
+	var ready := rods > 0 and bait >= PREP_BAIT
+	# All set before the goal ever came up, or on the contest's own morning: no card.
+	if ready and (not up or contest == GameClock.day):
+		if up:
+			SideStory.remove_goal(_prep)
+			_prep_told(contest)
+		return
+	if not up:
+		_prep.title = tr("SIDE_CONTEST_TITLE")
+		_prep.quiet = result_day > 0
+		SideStory.add_goal(_prep)
+		Game.notify(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CONTEST_PREP"), GOAL_COLOR)
+	_prep.set_needs("%s · %s" % [Quests.need_part(tr("CONTEST_PREP_ROD"), rods, 1), Quests.need_part(tr("CONTEST_PREP_BAIT"), bait, PREP_BAIT)])
+	var hint := ""
+	var at: Variant = null
+	var label := ""
+	if rods == 0:
+		# A rod is made at the workbench (the dot: the bench; with none yet, the way to one).
+		var bench: Dictionary = Quests.place_for("bench")
+		hint = tr("SIDE_HINT_PREP_ROD")
+		at = bench["at"]
+		label = tr("PROJECT_WORKBENCH") if String(bench["hint"]) == "" else ""
+	elif bait < PREP_BAIT:
+		var price := Economy.buy_price(&"worm") * (PREP_BAIT - bait)
+		if Economy.money < price:
+			var short: Dictionary = Quests.money_short(price)
+			hint = String(short["hint"])
+			at = short["at"]
+		else:
+			hint = tr("SIDE_HINT_PREP_BAIT")
+			at = Quests.place_for("market")["at"]
+			label = tr("UI_TOWN_MARKET")
+	else:
+		hint = tr("SIDE_HINT_PREP_READY") % _clock(START_MINUTE)
+		_prep_told(contest)
+	_prep.set_goal(tr("SIDE_GOAL_CONTEST_PREP"), hint, at, label if at != null else "")
+
+
+## He has the rod and the bait for the contest on day `contest`: a note, once.
+func _prep_told(contest: int) -> void:
+	if prep_day == contest:
+		return
+	prep_day = contest
+	Game.notify(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_CONTEST_PREP"), UiTheme.GOLD)
+	Audio.ui("confirm", -6.0)
+
+
+## The getting-ready goal is up (tests).
+func prep_up() -> bool:
+	return SideStory.goals.has(_prep)
+
+
+func prep_goal() -> SideGoal:
+	return _prep
 
 
 ## He came to the contest (or landed a fish there): today's goal is done.
@@ -614,7 +717,7 @@ func new_game() -> void:
 
 func save_data() -> Dictionary:
 	return {"entries": entries.duplicate(true), "day_held": day_held, "result_day": result_day,
-		"last_winner": last_winner.duplicate(), "letter_day": letter_day, "goal_day": goal_day}
+		"last_winner": last_winner.duplicate(), "letter_day": letter_day, "goal_day": goal_day, "prep_day": prep_day}
 
 
 ## After GameClock.load_data: the board as saved; a morning before a contest whose letter
@@ -626,6 +729,7 @@ func load_data(data: Dictionary) -> void:
 	last_winner = (data.get("last_winner", {}) as Dictionary).duplicate()
 	letter_day = int(data.get("letter_day", 0))
 	goal_day = int(data.get("goal_day", 0))
+	prep_day = int(data.get("prep_day", 0))
 	_goal_t = 0.0
 	# Loaded mid-contest: no opening banner again.
 	_on = is_on()

@@ -94,6 +94,8 @@ static func build(id: StringName) -> Dictionary:
 			FoodTableModel.build(body)
 		&"mailbox":
 			_mailbox(body, moving)
+		&"doghouse":
+			_doghouse(body, DOGHOUSE_STAGES)
 	var out := {"body": MeshMerge.build(body), "moving": null}
 	var whole := body.duplicate()
 	if not moving.is_empty():
@@ -332,6 +334,117 @@ static func _mailbox(body: Array, moving: Array) -> void:
 	flag.box_at(&"paint", p + Vector3(0.012, 0, 0.13), Vector3(0.008, 0.022, 0.26), red)
 	flag.box_at(&"paint", p + Vector3(0.012, 0.03, 0.22), Vector3(0.008, 0.07, 0.09), red)
 	_add(moving, flag)
+
+
+# --- Doghouse --------------------------------------------------------------------------------
+
+## The doghouse's measures (model frame, its door to +Z): outer width and depth, the walls'
+## height at the eaves and the ridge's, the boards' thickness, the door's width and height.
+const DOGHOUSE_W := 1.15
+const DOGHOUSE_D := 1.35
+const DOGHOUSE_EAVES := 0.78
+const DOGHOUSE_RIDGE := 1.16
+const DOGHOUSE_T := 0.035
+const DOGHOUSE_DOOR := Vector2(0.52, 0.68)
+## Stages the doghouse goes up in on its site (Doghouse); DOGHOUSE_STAGES is the finished
+## one with its bedding, bowl and name board.
+const DOGHOUSE_STAGES := 3
+static var _doghouse_stages := {}
+
+
+## The doghouse part-built on its site: 0 the sill and the corner posts, 1 the walls,
+## 2 the roof on (no bedding, bowl or name board yet).
+static func doghouse_stage(stage: int) -> ArrayMesh:
+	if not _doghouse_stages.has(stage):
+		var out := []
+		_doghouse(out, stage)
+		_doghouse_stages[stage] = MeshMerge.build(out)
+	return _doghouse_stages[stage]
+
+
+## A boarded doghouse big enough for a grown dog: a sill on the ground, corner posts,
+## upright board walls and boarded gables, a door in the front end (+Z) framed in darker timber, a
+## pitched roof of lapped boards with a ridge board, straw bedding inside, a steel bowl by
+## the door and a board over it for the dog's name (Doghouse writes it). Built up to
+## `stage` (see doghouse_stage; DOGHOUSE_STAGES: all of it).
+static func _doghouse(out: Array, stage: int) -> void:
+	var mb := MeshBuilder.new()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 23
+	var hw := DOGHOUSE_W * 0.5
+	var hd := DOGHOUSE_D * 0.5
+	var t := DOGHOUSE_T
+	var eh := DOGHOUSE_EAVES
+	var rise := DOGHOUSE_RIDGE - eh
+	var dw := DOGHOUSE_DOOR.x
+	var dh := DOGHOUSE_DOOR.y
+	# The sill (open at the door) and the corner posts.
+	for x: float in [-1.0, 1.0]:
+		mb.box_at(&"wood", Vector3(x * (hw - 0.03), 0.03, 0), Vector3(0.06, 0.06, DOGHOUSE_D), WOOD_DARK)
+		for z: float in [-1.0, 1.0]:
+			mb.box_at(&"wood", Vector3(x * (hw - 0.03), eh * 0.5, z * (hd - 0.03)), Vector3(0.06, eh, 0.06), WOOD_DARK)
+	mb.box_at(&"wood", Vector3(0, 0.03, -(hd - 0.03)), Vector3(DOGHOUSE_W, 0.06, 0.06), WOOD_DARK, Vector3.ZERO, true)
+	if stage >= 1:
+		# Upright boards: the sides, the back and its gable, the front either side of the door
+		# and over it.
+		for x: float in [-1.0, 1.0]:
+			var n := 7
+			for i in n:
+				var z := -hd + 0.06 + (DOGHOUSE_D - 0.12) * (float(i) + 0.5) / n
+				mb.box_at(&"planks", Vector3(x * (hw - t * 0.5), eh * 0.5 + 0.01, z), Vector3(t, eh - 0.02, (DOGHOUSE_D - 0.12) / n - 0.006),
+						WOOD.lightened(rng.randf_range(-0.05, 0.06)), Vector3.ZERO, true)
+		var nb := 6
+		var bw := (DOGHOUSE_W - 0.12) / nb
+		for i in nb:
+			var x := -hw + 0.06 + bw * (float(i) + 0.5)
+			mb.box_at(&"planks", Vector3(x, eh * 0.5 + 0.01, -(hd - t * 0.5)), Vector3(bw - 0.006, eh - 0.02, t),
+					WOOD.lightened(rng.randf_range(-0.05, 0.06)), Vector3.ZERO, true)
+			if absf(x) > dw * 0.5:
+				mb.box_at(&"planks", Vector3(x, eh * 0.5 + 0.01, hd - t * 0.5), Vector3(bw - 0.006, eh - 0.02, t),
+						WOOD.lightened(rng.randf_range(-0.05, 0.06)), Vector3.ZERO, true)
+			else:
+				mb.box_at(&"planks", Vector3(x, (dh + eh) * 0.5, hd - t * 0.5), Vector3(bw - 0.006, eh - dh, t),
+						WOOD.lightened(rng.randf_range(-0.05, 0.06)), Vector3.ZERO, true)
+		# The gables: a boarded triangle at each end, on a rail along the wall's top.
+		for z: float in [-1.0, 1.0]:
+			mb.prism(&"planks", Transform3D(Basis(), Vector3(0, eh, z * (hd - t * 0.5))), DOGHOUSE_W - 0.01, rise, t, WOOD.lightened(0.03))
+			mb.box_at(&"wood", Vector3(0, eh, z * (hd + 0.004)), Vector3(DOGHOUSE_W, 0.04, 0.02), WOOD_DARK, Vector3.ZERO, true)
+		# The door's frame.
+		for x: float in [-1.0, 1.0]:
+			mb.box_at(&"wood", Vector3(x * (dw * 0.5 + 0.02), dh * 0.5, hd + 0.006), Vector3(0.045, dh + 0.04, 0.03), WOOD_DARK)
+		mb.box_at(&"wood", Vector3(0, dh + 0.022, hd + 0.006), Vector3(dw + 0.085, 0.045, 0.03), WOOD_DARK, Vector3.ZERO, true)
+	if stage >= 2:
+		# The roof: three lapped boards a side from the ridge down past the eaves, a ridge
+		# board, and a barge board at each gable end.
+		var over := 0.11
+		var slope := atan2(rise, hw)
+		var run := (hw + over) / cos(slope)
+		var length := DOGHOUSE_D + 0.2
+		var zc := 0.04
+		for x: float in [-1.0, 1.0]:
+			var b := Basis(Vector3.BACK, -x * slope)
+			for i in 3:
+				var u := (float(i) + 0.5) / 3.0
+				var along := run * u
+				var c := Vector3(x * cos(slope) * along, DOGHOUSE_RIDGE - sin(slope) * along + 0.022 + 0.006 * float(2 - i), zc)
+				mb.box(&"wood", Transform3D(b, c), Vector3(run / 3.0 + 0.035, 0.024, length), Color(0.34, 0.27, 0.22).lightened(rng.randf_range(-0.04, 0.05)))
+		mb.box(&"wood", Transform3D(Basis(Vector3.BACK, PI * 0.25), Vector3(0, DOGHOUSE_RIDGE + 0.03, zc)), Vector3(0.07, 0.07, length + 0.02),
+				Color(0.3, 0.24, 0.2))
+		for z: float in [hd + 0.115, -(hd + 0.035)]:
+			for x: float in [-1.0, 1.0]:
+				var c2 := Vector3(x * cos(slope) * run * 0.5, DOGHOUSE_RIDGE - sin(slope) * run * 0.5 - 0.018, z)
+				mb.box(&"wood", Transform3D(Basis(Vector3.BACK, -x * slope), c2), Vector3(run, 0.06, 0.022), WOOD_DARK)
+	if stage < DOGHOUSE_STAGES:
+		_add(out, mb)
+		return
+	# Straw bedding with a folded blanket on it, the bowl by the door, the name board.
+	mb.sphere(&"straw", Transform3D(Basis(), Vector3(0, 0.0, -0.05)), Vector3(hw - 0.09, 0.035, hd - 0.1), 18, 5, Color(0.72, 0.62, 0.36))
+	mb.box_at(&"cloth", Vector3(0.02, 0.036, -0.12), Vector3(0.62, 0.02, 0.72), Color(0.5, 0.24, 0.2), Vector3(0, 7, 0))
+	var bowl := Vector3(hw + 0.2, 0.0, hd + 0.16)
+	mb.cylinder(&"galv", Transform3D(Basis(), bowl), 0.085, 0.11, 0.06, 16, Color(0.62, 0.63, 0.65))
+	mb.cylinder(&"galv", Transform3D(Basis(), bowl + Vector3(0, 0.052, 0)), 0.092, 0.092, 0.01, 16, Color(0.22, 0.3, 0.36))
+	mb.box_at(&"wood", Vector3(0, DOGHOUSE_DOOR.y + 0.14, hd + 0.012), Vector3(0.36, 0.1, 0.016), WOOD.lightened(0.18), Vector3.ZERO, true)
+	_add(out, mb)
 
 
 # --- Coop kit --------------------------------------------------------------------------------

@@ -9,9 +9,10 @@ extends Node3D
 ## unseen wall behind the one standing in it). A warm lamp lights the hallway behind it
 ## (Town builds the hallway) while it is open, with a soft fill toward the doorway. From
 ## dusk while she is up (not SideStory.asleep) the porch light under the canopy over the
-## door is on and her windows glow warm through drawn curtains. Before day 6 a "for
-## sale" sign stands in the garden; from then on Karamel's doghouse, his water and food
-## bowls, and moving boxes by the door that get fewer each day until day 9.
+## door is on and her windows glow warm through drawn curtains. Before she moves in
+## (SideStory.MOVE_DAY) a "for sale" sign stands in the garden; from then on Karamel's
+## doghouse, his water and food bowls, and moving boxes by the door that get fewer each
+## day for BOXES_DAYS days.
 ##
 ## Zeynep (ZeynepPerson, a Townsperson): out in the garden down on a knee beside Karamel
 ## stroking his back (he sits at her right, both facing the street, looking round and up
@@ -72,8 +73,8 @@ const TALK_RANGE := 6.0
 ## goes from his hands to hers in this long (seconds).
 const HAND_GAP := 1.0
 const PASS_TIME := 0.45
-## The moving boxes by the door stand until this day (fewer each day).
-const BOXES_LAST_DAY := 9
+## The moving boxes by the door stand this many days after moving day (fewer each day).
+const BOXES_DAYS := 3
 ## Karamel's food is gone once he has eaten (Dog.ate), or this long after it was put
 ## out at the latest (seconds).
 const BOWL_TIME := 45.0
@@ -1436,13 +1437,14 @@ func _watched() -> bool:
 	return p != null and is_instance_valid(p) and p.global_position.distance_to(door_center()) < WATCH_RANGE
 
 
-## The moving boxes: all of them on moving day, one fewer each day, none after day 9.
+## The moving boxes: all of them on moving day, one fewer each day, none after BOXES_DAYS
+## days.
 func _sync_boxes() -> void:
 	if GameClock.day == _boxes_day:
 		return
 	_boxes_day = GameClock.day
 	var keep := clampi(_boxes.size() - (GameClock.day - SideStory.MOVE_DAY), 0, _boxes.size())
-	if GameClock.day > BOXES_LAST_DAY:
+	if GameClock.day > SideStory.MOVE_DAY + BOXES_DAYS:
 		keep = 0
 	for i in _boxes.size():
 		var on := i < keep

@@ -534,7 +534,7 @@ func _update_action(delta: float) -> void:
 		# Hands full: no tool; LMB sets the bird down.
 		if not _action.is_empty():
 			_end_action(false)
-		if pressed_now and handler.carried:
+		if pressed_now and handler.in_arms():
 			handler.let_go()
 			_refresh_prompt()
 		return
@@ -932,8 +932,9 @@ func _update_riding(delta: float) -> void:
 func enter_vehicle(v: Vehicle) -> void:
 	if driving or riding or v.driver:
 		return
-	# A bird set down, an animal let go before getting in.
-	handler.let_go()
+	# A bird set down, an animal let go before getting in; his dog in his arms comes along
+	# on the passenger seat (AnimalHandler.board).
+	handler.board(v)
 	driving = v
 	_end_action(false)
 	velocity = Vector3.ZERO
@@ -962,6 +963,8 @@ func exit_vehicle() -> void:
 	_exit_frames = 2
 	held.set_stowed(false)
 	camera.make_current()
+	# The dog that rode along gets out too.
+	handler.alight(v, spot)
 	_last_prompt = PackedStringArray(["-"])
 	_refresh_prompt()
 

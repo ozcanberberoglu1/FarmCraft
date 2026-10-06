@@ -121,6 +121,9 @@ const ITEMS := {
 	## A rubber ball from the town market: thrown (LMB) for the farmer's own dog to fetch
 	## (Pet).
 	&"dog_ball": {"cat": "pet", "stack": 5, "sell": 2, "buy": 6},
+	## The dog's house as a kit (the construction board cuts one once he has a dog): put up
+	## near the house like the workbench; the dog sleeps in it (Doghouse, Pet).
+	&"doghouse": {"cat": "placeable", "stack": 1, "sell": 5, "buy": 0},
 
 	# --- POULTRY agent: the rooster (eggs left under a rooster stay the plain "egg"; the
 	# coop keeps which ones are fertile) ---

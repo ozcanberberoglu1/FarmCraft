@@ -4,7 +4,8 @@ extends Node
 ## player free. They come up on day two once he first reaches town (UP_MINUTE at the
 ## latest), each on a compact card with a small, faint dot (SideGoal.quiet), give a little
 ## farm experience when done (XP), never stand in the story's way, and quietly go after
-## LAST_DAY if left undone:
+## LAST_DAY if left undone (the day the new neighbour moves in, SideStory.MOVE_DAY: gone
+## before the first carnival and her welcome gift, so the side cards never pile up):
 ##
 ##   meet   "Get to know the townspeople": greet MEET_COUNT different townspeople with E
 ##          (Relations counts greetings; anyone greeted before counts too). In town the
@@ -18,7 +19,7 @@ extends Node
 ## unless the run asks for it (`--town-goals`, or `testing`).
 
 const DAY := 2
-const LAST_DAY := 4
+const LAST_DAY := 3
 const UP_MINUTE := 12 * 60
 const MEET_COUNT := 5
 const GOALS: Array[StringName] = [&"meet", &"vet", &"fuel"]

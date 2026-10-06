@@ -12,7 +12,18 @@ extends RefCounted
 const PIT_TEX := "res://art/textures/rusty_metal_02/rusty_metal_02_%s.jpg"
 const SCALE_TEX := "res://art/textures/rust_coarse_01/rust_coarse_01_%s.jpg"
 ## Share of the ambient (sky and bounce) light that reaches inside the cab.
-const CAB_AMBIENT := 0.4
+const CAB_AMBIENT := 0.5
+## The cab's grain sets (art/textures/cab, tools/make_cab_textures.py) by the kind in a
+## cab material's name, "Interior_<Kind>_<Part>" (tools/blender/cab_kit.py) or the older
+## builders' "Interior_<Kind>": [set, metres one tile covers, relief, gain (the set's
+## colour is near white: one over its mean, so the material's colour comes out as given)].
+const CAB_GRAIN := {
+	"Plastic": ["plastic", 0.12, 0.8, 1.5], "Vinyl": ["vinyl", 0.13, 0.7, 1.6], "Cloth": ["cloth", 0.1, 1.0, 2.1],
+	"Rubber": ["rubber", 0.2, 1.2, 1.5], "Liner": ["liner", 0.12, 1.0, 1.5],
+	"Dash": ["plastic", 0.12, 0.8, 1.5], "Steer": ["plastic", 0.1, 0.7, 1.5], "Seat": ["vinyl", 0.13, 0.7, 1.6],
+	"DoorCard": ["vinyl", 0.13, 0.7, 1.6], "Headliner": ["liner", 0.12, 1.0, 1.5], "Carpet": ["cloth", 0.1, 1.0, 2.1],
+}
+const CAB_TEX := "res://art/textures/cab/%s_%s.png"
 ## The modelled wheels' materials (tools/build_pickup_hd.py), in the order of
 ## vehicle_wheel.gdshader's `part`.
 const WHEEL_PARTS := ["Tire_Rubber", "Tire_Rim", "Tire_Hardware", "Tire_Brake"]
@@ -33,17 +44,13 @@ static func build_model(info: Dictionary) -> Node3D:
 	var model := (load(info["model"]) as PackedScene).instantiate() as Node3D
 	if info.has("detail"):
 		add_detail(model, info["detail"])
-	var hide: Array = info.get("hide_parts", [])
-	if not hide.is_empty():
-		var gone: Array[Node] = []
-		for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
-			for part: String in hide:
-				if part in String(mi.name):
-					gone.append(mi)
-					break
-		for n in gone:
-			n.get_parent().remove_child(n)
-			n.free()
+	remove_parts(model, info.get("hide_parts", []))
+	if info.has("interior"):
+		# A modelled cab (tools/blender/build_pickup_interior.py) in place of the model's own.
+		remove_parts(model, info.get("interior_hides", []))
+		var cab := (load(info["interior"]) as PackedScene).instantiate() as Node3D
+		cab.name = "Interior"
+		model.add_child(cab)
 	if info.has("strip_parts"):
 		ModelStrip.strip_parts(model, info["strip_parts"][0], info["strip_parts"][1])
 	if info.has("extra"):
@@ -51,6 +58,21 @@ static func build_model(info: Dictionary) -> Node3D:
 		extra.name = "Extra"
 		model.add_child(extra)
 	return model
+
+
+## Takes the meshes whose names contain one of `parts` off the model.
+static func remove_parts(model: Node3D, parts: Array) -> void:
+	if parts.is_empty():
+		return
+	var gone: Array[Node] = []
+	for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		for part: String in parts:
+			if part in String(mi.name):
+				gone.append(mi)
+				break
+	for n in gone:
+		n.get_parent().remove_child(n)
+		n.free()
 
 
 ## What the dressing shaders make of a source material, by its name: "paint" (a name
@@ -85,7 +107,7 @@ static func surface_material(src: BaseMaterial3D, info: Dictionary, mats: Dictio
 			"trim":
 				mats[key] = trim(src, info)
 			"interior":
-				mats[key] = interior(src)
+				mats[key] = interior(src, info)
 			_:
 				mats[key] = wheel(src, info)
 	return mats[key]
@@ -192,19 +214,54 @@ static func wheel(src: BaseMaterial3D, info: Dictionary) -> ShaderMaterial:
 
 ## The cab interior (vehicle_interior): the atlas marks most of the dash and door cards
 ## as metal, here moulded plastic and vinyl; the mirror glass and chrome stay mirrors.
+## A Blender-built cab's materials carry no texture: their colour tints the grain set of
+## their kind (CAB_GRAIN: plastic, vinyl, cloth, rubber, headliner), "Interior_Decal" is
+## the sheet of printed faces (dials, the radio, the heater panel) on the mesh's UVs.
+## The entry's "cab" look says how dusty and worn it is ("dust", "wear": 0..1).
 ## The body stays out of SDFGI (it moves), so the cab would get the open sky's bounce
 ## light as if it had no roof: it is occluded down to what the windows let in.
-static func interior(src: BaseMaterial3D) -> ShaderMaterial:
+static func interior(src: BaseMaterial3D, info: Dictionary = {}) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/vehicle_interior.gdshader")
-	if src.albedo_texture:
+	var kind := src.resource_name.trim_prefix("Interior_").get_slice("_", 0)
+	var tint := Color(src.albedo_color, 1.0)
+	var atlas := src.albedo_texture != null
+	if atlas and info.has("interior"):
+		# What a modelled cab leaves of the downloaded one (the steering wheel, whose
+		# boss falls on a yellow patch of the atlas): moulded black plastic like the column.
+		atlas = false
+		kind = "Steer"
+		tint = Color(0.028, 0.028, 0.03)
+	if atlas:
 		mat.set_shader_parameter("albedo_tex", src.albedo_texture)
 		mat.set_shader_parameter("tint", src.albedo_color)
+	elif kind == "Decal":
+		mat.set_shader_parameter("albedo_tex", load(CAB_TEX % ["decals", "albedo"]))
+		# Printed in ivory on black: lifted a little so the dials read in the cab's shade.
+		mat.set_shader_parameter("tint", Color(1.6, 1.6, 1.6))
+		mat.set_shader_parameter("min_rough", 0.38)
 	else:
 		# Untextured (Blender-built cabs): the colour is the tint over white.
 		mat.set_shader_parameter("albedo_tex", flat_texture(Color.WHITE))
-		mat.set_shader_parameter("tint", Color(src.albedo_color, 1.0))
-	mat.set_shader_parameter("orm_tex", orm_of(src))
+		mat.set_shader_parameter("tint", tint)
+		if CAB_GRAIN.has(kind):
+			var grain: Array = CAB_GRAIN[kind]
+			mat.set_shader_parameter("grain_albedo", load(CAB_TEX % [grain[0], "albedo"]))
+			mat.set_shader_parameter("grain_normal", load(CAB_TEX % [grain[0], "nor"]))
+			mat.set_shader_parameter("grain_orm", load(CAB_TEX % [grain[0], "orm"]))
+			mat.set_shader_parameter("grain_tile", float(grain[1]))
+			mat.set_shader_parameter("grain_bump", float(grain[2]))
+			mat.set_shader_parameter("grain_gain", float(grain[3]))
+			var look: Dictionary = info.get("cab", {})
+			# The wheel turns in its own frame and, like the knobs, stalks and switches
+			# (black plastic), is wiped by the hands that hold it.
+			var handled := kind == "Steer" or src.resource_name.ends_with("_Black")
+			mat.set_shader_parameter("dust", float(look.get("dust", 0.25)) * (0.3 if handled else 1.0))
+			mat.set_shader_parameter("wear", float(look.get("wear", 0.25)))
+			var paint_look: Dictionary = info.get("paint", {})
+			if paint_look.has("dirt_color"):
+				mat.set_shader_parameter("dust_color", paint_look["dirt_color"])
+	mat.set_shader_parameter("orm_tex", flat_texture(Color(1.0, 0.6, 0.0)) if kind == "Steer" and not atlas else orm_of(src))
 	mat.set_shader_parameter("cab_ambient", CAB_AMBIENT)
 	return mat
 

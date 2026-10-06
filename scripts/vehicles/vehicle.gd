@@ -45,6 +45,11 @@ const STEER_RATIO := 8.0
 ## How far down and up the driver can look (radians); round about there is no limit.
 const LOOK_DOWN := deg_to_rad(55.0)
 const LOOK_UP := deg_to_rad(40.0)
+## Where the passenger seat's cushion is taken to be from the driver's eyes when the entry
+## doesn't say (passenger_seat): this far below them and ahead of them (m; the eyes are over
+## the seat's back, the cushion's middle in front of it: measured on the pickup's cab).
+const PASSENGER_DROP := 0.79
+const PASSENGER_AHEAD := 0.28
 ## Collision layer of barriers only vehicles run into (the warehouse door): people,
 ## animals and what they carry pass.
 const BARRIER_LAYER := 64
@@ -85,6 +90,8 @@ var _tyres := {}
 var _tyre_at := {}
 var _steer_pivot: Node3D
 var _steer_axis := Vector3.FORWARD
+## The cab's instrument needles ("speed", "fuel") -> [mesh, its basis at rest, its turn] (see _turn_needles).
+var _needles := {}
 var _steer := 0.0
 var _mid_x := 0.0
 var _eye_rig: Node3D
@@ -209,6 +216,8 @@ func _build_model() -> void:
 				meshes[key] = mi
 		if _is_steering_wheel(mi):
 			meshes["steer"] = mi
+		if String(mi.name).begins_with("Needle_"):
+			_needles[String(mi.name).trim_prefix("Needle_").to_lower()] = [mi, mi.basis, 0.0]
 		_restyle(mi)
 	# Centre the wheelbase on the body origin (model +X became body +Z).
 	var fl := _center_of(meshes["fl"])
@@ -274,6 +283,26 @@ func _build_model() -> void:
 			hint.queue_free()
 		# Column tilts forward and down.
 		_steer_axis = (info.get("steer_axis", Vector3(0, -0.36, 1)) as Vector3).normalized()
+
+
+## The cab's instrument needles (meshes "Needle_Speed" and "Needle_Fuel",
+## tools/blender/cab_kit.py) turn about the dial's normal, their own +Y, clockwise for
+## the driver: 270 degrees for 0-160 km/h, 120 degrees from an empty tank to a full one.
+func _turn_needles() -> void:
+	for key: String in _needles:
+		var needle: Array = _needles[key]
+		var turn := needle_turn(key)
+		# Only when it has moved: a parked vehicle's needles are left alone.
+		if absf(turn - float(needle[2])) > 0.002:
+			needle[2] = turn
+			(needle[0] as Node3D).basis = (needle[1] as Basis) * Basis(Vector3.UP, -turn)
+
+
+## How far the needle `key` ("speed", "fuel") stands from its rest, in radians.
+func needle_turn(key: String) -> float:
+	if key == "speed":
+		return clampf(speed_kmh() / 160.0, 0.0, 1.0) * 1.5 * PI
+	return clampf(fuel / maxf(float(info.get("fuel_capacity", 40.0)), 1.0), 0.0, 1.0) * TAU / 3.0
 
 
 ## Whether `mi` is the entry's "steering_wheel" mesh. The scene importer takes a node
@@ -412,6 +441,8 @@ func _worn_glass(src: StandardMaterial3D) -> ShaderMaterial:
 ## runs to the vehicle's right (on the side windows: forwards) and +y up, how wide
 ## it is for its height, and whether it has wipers or a crack.
 func _fit_pane(mi: MeshInstance3D, si: int, glass: Dictionary) -> void:
+	# Rain on the panes and the wipers (the rest of what the shader is told per pane).
+	VehicleWipers.of(self, true)
 	var arrays := mi.mesh.surface_get_arrays(si)
 	if not (arrays[Mesh.ARRAY_TEX_UV] is PackedVector2Array):
 		return
@@ -844,6 +875,7 @@ func _physics_process(delta: float) -> void:
 		# The column's axis points away from the driver: seen from the seat a turn about
 		# it runs clockwise, to the right, and `_steer` is positive to the left.
 		_steer_pivot.basis = Basis(_steer_axis, -steering_wheel_turn())
+	_turn_needles()
 	# Air drag.
 	var v := linear_velocity
 	apply_central_force(-v * v.length() * 0.9)
@@ -1052,6 +1084,22 @@ func body_length() -> float:
 
 func driver_eye_global() -> Vector3:
 	return _eye_rig.global_position
+
+
+## Whether there is a seat beside the driver's (not on the tractor: he sits in the middle).
+func has_passenger_seat() -> bool:
+	var eyes: Vector3 = info.get("eyes", Vector3(0.4, 1.5, -0.38))
+	return info.has("passenger") or absf(eyes.z) > 0.2
+
+
+## The passenger seat's cushion, body frame, turned so that what sits on it facing -Z in
+## its own frame (the farmer's dog riding along, PetDog) faces the way the vehicle does:
+## the entry's "passenger" (model frame), else across the cab from the driver's eyes,
+## PASSENGER_DROP below them and PASSENGER_AHEAD in front.
+func passenger_seat() -> Transform3D:
+	var eyes: Vector3 = info.get("eyes", Vector3(0.4, 1.5, -0.38))
+	var at: Vector3 = info.get("passenger", Vector3(eyes.x + PASSENGER_AHEAD, eyes.y - PASSENGER_DROP, -eyes.z))
+	return Transform3D(Basis(Vector3.UP, PI), _mb(at))
 
 
 # --- Interaction ----------------------------------------------------------------------

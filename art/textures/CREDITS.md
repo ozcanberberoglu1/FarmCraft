@@ -58,3 +58,8 @@ and its roughness map) are painted procedurally by `tools/gen_fx_textures.py` (n
 downloads). The chips, splinters, rock fragments, clods and leaves thrown by the axe, pick,
 hoe and scythe reuse the Poly Haven bark_brown_02, pine_bark, rock_face_03 and farm_soil
 maps listed above.
+
+The vehicle cab textures in `cab/` (grain sets for plastic, vinyl, cloth, rubber matting
+and headliner, and the sheet of printed dial, radio and heater faces) are drawn
+procedurally by `tools/make_cab_textures.py` (no downloads; lettering in Barlow Condensed
+Bold, SIL Open Font License 1.1).

@@ -35,6 +35,8 @@ const WIN_AT := 6.3
 const WIN_W := 5.8
 const WIN_SILL := 0.55
 const WIN_TOP := 2.45
+## The section of the frames BuildingKit.wall sets in the openings (its `fw`).
+const WIN_FRAME := 0.07
 ## The reception counter: its customer face (metres in from the front), its ends (in from
 ## the west wall's outer face), depth and work top; the partition to the treatment room
 ## (in from the front) and that room's door (its centre, in from the west).
@@ -42,6 +44,13 @@ const COUNTER_Z := 3.8
 const COUNTER_X := Vector2(3.7, 8.7)
 const COUNTER_D := 0.65
 const COUNTER_H := 1.02
+## How deep the counter's tall front is (under the customers' ledge); behind it the body
+## is only as high as the work top.
+const COUNTER_FRONT := 0.19
+## The floor's tiles over the ground floor's slab (what stands in the room stands on them).
+const TILES := 0.024
+## Her clipboard on the work top, with its sheet: this thick (her hands rest on it).
+const CLIPBOARD := 0.0115
 const PART_Z := 5.8
 const PART_T := 0.12
 const ROOM_DOOR_X := 5.15
@@ -162,6 +171,17 @@ func vet_spot() -> Vector3:
 	return Vector3(rect.position.x + 6.0, floor_y, rect.position.y + COUNTER_Z + COUNTER_D + 0.24)
 
 
+## The work top behind the counter's ledge (world height): what her hands rest on.
+func work_top() -> float:
+	return floor_y + TILES + COUNTER_H
+
+
+## The work top's height over the floor she stands on (Townsperson.work_height: her feet
+## are on the ground floor's slab, which BuildingKit.shell lays 2 cm up under the tiles).
+func work_height() -> float:
+	return work_top() - (floor_y + 0.02)
+
+
 func vet_yaw() -> float:
 	return PI
 
@@ -261,25 +281,24 @@ func build(t: Town, mb: MeshBuilder, cols: Array) -> void:
 	var x0 := rect.position.x
 	var x1 := rect.end.x
 	var z0 := rect.position.y
+	# (the shop window's frame is the kit's, in the shopfront's aluminium like the door's:
+	# a second frame of the same section set into it would share its faces and flicker
+	# against it)
+	var alu := Color(0.7, 0.71, 0.72)
 	BuildingKit.shell(mb, cols, rect, floor_y, HEIGHT, WALL, &"t_plaster", PLASTER, {
-		"n": [{"at": WIN_AT, "w": WIN_W, "bottom": WIN_SILL, "top": WIN_TOP, "glass": false},
-			{"at": DOOR_AT, "w": DOOR_W, "bottom": 0.0, "top": DOOR_TOP, "glass": false}],
+		"n": [{"at": WIN_AT, "w": WIN_W, "bottom": WIN_SILL, "top": WIN_TOP, "glass": false, "frame": alu},
+			{"at": DOOR_AT, "w": DOOR_W, "bottom": 0.0, "top": DOOR_TOP, "glass": false, "frame": alu}],
 		"w": [{"at": rect.size.y - 2.6 - WALL, "w": 1.2, "bottom": 1.0, "top": 2.2, "glass": true}],
 	})
-	# The shop window: clear plate glass (the waiting room plain to see), two mullions.
+	# The shop window: clear plate glass (the waiting room plain to see) in the frame, two
+	# mullions between its rails standing a little back from its faces.
 	var wx := x1 - WIN_AT
 	var gz := z0 + WALL * 0.5
 	town._glass("VetGlass").box_at(&"t_showroom_glass", Vector3(wx, floor_y + (WIN_SILL + WIN_TOP) * 0.5, gz),
-			Vector3(WIN_W - 0.14, WIN_TOP - WIN_SILL - 0.14, 0.02), Color.WHITE)
-	var alu := Color(0.7, 0.71, 0.72)
+			Vector3(WIN_W - WIN_FRAME * 2.0, WIN_TOP - WIN_SILL - WIN_FRAME * 2.0, 0.02), Color.WHITE)
 	for k in range(1, 3):
 		mb.box_at(&"metal", Vector3(wx - WIN_W * 0.5 + WIN_W * k / 3.0, floor_y + (WIN_SILL + WIN_TOP) * 0.5, gz),
-				Vector3(0.06, WIN_TOP - WIN_SILL, 0.12), alu)
-	for y: float in [WIN_SILL + 0.035, WIN_TOP - 0.035]:
-		mb.box_at(&"metal", Vector3(wx, floor_y + y, gz), Vector3(WIN_W, 0.07, 0.12), alu)
-	for sx: float in [-1.0, 1.0]:
-		mb.box_at(&"metal", Vector3(wx + sx * (WIN_W * 0.5 - 0.035), floor_y + (WIN_SILL + WIN_TOP) * 0.5, gz),
-				Vector3(0.07, WIN_TOP - WIN_SILL, 0.12), alu)
+				Vector3(0.06, WIN_TOP - WIN_SILL - WIN_FRAME * 2.0, 0.12), alu)
 	cols.append([Vector3(wx, floor_y + (WIN_SILL + WIN_TOP) * 0.5, gz), Vector3(WIN_W, WIN_TOP - WIN_SILL, WALL), 0.0])
 	_front(mb, cols)
 	_yard(mb, cols)
@@ -317,7 +336,7 @@ func _front(mb: MeshBuilder, cols: Array) -> void:
 	# Plinth: a band of dark stone, broken by the door.
 	for seg: Vector2 in [Vector2(x0 - 0.04, door_x - DOOR_W * 0.5), Vector2(door_x + DOOR_W * 0.5, x1 + 0.04)]:
 		mb.box_at(&"concrete", Vector3((seg.x + seg.y) * 0.5, y0 + 0.17, fz - 0.025), Vector3(seg.y - seg.x, 0.5, 0.05), STONE)
-		mb.box_at(&"concrete", Vector3((seg.x + seg.y) * 0.5, y0 + 0.43, fz - 0.035), Vector3(seg.y - seg.x, 0.03, 0.07), STONE.lightened(0.1))
+		mb.box_at(&"concrete", Vector3((seg.x + seg.y) * 0.5, y0 + 0.435, fz - 0.035), Vector3(seg.y - seg.x, 0.03, 0.07), STONE.lightened(0.1))
 	for side: Array in [[x0, Vector3.LEFT], [x1, Vector3.RIGHT]]:
 		var sx: float = side[0]
 		var n: Vector3 = side[1]
@@ -363,7 +382,8 @@ func _front(mb: MeshBuilder, cols: Array) -> void:
 	# The step out of the doorway (the floor stands a hand over the yard).
 	mb.box_at(&"concrete", Vector3(door_x, y0 - 0.05, fz - 0.22), Vector3(DOOR_W + 0.3, 0.1, 0.44), Color(0.5, 0.5, 0.49))
 	# The hours plate on the wall east of the door, the badge as a sticker on the glass.
-	_print(mb, "hours", Vector3(door_x + DOOR_W * 0.5 + 0.38, y0 + 1.55, fz - 0.012), Vector3.FORWARD, Vector2(0.42, 0.21))
+	# (the print stands 4 mm off the plate's face: a millimetre over it flickers from the street)
+	_print(mb, "hours", Vector3(door_x + DOOR_W * 0.5 + 0.38, y0 + 1.55, fz - 0.015), Vector3.FORWARD, Vector2(0.42, 0.21))
 	mb.box_at(&"metal", Vector3(door_x + DOOR_W * 0.5 + 0.38, y0 + 1.55, fz - 0.006), Vector3(0.44, 0.23, 0.01), Color(0.8, 0.8, 0.79))
 	# Two planters of geraniums west of the door, the dogs' water bowl and tie ring east.
 	for k in 2:
@@ -406,7 +426,8 @@ func _sides_and_roof(mb: MeshBuilder, _cols: Array) -> void:
 	var y0 := floor_y
 	var ac := Vector3(x0 - 0.2, y0 + 2.5, rect.position.y + 2.2)
 	mb.box_at(&"metal", ac, Vector3(0.32, 0.6, 0.85), Color(0.8, 0.8, 0.78))
-	mb.cylinder(&"metal", Transform3D(Basis(Vector3.FORWARD, PI * 0.5), ac + Vector3(-0.16, 0, -0.08)), 0.23, 0.23, 0.012, 16, Color(0.1, 0.1, 0.1))
+	# (the fan's disc stands 6 mm off the housing's face: laid in that face it flickered)
+	mb.cylinder(&"metal", Transform3D(Basis(Vector3.FORWARD, PI * 0.5), ac + Vector3(-0.166, 0, -0.08)), 0.23, 0.23, 0.012, 16, Color(0.1, 0.1, 0.1))
 	for k in 5:
 		mb.box_at(&"metal", ac + Vector3(-0.175, -0.2 + k * 0.1, -0.08), Vector3(0.01, 0.012, 0.46), Color(0.5, 0.5, 0.5))
 	for dz: float in [-0.3, 0.3]:
@@ -442,7 +463,7 @@ func _floor_and_walls(mb: MeshBuilder, cols: Array) -> void:
 	var iz0 := rect.position.y + WALL
 	var iz1 := rect.end.y - WALL
 	var y0 := floor_y
-	var fy := y0 + 0.024
+	var fy := y0 + TILES
 	mb.box_at(&"tile_floor", Vector3((ix0 + ix1) * 0.5, fy - 0.003, (iz0 + iz1) * 0.5), Vector3(ix1 - ix0, 0.006, iz1 - iz0), Color(0.74, 0.73, 0.7))
 	var joint := Color(0.42, 0.41, 0.39)
 	var x := ix0 + 0.6
@@ -519,7 +540,7 @@ func _waiting_room(mb: MeshBuilder, cols: Array) -> void:
 	var ix0 := rect.position.x + WALL
 	var ix1 := rect.end.x - WALL
 	var iz0 := rect.position.y + WALL
-	var y0 := floor_y + 0.024
+	var y0 := floor_y + TILES
 	# Chairs: grey shells on a steel beam with two legs, facing east.
 	var beam := Vector3(ix0 + 0.33, y0, iz0 + 1.75)
 	var frame := Color(0.2, 0.21, 0.22)
@@ -604,7 +625,8 @@ func _waiting_room(mb: MeshBuilder, cols: Array) -> void:
 	cols.append([scale + Vector3(0, 0.035, 0), Vector3(0.95, 0.07, 0.6), 0.0])
 	# Pet food on a steel shelf against the partition, west of the counter.
 	var shelf := Vector3(ix0 + 1.25, y0, rect.position.y + PART_Z - 0.21)
-	mb.box_at(&"metal", shelf + Vector3(0, 0.9, 0.19), Vector3(2.0, 1.8, 0.02), Color(0.7, 0.71, 0.72))
+	# (its back panel 4 mm proud of the skirting behind it, not in its face)
+	mb.box_at(&"metal", shelf + Vector3(0, 0.9, 0.186), Vector3(2.0, 1.8, 0.02), Color(0.7, 0.71, 0.72))
 	for sx: float in [-0.99, 0.99]:
 		mb.box_at(&"metal", shelf + Vector3(sx, 0.9, 0), Vector3(0.03, 1.8, 0.4), Color(0.6, 0.61, 0.62))
 	var bags := ["bag_dog", "bag_cat", "bag_puppy", "bag_feed"]
@@ -667,11 +689,16 @@ func _counter(mb: MeshBuilder, cols: Array) -> void:
 	var cx0 := rect.position.x + COUNTER_X.x
 	var cx1 := rect.position.x + COUNTER_X.y
 	var cz := rect.position.y + COUNTER_Z
-	var y0 := floor_y + 0.024
+	var y0 := floor_y + TILES
 	var mid := (cx0 + cx1) * 0.5
 	var length := cx1 - cx0
-	# The body (customer face at cz) and the plinth.
-	mb.box_at(&"paint_in", Vector3(mid, y0 + 0.55, cz + COUNTER_D * 0.5), Vector3(length, 1.1, COUNTER_D), LAMINATE)
+	# The body (customer face at cz) and the plinth: a tall front under the customers' ledge,
+	# the rest only as high as the work top lying on it (she writes on that top: a body
+	# as tall as the front all the way back would bury it, and her hands with it).
+	var work := y0 + COUNTER_H - 0.04
+	mb.box_at(&"paint_in", Vector3(mid, y0 + 0.56, cz + COUNTER_FRONT * 0.5), Vector3(length, 1.12, COUNTER_FRONT), LAMINATE)
+	mb.box_at(&"paint_in", Vector3(mid, (y0 + work) * 0.5, cz + (COUNTER_FRONT + COUNTER_D) * 0.5),
+			Vector3(length, work - y0, COUNTER_D - COUNTER_FRONT), LAMINATE)
 	mb.box_at(&"paint_in", Vector3(mid, y0 + 0.05, cz + 0.06), Vector3(length - 0.02, 0.1, 0.02), Color(0.3, 0.32, 0.31))
 	mb.box_at(&"paint_in", Vector3(mid, y0 + 0.8, cz - 0.004), Vector3(length, 0.12, 0.01), GREEN)
 	# The front's laminate in four panels (their joints), an aluminium edge under the ledge.
@@ -681,7 +708,8 @@ func _counter(mb: MeshBuilder, cols: Array) -> void:
 	_print(mb, "logo", Vector3(cx0 + length * 0.375, y0 + 0.48, cz - 0.008), Vector3.FORWARD, Vector2(0.42, 0.42))
 	# The ledge on the customer side and the lower work top behind it.
 	mb.box_at(&"wood_in", Vector3(mid, y0 + 1.14, cz + 0.11), Vector3(length + 0.06, 0.04, 0.3), Color(0.55, 0.43, 0.3))
-	mb.box_at(&"paint_in", Vector3(mid, y0 + COUNTER_H - 0.02, cz + 0.42), Vector3(length, 0.04, 0.46), Color(0.92, 0.92, 0.9))
+	mb.box_at(&"paint_in", Vector3(mid, y0 + COUNTER_H - 0.02, cz + (COUNTER_FRONT + COUNTER_D) * 0.5),
+			Vector3(length, 0.04, COUNTER_D - COUNTER_FRONT), Color(0.92, 0.92, 0.9))
 	cols.append([Vector3(mid, y0 + 0.58, cz + COUNTER_D * 0.5), Vector3(length, 1.16, COUNTER_D), 0.0])
 	# On the ledge: a bowl of dog treats, a stand of leaflets, a bell.
 	mb.cylinder(&"clay", Transform3D(Basis(), Vector3(mid + 1.4, y0 + 1.16, cz + 0.1)), 0.09, 0.11, 0.07, 14, Color(0.9, 0.88, 0.82))
@@ -699,7 +727,8 @@ func _counter(mb: MeshBuilder, cols: Array) -> void:
 	var v := vet_spot()
 	var top := y0 + COUNTER_H
 	var back := cz + COUNTER_D
-	var board := Vector3(v.x - 0.03, top + 0.004, back - 0.17)
+	# (under her hands: her wrists come down at its near end, her fingers on the sheet)
+	var board := Vector3(v.x - 0.01, top + 0.004, back - 0.26)
 	mb.box_at(&"wood_in", board, Vector3(0.23, 0.008, 0.3), Color(0.48, 0.36, 0.24), Vector3(0, 8, 0))
 	mb.box_at(&"paper", board + Vector3(0, 0.006, 0.01), Vector3(0.2, 0.003, 0.25), Color(0.95, 0.95, 0.93), Vector3(0, 8, 0))
 	mb.box_at(&"metal", board + Vector3(0.0, 0.012, -0.125), Vector3(0.09, 0.012, 0.03), STEEL, Vector3(0, 8, 0))
@@ -744,7 +773,7 @@ func _counter(mb: MeshBuilder, cols: Array) -> void:
 ## and bottles), her diploma and the clock over the treatment room's door.
 func _behind_counter(mb: MeshBuilder, cols: Array) -> void:
 	var pz := rect.position.y + PART_Z
-	var y0 := floor_y + 0.024
+	var y0 := floor_y + TILES
 	var cab := Vector3(rect.position.x + 7.6, y0, pz - 0.19)
 	var w := 1.6
 	mb.box_at(&"paint_in", cab + Vector3(0, 0.45, 0), Vector3(w, 0.9, 0.38), LAMINATE)
@@ -796,7 +825,7 @@ func _behind_counter(mb: MeshBuilder, cols: Array) -> void:
 func _door() -> void:
 	var door_x := rect.end.x - DOOR_AT
 	var z := rect.position.y + WALL + 0.05
-	var y0 := floor_y + 0.024
+	var y0 := floor_y + TILES
 	var lw := DOOR_W * 0.5 + 0.02
 	var h := DOOR_TOP - 0.02
 	var alu := Color(0.7, 0.71, 0.72)

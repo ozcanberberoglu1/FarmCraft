@@ -11,6 +11,8 @@ extends RefCounted
 ## are repaired by nailing wood over the holes in their walls, see RepairSpot), free.
 ## per_coop: made on one of the farm's kit-built coops, step by step (the coop
 ## expansion: COOP_STEPS prices each step; the board picks the coop), never "built".
+## single: a kit of which the farm needs only one (the doghouse): once one stands (or its
+## kit is in the bag) the board shows it as built; `needs_pet`: listed once he has a dog.
 ## Names/descriptions come from PROJECT_<ID> / PROJECT_<ID>_DESC.
 
 const PROJECTS := {
@@ -23,6 +25,10 @@ const PROJECTS := {
 	&"coop_expand": {"cost": 100, "items": {&"wood": 20, &"nails": 10}, "requires": [], "group": "animals", "per_coop": true},
 	# The second day's workbench: a kit like the coop's, put up near the house in a minute.
 	&"workbench": {"cost": 40, "items": {&"wood": 10}, "requires": [], "group": "workshop", "kit": &"workbench"},
+	# The farmer's own dog's house (Doghouse, Pet): a small kit of boards and nails, put up
+	# near the house in half a minute; the dog sleeps in it and waits by it.
+	&"doghouse": {"cost": 10, "items": {&"wood": 8, &"nails": 6}, "requires": [], "group": "animals", "kit": &"doghouse",
+		"single": true, "needs_pet": true},
 	# Grandpa's fixed chicken run by the fields: no longer sold, kept for the farms that have it.
 	&"coop_1": {"cost": 125, "items": {&"wood": 30}, "requires": [], "group": "animals"},
 	&"coop_2": {"cost": 600, "items": {&"wood": 80, &"stone": 40}, "requires": [&"coop_1"], "group": "animals"},
@@ -38,7 +44,7 @@ const PROJECTS := {
 
 ## Order shown on the board (hands-on projects are left off it).
 const ORDER := [&"workbench", &"house_1", &"house_2", &"house_3", &"warehouse_1", &"warehouse_2", &"field_1", &"field_2", &"field_3",
-	&"barn_1", &"barn_2", &"coop_kit", &"coop_expand", &"coop_1", &"coop_2"]
+	&"barn_1", &"barn_2", &"coop_kit", &"coop_expand", &"doghouse", &"coop_1", &"coop_2"]
 ## Warehouse capacity in units per level (0 = Grandpa's run-down shed, half its racks
 ## rotten; 1 = repaired; 2 = bigger).
 const WAREHOUSE_CAPACITY := [200, 400, 1200]
@@ -75,6 +81,16 @@ static func is_per_coop(id: StringName) -> bool:
 ## Expansion step `step` (0: the first) of a kit-built coop: {cost, items}; {} past the last.
 static func coop_step(step: int) -> Dictionary:
 	return COOP_STEPS[step] if step >= 0 and step < COOP_STEPS.size() else {}
+
+
+## True for the kits the farm needs only one of (the doghouse).
+static func is_single(id: StringName) -> bool:
+	return bool(get_project(id).get("single", false))
+
+
+## True for the projects that are only for a farmer with a dog (the doghouse).
+static func needs_pet(id: StringName) -> bool:
+	return bool(get_project(id).get("needs_pet", false))
 
 
 ## True for the projects built by hand in the world, never from the board.

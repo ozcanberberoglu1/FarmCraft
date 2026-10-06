@@ -3,9 +3,30 @@ extends RefCounted
 ## Scripted gameplay checks driven through real input and physics.
 ## Run: godot --path . -- --scenario=<name>   (prints SCENARIO PASS/FAIL lines)
 
+## pet20: where the pickup is parked off the farm (on the county road), and the spots near
+## the farmhouse tried for the doghouse (x, z).
+const PET20_ROAD := Vector3(120.0, 0.0, 30.9)
+const PET20_PLOTS: Array[Vector2] = [Vector2(-6.0, -4.0), Vector2(-9.0, -3.0), Vector2(-12.0, 2.0), Vector2(-4.0, 2.0),
+	Vector2(-9.0, 9.0), Vector2(4.0, -6.0), Vector2(-16.0, 4.0), Vector2(-2.0, -10.0)]
+
 var tree: SceneTree
 var failures := 0
 var _last_prompt := ""
+## tut20: the story's paced days last this many real minutes whatever the day length set
+## (the first day from 13:00 to sundown and to nightfall, the second day's work).
+const TUT20_SUNDOWN := Vector2(34.0, 40.5)
+const TUT20_NIGHT := Vector2(39.0, 46.0)
+const TUT20_DAY_TWO := Vector2(22.0, 28.0)
+
+## ui20: left out of the clinic's faces (the people are skinned bodies, not built models).
+const UI20_SCAN_SKIP: Array[StringName] = [&"TownPeople"]
+## ui20: how deep (m) a hand's or a forearm's skin may be drawn under the counter's top
+## before it counts as in it (skin on the top touches it), and how far over it the palm
+## resting on it may hover at most.
+const UI20_HAND_SINK := 0.005
+const UI20_HAND_HOVER := 0.012
+## ui20: the level faces on and round the vet's counter ([a, b, c (world), up]).
+var _ui20_counter_faces: Array = []
 
 
 func _init(scene_tree: SceneTree) -> void:
@@ -153,12 +174,16 @@ func run(scenario: String) -> void:
 			await _scenario_wolves_e2e()
 		"wolves_edges":
 			await _scenario_wolves_edges()
+		"wolfcoop":
+			await _scenario_wolfcoop()
 		"coop_expand":
 			await _coop_expand()
 		"fixes13":
 			await _scenario_fixes13()
 		"pet":
 			await _scenario_pet()
+		"pet20":
+			await _scenario_pet20()
 		"comic":
 			await _comic()
 		"handle":
@@ -171,12 +196,28 @@ func run(scenario: String) -> void:
 			await _scenario_trees19_shots()
 		"vehicle19":
 			await _scenario_vehicle19()
+		"cab_interior":
+			await _scenario_cab_interior()
+		"radio20":
+			await _scenario_radio20()
+		"rain20":
+			await _scenario_rain20()
 		"display19":
 			await _scenario_display19()
 		"visual19":
 			await _scenario_visual19()
 		"flow19":
 			await _scenario_flow19()
+		"tut20":
+			await _scenario_tut20()
+		"goals20":
+			await _scenario_goals20()
+		"sched20":
+			await _scenario_sched20()
+		"ui20":
+			await _scenario_ui20()
+		"farm20":
+			await _scenario_farm20()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -3317,9 +3358,12 @@ func _quests() -> void:
 	_check(Quests.current()["id"] == "feed" and begun[0] == care and Quests.first_day()
 			and Game.hud._quest_note.visible and Game.hud._quest_note.text.contains(Quests.chapter_note(care)),
 			"carrots in the shipping bin end the harvest: the coop's care opens with Grandpa's note")
+	var day_length_had := Settings.day_length_minutes
+	Settings.day_length_minutes = Settings.DEFAULT_DAY_LENGTH
 	_check(is_equal_approx(Quests.pace_for(13.0), Quests.FIRST_DAY_PACE) and is_equal_approx(Quests.pace_for(17.0), Quests.LINGER_PACE)
 			and Quests.FIRST_DAY_PACE < 1.0 and Quests.LINGER_PACE < Quests.FIRST_DAY_PACE,
 			"the first afternoon runs slow and its late hours linger")
+	Settings.day_length_minutes = day_length_had
 	bin.remove_item(&"carrot", 2)
 	# LMB with an egg in hand: it flies where the player looks and breaks where it lands.
 	var broke: Array = []
@@ -3474,12 +3518,12 @@ func _quests() -> void:
 	# The walk, the stone and the berries (in detail in "tutorial14"): each by its events.
 	for id: String in Quests.EXPLORE_SPOTS:
 		Quests.reach_spot(id)
-	_check(Quests.current()["id"] == "stones", "every one of Grandpa's spots reached: on to the quarry's stone")
-	Events.item_picked_up.emit(&"stone", 5)
+	_check(Quests.current()["id"] == "stones", "both of Grandpa's spots reached: on to the stone of the rocks there")
+	Events.item_picked_up.emit(&"stone", 4)
 	_check(Quests.current()["id"] == "berries", "stone gathered (the two picked up earlier count): on to the berries")
-	Events.item_picked_up.emit(&"blackberry", 6)
+	Events.item_picked_up.emit(&"blackberry", 4)
 	_check(Quests.current()["id"] == "snack" and int(Quests.TUTORIAL[Quests.index_of("snack")]["chapter"]) == walk,
-			"six berries picked: a bite to eat, the same evening")
+			"four berries picked: a bite to eat, the same evening")
 	# A bite to eat if the farmer hasn't had one: the dot finds berries, or says to eat what
 	# is in the bag; too full to eat passes it.
 	var hunger_had := PlayerState.needs.hunger
@@ -3849,23 +3893,20 @@ func _tutorial14() -> void:
 			and chapter_of.call("till2") == Quests.CHAPTERS.find("fields") and chapter_of.call("barn") == Quests.CHAPTERS.find("barn")
 			and Quests.index_of("barn") > Quests.index_of("eat"),
 			"the mending and the walk are the first day's (each with a dot); the new beds have their chapter; the barn and its sheep wait for after the pond")
-	# The first day's pace: the whole story in daylight at the default 15-minute day (80
-	# game minutes a real minute), about 37 real minutes from 13:00 to sundown (19:15).
-	var per_second := (20.0 * 60.0) / (15.0 * 60.0)
-	var to_sundown := 0.0
-	var to_night := 0.0
-	var m := float(GameClock.FIRST_DAY_START_MINUTE)
-	while m < 20.0 * 60.0:
-		var real := 1.0 / (per_second * Quests.pace_for(m / 60.0)) / 60.0
-		to_night += real
-		if m < 19.25 * 60.0:
-			to_sundown += real
-		m += 1.0
-	var egg_real := ChickenCoop.FIRST_EGG_MINUTES / (per_second * Quests.FIRST_DAY_PACE) / 60.0
-	_check(to_sundown > 34.0 and to_sundown < 40.5 and to_night > 39.0 and to_night < 46.0 and egg_real < 1.0
-			and Quests.LINGER_PACE < Quests.FIRST_DAY_PACE,
-			"the first day's story has %.1f real minutes to sundown, %.1f to nightfall; the first egg comes %.1f minutes after the hens go in"
-			% [to_sundown, to_night, egg_real])
+	# The first day's pace: the whole story in daylight at the default 10-minute day (120
+	# game minutes a real minute), about 37 real minutes from 13:00 to sundown (19:15); the
+	# second day's work about 25 (the arithmetic in detail, at 8 and 12 minutes too: "tut20").
+	var length_had := Settings.day_length_minutes
+	Settings.day_length_minutes = Settings.DEFAULT_DAY_LENGTH
+	var real: Dictionary = _story_minutes()
+	var to_sundown := float(real["sundown"])
+	var to_night := float(real["night"])
+	var egg_real := float(real["egg"])
+	_check(is_equal_approx(Settings.DEFAULT_DAY_LENGTH, 10.0) and to_sundown > 34.0 and to_sundown < 40.5 and to_night > 39.0 and to_night < 46.0
+			and egg_real < 1.0 and Quests.LINGER_PACE < Quests.FIRST_DAY_PACE and float(real["day_two"]) > 22.0 and float(real["day_two"]) < 28.0,
+			"at the default 10-minute day the first day's story has %.1f real minutes to sundown, %.1f to nightfall; the first egg comes %.1f minutes after the hens go in; the second day's work has %.1f"
+			% [to_sundown, to_night, egg_real, float(real["day_two"])])
+	Settings.day_length_minutes = length_had
 	var gates := {"free": 2, "rooster_wait": 3, "fishing_wait": 4}
 	var gated := true
 	for id: String in gates:
@@ -4051,10 +4092,18 @@ func _tutorial14() -> void:
 	_check(Quests.current()["id"] == "water3" and Quests.step_count == 0, "a chain 7 save on Grandpa's potatoes goes on at the third day's watering")
 	Quests.load_data({"chain": 7, "id": "bench_place", "count": 0, "orders": orders})
 	_check(Quests.current()["id"] == "bench_place", "a chain 7 save on the workshop keeps its goal")
-	Quests.load_data({"chain": Quests.CHAIN, "id": "explore", "count": 2, "orders": orders,
-		"tally": {"visit:": 2, "visit:pond": 1, "visit:quarry": 1}})
-	_check(Quests.current()["id"] == "explore" and Quests.step_count == 2 and Quests.spots_left() == ["woods", "pasture"],
+	Quests.load_data({"chain": Quests.CHAIN, "id": "explore", "count": 1, "orders": orders,
+		"tally": {"visit:": 1, "visit:pond": 1}})
+	_check(Quests.current()["id"] == "explore" and Quests.step_count == 1 and Quests.spots_left() == ["woods"],
 			"a save on the walk keeps the spots reached (%s left)" % str(Quests.spots_left()))
+	# A save from when the walk had four spots, two of them reached (the far ones that
+	# went): the two now asked for are met, the walk is over.
+	Quests.load_data({"chain": Quests.CHAIN, "id": "explore", "count": 2, "orders": orders,
+		"tally": {"visit:": 2, "visit:pasture": 1, "visit:quarry": 1}})
+	Quests._poll = 0.0
+	await _idle_frames(3)
+	_check(Quests.passed("explore"), "a save with two of the old walk's four spots reached doesn't stall: the walk is done (now '%s')"
+			% Quests.current().get("id", "-"))
 	Quests.skip_tutorial()
 	FarmState.remove_placed(coop.entry)
 	coop.queue_free()
@@ -4072,19 +4121,23 @@ func _tutorial14_walk() -> void:
 	var shots := String(DebugTools.args.get("tutshots", ""))
 	var hour_had := GameClock.get_hour_float()
 	var spots: Array = Quests.EXPLORE_SPOTS.keys()
-	_check(int(Quests.TUTORIAL[Quests.index_of("explore")]["count"]) == spots.size() and spots == ["pond", "woods", "pasture", "quarry"],
-			"the walk asks for every one of Grandpa's spots (%s)" % ", ".join(spots))
+	_check(int(Quests.TUTORIAL[Quests.index_of("explore")]["count"]) == spots.size() and spots == ["pond", "woods"],
+			"the walk asks for Grandpa's two spots near the house (%s)" % ", ".join(spots))
 	# Each on open valley ground (the pond's over its water), each with its name and line,
-	# none within reach of the farmyard.
+	# none within reach of the farmyard, none far from the house door.
 	var b := WorldLayout.SHIPPING_BIN_POS
+	var door := Vector2(WorldLayout.HOUSE_DOOR_X, WorldLayout.HOUSE_FRONT_Z)
 	var spots_ok := true
+	var farthest := 0.0
 	for id: String in spots:
 		var at: Vector2 = Quests.EXPLORE_SPOTS[id]["at"]
 		var reach := float(Quests.EXPLORE_SPOTS[id]["reach"])
+		farthest = maxf(farthest, at.distance_to(door))
 		spots_ok = spots_ok and WorldLayout.playable_distance(at.x, at.y) > 6.0 and at.distance_to(Vector2(b.x, b.z)) > reach + 2.0
 		spots_ok = spots_ok and (id == "pond" or not TerrainData.is_underwater(at.x, at.y, 0.3))
 		spots_ok = spots_ok and not Quests.spot_name(id).begins_with("SPOT_") and not tr("EXPLORE_%s_LINE" % id.to_upper()).begins_with("EXPLORE_")
-	_check(spots_ok, "Grandpa's spots lie on open valley ground away from the yard, each with its name and line")
+	_check(spots_ok and farthest <= Quests.EXPLORE_NEAR,
+			"Grandpa's spots lie on open valley ground just off the yard, each with its name and line (the farthest %.0f m from the door)" % farthest)
 	Quests.step = Quests.index_of("explore")
 	Quests.step_count = 0
 	Quests.tally = {}
@@ -4116,43 +4169,37 @@ func _tutorial14_walk() -> void:
 			and Quests.goal_hint() == tr("HINT_EXPLORE_NEXT") % Quests.spot_name("woods"),
 			"at the pond's bank: counted, Grandpa's line under the goal ('%s'), the dot on to the old forest" % Game.hud._quest_note.text)
 	if shots != "":
-		# The walk's dot over the old forest, the pond's line under the goal, toward evening.
+		# The walk's dot over the forest's edge behind the house, the pond's line under the
+		# goal, toward evening.
 		GameClock.set_time_of_day(17.4)
 		_look_at(player, Quests.spot_point("woods") + Vector3(0, -2.0, 0))
 		await _shot("%s/tut_explore_dot.png" % shots)
 	Quests._wp_left = 0.0
 	await _idle_frames(4)
 	_check(Quests.step_count == 1 and lines.size() == 1, "standing at the pond longer doesn't count it again")
-	# Out of the walk's order: the quarry counts, the dot still waits over the forest.
-	var q: Vector2 = Quests.EXPLORE_SPOTS["quarry"]["at"]
-	player.global_position = Vector3(q.x, TerrainData.height(q.x, q.y + 6.0) + 0.5, q.y + 6.0)
+	# A save mid-walk keeps the spot reached.
+	Quests.load_data(Quests.save_data())
+	_check(Quests.current()["id"] == "explore" and Quests.step_count == 1 and Quests.spots_left() == ["woods"],
+			"a save mid-walk keeps the spot reached")
+	# The forest's edge, come to from the house's side.
+	var near: Vector2 = Quests.EXPLORE_SPOTS["woods"]["at"] + Vector2(0.0, 8.0)
+	player.global_position = Vector3(near.x, TerrainData.height(near.x, near.y) + 0.5, near.y)
 	Quests._wp_left = 0.0
 	await _idle_frames(3)
-	wp = Quests.waypoint()
-	_check(Quests.step_count == 2 and Quests.tally.has("visit:quarry") and wp is Vector3 and (wp as Vector3).is_equal_approx(Quests.spot_point("woods")),
-			"the quarry reached out of order counts; the dot still waits over the old forest")
-	# A save mid-walk keeps the spots reached.
-	Quests.load_data(Quests.save_data())
-	_check(Quests.current()["id"] == "explore" and Quests.step_count == 2 and Quests.spots_left() == ["woods", "pasture"],
-			"a save mid-walk keeps the spots reached")
-	# The forest's edge from the meadow side, the pasture just inside its gate.
-	for pair: Array in [["woods", Vector2(8.0, 0.0)], ["pasture", Vector2(-8.0, 0.0)]]:
-		var near: Vector2 = Quests.EXPLORE_SPOTS[pair[0]]["at"] + pair[1]
-		player.global_position = Vector3(near.x, TerrainData.height(near.x, near.y) + 0.5, near.y)
-		Quests._wp_left = 0.0
-		await _idle_frames(3)
-	_check(Quests.current()["id"] == "stones" and lines.size() == 4 and Game.hud._quest_note.text.contains(tr("EXPLORE_PASTURE_LINE")),
-			"the old forest and the pasture (the barn's place: '%s') end the walk: on to the quarry's stone" % tr("EXPLORE_PASTURE_LINE"))
+	_check(Quests.current()["id"] == "stones" and lines.size() == 2 and Game.hud._quest_note.text.contains(tr("EXPLORE_WOODS_LINE")),
+			"the old forest's edge ('%s') ends the walk: on to the stone of the rocks there" % tr("EXPLORE_WOODS_LINE"))
 	Quests.spot_visited.disconnect(on_spot)
 	Events.notification_requested.disconnect(on_note)
-	# The stone: the dot finds a rock (or chips lying about); stone counts, wood doesn't.
+	# The stone: the dot finds a rock a few steps away (or chips lying about); stone counts,
+	# wood doesn't.
 	Quests._hint = ""
-	_check(Quests._target("rocks") != null, "the stone's dot finds a rock")
+	var rock_far := _tut20_flat_distance(Quests._target("rocks"), Vector3(near.x, 0.0, near.y))
+	_check(rock_far < 20.0, "the stone's dot finds a rock a few steps away (%.0f m), not the quarry's" % rock_far)
 	Events.item_picked_up.emit(&"stone", 3)
 	Events.item_picked_up.emit(&"wood", 3)
 	_check(Quests.current()["id"] == "stones" and Quests.step_count == 3, "stone picked up counts, wood doesn't (%d)" % Quests.step_count)
-	Events.item_picked_up.emit(&"stone", 2)
-	_check(Quests.current()["id"] == "berries", "five stones: on to the wild berries")
+	Events.item_picked_up.emit(&"stone", 1)
+	_check(Quests.current()["id"] == "berries", "four stones: on to the wild berries")
 	# The berries: the dot over the nearest bush with berries; one picked for real counts
 	# what it gave; wood doesn't; no berries left anywhere passes the goal.
 	var bushes: Array = tree.get_nodes_in_group(&"berry_bushes")
@@ -4165,7 +4212,8 @@ func _tutorial14_walk() -> void:
 	for bb: BerryBush in bushes:
 		if bb.is_ripe() and to_bush is Vector3 and bb.global_position.distance_to((to_bush as Vector3) - Vector3(0, 1.2, 0)) < 0.1:
 			bush = bb
-	_check(bush != null and Quests.goal_hint() == tr("HINT_BERRIES"), "the dot floats over the nearest wild bush with berries ('%s')" % Quests.goal_hint())
+	_check(bush != null and Quests.goal_hint() == tr("HINT_BERRIES") and bush.global_position.distance_to(player.global_position) < 20.0,
+			"the dot floats over the nearest wild bush with berries, a few steps away ('%s')" % Quests.goal_hint())
 	if bush == null:
 		return
 	if shots != "":
@@ -4180,10 +4228,12 @@ func _tutorial14_walk() -> void:
 	var had := inv.count_item(berry)
 	bush.interact(player)
 	var got := inv.count_item(berry) - had
-	_check(got >= BerryBush.PICK.x and Quests.step_count == got and bush.picked,
-			"a bush picked with E gives %d %s, and they count (%d/6)" % [got, berry, Quests.step_count])
+	var asked := int(Quests.TUTORIAL[Quests.index_of("berries")]["count"])
+	# (A full handful is all four asked for: the goal is done on the spot.)
+	_check(got >= BerryBush.PICK.x and bush.picked and asked == 4 and (Quests.step_count == got or (got >= asked and Quests.passed("berries"))),
+			"a bush picked with E gives %d %s, and they count (of %d)" % [got, berry, asked])
 	Events.item_picked_up.emit(&"wood", 2)
-	_check(Quests.step_count == got, "wood isn't berries")
+	_check(Quests.passed("berries") or Quests.step_count == got, "wood isn't berries")
 	var picked_had: Array = bushes.map(func(bb: BerryBush) -> bool: return bb.picked)
 	for bb: BerryBush in bushes:
 		bb.picked = true
@@ -4191,8 +4241,9 @@ func _tutorial14_walk() -> void:
 	for i in bushes.size():
 		(bushes[i] as BerryBush).picked = bool(picked_had[i])
 	_check(none_left and Quests._check_progress("nobush") == 0, "every bush picked bare: the berries goal can pass (none to ask for)")
-	Events.item_picked_up.emit(&"raspberry", 6 - got)
-	_check(Quests.current()["id"] == "snack", "six berries picked: a bite to eat")
+	if not Quests.passed("berries"):
+		Events.item_picked_up.emit(&"raspberry", asked - got)
+	_check(Quests.current()["id"] == "snack", "four berries picked: a bite to eat")
 	var hunger_had := PlayerState.needs.hunger
 	PlayerState.needs.hunger = 60.0
 	Events.food_eaten.emit(berry)
@@ -4451,7 +4502,7 @@ func _sapling() -> void:
 	await _frames(8)
 	_check(player.target is SaplingSpot and (player.target as SaplingSpot).reason == ""
 			and _last_prompt.contains(tr("ACTION_PLANT")), "with a sapling in hand the open ground offers PLANT ('%s')" % _last_prompt)
-	_check(ToolAnim.resolve("plant_sapling", null)[0] == &"dig", "planting plays the dig strokes")
+	_check(ToolAnim.resolve("plant_sapling", null) == [&"set_down", 1], "planting plays the placing hand (no blows)")
 	var planted: Array[Node] = []
 	var on_planted := func(s: Node) -> void: planted.append(s)
 	Events.sapling_planted.connect(on_planted)
@@ -9497,7 +9548,7 @@ func _hens_sheet(n: Animal, h: AnimalHousing, file: String, acts: Array[Callable
 
 # --- Carnival nights -------------------------------------------------------------------------
 
-## Carnival nights (Carnival, TownCarnival): day 5 and then every fourth day; Beyza's
+## Carnival nights (Carnival, TownCarnival): day 4 and then every fourth day; Beyza's
 ## letter on those mornings only (never twice, remembered through a save, dropped once
 ## the night is over); double pay for what is sold in town from 20:00 to 23:00 only (the
 ## counter's price, a quote, a sale, an order; the shipping bin's courier pays as ever)
@@ -9528,13 +9579,17 @@ func _carnival() -> void:
 	for d in range(1, 30):
 		if Carnival.is_carnival_day(d):
 			days.append(d)
-	_check(days == [5, 9, 13, 17, 21, 25, 29] and Carnival.next_carnival_day(6) == 9, "a carnival on day 5, then every fourth day (%s)" % str(days))
+	_check(days == [4, 8, 12, 16, 20, 24, 28] and Carnival.next_carnival_day(5) == 8, "a carnival on day 4, then every fourth day (%s)" % str(days))
+	# The first three carnival days.
+	var c1 := Carnival.FIRST_DAY
+	var c2 := c1 + Carnival.EVERY_DAYS
+	var c3 := c2 + Carnival.EVERY_DAYS
 
-	# --- Beyza's letter: on the mornings of day 5 and day 9 only ---
+	# --- Beyza's letter: on the mornings of the carnival days only ---
 	Carnival.letter_day = 0
 	var letters: Array[int] = []
 	var shown := false
-	for d: int in [4, 5, 6, 8, 9, 10]:
+	for d: int in [c1 - 1, c1, c1 + 1, c2 - 1, c2, c2 + 1]:
 		GameClock.day = d
 		GameClock.minute = float(GameClock.DAY_START_MINUTE)
 		Events.day_started.emit(d)
@@ -9550,37 +9605,37 @@ func _carnival() -> void:
 			shown = screen.visible and all.contains("20:00") and all.contains("23:00") and all.contains(tr("LETTER_CARNIVAL_SIGN"))
 			screen.hide_screen()
 			await _idle_frames(1)
-	_check(letters == [5, 9], "Beyza's letter comes on the carnival mornings only (%s)" % str(letters))
+	_check(letters == [c1, c2], "Beyza's letter comes on the carnival mornings only (%s)" % str(letters))
 	_check(shown, "the letter tells the hours (20:00 to 23:00) and is signed by Beyza")
 	_check(not Game.is_ui_open(), "the letter closes")
 	# Read once: a load of the same morning brings it no more; an unread one waits, but
 	# not past the night.
-	GameClock.day = 9
+	GameClock.day = c2
 	GameClock.minute = 8.0 * 60.0
 	Carnival.load_data(Carnival.save_data())
 	var after_read := Carnival.letter_pending
-	Carnival.load_data({"letter_day": 5})
+	Carnival.load_data({"letter_day": c1})
 	var unread := Carnival.letter_pending
 	GameClock.minute = 23.5 * 60.0
-	Carnival.load_data({"letter_day": 5})
+	Carnival.load_data({"letter_day": c1})
 	var too_late := Carnival.letter_pending
 	_check(not after_read and unread and not too_late,
 			"no letter twice after a load (read %s, unread %s, after 23:00 %s)" % [after_read, unread, too_late])
-	Carnival.load_data({"letter_day": 9})
+	Carnival.load_data({"letter_day": c2})
 	# In play it opens by itself once the player is free: not over another window.
 	Carnival.testing_letter = true
 	var cues: Array[String] = []
 	var on_cue := func(text: String, _c: Color) -> void: cues.append(text)
 	Events.notification_requested.connect(on_cue)
-	GameClock.day = 13
+	GameClock.day = c3
 	GameClock.minute = float(GameClock.DAY_START_MINUTE)
 	Game.hud.pause_menu.show_screen()
-	Events.day_started.emit(13)
+	Events.day_started.emit(c3)
 	await _seconds(3.0)
 	var waited: bool = not Game.hud.letter_screen.visible and Carnival.letter_pending
 	Game.hud.pause_menu.hide_screen()
 	await _seconds(3.2)
-	var opened: bool = Game.hud.letter_screen.visible and not Carnival.letter_pending and Carnival.letter_day == 13
+	var opened: bool = Game.hud.letter_screen.visible and not Carnival.letter_pending and Carnival.letter_day == c3
 	_check(waited and opened and cues.has(tr("MSG_CARNIVAL_LETTER")),
 			"the letter waits while a window is open, then a note and the letter come (waited %s, opened %s)" % [waited, opened])
 	Events.notification_requested.disconnect(on_cue)
@@ -9589,7 +9644,7 @@ func _carnival() -> void:
 	await _idle_frames(2)
 
 	# --- Double pay in town, 20:00 to 23:00 of a carnival day only ---
-	GameClock.day = 9
+	GameClock.day = c2
 	GameClock.set_time_of_day(19.9)
 	var price_before := Economy.sell_price(&"pumpkin")
 	var quote_before := Economy.quote(&"pumpkin", 5)
@@ -9626,7 +9681,7 @@ func _carnival() -> void:
 	var price_after := Economy.sell_price(&"pumpkin")
 	_check(not Carnival.is_on() and price_after == roundi(Economy._price_at(&"pumpkin", 0, int(Economy.sold_today.get(&"pumpkin", 0)))),
 			"after 23:00 prices are back to normal (%d)" % price_after)
-	GameClock.day = 11
+	GameClock.day = c2 + 2
 	GameClock.set_time_of_day(21.0)
 	_check(Economy.carnival_factor() == 1.0 and not Carnival.is_dressed(), "other nights pay the usual price")
 
@@ -9635,7 +9690,7 @@ func _carnival() -> void:
 	player.look_at_yaw_pitch(0.0, 0.0)
 	await _idle_frames(3)
 	var other_night := dressing.root == null
-	GameClock.day = 9
+	GameClock.day = c2
 	GameClock.set_time_of_day(19.2)
 	await _idle_frames(3)
 	var before_dusk := dressing.root == null
@@ -9700,15 +9755,15 @@ func _carnival() -> void:
 	_check(notes.has(tr("MSG_CARNIVAL_OVER")), "at 23:00 a note says the carnival is over")
 	_check(dressing.root == null or not is_instance_valid(dressing.root), "after 23:00 the dressing is taken down")
 	Events.notification_requested.disconnect(on_note)
-	GameClock.day = 13
+	GameClock.day = c3
 	GameClock.set_time_of_day(21.0)
 	await _idle_frames(3)
-	_check(dressing.root != null, "the next carnival (day 13) dresses the town again")
+	_check(dressing.root != null, "the next carnival (day %d) dresses the town again" % c3)
 	for i in 30:
 		if not dressing.building:
 			break
 		await _idle_frames(1)
-	GameClock.day = 14
+	GameClock.day = c3 + 1
 	await _idle_frames(3)
 	_check(dressing.root == null, "and the night after is ordinary again")
 
@@ -10620,9 +10675,10 @@ func _open_pen_spot(h: AnimalHousing) -> Vector3:
 
 # --- Zeynep, the new neighbour (SideStory, ZeynepHome, Relations) ---------------------------
 
-## The side story beside the main chain: nothing before day 6; on day 6 at 07:00 the goal,
-## the banner and the dot on Zeynep in her front garden petting Karamel; meeting her with E
-## (the dialogue's lines, she gets up and walks in through her door: one heart); day 7's
+## The side story beside the main chain: nothing before she moves in (SideStory.MOVE_DAY,
+## day 3); that day at 07:00 the goal, the banner and the dot on Zeynep in her front garden
+## petting Karamel; meeting her with E (the dialogue's lines, she gets up and walks in
+## through her door: one heart); the next day's (GIFT_DAY's)
 ## welcome gift (dog food bought at the market, three knocks, the door opens, she takes
 ## the bag in the doorway and shuts the door: two hearts, the bag gone, Karamel's bowl
 ## filled and eaten from); later errands (at the door, and to her in the garden) raising
@@ -10663,24 +10719,27 @@ func _scenario_zeynep() -> void:
 	var home := _zy_home()
 	_check(home != null and home.door != null, "Town's first house has Zeynep's home with a working door")
 	var shots := String(DebugTools.args.get("zeynep-shots", ""))
+	var move := SideStory.MOVE_DAY
+	var gift := SideStory.GIFT_DAY
+	_check(move == 3 and gift == 4, "Zeynep moves in on day 3, the welcome gift from day 4 (%d, %d)" % [move, gift])
 
-	# --- Before day 6: an empty house for sale ---
+	# --- Before moving day: an empty house for sale ---
 	player.global_position = Vector3(262.0, TerrainData.height(262.0, 19.0) + 0.1, 19.0)
-	GameClock.day = 5
+	GameClock.day = move - 1
 	GameClock.set_time_of_day(10.0)
 	await _seconds(1.2)
 	var sign := home.get_node_or_null("ForSale") as Node3D
 	_check(SideStory.goal() == "" and home.zeynep == null and home.dog == null and sign != null and sign.visible,
-			"day 5: no side goal, nobody at the house, a 'for sale' sign in the garden")
-	GameClock.day = 6
+			"day %d: no side goal, nobody at the house, a 'for sale' sign in the garden" % (move - 1))
+	GameClock.day = move
 	GameClock.set_time_of_day(6.5)
 	await _seconds(1.0)
-	_check(SideStory.goal() == "" and home.zeynep == null, "day 6 before 07:00: still nobody")
+	_check(SideStory.goal() == "" and home.zeynep == null, "day %d before 07:00: still nobody" % move)
 
-	# --- Day 6, 07:00: she has moved in ---
+	# --- Moving day, 07:00: she has moved in ---
 	GameClock.set_time_of_day(7.02)
 	await _seconds(2.5)
-	_check(SideStory.goal() == "meet" and SideStory.goal_text() == tr("SIDE_GOAL_MEET"), "day 6 at 07:00 the side goal is to meet Zeynep")
+	_check(SideStory.goal() == "meet" and SideStory.goal_text() == tr("SIDE_GOAL_MEET"), "day %d at 07:00 the side goal is to meet Zeynep" % move)
 	_check(Game.hud.find_children("*", "NewsBanner", true, false).size() == 1 and SideStory.announced,
 			"a banner says someone new has moved to town")
 	var z := home.zeynep
@@ -10783,17 +10842,17 @@ func _scenario_zeynep() -> void:
 			"she walked to her door, it opened, she went in and it shut behind her")
 	_check(String(Quests.current()["id"]) == main_goal, "the main chain's goal is still the same")
 
-	# --- Day 7: the welcome gift (a garden morning, but she stays in until she has it) ---
-	GameClock.day = 7
+	# --- The day after: the welcome gift (a garden morning, but she stays in until she has it) ---
+	GameClock.day = gift
 	GameClock.set_time_of_day(9.0)
 	await _seconds(1.2)
-	_check(SideStory.garden_day(7) and not SideStory.outside_now() and home.where == &"inside" and z.is_indoors(),
-			"day 7 at 09:00 (a garden day): until the welcome gift she stays indoors (%s)" % home.where)
+	_check(SideStory.garden_day(gift) and not SideStory.outside_now() and home.where == &"inside" and z.is_indoors(),
+			"day %d at 09:00 (a garden day): until the welcome gift she stays indoors (%s)" % [gift, home.where])
 	var town := tree.get_first_node_in_group(&"town") as Town
 	var at_market: Variant = SideStory.guide_point()
 	_check(SideStory.goal() == "gift_buy" and at_market is Vector3 and (at_market as Vector3).distance_to(town.market_counter.global_position) < 3.0
 			and SideStory.guide_label() == ItemDB.get_item(SideStory.ITEM).display_name() and SideStory.goal_hint() == tr("HINT_MARKET"),
-			"day 7: buy dog food for Karamel's welcome gift, the dot at the market says why")
+			"day %d: buy dog food for Karamel's welcome gift, the dot at the market says why" % gift)
 	_check(SideStory.ITEM in ShopStock.town_market()["stock"] and Economy.buy_price(SideStory.ITEM) == 12, "the town market sells dog food for $12")
 	Game.hud.open_shop(ShopStock.town_market())
 	await _frames(3)
@@ -10858,10 +10917,10 @@ func _scenario_zeynep() -> void:
 	_check(gift_line and PlayerState.inventory.count_item(SideStory.ITEM) == 0, "the player gives the dog food as Karamel's welcome gift (the bag is gone)")
 	_check(Relations.level(SideStory.WHO) == 2 and SideStory.deliveries == 1 and SideStory.errand.is_empty(),
 			"she thanks him: two hearts (%d)" % Relations.level(SideStory.WHO))
-	_check(SideStory.next_errand_day >= 9 and SideStory.next_errand_day <= 11, "the next errand comes 2-4 days on (day %d)" % SideStory.next_errand_day)
+	_check(SideStory.next_errand_day >= gift + 2 and SideStory.next_errand_day <= gift + 4, "the next errand comes 2-4 days on (day %d)" % SideStory.next_errand_day)
 	var shut := await _zy_wait(func() -> bool: return not home.busy(), 8.0)
 	_check(shut and not home.door.is_open() and z.is_indoors(), "she steps back and shuts the door")
-	_check(SideStory.gift_day == 7 and not SideStory.outside_now(), "the rest of the gift's day she stays in (her garden days start after it)")
+	_check(SideStory.gift_day == gift and not SideStory.outside_now(), "the rest of the gift's day she stays in (her garden days start after it)")
 	await _seconds(0.3)
 	_check(home.bowl_full() and dog.mode == &"eat", "Karamel's bowl is filled and he eats")
 	if shots != "":
@@ -10954,7 +11013,7 @@ func _scenario_zeynep() -> void:
 	dlg = Game.hud.dialogue_screen
 	await _seconds(1.2)
 	_check(SideStory.met and Relations.level(SideStory.WHO) == level_before and SideStory.errand == errand_before
-			and SideStory.goal() == "food_bring" and SideStory.gift_day == 7 and home != null and home.zeynep != null,
+			and SideStory.goal() == "food_bring" and SideStory.gift_day == gift and home != null and home.zeynep != null,
 			"after the load: met, %d hearts, the errand still up" % Relations.level(SideStory.WHO))
 	SaveGame.delete(slot)
 	z = home.zeynep
@@ -11241,9 +11300,11 @@ func _scenario_zeynep_edges() -> void:
 	var street := Vector3(262.0, TerrainData.height(262.0, 19.0) + 0.1, 19.0)
 	var away := Vector3(c.x, TerrainData.height(c.x, c.z + 9.0) + 0.1, c.z + 9.0)
 
-	# --- Day 6 at 20:30, not met yet (she is in): a knock, and he walks off ---
+	var move := SideStory.MOVE_DAY
+	var gift := SideStory.GIFT_DAY
+	# --- Moving day at 20:30, not met yet (she is in): a knock, and he walks off ---
 	_zy_edges_reset({}, 0)
-	GameClock.day = 6
+	GameClock.day = move
 	GameClock.set_time_of_day(20.5)
 	player.global_position = street
 	await _seconds(1.5)
@@ -11259,18 +11320,18 @@ func _scenario_zeynep_edges() -> void:
 			and home.where == &"inside" and not home.door.is_open(),
 			"knocking and walking off before she opens: not met, no heart, the goal still up (level %d)" % Relations.level(SideStory.WHO))
 
-	# --- Day 7, the gift errand with a bag in the bag: a knock, and he walks off ---
-	_zy_edges_reset({"met": true, "met_day": 6, "next": 7, "announced": true}, 10)
-	GameClock.day = 7
+	# --- The gift's day, its errand with a bag in the bag: a knock, and he walks off ---
+	_zy_edges_reset({"met": true, "met_day": move, "next": gift, "announced": true}, 10)
+	GameClock.day = gift
 	GameClock.set_time_of_day(9.0)
 	player.global_position = street
 	await _seconds(1.5)
 	await _zy_wait(func() -> bool: return home.where == &"inside" and not home.busy(), 30.0)
 	PlayerState.give(SideStory.ITEM, 1, false)
 	await _seconds(0.8)
-	_check(SideStory.goal() == "gift_bring", "day 7 with a bag of dog food: take it to her")
+	_check(SideStory.goal() == "gift_bring", "day %d with a bag of dog food: take it to her" % gift)
 	_check(home.where == &"inside" and SideStory.guide_point() is Vector3 and (SideStory.guide_point() as Vector3).distance_to(c) < 2.0,
-			"day 7 on a garden morning: she is indoors until the gift, the dot on her door")
+			"day %d on a garden morning: she is indoors until the gift, the dot on her door" % gift)
 	await _zy_knock(player, home)
 	await _press_key(KEY_E)
 	await _seconds(0.3)
@@ -11302,7 +11363,7 @@ func _scenario_zeynep_edges() -> void:
 	GameClock.set_time_of_day(20.5)
 	PlayerState.give(SideStory.ITEM, 1, false)
 	await _seconds(0.8)
-	_check(SideStory.goal() == "gift_bring" and home.where == &"inside", "20:30 on day 7 with a bag: she is in, the gift errand up")
+	_check(SideStory.goal() == "gift_bring" and home.where == &"inside", "20:30 on day %d with a bag: she is in, the gift errand up" % gift)
 	await _zy_knock(player, home)
 	await _press_key(KEY_E)
 	said = [0]
@@ -11310,13 +11371,13 @@ func _scenario_zeynep_edges() -> void:
 	var hint_open := SideStory.goal_hint()
 	heard = await _zy_talk_through(dlg, 12)
 	await _zy_wait(func() -> bool: return not home.busy(), 25.0)
-	_check(opened and said[0] == 0 and hint_open == "" and SideStory.deliveries == 1 and SideStory.gift_day == 7,
+	_check(opened and said[0] == 0 and hint_open == "" and SideStory.deliveries == 1 and SideStory.gift_day == gift,
 			"a 20:30 knock with the gift: while she opens the side goal stays on her door, never 'in the garden' (%d frames, hint '%s'); the gift is hers"
 			% [said[0], hint_open])
 
 	# --- Met in the garden; he waits on her door step as she comes to go in ---
 	_zy_edges_reset({}, 0)
-	GameClock.day = 6
+	GameClock.day = move
 	GameClock.set_time_of_day(10.0)
 	player.global_position = street
 	await _seconds(1.5)
@@ -11361,8 +11422,8 @@ func _scenario_zeynep_edges() -> void:
 			"once he steps aside she goes in, out of sight only down the hall behind the shut door (hidden at %.2f m from it), no walk left over" % (hidden_at.z - c.z if hidden_at.is_finite() else 99.0))
 
 	# --- A word at her door; he stands in the doorway as she goes back in ---
-	_zy_edges_reset({"met": true, "met_day": 6, "next": 20, "announced": true, "deliveries": 1}, 20)
-	GameClock.day = 8
+	_zy_edges_reset({"met": true, "met_day": move, "next": 20, "announced": true, "deliveries": 1}, 20)
+	GameClock.day = gift + 1
 	GameClock.set_time_of_day(13.0)
 	await _seconds(1.0)
 	await _zy_wait(func() -> bool: return home.where == &"inside" and not home.busy(), 30.0)
@@ -11400,8 +11461,8 @@ func _scenario_zeynep_edges() -> void:
 
 
 ## Round 13's social systems: Zeynep's errands in turn (milk, then flowers bought at the
-## town market), her call at four hearts for Karamel's pup (Pet.adopt, a test double
-## when the pet system isn't there), the quiet side card (one line, the hint for a while
+## town market), her call at three hearts (after the milk) for Karamel's pup (Pet.adopt, a
+## test double when the pet system isn't there), the quiet side card (one line, the hint for a while
 ## and near the place, a smaller dot), a townsperson's gift on the greeting after a new
 ## heart (the friendship saved), and the mailbox: its side goal, made at the workbench and
 ## put down, a letter waiting for it arriving (the flag, a note), E opening it with its
@@ -11438,18 +11499,21 @@ func _scenario_social13() -> void:
 	var shots := String(DebugTools.args.get("social-shots", ""))
 	if shots != "":
 		DirAccess.make_dir_recursive_absolute(shots)
-	# Met on day 6, the welcome gift given on day 7: two hearts, the next favour on day 9.
-	SideStory.load_data({"met": true, "met_day": 6, "deliveries": 1, "gift_day": 7, "announced": true, "next": 9})
+	# Met on moving day, the welcome gift given the day after: two hearts, the next favour
+	# two days on.
+	var first := SideStory.GIFT_DAY + 2
+	SideStory.load_data({"met": true, "met_day": SideStory.MOVE_DAY, "deliveries": 1, "gift_day": SideStory.GIFT_DAY,
+		"announced": true, "next": first})
 	Relations.load_data({"points": {"zeynep": 20}})
 	Mail.load_data({})
 
 	# --- The next favour is not dog food: a bottle of milk ---
-	GameClock.day = 9
+	GameClock.day = first
 	GameClock.set_time_of_day(12.0)
 	player.global_position = street
 	await _seconds(1.5)
 	_check(SideStory.goal() == "milk_buy" and SideStory.goal_text() == tr("SIDE_GOAL_MILK_BUY") and SideStory.goal_hint() == tr("SIDE_HINT_MILK"),
-			"day 9: Zeynep asks for a bottle of milk ('%s')" % SideStory.goal_text())
+			"day %d: Zeynep asks for a bottle of milk ('%s')" % [first, SideStory.goal_text()])
 	var hud: HUD = Game.hud
 	await _idle_frames(3)
 	_check(hud._side_card.visible and hud._side_text.text == tr("SIDE_GOAL_MILK_BUY") and hud._side_hint.visible
@@ -11474,6 +11538,35 @@ func _scenario_social13() -> void:
 	await _soc_deliver_at_door(player, home, dlg, GameClock.day, 12.5)
 	_check(Relations.level(SideStory.WHO) == 3 and inv.count_item(&"milk") == 0 and SideStory.errand.is_empty()
 			and notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_DONE_MILK")), "the milk handed over at her door: three hearts")
+	_check(SideStory.PUPPY_LEVEL == 3 and SideStory.next_errand_day == first + 1, "at three hearts her call comes the next morning")
+
+	# --- Three hearts: Karamel's pup ---
+	var pet := tree.root.get_node_or_null("Pet")
+	var double: Node = null
+	if pet == null:
+		var gs := GDScript.new()
+		gs.source_code = "extends Node\nvar adopted := 0\nfunc adopt(_n: String = \"\") -> void:\n\tadopted += 1\nfunc has_dog() -> bool:\n\treturn adopted > 0\n"
+		gs.reload()
+		double = Node.new()
+		double.set_script(gs)
+		double.name = "Pet"
+		tree.root.add_child(double)
+		pet = double
+	var pup_day := first + 1
+	GameClock.day = pup_day
+	GameClock.set_time_of_day(12.0)
+	notes.clear()
+	await _seconds(1.2)
+	_check(SideStory.goal() == "puppy" and notes.has(tr("MSG_ZEYNEP_PUPPY_CALL")) and SideStory.guide_label() == tr("PERSON_ZEYNEP"),
+			"Zeynep calls him over: Karamel's pup is weaned and she wants him to have it")
+	var heard := await _soc_deliver_at_door(player, home, dlg, pup_day, 12.5)
+	var pup_line := false
+	for l: Array in heard:
+		pup_line = pup_line or l[1] == tr("ZEYNEP_PUPPY_2")
+	await _close_screens()
+	_check(pup_line and bool(pet.call("has_dog")) and SideStory.puppy_day == pup_day and Relations.level(SideStory.WHO) == 4,
+			"at her door she gives him the pup (Pet.adopt called): four hearts")
+	_check(SideStory.next_errand_day >= pup_day + 2 and SideStory.next_errand_day <= pup_day + 4, "her favours go on a few days later (day %d)" % SideStory.next_errand_day)
 
 	# --- Then flowers, bought at the market ---
 	var day := SideStory.next_errand_day
@@ -11496,39 +11589,12 @@ func _scenario_social13() -> void:
 			"bought a bunch of flowers ($%d)" % Economy.buy_price(&"flower_bouquet"))
 	await _seconds(0.6)
 	_check(SideStory.goal() == "flowers_bring", "flowers in the bag: take them to her")
-	var heard := await _soc_deliver_at_door(player, home, dlg, day, 12.5)
+	heard = await _soc_deliver_at_door(player, home, dlg, day, 12.5)
 	var flower_line := false
 	for l: Array in heard:
 		flower_line = flower_line or l[1] == tr("ZEYNEP_FLOWERS_1")
-	_check(flower_line and Relations.level(SideStory.WHO) == 4 and inv.count_item(&"flower_bouquet") == 0,
-			"she thanks him for the flowers: four hearts")
-	_check(SideStory.next_errand_day == day + 1, "at four hearts her call comes the next morning")
-
-	# --- Four hearts: Karamel's pup ---
-	var pet := tree.root.get_node_or_null("Pet")
-	var double: Node = null
-	if pet == null:
-		var gs := GDScript.new()
-		gs.source_code = "extends Node\nvar adopted := 0\nfunc adopt(_n: String = \"\") -> void:\n\tadopted += 1\nfunc has_dog() -> bool:\n\treturn adopted > 0\n"
-		gs.reload()
-		double = Node.new()
-		double.set_script(gs)
-		double.name = "Pet"
-		tree.root.add_child(double)
-		pet = double
-	GameClock.day = day + 1
-	GameClock.set_time_of_day(12.0)
-	notes.clear()
-	await _seconds(1.2)
-	_check(SideStory.goal() == "puppy" and notes.has(tr("MSG_ZEYNEP_PUPPY_CALL")) and SideStory.guide_label() == tr("PERSON_ZEYNEP"),
-			"Zeynep calls him over: Karamel's pup is weaned and she wants him to have it")
-	heard = await _soc_deliver_at_door(player, home, dlg, day + 1, 12.5)
-	var pup_line := false
-	for l: Array in heard:
-		pup_line = pup_line or l[1] == tr("ZEYNEP_PUPPY_2")
-	await _close_screens()
-	_check(pup_line and bool(pet.call("has_dog")) and SideStory.puppy_day == day + 1 and Relations.level(SideStory.WHO) == 5,
-			"at her door she gives him the pup (Pet.adopt called)")
+	_check(flower_line and Relations.level(SideStory.WHO) == 5 and inv.count_item(&"flower_bouquet") == 0,
+			"she thanks him for the flowers: five hearts")
 	# No more favours for the rest of the test (the visit below needs her free).
 	SideStory.next_errand_day = 999
 
@@ -11635,7 +11701,7 @@ func _scenario_social13() -> void:
 			and box2 != null and box2.flag_up(), "after the load: the letters (one unread), the mailbox with its flag up")
 	_check(Relations.points_of(&"elder") == Relations.GREET_POINTS * 3 + Relations.POINTS_PER_LEVEL and int(Relations.gifted.get(&"elder", 0)) == 1
 			and int(Relations.greeted.get(&"elder", -1)) == day + 4, "after the load: Osman Dede's friendship, its gift and greeting days")
-	_check(SideStory.puppy_day == day + 1 and SideStory.puppy_letter and SideStory.invite_sent and SideStory.visit_day > 0
+	_check(SideStory.puppy_day == pup_day and SideStory.puppy_letter and SideStory.invite_sent and SideStory.visit_day > 0
 			and SideStory.turn == turn_before and turn_before == 2, "after the load: the pup, her letters, the visit ahead, the favours' turn")
 	GameClock.day = SideStory.visit_day
 	GameClock.set_time_of_day(12.0)
@@ -12407,19 +12473,15 @@ func _scenario_noon_start() -> void:
 	var minute := GameClock.minute - float(GameClock.FIRST_DAY_START_MINUTE)
 	_check(GameClock.day == 1 and GameClock.FIRST_DAY_START_MINUTE == 13 * 60 and minute >= 0.0 and minute < 5.0,
 			"a new game starts on day 1 at 13:00 (%s)" % GameClock.time_string())
-	# Real minutes of the first afternoon at the default 15-minute day, with the story's pace.
-	var per_second := (20.0 * 60.0) / (15.0 * 60.0)
-	var to_sundown := 0.0
-	var to_night := 0.0
-	var m := float(GameClock.FIRST_DAY_START_MINUTE)
-	while m < 20.0 * 60.0:
-		var real := 1.0 / (per_second * Quests.pace_for(m / 60.0)) / 60.0
-		to_night += real
-		if m < 19.25 * 60.0:
-			to_sundown += real
-		m += 1.0
+	# Real minutes of the first afternoon at the default 10-minute day, with the story's pace.
+	var length_had := Settings.day_length_minutes
+	Settings.day_length_minutes = Settings.DEFAULT_DAY_LENGTH
+	var real: Dictionary = _story_minutes()
+	Settings.day_length_minutes = length_had
+	var to_sundown := float(real["sundown"])
+	var to_night := float(real["night"])
 	_check(to_sundown > 34.0 and to_sundown < 40.5 and to_night > 39.0 and to_night < 46.0,
-			"from 13:00 the story has %.1f real minutes to sundown and %.1f to nightfall" % [to_sundown, to_night])
+			"from 13:00 the story has %.1f real minutes to sundown and %.1f to nightfall (a 10-minute day)" % [to_sundown, to_night])
 	# A saved game keeps its time; a saved day without one starts at 06:00.
 	var clock := GameClock.save_data()
 	GameClock.load_data({"day": 1, "minute": 7.5 * 60.0, "total_minutes": 90.0})
@@ -17061,8 +17123,11 @@ func _contest() -> void:
 	var off_carnival := true
 	for d: int in days:
 		off_carnival = off_carnival and not Carnival.is_carnival_day(d) and Carnival.is_carnival_day(d - 2)
-	_check(days == [7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47] and off_carnival,
-			"a contest on day 7, then every 4 days, always two days after a carnival (%s)" % str(days))
+	_check(days == [6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46] and off_carnival,
+			"a contest on day 6, then every 4 days, always two days after a carnival (%s)" % str(days))
+	# The first two contest days.
+	var k1 := FishingContest.FIRST_DAY
+	var k2 := k1 + FishingContest.EVERY_DAYS
 	var c := WorldLayout.TOWN_POND_CENTER
 	_check(Pond.is_fishable(Vector3(c.x, 0.0, c.y)) and Pond.is_fishable(Vector3(c.x - 5.0, 0.0, c.y))
 			and not Pond.is_fishable(Vector3(c.x, 0.0, c.y - 12.0)), "the town pond is deep enough to fish in, its bank is dry")
@@ -17073,7 +17138,7 @@ func _contest() -> void:
 	FishingContest.letter_day = 0
 	var letters: Array[int] = []
 	var shown := false
-	for d: int in [5, 6, 7, 9, 10]:
+	for d: int in [k1 - 2, k1 - 1, k1, k2 - 2, k2 - 1]:
 		GameClock.day = d
 		GameClock.minute = float(GameClock.DAY_START_MINUTE)
 		Events.day_started.emit(d)
@@ -17089,10 +17154,10 @@ func _contest() -> void:
 			shown = screen.visible and all.contains("09:00") and all.contains("17:00") and all.contains("$100")
 			screen.hide_screen()
 			await _idle_frames(1)
-	_check(letters == [6, 10], "the letter comes the morning before a contest (%s)" % str(letters))
+	_check(letters == [k1 - 1, k2 - 1], "the letter comes the morning before a contest (%s)" % str(letters))
 	_check(shown, "it tells the hours (09:00 to 17:00) and the $100 prize")
 
-	# --- Day 7: the town goes to the pond ---
+	# --- The first contest: the town goes to the pond ---
 	var ids: Array[StringName] = [&"young", &"farmer", &"villager", &"sweeper", &"elder", &"teacher"]
 	var home := {}
 	var acts := {}
@@ -17101,9 +17166,9 @@ func _contest() -> void:
 		home[id] = p.global_position
 		acts[id] = p.act
 	player.global_position = far
-	GameClock.day = 7
+	GameClock.day = k1
 	GameClock.minute = 8.0 * 60.0 + 50.0
-	Events.day_started.emit(7)
+	Events.day_started.emit(k1)
 	await _seconds(0.8)
 	_check(not FishingContest.is_on() and not crowd.is_gathered(), "before 09:00 nobody is at the pond")
 	GameClock.minute = 9.0 * 60.0 + 1.0
@@ -17189,10 +17254,10 @@ func _contest() -> void:
 	_check(back and not crowd.is_gathered() and town.get_node_or_null("TownPeople/Person_fisher") == null,
 			"then everyone goes back to what they were doing, the visitors leave")
 
-	# --- Day 11: the player wins ---
-	GameClock.day = 11
+	# --- The second contest: the player wins ---
+	GameClock.day = k2
 	GameClock.minute = 8.0 * 60.0 + 59.0
-	Events.day_started.emit(11)
+	Events.day_started.emit(k2)
 	await _seconds(0.6)
 	GameClock.minute = 9.0 * 60.0 + 1.0
 	await _seconds(1.2)
@@ -17419,9 +17484,9 @@ func _contest17() -> void:
 	FishingContest.goal_day = 0
 	FishingContest.result_day = 0
 	player.global_position = far
-	GameClock.day = 7
+	GameClock.day = FishingContest.FIRST_DAY
 	GameClock.minute = 8.0 * 60.0
-	Events.day_started.emit(7)
+	Events.day_started.emit(FishingContest.FIRST_DAY)
 	await _seconds(1.2)
 	var g := FishingContest.goal()
 	var dot: Variant = g.guide_point()
@@ -17492,7 +17557,7 @@ func _contest17() -> void:
 	var bank: Vector3 = venue.crowd_spots[0]["pos"]
 	player.global_position = bank + Vector3(0.0, 0.4, 0.0)
 	await _seconds(1.2)
-	_check(not FishingContest.goal_up() and FishingContest.goal_day == 7 and not SideStory.goals.has(g),
+	_check(not FishingContest.goal_up() and FishingContest.goal_day == FishingContest.FIRST_DAY and not SideStory.goals.has(g),
 			"contest17: at the pond the side goal is done")
 	# (close enough to the boy for him to be drawn)
 	var bp := boy.global_position
@@ -17585,9 +17650,9 @@ func _contest17() -> void:
 	# --- A later contest's goal is quiet ---
 	await _seconds(4.0)
 	player.global_position = far
-	GameClock.day = 11
+	GameClock.day = FishingContest.FIRST_DAY + FishingContest.EVERY_DAYS
 	GameClock.minute = 8.0 * 60.0
-	Events.day_started.emit(11)
+	Events.day_started.emit(GameClock.day)
 	await _seconds(1.0)
 	_check(FishingContest.goal_up() and g.quiet, "contest17: a later contest's goal comes up again, quieter")
 	FishingContest.testing = false
@@ -18962,7 +19027,7 @@ func _scenario_town16() -> void:
 		&"teacher", &"villager", &"young", &"farmer"]
 	# Zeynep lives here and they have met (no errand up).
 	SideStory.testing = true
-	SideStory.load_data({"met": true, "met_day": 6, "deliveries": 1, "gift_day": 7, "next": 999, "announced": true})
+	SideStory.load_data({"met": true, "met_day": SideStory.MOVE_DAY, "deliveries": 1, "gift_day": SideStory.GIFT_DAY, "next": 999, "announced": true})
 	Relations.load_data({})
 	var notes: Array[String] = []
 	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
@@ -18971,7 +19036,10 @@ func _scenario_town16() -> void:
 	# --- A carnival night: everyone at the fair ---
 	Carnival.testing = true
 	player.global_position = far
-	GameClock.day = 13
+	# A carnival day (the third), the one after it, and the contest between them.
+	var fair_day := Carnival.FIRST_DAY + Carnival.EVERY_DAYS * 2
+	var pond_day := FishingContest.next_contest_day(fair_day - Carnival.EVERY_DAYS)
+	GameClock.day = fair_day
 	GameClock.set_time_of_day(19.0)
 	await _seconds(1.2)
 	var homes := {}
@@ -19066,7 +19134,7 @@ func _scenario_town16() -> void:
 	_check(not home.at_event() and home.where in [&"garden", &"inside"], "Zeynep is home again (%s)" % home.where)
 
 	# --- With the player in town they walk over; a worker serving him stays till he goes ---
-	GameClock.day = 17
+	GameClock.day = fair_day + Carnival.EVERY_DAYS
 	GameClock.set_time_of_day(19.2)
 	await _seconds(0.8)
 	var grocer := fair.person(&"shopkeeper")
@@ -19085,7 +19153,7 @@ func _scenario_town16() -> void:
 	await _seconds(1.5)
 	_check(grocer.away and not fair.waiting().has(&"shopkeeper") and Vector2(grocer.global_position.x, grocer.global_position.z).distance_to(plaza) < 22.0,
 			"once the player has gone, Hasan goes too")
-	GameClock.day = 18
+	GameClock.day = fair_day + Carnival.EVERY_DAYS + 1
 	GameClock.set_time_of_day(9.0)
 	await _seconds(1.5)
 	_check(not fair.is_gathered() and not grocer.away and grocer.global_position.distance_to(post) < 0.6, "the next day all is as before")
@@ -19095,9 +19163,9 @@ func _scenario_town16() -> void:
 	FishingContest.testing = true
 	FishingContest.ceremony_speed = 4.0
 	player.global_position = far
-	GameClock.day = 11
+	GameClock.day = pond_day
 	GameClock.minute = 8.0 * 60.0 + 50.0
-	Events.day_started.emit(11)
+	Events.day_started.emit(pond_day)
 	await _seconds(1.0)
 	var vet := contest.person(&"vet")
 	var vet_post := vet.global_position
@@ -19203,7 +19271,7 @@ func _scenario_town16() -> void:
 		pump.interact(player)
 		await _seconds(0.8)
 	_check(truck != null and not goals.is_up(&"fuel") and goals.done.has(&"fuel"), "the pickup filled up at the pump: done")
-	# Saved and loaded; past day four they are gone.
+	# Saved and loaded; past their last day (TownGoals.LAST_DAY, day three) they are gone.
 	var saved := goals.save_data()
 	goals.load_data({"up": true, "done": []})
 	await _seconds(0.8)
@@ -19212,9 +19280,13 @@ func _scenario_town16() -> void:
 	await _seconds(0.8)
 	_check(reup and goals.done.size() == 3 and not goals.is_up(&"vet"), "a save keeps which are done")
 	goals.load_data({"up": true, "done": []})
-	GameClock.day = 5
+	GameClock.day = TownGoals.LAST_DAY
 	await _seconds(0.8)
-	_check(not goals.is_up(&"vet") and not goals.is_up(&"fuel"), "after day four the goals left undone quietly go")
+	var last_day_up := goals.is_up(&"vet") and goals.is_up(&"fuel")
+	GameClock.day = TownGoals.LAST_DAY + 1
+	await _seconds(0.8)
+	_check(TownGoals.LAST_DAY == 3 and last_day_up and not goals.is_up(&"vet") and not goals.is_up(&"fuel"),
+			"still up on day three, after it the goals left undone quietly go")
 
 	# Put everything back.
 	Events.notification_requested.disconnect(on_note)
@@ -20263,6 +20335,110 @@ func _scenario_vehicle19() -> void:
 	await _park(town.farm_truck, Town.farm_truck_home())
 
 
+## Rain on the vehicles' glass and the wipers (VehicleWipers), and wet grass that stays
+## grass: dry weather leaves the panes alone (the dry shader, no sweep even with a driver);
+## in the rain water builds up on the panes of a vehicle in the open (the wet shader, told
+## how wet and how hard it rains) but the blades only sweep with somebody at the wheel, now
+## and then in rain and without a pause in a storm, finishing their sweep when he gets out;
+## their arcs clear the glass where the driver looks at the road in every vehicle that has a windscreen
+## (the tractor has none); the panes dry off again; the grass shaders are never metallic
+## and only softly glossy when soaked.
+func _scenario_rain20() -> void:
+	var player: Player = Game.player
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck
+	GameClock.set_time_of_day(13.0)
+	for path: String in ["res://shaders/grass_card.gdshader", "res://shaders/grass.gdshader"]:
+		var sh := load(path) as Shader
+		var wet_rough := float(RenderingServer.shader_get_parameter_default(sh.get_rid(), &"wet_roughness"))
+		_check("METALLIC = 0.0;" in sh.code and wet_rough >= 0.5 and wet_rough <= 0.9,
+				"%s: soaked grass is no metal (metallic 0, roughness %.2f when wet)" % [path.get_file(), wet_rough])
+	# Out in the open on the road, in dry weather.
+	var at := Vector3(120, 0, 30.9)
+	at.y = _v19_drawn_y(at + Vector3(0, 5, 0)) + 0.3
+	Weather.force(Weather.Kind.SUNNY)
+	Weather.wetness = 0.0
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), at))
+	var w := VehicleWipers.of(truck)
+	_check(w != null and w.has_blades() and w._blades.size() == 2, "Grandpa's pickup has two wiper blades on its windscreen")
+	if w == null:
+		return
+	var glass: ShaderMaterial = w._mats[0]
+	var blade := w._blades[0]["blade"] as Node3D
+	var parked := blade.transform
+	player.enter_vehicle(truck)
+	await _seconds(1.5)
+	_check(w.wet == 0.0 and glass.shader == VehicleWipers.DRY and w.count == 0 and not w.sweeping() and blade.transform.is_equal_approx(parked),
+			"dry weather: no water on the panes (%.2f), the dry glass shader, the wipers parked with a driver at the wheel" % w.wet)
+	player.exit_vehicle()
+	await _frames(5)
+	# Rain, nobody in the cab: the panes get wet, the blades stay where they are.
+	Weather.force(Weather.Kind.RAIN)
+	Weather.wetness = 1.0
+	await _seconds(3.0)
+	_check(w.wet > 0.3 and not w.sheltered and glass.shader == VehicleWipers.WET
+			and float(glass.get_shader_parameter("rain_wet")) > 0.3 and absf(float(glass.get_shader_parameter("rain_rate")) - Weather.rain_fall) < 0.05,
+			"in the rain the panes bead up (water %.2f, rain %.2f told to the wet glass shader)" % [w.wet, Weather.rain_fall])
+	_check(w.count == 0 and not w.sweeping() and float(glass.get_shader_parameter("wiper_t")) >= VehicleWipers.NEVER * 0.5
+			and blade.transform.is_equal_approx(parked), "nobody at the wheel: the wipers stay parked in the rain")
+	# A driver: they sweep, with a pause in between.
+	player.enter_vehicle(truck)
+	var far := 0.0
+	var phases := {}
+	var t := 0.0
+	while t < 6.5:
+		await _seconds(0.1)
+		t += 0.1
+		far = maxf(far, blade.transform.origin.distance_to(parked.origin))
+		phases[snappedf(float(glass.get_shader_parameter("wiper_t")), 0.2)] = true
+	_check(w.count >= 2 and w.count <= 3 and far > 0.15 and phases.size() >= 6,
+			"with a driver the wipers sweep the rain off now and then (%d sweeps in 6.5 s, the blade %.2f m from its rest, the glass told %d phases)" % [w.count, far, phases.size()])
+	_check(w.clears_view() and w.clears_view(40.0), "their arcs clear the glass where the driver looks at the road ahead")
+	# A storm: without a pause.
+	Weather.force(Weather.Kind.STORM)
+	var before := w.count
+	await _seconds(4.0)
+	_check(w.count - before >= 3 and is_zero_approx(w._pause()), "in a storm they sweep without a pause (%d sweeps in 4 s)" % (w.count - before))
+	# Getting out: the sweep is finished and they park.
+	player.exit_vehicle()
+	await _seconds(1.6)
+	before = w.count
+	await _seconds(2.0)
+	_check(not w.sweeping() and w.count == before and blade.transform.origin.distance_to(parked.origin) < 0.005,
+			"out of the cab the wipers finish their sweep and park")
+	# Every vehicle with a windscreen has wipers that clear the driver's view; the tractor none.
+	var cars: Array[Vehicle] = [truck]
+	cars.append_array(town.dealer_stock)
+	var bad := ""
+	var with_blades := 0
+	for v in cars:
+		var vw := VehicleWipers.of(v)
+		if v.kind == &"tractor":
+			if vw != null and vw.has_blades():
+				bad += " tractor has wipers"
+			continue
+		if vw == null or not vw.has_blades() or not vw.clears_view():
+			bad += " %s" % v.kind
+		else:
+			with_blades += 1
+	_check(bad == "" and with_blades >= 6, "every cab's wipers clear the glass where its driver looks at the road, the open tractor has none (%d vehicles;%s)" % [with_blades, bad])
+	# The rain over: the panes dry off, back to the dry glass.
+	Weather.force(Weather.Kind.SUNNY)
+	var was_wet := w.wet
+	await _seconds(2.0)
+	var drying := w.wet < was_wet and glass.shader == VehicleWipers.WET
+	w.wet = 0.01
+	await _seconds(1.5)
+	_check(drying and w.wet == 0.0 and glass.shader == VehicleWipers.DRY, "after the rain the drops dry off the panes (%.2f -> %.2f in 2 s, then gone: the dry shader again)" % [was_wet, w.wet])
+	Weather.forced = -1
+	Weather.wetness = 0.0
+	await _park(truck, Town.farm_truck_home())
+
+
 ## Tyres on the ground: every vehicle as it stands on a new farm and at the dealer's, then
 ## five of them (every chassis there is) on the asphalt, the gravel and the town street.
 func _v19_wheels(town: Town, dir: String) -> void:
@@ -21159,3 +21335,3588 @@ func _scenario_trees19_shots() -> void:
 	else:
 		_check(false, "the locust in front of the warehouse")
 	Weather.forced = -1
+
+
+# --- Wolves, the coop and a farmer away (round 20) ---------------------------------------------
+
+## A wolf that went into the coop after a hen comes out again by its door when the raid
+## ends, and is gone; hens bolting from wolves in their coop keep to its open floor (never
+## out of sight in among the nest boxes); a wolf that can't get away (the door shut on it) is taken away once
+## nobody looks at it, one held up anywhere a while after the raid by the director; a raid
+## with the farmer in town brings no wolves nobody sees: a note as they come, the outcome
+## worked out once within the night's caps (the dead hen's remains in the coop and her line
+## in the morning report; the other alive, in sight, at her coop then and after a night's
+## sleep; both safe behind a shut door) and a note about it as he comes back; back at the
+## farm in the middle of it he finds the pack there with nothing taken yet, and what is
+## lost is never taken twice.
+func _scenario_wolfcoop() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var kept_raids := Settings.wolf_raids
+	var kept_money := Economy.money
+	var kept_side := SideStory.save_data()
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests.tutorial_changed.emit()
+	Weather.force(Weather.Kind.SUNNY)
+	Settings.wolf_raids = Settings.Raids.NORMAL
+	WolfRaids.testing = true
+	WolfRaids.load_data({"seed": 21})
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built(), "a coop on the farm")
+	if coop == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+
+	await _wc_leaves_by_door(player, coop)
+	await _wc_bolting(player, coop)
+	await _wc_safety_net(player, coop)
+	await _wc_away(player, coop, notes, true)
+	await _wc_away(player, coop, notes, false)
+	await _wc_back_mid_raid(player, coop, notes)
+
+	# --- Tidy up ---
+	Engine.time_scale = 1.0
+	Events.notification_requested.disconnect(on_note)
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	for c in (Game.world.farm as Farm).kit_coops():
+		FarmState.remove_placed(c.entry)
+		c.queue_free()
+	PlayerState.injury = 0.0
+	WolfRaids.testing = false
+	WolfRaids.load_data({})
+	SideStory.load_data(kept_side)
+	Settings.wolf_raids = kept_raids
+	Economy.money = kept_money
+	Events.money_changed.emit(Economy.money, 0)
+	Weather.forced = -1
+	await _frames(3)
+
+
+## Two healthy hens living in `h`, in for the night, its door open or shut; nothing left
+## of an earlier night (remains, wounds, wolves).
+func _wc_reset(h: AnimalHousing, open: bool) -> void:
+	for w in tree.get_nodes_in_group(Wolf.GROUP):
+		w.queue_free()
+	for r in tree.get_nodes_in_group(Remains.GROUP):
+		Animals.clear_remains(r as Remains, false)
+	for a in Animals.animals:
+		a.injured_at = -1.0
+		a.health = 100.0
+	while Animals.count_at(h) < 2:
+		Animals.release(&"chicken", h)
+	h.door.set_open(open, false)
+	# (Mid-morning: no evening's raid is rolled while this is set up.)
+	GameClock.set_time_of_day(10.0)
+	await _frames(3)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	await _frames(3)
+
+
+## The farmer in the middle of town (far from the farm).
+func _wc_to_town(player: Player) -> void:
+	var tc := WorldLayout.TOWN_CENTER
+	player.global_position = Vector3(tc.x, TerrainData.height(tc.x, tc.y) + 0.3, tc.y)
+	player.velocity = Vector3.ZERO
+	await _frames(3)
+	await _idle_frames(2)
+
+
+## The live wolves about (not carcasses, not ones on their way out of the tree).
+func _wc_wolves() -> Array[Wolf]:
+	var out: Array[Wolf] = []
+	for w: Wolf in tree.get_nodes_in_group(Wolf.GROUP):
+		if not w.is_queued_for_deletion() and not w.dead:
+			out.append(w)
+	return out
+
+
+## Whether the hens of `h` are all as they should be after a raid: alive ones in sight, on
+## the ground (or the floor) at their coop: in its yard, or in its house on the open floor
+## (not in among the nest boxes or behind the troughs, where nobody sees them). "" when
+## so, else what is wrong with whom.
+func _wc_hens_wrong(h: AnimalHousing) -> String:
+	for a in Animals.animals:
+		if Animals.housing_of(a) != h or a.at_vet():
+			continue
+		var n := Animals.node_of(a)
+		if n == null or not n.is_inside_tree():
+			return "%s has no body" % a.name
+		if not n.visible or a.away:
+			return "%s is hidden or away" % a.name
+		var p := n.global_position
+		if not (h.is_in_building(p) or h.in_pen(p, 0.5)):
+			return "%s is off at %s" % [a.name, p]
+		if h.is_in_building(p) and not h.open_floor().grow(0.5).has_point(h.flat(p)):
+			return "%s is out of sight in among the nest boxes or the troughs at %s" % [a.name, h.flat(p)]
+		if absf(p.y - h.ground_height(p)) > 0.08:
+			return "%s is %.2f m off the ground" % [a.name, p.y - h.ground_height(p)]
+	return ""
+
+
+## The lesson's raid played out with the farmer safe in the farmhouse and the coop door
+## open: wolves go in after a hen; the raid ended with one of them in there, it comes out
+## by the doorway (never through a wall) and runs off; soon no wolf is left on the farm.
+func _wc_leaves_by_door(player: Player, coop: ChickenCoop) -> void:
+	var h := coop.housing
+	await _raid_indoors(player)
+	WolfRaids.load_data({"seed": 21})
+	await _wc_reset(h, true)
+	await _raid_evening(WolfRaids.LESSON_NIGHT, 17.5)
+	_check(WolfRaids.raid_pending() and bool(WolfRaids.tonight.get("lesson", false)), "the lesson's night: a raid is set")
+	GameClock.advance(155.0)
+	await _seconds(0.6)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	GameClock.advance(120.0)
+	await _seconds(0.6)
+	_check(String(WolfRaids.tonight.get("phase", "")) == "active" and _wc_wolves().size() == int(WolfRaids.tonight.get("pack", 0)),
+			"22:05, the farmer at home: the pack is out (%d wolves)" % _wc_wolves().size())
+	Engine.time_scale = 3.0
+	var inside: Array[Wolf] = []
+	var t := 0.0
+	while t < 90.0:
+		await _frames(2)
+		t += 2.0 / 60.0
+		inside.clear()
+		for w in _wc_wolves():
+			if h.is_in_building(w.global_position):
+				inside.append(w)
+		if not inside.is_empty() and int(WolfRaids.tonight.get("killed", 0)) + int(WolfRaids.tonight.get("hurt", 0)) > 0:
+			break
+	Engine.time_scale = 1.0
+	var lost := int(WolfRaids.tonight.get("killed", 0)) + int(WolfRaids.tonight.get("hurt", 0))
+	_check(lost == WolfRaids.LESSON_LOSSES and not inside.is_empty(),
+			"the coop door open: a wolf goes in and takes a hen (%d lost, %d wolves in the coop, %.0f s)" % [lost, inside.size(), t])
+	# He watches from the yard as the raid ends with a wolf in the coop.
+	var stand := h.door_outside() + h.front() * 12.0
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+	player.velocity = Vector3.ZERO
+	_look_at(player, h.door_inside() + Vector3(0, 0.5, 0))
+	WolfRaids._end_raid()
+	var all := _wc_wolves()
+	var was_in := {}
+	var by_door := 0
+	var by_wall := 0
+	var vanished_in := 0
+	for w in inside:
+		was_in[w] = true
+	t = 0.0
+	Engine.time_scale = 2.0
+	while t < 40.0 and not _wc_wolves().is_empty():
+		await _frames(1)
+		t += 1.0 / 60.0
+		PlayerState._heal_all()
+		for w: Variant in was_in.keys():
+			if not is_instance_valid(w) or (w as Node).is_queued_for_deletion():
+				# Gone while still in the house: it never came out.
+				vanished_in += 1
+				was_in.erase(w)
+				continue
+			var wolf := w as Wolf
+			if h.building.grow(0.25).has_point(h.flat(wolf.global_position)):
+				continue
+			var l := h.flat(wolf.global_position)
+			if absf(l.x - h.door_x()) < h.door.width * 0.5 + 0.35 and l.y > h.building.end.y:
+				by_door += 1
+			else:
+				by_wall += 1
+			was_in.erase(w)
+	Engine.time_scale = 1.0
+	_check(by_door == inside.size() and by_wall == 0 and vanished_in == 0,
+			"the raid over, the wolves in the coop come out by its door (%d of %d; %d through a wall, %d gone inside)"
+			% [by_door, inside.size(), by_wall, vanished_in])
+	_check(_wc_wolves().is_empty() and all.size() > 0, "and the pack is gone: no wolf left on the farm (%d left after %.0f s)" % [_wc_wolves().size(), t])
+	var wrong := _wc_hens_wrong(h)
+	_check(wrong == "", "the hens left are in sight at their coop (%s)" % wrong)
+	WolfRaids.load_data({"lesson": true})
+	await _raid_indoors(player)
+
+
+## Hens in their coop with wolves in it (the pack's own scare, Animals.spook, from the
+## door and then from the east end of the floor) bolt this way and that on its open floor:
+## never in among the nest boxes or behind the troughs; the wolves gone, they settle down
+## to sleep there, in sight.
+func _wc_bolting(player: Player, coop: ChickenCoop) -> void:
+	var h := coop.housing
+	await _raid_indoors(player)
+	await _wc_reset(h, true)
+	GameClock.set_time_of_day(22.5)
+	await _frames(3)
+	var from := {}
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+		from[n] = n.global_position
+	var f := h.open_floor()
+	var east := h.world_at(f.end.x, f.get_center().y)
+	var wrong := ""
+	var ran := 0.0
+	var t := 0.0
+	while t < 12.0:
+		Animals.spook(h.door_inside() if t < 6.0 else east, WolfRaids.SPOOK_RADIUS)
+		await _seconds(0.5)
+		t += 0.5
+		var w := _wc_hens_wrong(h)
+		if w != "":
+			wrong = w
+		for n: Animal in h.animals:
+			ran = maxf(ran, n.global_position.distance_to(from[n]))
+	_check(wrong == "" and ran > 0.5 and h.animals.size() == 2,
+			"wolves in the coop: the hens bolt about its open floor, never in among the nest boxes (%s; ran %.1f m)" % [wrong, ran])
+	await _seconds(Animal.SCARE_TIME + 4.0)
+	var asleep := 0
+	for n: Animal in h.animals:
+		if n.state == Animal.State.SLEEP:
+			asleep += 1
+	wrong = _wc_hens_wrong(h)
+	_check(wrong == "" and asleep == 2, "the wolves gone, they settle down to sleep in sight on the coop floor (%d asleep; %s)" % [asleep, wrong])
+
+
+## A wolf that can't get away: the coop door shut on it as the pack is sent off. It waits
+## at the door (never through the wall); the farmer watching, it stays; he looks away and
+## it is gone. One held up out in the yard is taken away by the director GONE_AFTER game
+## minutes after the raid, once he is far off.
+func _wc_safety_net(player: Player, coop: ChickenCoop) -> void:
+	var h := coop.housing
+	await _raid_indoors(player)
+	WolfRaids.load_data({"lesson": true, "seed": 5})
+	await _wc_reset(h, false)
+	GameClock.set_time_of_day(22.5)
+	var c := h.building.get_center()
+	var inside := h.world_at(c.x, c.y)
+	inside.y = h.floor_height()
+	var stand := h.door_outside() + h.front() * 10.0
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.1, stand.z)
+	player.velocity = Vector3.ZERO
+	_look_at(player, inside + Vector3(0, 0.4, 0))
+	await _frames(4)
+	WolfRaids._set_tonight(false)
+	WolfRaids.tonight["phase"] = "active"
+	var wolf := WolfRaids._spawn_wolf(inside)
+	wolf.global_position = inside
+	wolf.reset_physics_interpolation()
+	WolfRaids._end_raid()
+	var out := 0.0
+	var t := 0.0
+	while t < Wolf.STUCK_TIME + 3.0 and is_instance_valid(wolf):
+		await _frames(6)
+		t += 0.1
+		PlayerState._heal_all()
+		_look_at(player, inside + Vector3(0, 0.4, 0))
+		if is_instance_valid(wolf) and not h.building.grow(0.2).has_point(h.flat(wolf.global_position)):
+			out += 0.1
+	_check(is_instance_valid(wolf) and not wolf.is_queued_for_deletion() and wolf.goal == &"flee" and wolf.stuck and out < 0.05,
+			"shut in the coop as the pack flees: it can't get away, stays inside the walls and, watched, stays (stuck %s, %.1f s outside)"
+			% [is_instance_valid(wolf) and wolf.stuck, out])
+	_look_at(player, player.global_position + h.front() * 20.0 + Vector3(0, 1.5, 0))
+	await _seconds(1.5)
+	_check(not is_instance_valid(wolf) or wolf.is_queued_for_deletion(), "he looks away: it is gone")
+	# Held up out in the yard (it gets nowhere): the director's own net.
+	WolfRaids.load_data({"lesson": true, "seed": 6})
+	GameClock.set_time_of_day(22.5)
+	WolfRaids._set_tonight(false)
+	WolfRaids.tonight["phase"] = "active"
+	var yard := h.door_outside() + h.front() * 4.0
+	var held := WolfRaids._spawn_wolf(yard)
+	held.set_physics_process(false)
+	_look_at(player, yard + Vector3(0, 0.4, 0))
+	WolfRaids._end_raid()
+	await _seconds(1.0)
+	GameClock.advance(WolfRaids.GONE_AFTER + 1.0)
+	_look_at(player, yard + Vector3(0, 0.4, 0))
+	await _seconds(1.0)
+	_check(is_instance_valid(held) and not held.is_queued_for_deletion(),
+			"a wolf held up in the yard %d game minutes after the raid: in his sight it stays" % int(WolfRaids.GONE_AFTER))
+	await _wc_to_town(player)
+	await _seconds(1.0)
+	_check(not is_instance_valid(held) or held.is_queued_for_deletion(), "he is far off: it is taken away at once")
+	_check(_wc_wolves().is_empty(), "no wolf left on the farm (%d)" % _wc_wolves().size())
+	h.door.set_open(true, false)
+	WolfRaids.load_data({"lesson": true})
+	await _raid_indoors(player)
+
+
+## The lesson's raid with the farmer in town. The door open: a note as they come (no wolves
+## out), the outcome worked out once within the lesson's cap, the dead hen's remains on the
+## coop floor and her line in the morning report, the other alive in sight at the coop; a
+## note on his return, once; a night's sleep changes nothing (no more losses, the hen still
+## there). The door shut: both hens safe, and he is told so.
+func _wc_away(player: Player, coop: ChickenCoop, notes: Array[String], open: bool) -> void:
+	var h := coop.housing
+	var what := "door open" if open else "door shut"
+	await _raid_indoors(player)
+	WolfRaids.load_data({"seed": 21 if open else 22})
+	await _wc_reset(h, open)
+	var names := {}
+	for a in Animals.animals:
+		names[a.id] = a.name
+	await _raid_evening(WolfRaids.LESSON_NIGHT, 17.5)
+	await _wc_to_town(player)
+	GameClock.advance(155.0)
+	await _seconds(0.6)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	_check(WolfRaids.farmer_away() and bool(WolfRaids.tonight.get("noted", false)), "%s: in town on the lesson's evening, the note about the wolves" % what)
+	notes.clear()
+	GameClock.advance(120.0)
+	await _seconds(0.8)
+	_check(String(WolfRaids.tonight.get("phase", "")) == "away" and _wc_wolves().is_empty() and notes.count(tr("MSG_WOLVES_AWAY")) == 1,
+			"22:05 in town: a note that the wolves are down at the farm, no wolves put out (phase %s, %d wolves)"
+			% [WolfRaids.tonight.get("phase", ""), _wc_wolves().size()])
+	_check(Animals.count_at(h) == 2 and Animals.injured_ids().is_empty(), "nothing is lost yet")
+	GameClock.advance(WolfRaids.AWAY_RAID + 1.0)
+	await _seconds(0.8)
+	var killed := int(WolfRaids.tonight.get("killed", 0))
+	var hurt := int(WolfRaids.tonight.get("hurt", 0))
+	_check(String(WolfRaids.tonight.get("phase", "")) == "done" and notes.count(tr("MSG_WOLVES_LEFT")) == 1 and _wc_wolves().is_empty(),
+			"an hour on the raid is over: the wolves have gone (a note), none on the farm")
+	_check(killed + hurt == (WolfRaids.LESSON_LOSSES if open else 0) and Animals.count_at(h) == 2 - killed and Animals.injured_ids().size() == hurt,
+			"%s: %d killed, %d hurt (the lesson's cap: %d in all)" % [what, killed, hurt, WolfRaids.LESSON_LOSSES])
+	var loss := ""
+	for id: int in WolfRaids.tonight.get("victims", []):
+		var who := [names.get(id, "?"), Animals.species_name(&"chicken", true)]
+		if Animals.by_id(id) == null:
+			loss = tr("REPORT_WOLF_KILLED") % who
+			var rem := _raid_remains_of(String(names.get(id, "?")))
+			_check(rem != null and h.is_in_building(rem.global_position) and absf(rem.global_position.y - h.floor_height()) < 0.05,
+					"the hen the wolves took left her remains on the coop floor")
+		else:
+			loss = tr("REPORT_WOLF_HURT") % who
+			var hn := Animals.node_of(Animals.by_id(id))
+			_check(hn != null and hn.visible and Animals.is_injured(id), "the hen the wolves hurt is there, limping")
+	var wrong := _wc_hens_wrong(h)
+	_check(wrong == "", "every hen left is alive, in sight, at the coop (%s)" % wrong)
+	_check(not notes.has(tr("MSG_WOLVES_AWAY_CAME")) and not notes.has(tr("MSG_WOLVES_AWAY_SAFE")), "still in town: no word of the outcome yet")
+	# Back at the farm: told what happened, once; no pack comes.
+	notes.clear()
+	var yard := h.door_outside() + h.front() * 5.0
+	player.global_position = Vector3(yard.x, TerrainData.height(yard.x, yard.z) + 0.1, yard.z)
+	player.velocity = Vector3.ZERO
+	await _seconds(1.5)
+	if open:
+		_check(notes.count(tr("MSG_WOLVES_AWAY_CAME")) == 1 and notes.count(loss) == 1 and loss != "",
+				"back at the farm: a note that they came while he was away, and what they did ('%s')" % loss)
+	else:
+		_check(notes.count(tr("MSG_WOLVES_AWAY_SAFE")) == 1, "back at the farm: a note that they came but the animals were safe")
+	_check(_wc_wolves().is_empty() and String(WolfRaids.tonight.get("phase", "")) == "done" and Animals.count_at(h) == 2 - killed,
+			"no wolves there, nothing more lost")
+	await _wc_to_town(player)
+	player.global_position = Vector3(yard.x, TerrainData.height(yard.x, yard.z) + 0.1, yard.z)
+	await _seconds(1.0)
+	_check(notes.count(tr("MSG_WOLVES_AWAY_CAME")) + notes.count(tr("MSG_WOLVES_AWAY_SAFE")) == 1, "to town and back again: not told twice")
+	# To bed: the morning report tells it once more, and nothing changes overnight.
+	await _raid_indoors(player)
+	var lines := await _raid_sleep()
+	if open:
+		_check(lines.count(loss) == 1 and lines.has(tr("REPORT_WOLVES_LATER")), "the morning report tells of the loss, once")
+	else:
+		_check(lines.has(tr("REPORT_WOLVES_SAFE")) and lines.has(tr("REPORT_WOLVES_LATER")), "the morning report: they came, the animals were safe")
+	_check(Animals.count_at(h) == 2 - killed and Animals.injured_ids().size() == hurt and WolfRaids.lesson_done,
+			"after the night's sleep nothing more is lost (%d hens, %d hurt)" % [Animals.count_at(h), Animals.injured_ids().size()])
+	wrong = _wc_hens_wrong(h)
+	_check(wrong == "" and _wc_wolves().is_empty(), "in the morning every hen left is still at her coop, no wolf about (%s)" % wrong)
+	WolfRaids.load_data({"lesson": true})
+
+
+## A later raid, the farmer in town as it comes: back at the farm before it is over he
+## finds the pack there and nothing taken yet; it takes a hen as he watches from the
+## farmhouse; he leaves again and it goes on unseen, the pack gone; worked out, the night's
+## caps hold over both parts and no animal is taken twice; a sleep adds nothing.
+func _wc_back_mid_raid(player: Player, coop: ChickenCoop, notes: Array[String]) -> void:
+	var h := coop.housing
+	await _raid_indoors(player)
+	var day := GameClock.day + 1
+	WolfRaids.load_data({"lesson": true, "last": day - 6, "seed": day})
+	await _wc_reset(h, true)
+	await _raid_evening(day, 18.0)
+	WolfRaids.tonight = {}
+	WolfRaids._set_tonight(false)
+	WolfRaids.rolled_day = day
+	await _wc_to_town(player)
+	notes.clear()
+	GameClock.advance(4.0 * 60.0 + 1.0)
+	await _seconds(0.8)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	_check(String(WolfRaids.tonight.get("phase", "")) == "away" and _wc_wolves().is_empty() and notes.has(tr("MSG_WOLVES_AWAY")),
+			"a later raid, the farmer in town: it goes on unseen, a note says they are at the farm")
+	GameClock.advance(10.0)
+	await _raid_indoors(player)
+	await _seconds(0.8)
+	_check(String(WolfRaids.tonight.get("phase", "")) == "active" and _wc_wolves().size() == int(WolfRaids.tonight.get("pack", 0))
+			and int(WolfRaids.tonight.get("killed", 0)) + int(WolfRaids.tonight.get("hurt", 0)) == 0 and Animals.count_at(h) == 2
+			and not WolfRaids.tonight.has("away_lines"),
+			"back at the farm in the middle of it: the pack is there (%d wolves), nothing taken yet" % _wc_wolves().size())
+	Engine.time_scale = 3.0
+	var t := 0.0
+	while t < 90.0 and int(WolfRaids.tonight.get("killed", 0)) + int(WolfRaids.tonight.get("hurt", 0)) == 0:
+		await _seconds(0.3)
+		t += 0.3
+	Engine.time_scale = 1.0
+	var first := int(WolfRaids.tonight.get("killed", 0)) + int(WolfRaids.tonight.get("hurt", 0))
+	_check(first >= 1, "the pack takes or hurts a hen as he watches from the farmhouse (%d after %.0f s)" % [first, t])
+	# Off to town again: after a while the raid goes on unseen, the pack gone.
+	await _wc_to_town(player)
+	Engine.time_scale = 3.0
+	t = 0.0
+	while t < WolfRaids.AWAY_GRACE + 12.0 and (String(WolfRaids.tonight.get("phase", "")) != "away" or not _wc_wolves().is_empty()):
+		await _seconds(0.3)
+		t += 0.3
+	Engine.time_scale = 1.0
+	_check(String(WolfRaids.tonight.get("phase", "")) == "away" and _wc_wolves().is_empty(),
+			"gone to town in the middle of it: it goes on unseen, no wolf left out (phase %s, %d wolves, %.0f s)"
+			% [WolfRaids.tonight.get("phase", ""), _wc_wolves().size(), t])
+	notes.clear()
+	GameClock.advance(WolfRaids.AWAY_RAID + 1.0)
+	await _seconds(0.8)
+	var killed := int(WolfRaids.tonight.get("killed", 0))
+	var hurt := int(WolfRaids.tonight.get("hurt", 0))
+	var victims: Array = WolfRaids.tonight.get("victims", [])
+	var twice := false
+	for id: int in victims:
+		twice = twice or victims.count(id) > 1
+	_check(String(WolfRaids.tonight.get("phase", "")) == "done" and killed <= WolfRaids.MAX_KILLED and hurt <= WolfRaids.MAX_HURT
+			and victims.size() == killed + hurt and not twice and Animals.count_at(h) == 2 - killed and Animals.injured_ids().size() == hurt,
+			"worked out: %d killed, %d hurt over both parts (the caps %d and %d), no animal taken twice"
+			% [killed, hurt, WolfRaids.MAX_KILLED, WolfRaids.MAX_HURT])
+	var wrong := _wc_hens_wrong(h)
+	_check(wrong == "" and Animals.remains.size() == killed, "the hens left are in sight at the coop, remains for each one killed (%s)" % wrong)
+	await _raid_indoors(player)
+	await _seconds(1.0)
+	_check(notes.count(tr("MSG_WOLVES_AWAY_CAME")) == 1 and _wc_wolves().is_empty(), "back home: told once what they did while he was away, no pack")
+	var lines := await _raid_sleep()
+	var told := 0
+	for l in lines:
+		if l.begins_with(tr("REPORT_WOLF_KILLED").split("%s")[0]) or l.begins_with(tr("REPORT_WOLF_HURT").split("%s")[0]):
+			told += 1
+	_check(told == killed + hurt and Animals.count_at(h) == 2 - killed and Animals.injured_ids().size() == hurt and _wc_wolves().is_empty(),
+			"the morning report has each loss once (%d lines for %d), the night's sleep took nothing more" % [told, killed + hurt])
+	wrong = _wc_hens_wrong(h)
+	_check(wrong == "", "in the morning the hens left are at their coop (%s)" % wrong)
+	WolfRaids.load_data({"lesson": true})
+
+
+
+## The car radio (CarRadio): the stations' lists against their files (two tracks or more
+## each, five recorded for the radio in all, none on two stations), the shared
+## broadcast clock, the set as the save left it on getting in (the world's music held meanwhile), R
+## off and on, T round the dial through static, duller from the chase camera, a track
+## running out into the next, the fade on getting out and the station gone on by the time
+## the driver is back, no set on the tractor, the dashboard display lit, the state in the
+## save. With -- --shotdir=/abs/dir it saves the HUD line (on, off).
+func _scenario_radio20() -> void:
+	var player: Player = Game.player
+	var dir := String(DebugTools.args.get("shotdir", ""))
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck
+	var radio := Audio.radio
+	var line: RadioLine = Game.hud.radio_line
+	var kept_flags := FarmState.flags.duplicate(true)
+	var live := not Audio._silent
+	var n := CarRadio.STATIONS.size()
+	var lines: Array = []
+	var on_line := func(title: String, detail: String, on: bool) -> void: lines.append([title, detail, on])
+	radio.shown.connect(on_line)
+	GameClock.set_time_of_day(13.0)
+
+	# --- The stations: their lists and their files ---
+	var worst := 0.0
+	var count := 0
+	var fewest := 99
+	var shortest := 9999.0
+	var missing := ""
+	# Each file with the station that plays it: a track on two stations (or twice on one),
+	# and the world's own music on the radio, are named.
+	var played := {}
+	var shared := ""
+	var borrowed := ""
+	for s: Dictionary in CarRadio.STATIONS:
+		var tracks: Array = s["tracks"]
+		fewest = mini(fewest, tracks.size())
+		for t: Array in tracks:
+			count += 1
+			var rel := String(t[0])
+			if played.has(rel):
+				shared += " %s (%s, %s)" % [rel, played[rel], s["id"]]
+			played[rel] = s["id"]
+			if rel in Audio.DAY_MUSIC or rel in Audio.NIGHT_MUSIC or rel in Audio.CARNIVAL_MUSIC:
+				borrowed += " " + rel
+			shortest = minf(shortest, float(t[2]))
+			var stream: AudioStream = null
+			if ResourceLoader.exists(CarRadio.DIR + rel):
+				stream = load(CarRadio.DIR + rel) as AudioStream
+			if stream == null:
+				missing += " " + rel
+			else:
+				worst = maxf(worst, absf(stream.get_length() - float(t[2])))
+	_check(n >= 3 and missing == "" and worst < 0.5 and InputMap.has_action(&"radio_toggle") and InputMap.has_action(&"radio_next"),
+			"%d stations with %d tracks, every file there and as long as its list says (%.2f s off at most)%s; R and T are bound" % [n, count, worst, missing])
+	var own := 0
+	for rel: String in played:
+		if rel.begins_with("music/radio/"):
+			own += 1
+	_check(fewest >= 2 and own >= 5 and count == played.size() and shared == "" and shortest > 60.0,
+			"every station has a list of its own: %d tracks at least (%d in all, %d recorded for the radio), the shortest %.0f s, none on two stations%s; the game's own tracks fill in:%s" % [fewest, count, own, shortest, shared, borrowed])
+
+	# --- The broadcast clock: one time, one place in every station's list ---
+	var total := CarRadio.playlist_seconds(0)
+	var first: Array = CarRadio.STATIONS[0]["tracks"]
+	var len0 := float(first[0][2])
+	var a := CarRadio.broadcast_at(0, 1000.0)
+	var b := CarRadio.broadcast_at(0, 1000.0 + total * 3.0)
+	var start := CarRadio.broadcast_at(0, 0.0)
+	var later := CarRadio.broadcast_at(0, len0 + 5.0)
+	var other := CarRadio.broadcast_at(1, 0.0)
+	var joined := CarRadio.joined_at(0, len0 - 0.5)
+	_check(int(a["track"]) == int(b["track"]) and absf(float(a["at"]) - float(b["at"])) < 0.01
+			and int(start["track"]) == 0 and float(start["at"]) < 0.01
+			and int(later["track"]) == 1 % first.size() and (first.size() < 2 or absf(float(later["at"]) - 5.0) < 0.01)
+			and absf(float(other["at"]) - CarRadio.STAGGER) < 0.01
+			and int(joined["track"]) == 1 % first.size() and float(joined["at"]) == 0.0,
+			"the broadcast: the list goes round (%.0f s), one track after the other, stations %.0f s apart, a track's last moment is not joined" % [total, CarRadio.STAGGER])
+	# A moment at which no station changes track for the next three quarters of a minute.
+	for k in 400:
+		radio.clock_shift = k * 3.0
+		var calm := true
+		for s in n:
+			var at := CarRadio.broadcast_at(s, radio.now())
+			if float((CarRadio.STATIONS[s]["tracks"] as Array)[int(at["track"])][2]) - float(at["at"]) < 45.0:
+				calm = false
+		if calm:
+			break
+
+	# --- On foot the world's music plays ---
+	if live:
+		Audio._music_gap = 0.0
+		for i in 80:
+			if Audio._music.playing:
+				break
+			await _seconds(0.1)
+		await _seconds(0.8)
+		_check(Audio._music.playing, "on foot the world's music plays (%s)" % Audio._last_track.get_file())
+
+	# --- Getting in: the set as the save left it, where the broadcast is ---
+	FarmState.flags.erase("radio_off")
+	FarmState.flags["radio_station"] = String(CarRadio.STATIONS[1]["id"])
+	player.enter_vehicle(truck)
+	await _seconds(CarRadio.WAIT_ENGINE + 1.3)
+	var want := CarRadio.joined_at(1, radio.now())
+	var want_file := String((CarRadio.STATIONS[1]["tracks"] as Array)[int(want["track"])][0])
+	_check(radio.is_listening() and radio.station() == 1 and radio._on_station == 1 and line.visible
+			and line.title == CarRadio.station_title(1) and line.detail == CarRadio.track_title(1, int(want["track"])),
+			"in the truck the set is on the station it was left on; the HUD says '%s · %s'" % [line.title, line.detail])
+	if live:
+		var pos := radio._player.get_playback_position()
+		_check(radio._player.playing and radio._player.stream == load(CarRadio.DIR + want_file) and absf(pos - float(want["at"])) < 0.6,
+				"it plays what the station broadcasts now (%s, %.1f s in; the broadcast is %.1f s in)" % [want_file.get_file(), pos, float(want["at"])])
+		_check(not Audio._music.playing and Audio._music_held >= 0.0, "the world's music waits while the radio plays (held %.1f s into its track)" % Audio._music_held)
+	if dir != "":
+		await _shot(dir.path_join("radio20_line.png"))
+
+	# --- From the chase camera outside: duller and quieter ---
+	truck.chase_camera = true
+	await _seconds(0.7)
+	var out_hz := radio._lowpass.cutoff_hz
+	var out_db := radio._player.volume_db
+	truck.chase_camera = false
+	await _seconds(0.7)
+	_check(out_hz < 1500.0 and out_db < CarRadio.VOLUME_DB - 5.0 and radio._lowpass.cutoff_hz > 5000.0 and radio._player.volume_db > CarRadio.VOLUME_DB - 0.5,
+			"from outside (the chase camera) it is muffled: %d Hz at %.1f dB, in the cab %d Hz at %.1f dB" % [roundi(out_hz), out_db, roundi(radio._lowpass.cutoff_hz), radio._player.volume_db])
+
+	# --- R: off (the world's music comes back where it was), R: on again ---
+	var held := Audio._music_held
+	await _press_key(KEY_R)
+	await _seconds(0.15)
+	var said_off := line.title == tr("RADIO_OFF") and line.detail == ""
+	await _seconds(CarRadio.FADE_SWITCH + 0.5)
+	_check(not radio.is_on() and FarmState.flags.get("radio_off") == true and said_off and (not live or not radio._player.playing),
+			"R turns the set off ('%s')" % tr("RADIO_OFF"))
+	if live:
+		_check(Audio._music.playing and Audio._music_held < 0.0 and Audio._music.get_playback_position() >= held - 0.1,
+				"the world's music comes back where it was held (%.1f s, now %.1f s)" % [held, Audio._music.get_playback_position()])
+	if dir != "":
+		await _shot(dir.path_join("radio20_off.png"))
+	await _press_key(KEY_R)
+	await _seconds(CarRadio.WAIT_SWITCH + 1.6)
+	_check(radio.is_on() and not FarmState.flags.has("radio_off") and radio.station() == 1 and line.title == CarRadio.station_title(1)
+			and (not live or (radio._player.playing and not Audio._music.playing)),
+			"R again: on, the same station; the world's music waits again")
+
+	# --- T: round the dial through static, back to where it started ---
+	var seen: Array[int] = []
+	var noise := true
+	var synced := true
+	for i in n:
+		await _press_key(KEY_T)
+		await _idle_frames(2)
+		noise = noise and (not live or (radio._noise.playing and not radio._player.playing))
+		await _seconds(CarRadio.WAIT_STATIC + 1.1)
+		var s := radio.station()
+		seen.append(s)
+		var w := CarRadio.joined_at(s, radio.now())
+		synced = synced and radio._on_station == s and radio._on_air == int(w["track"]) and line.title == CarRadio.station_title(s)
+		if live:
+			synced = synced and radio._player.playing and absf(radio._player.get_playback_position() - float(w["at"])) < 0.6
+	var round_dial: bool = seen.size() == n and seen.back() == 1
+	for i in n:
+		round_dial = round_dial and seen[i] == (2 + i) % n
+	_check(round_dial and noise and synced and FarmState.flags.get("radio_station") == String(CarRadio.STATIONS[1]["id"]),
+			"T goes round the dial %s and back to the first after the last, static between stations, each where its broadcast is" % str(seen))
+
+	# --- A track runs out: the station's next one follows ---
+	FarmState.flags["radio_station"] = String(CarRadio.STATIONS[0]["id"])
+	radio.clock_shift += fposmod(len0 - 3.5 - fposmod(radio.now(), total), total)
+	radio._tune(0.0)
+	await _seconds(1.0)
+	var before := radio._on_air
+	await _seconds(4.5)
+	if live:
+		_check(before == 0 and radio._on_air == 1 % first.size() and radio._player.playing and radio._player.get_playback_position() < 3.5
+				and line.detail == CarRadio.track_title(0, 1 % first.size()),
+				"a track runs out and the next of the list starts ('%s', %.1f s in)" % [line.detail, radio._player.get_playback_position()])
+
+	# --- Getting out: it fades away; back in, the station has gone on ---
+	var p0 := radio._player.get_playback_position()
+	player.exit_vehicle()
+	await _idle_frames(3)
+	var fading := radio._player.playing
+	await _seconds(0.35)
+	var mid_db := radio._player.volume_db
+	await _seconds(CarRadio.FADE_EXIT + 0.4)
+	_check(not radio.is_listening() and (not live or (fading and mid_db < CarRadio.VOLUME_DB - 3.0 and not radio._player.playing)),
+			"getting out, the radio fades away behind the door (%.1f dB a third of a second on) and stops" % mid_db)
+	if live:
+		await _seconds(0.6)
+		_check(Audio._music.playing, "on foot again the world's music is back")
+	radio.clock_shift += 20.0
+	await _seconds(0.6)
+	player.enter_vehicle(truck)
+	await _seconds(CarRadio.WAIT_ENGINE + 1.0)
+	if live:
+		var w2 := CarRadio.joined_at(0, radio.now())
+		var p1 := radio._player.get_playback_position()
+		_check(radio._player.playing and absf(p1 - float(w2["at"])) < 0.6 and p1 > p0 + 20.0,
+				"back in the truck the station is where its broadcast went on to (%.1f s into the track; %.1f s when he got out), not at the start" % [p1, p0])
+
+	# --- The dashboard's display glows while the set is on ---
+	player.exit_vehicle()
+	await _seconds(0.3)
+	var screen := MeshInstance3D.new()
+	screen.name = "RadioDisplay"
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.1, 0.03)
+	quad.material = StandardMaterial3D.new()
+	screen.mesh = quad
+	truck.add_child(screen)
+	player.enter_vehicle(truck)
+	await _idle_frames(4)
+	var glass := screen.get_surface_override_material(0) as BaseMaterial3D
+	var lit := glass != null and glass.emission_enabled and glass.emission_energy_multiplier > 0.5
+	await _press_key(KEY_R)
+	await _idle_frames(2)
+	_check(lit and glass.emission_energy_multiplier == 0.0, "a dashboard mesh named RadioDisplay glows while the set is on, dark when it is off")
+	screen.queue_free()
+
+	# --- The state is in the save ---
+	FarmState.flags["radio_station"] = String(CarRadio.STATIONS[n - 1]["id"])
+	var saved: Dictionary = (FarmState.save_data()["flags"] as Dictionary).duplicate(true)
+	FarmState.flags.erase("radio_off")
+	FarmState.flags.erase("radio_station")
+	var fresh := radio.is_on() and radio.station() == 0
+	# (What loading does with the saved flags: FarmState.load_data.)
+	FarmState.flags = saved.duplicate(true)
+	_check(saved.get("radio_off") == true and saved.get("radio_station") == String(CarRadio.STATIONS[n - 1]["id"]) and fresh
+			and not radio.is_on() and radio.station() == n - 1,
+			"off and on '%s' are saved with the farm and come back with it; a new farm's set is on, on %s" % [CarRadio.STATIONS[n - 1]["name"], CarRadio.STATIONS[0]["name"]])
+	player.exit_vehicle()
+	await _seconds(0.5)
+
+	# --- The tractor has no set ---
+	FarmState.flags.erase("radio_off")
+	var tractor: Vehicle = null
+	for v in town.dealer_stock:
+		if v.kind == &"tractor":
+			tractor = v
+	if tractor:
+		var told := lines.size()
+		player.enter_vehicle(tractor)
+		await _seconds(CarRadio.WAIT_ENGINE + 0.8)
+		await _press_key(KEY_T)
+		await _seconds(0.3)
+		_check(not CarRadio.has_radio(tractor) and CarRadio.has_radio(truck) and not radio.is_listening() and not radio.holds_music()
+				and not radio._player.playing and lines.size() == told and radio.station() == n - 1,
+				"the tractor has no radio: nothing plays, the keys do nothing, the world's music stays")
+		player.exit_vehicle()
+		await _frames(5)
+		await _park(tractor, town.dealer_spot(&"tractor"))
+	else:
+		_check(false, "a tractor at the dealer's")
+	radio.shown.disconnect(on_line)
+	radio.clock_shift = 0.0
+	FarmState.flags = kept_flags
+	await _park(truck, Town.farm_truck_home())
+
+
+
+## The modelled cab: every pickup carries it in place of the downloaded model's low-poly
+## one (the trim, and the radio, its display and the needles by name, within the
+## triangle budget), its surfaces wear the cab's grain sets, the steering wheel is
+## still found, and the speedometer and fuel needles follow the truck.
+func _scenario_cab_interior() -> void:
+	var player: Player = Game.player
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var cars: Array[Vehicle] = [town.farm_truck]
+	for v in town.dealer_stock:
+		if String(v.kind).begins_with("pickup"):
+			cars.append(v)
+	_check(cars.size() == 5, "Grandpa's pickup and the dealer's four are there (%d)" % cars.size())
+	for v in cars:
+		var cab := v.get_node_or_null("Model").find_child("Interior", true, false) as Node3D
+		_check(cab != null, "the %s has the modelled cab" % v.kind)
+		if cab == null:
+			continue
+		var tris := 0
+		var names := {}
+		var grained := 0
+		var surfaces := 0
+		for mi: MeshInstance3D in cab.find_children("*", "MeshInstance3D", true, false):
+			names[String(mi.name)] = true
+			for si in mi.mesh.get_surface_count():
+				tris += mi.mesh.surface_get_array_index_len(si) / 3
+				surfaces += 1
+				var m := mi.get_active_material(si) as ShaderMaterial
+				var tile: Variant = m.get_shader_parameter("grain_tile") if m else null
+				if tile != null and float(tile) > 0.0 and m.get_shader_parameter("grain_normal") is Texture2D:
+					grained += 1
+		var missing := PackedStringArray()
+		for want: String in ["Cab", "Radio", "RadioDisplay", "Needle_Speed", "Needle_Fuel"]:
+			if not names.has(want):
+				missing.append(want)
+		_check(missing.is_empty(), "the %s's cab has its trim, radio, display and needles (missing: %s)" % [
+				v.kind, ", ".join(missing)])
+		_check(tris > 8000 and tris <= 30000, "the %s's cab stays within its triangle budget (%d)" % [v.kind, tris])
+		_check(grained * 2 > surfaces, "most of the %s's cab surfaces wear a grain set (%d of %d)" % [v.kind, grained, surfaces])
+		_check(v.get_node("Model").find_children("*UTLTRUCK90_Interior*", "MeshInstance3D", true, false).is_empty(),
+				"the %s's low-poly cab is gone" % v.kind)
+		_check(v._steer_pivot != null and v._steer_pivot.get_child_count() == 1, "the %s's steering wheel is still on its column" % v.kind)
+		_check(v._needles.has("speed") and v._needles.has("fuel"), "the %s's needles are found" % v.kind)
+	# Grandpa's truck: dustier and more worn than the dealer's, the needles follow it.
+	var truck := town.farm_truck
+	var old_dust := 0.0
+	var new_dust := 0.0
+	for key: String in truck._mats:
+		if key.begins_with("interior:Interior_Vinyl_Seat"):
+			old_dust = float((truck._mats[key] as ShaderMaterial).get_shader_parameter("dust"))
+	for key: String in town.for_sale._mats:
+		if key.begins_with("interior:Interior_Vinyl_Seat"):
+			new_dust = float((town.for_sale._mats[key] as ShaderMaterial).get_shader_parameter("dust"))
+	_check(old_dust > new_dust + 0.3 and new_dust > 0.0, "Grandpa's cab is the dusty one (%.2f against the dealer's %.2f)" % [old_dust, new_dust])
+	_check(absf(truck.needle_turn("fuel") - truck.fuel / float(truck.info["fuel_capacity"]) * TAU / 3.0) < 0.001,
+			"the fuel needle stands at the tank's level (%.2f rad for %.0f l)" % [truck.needle_turn("fuel"), truck.fuel])
+	var rest: Basis = truck._needles["speed"][1]
+	_check(truck.needle_turn("speed") < 0.05, "parked, the speedometer reads nothing (%.2f rad)" % truck.needle_turn("speed"))
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(120, _v19_drawn_y(Vector3(120, 5, 30.9)) + 0.3, 30.9)))
+	await _seconds(1.5)
+	player.enter_vehicle(truck)
+	await _frames(5)
+	Input.action_press("move_forward")
+	await _seconds(4.0)
+	var kmh := truck.speed_kmh()
+	var turn := truck.needle_turn("speed")
+	var needle := truck._needles["speed"][0] as Node3D
+	var swept := rest.x.signed_angle_to(needle.basis.x, rest.y)
+	Input.action_release("move_forward")
+	_check(kmh > 15.0 and absf(turn - kmh / 160.0 * 1.5 * PI) < 0.01, "under way the speedometer reads the speed (%.0f km/h, %.2f rad)" % [kmh, turn])
+	_check(swept < -0.1 and absf(swept + turn) < 0.08, "its needle has swung clockwise for the driver by that much (%.2f rad)" % swept)
+	await _seconds(2.5)
+	player.exit_vehicle()
+	await _frames(5)
+	await _park(truck, Town.farm_truck_home())
+
+
+
+# --- Round 20: the farm's fixes -----------------------------------------------------------
+
+## The first harvest never stalls (every crop's first bed reaped by hand, the worst frame
+## under a budget: what a bed pops was drawn behind the loading veil); hens with a full
+## feeder and waterer overnight never read as hungry in the morning report (let in late in
+## the day too, the door shut on them too) while hens left without feed do; a sapling is
+## set into the ground by a placing hand (ToolAnim "set_down": one easy reach, no blows)
+## and still planted; the feeder, the waterer and the coop's door tell how full the feed
+## and the water are. With -- --shotdir=/abs/dir it saves pictures of the feeder's prompt,
+## the door's and the sapling being set in.
+func _scenario_farm20() -> void:
+	var dir := String(DebugTools.args.get("shotdir", ""))
+	await _close_screens()
+	_check(Fx.harvest_drops().has(&"wheat") and Fx.harvest_drops().has(&"hay") and Fx.harvest_drops().size() >= CropTable.CROPS.size(),
+			"the loading veil draws what every bed pops at harvest (%s)" % [Fx.harvest_drops()])
+	var crops: Array = CropTable.CROPS.keys()
+	var worst := 0.0
+	for i in crops.size():
+		var first: Array = await _f20_first_harvest(crops[i], i)
+		var budget: float = first[2] * 2.5 + 80.0
+		worst = maxf(worst, first[0])
+		_check(first[0] > 0.0 and first[0] <= budget, "the first %s harvest never stalls: worst frame %.0f ms, %.2f s after the stroke (before it %.0f ms, budget %.0f ms)" % [
+				crops[i], first[0], first[1], first[2], budget])
+	print("F20 worst first-harvest frame: %.0f ms" % worst)
+	await _f20_hens(dir)
+	await _f20_sapling(dir)
+	Weather.forced = -1
+
+
+## The first harvest of `crop` in a session, by hand (the scythe held on ripe bed `bed`
+## until its produce is in the bag): [the worst frame (ms) of the moments the harvest has
+## work in, seconds after the reaping stroke when it ended, the worst frame of the calm
+## second before]. Those moments: from the stroke that reaps the bed (its produce pops off
+## it and is first drawn, the straw flies) for 0.6 s, and the frames its produce flies into
+## the bag in. A stall at another time is the machine's (other programs draw on the same
+## graphics card while the tests run).
+func _f20_first_harvest(crop: StringName, bed: int) -> Array:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(10.0)
+	var field: Field = Game.world.farm.fields[&"field_0"]
+	var plot: FarmPlot = field.plots[bed]
+	var d := CropTable.get_crop(crop)
+	var item: StringName = d.get("item", crop)
+	plot.load_data({"soil": FarmPlot.Soil.TILLED, "crop": String(crop), "growth": float(d["grow_h"]) + 1.0, "wet": 10.0})
+	player.global_position = plot.global_position + Vector3(0, 0.1, 2.4)
+	_look_at(player, plot.global_position + Vector3(0, 0.15, 0))
+	_select(&"scythe")
+	await _seconds(1.5)
+	var calm: Array = await _t19_worst_frame(1.0)
+	var had := inv.count_item(item)
+	var worst := 0.0
+	var at := 0.0
+	var start := Time.get_ticks_usec()
+	var last := start
+	var reaped := -1.0
+	var done := -1.0
+	Input.action_press("use")
+	while true:
+		await tree.process_frame
+		var now := Time.get_ticks_usec()
+		var ms := (now - last) / 1000.0
+		var secs := (now - start) / 1e6
+		last = now
+		# The frame just drawn showed the bed's produce for the first time, or took it in.
+		var busy := (reaped >= 0.0 and secs <= reaped + 0.6) or (done >= 0.0 and secs <= done + 0.2)
+		if busy and ms > worst:
+			worst = ms
+			at = secs - reaped
+		if reaped < 0.0 and not plot.is_ready():
+			reaped = secs
+			Input.action_release("use")
+		if done < 0.0 and inv.count_item(item) > had:
+			done = secs
+		if secs > 12.0 or (done >= 0.0 and secs > done + 0.6):
+			break
+	Input.action_release("use")
+	_check(not plot.is_ready() and inv.count_item(item) > had, "the first %s is reaped and in the bag" % crop)
+	plot.load_data({"soil": FarmPlot.Soil.TILLED})
+	return [worst, at, calm[0]]
+
+
+## The animals' lines of a morning report that say one went hungry.
+func _f20_hungry_lines(lines: PackedStringArray) -> PackedStringArray:
+	var tail := tr("MSG_ANIMAL_HUNGRY").replace("%s", "")
+	var out := PackedStringArray()
+	for l in lines:
+		if l.ends_with(tail):
+			out.append(l)
+	return out
+
+
+## Hens overnight: let in late in the afternoon with the feeder and the waterer full, the
+## door shut on them for the night: none reads as hungry in the morning. Left a night with
+## an empty feeder after a day of nothing: each of them does. And how full the feeder and
+## the waterer are, on their prompts and at the door.
+func _f20_hens(dir: String) -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	Weather.force(Weather.Kind.SUNNY)
+	var coop := await _poultry_coop()
+	_check(coop != null and coop.housing != null and coop.housing.feed != null, "a coop of the test's own stands")
+	if coop == null:
+		return
+	var h := coop.housing
+	var feeder := h.feed
+	var waterer := h.water
+	# (1) Bought at the market and let in at five in the afternoon; the feeder and the
+	# waterer filled to the brim; to bed at ten with the door shut.
+	GameClock.set_time_of_day(17.0)
+	var hens: Array[AnimalData] = []
+	for i in 3:
+		hens.append(Animals.release(&"chicken", h))
+	await _frames(4)
+	feeder.set_amount(feeder.capacity)
+	waterer.set_amount(waterer.capacity)
+	GameClock.advance(5.0 * 60.0)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	h.door.set_open(false, false)
+	feeder.set_amount(feeder.capacity)
+	waterer.set_amount(waterer.capacity)
+	Animals.report_notes.clear()
+	var hearts: Array = hens.map(func(a: AnimalData) -> float: return a.affection)
+	var lines := await _edges_sleep("", "")
+	var hungry := _f20_hungry_lines(lines)
+	var low := 100.0
+	var dry := 100.0
+	var cost := 0.0
+	for i in hens.size():
+		low = minf(low, hens[i].fullness)
+		dry = minf(dry, hens[i].hydration)
+		cost = maxf(cost, float(hearts[i]) - hens[i].affection)
+	_check(hungry.is_empty(), "hens let in at five with a full feeder and waterer: none went hungry in the morning report (%s)" % [hungry])
+	_check(low >= 50.0 and dry >= 50.0 and not feeder.is_empty(), "they ate and drank overnight behind the shut door (fullness from %.0f, water from %.0f, %.0f of %d left in the feeder)" % [
+			low, dry, feeder.amount, feeder.capacity])
+	_check(cost <= 15.5, "and none lost heart over a hunger it never had (%.0f at most, the unpetted day's)" % cost)
+	# (2) A whole day with the feeder full: nothing either.
+	feeder.set_amount(feeder.capacity)
+	GameClock.advance(16.0 * 60.0)
+	Animals.report_notes.clear()
+	lines = await _edges_sleep("", "")
+	_check(_f20_hungry_lines(lines).is_empty(), "a whole day and night with feed and water: no hungry line either")
+	# (3) Nothing in the feeder and the hens run down by a day without: every one of them
+	# is told of, and it is true (the hungry badge is over each).
+	feeder.set_amount(0.0)
+	GameClock.advance(16.0 * 60.0)
+	for n: Animal in h.animals:
+		n.teleport_home(true)
+	for a in hens:
+		a.fullness = minf(a.fullness, 40.0)
+	Animals.report_notes.clear()
+	lines = await _edges_sleep("", "")
+	hungry = _f20_hungry_lines(lines)
+	var starved := 0
+	for a in hens:
+		if a.fullness < Animals.HUNGRY_LEVEL and hungry.has(tr("MSG_ANIMAL_HUNGRY") % a.name):
+			starved += 1
+	_check(starved == hens.size(), "a night with an empty feeder: all %d hens are told of as hungry, and are (%s)" % [hens.size(), hungry])
+	h.door.set_open(true, false)
+
+	# (4) How full: the feeder, the waterer and the door say it.
+	feeder.set_amount(feeder.capacity * 0.75)
+	waterer.set_amount(waterer.capacity * 0.25)
+	_check(feeder.percent() == 75 and waterer.percent() == 25 and feeder.level_text() == tr("TROUGH_FEED_LEVEL") % 75
+			and waterer.level_text() == tr("TROUGH_WATER_LEVEL") % 25, "three quarters of feed and a quarter of water read 75%% and 25%% ('%s', '%s')" % [
+			feeder.level_text(), waterer.level_text()])
+	for n: Animal in h.animals:
+		n.teleport_home(false)
+		n._set_state(Animal.State.IDLE, 30.0)
+	_free_hands()
+	player.global_position = feeder.global_position + h.front() * 1.3 + Vector3(0, 0.2, 0)
+	await _frames(6)
+	_look_at(player, feeder.global_position + Vector3(0, 0.15, 0))
+	await _frames(8)
+	_check(player.target == feeder and _last_prompt.contains(tr("TROUGH_FEED_LEVEL") % 75),
+			"looking at the feeder shows its level ('%s')" % _last_prompt.replace("\n", " | "))
+	inv.add_item(&"feed", 2)
+	_select(&"feed")
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_FILL_TROUGH")) and _last_prompt.contains(tr("TROUGH_FEED_LEVEL") % 75),
+			"with feed in hand: fill, and the level under it ('%s')" % _last_prompt.replace("\n", " | "))
+	if dir != "":
+		var locale := TranslationServer.get_locale()
+		TranslationServer.set_locale("tr")
+		player._refresh_prompt()
+		await _seconds(0.6)
+		await _edges_shot(dir, "farm20_feeder")
+		TranslationServer.set_locale(locale)
+		player._refresh_prompt()
+	await _hold_use(0.9)
+	await _frames(8)
+	_check(_last_prompt.contains(tr("TROUGH_FEED_LEVEL") % feeder.percent()) and feeder.percent() > 75,
+			"a sack poured in: the level goes up (%d%%)" % feeder.percent())
+	_free_hands()
+	player.global_position = waterer.global_position + h.front() * 1.3 + Vector3(0, 0.2, 0)
+	await _frames(6)
+	_look_at(player, waterer.global_position + Vector3(0, 0.15, 0))
+	await _frames(8)
+	_check(player.target == waterer and _last_prompt.contains(tr("TROUGH_WATER_LEVEL") % 25),
+			"looking at the waterer shows its level ('%s')" % _last_prompt.replace("\n", " | "))
+	waterer.set_amount(0.0)
+	await _seconds(0.3)
+	_check(waterer.percent() == 0 and _last_prompt.contains(tr("TROUGH_WATER_LEVEL") % 0), "run dry it reads 0%% ('%s')" % _last_prompt)
+	waterer.set_amount(waterer.capacity * 0.25)
+	# At the door: both, under what E does.
+	player.global_position = h.door_outside() + h.front() * 0.8 + Vector3(0, 0.3, 0)
+	await _frames(6)
+	_look_at(player, h.door_inside() + Vector3(0, 0.7, 0) - h.front() * 1.0)
+	await _frames(8)
+	var both := "%s · %s" % [tr("TROUGH_FEED_LEVEL") % feeder.percent(), tr("TROUGH_WATER_LEVEL") % 25]
+	_check(_last_prompt.contains(tr("ACTION_COOP_DOOR_CLOSE")) and _last_prompt.contains(both) and h.levels_text() == both,
+			"at the coop's door: the feed and the water left, under the door's prompt ('%s')" % _last_prompt.replace("\n", " | "))
+	if dir != "":
+		var locale := TranslationServer.get_locale()
+		TranslationServer.set_locale("tr")
+		player._refresh_prompt()
+		await _seconds(0.6)
+		await _edges_shot(dir, "farm20_door")
+		TranslationServer.set_locale(locale)
+		player._refresh_prompt()
+	# The barn's troughs say it the same way (a long hay trough and a stone one).
+	var hay := Trough.new()
+	hay.capacity = 8
+	var stone := Trough.new()
+	stone.kind = Trough.Kind.WATER
+	stone.capacity = 8
+	Game.world.add_child(hay)
+	Game.world.add_child(stone)
+	hay.position = Vector3(0, -40, 0)
+	stone.position = Vector3(3, -40, 0)
+	hay.set_amount(5.0)
+	stone.set_amount(8.0)
+	_check(hay.hint_prompt() == tr("TROUGH_FEED_LEVEL") % 63 and stone.hint_prompt() == tr("TROUGH_WATER_LEVEL") % 100,
+			"a barn's hay trough and water trough tell theirs too ('%s', '%s')" % [hay.hint_prompt(), stone.hint_prompt()])
+	hay.queue_free()
+	stone.queue_free()
+	inv.remove_item(&"feed", inv.count_item(&"feed"))
+
+
+## A sapling set into the ground: the placing hand of ToolAnim "set_down" (one stroke that
+## eases down and back, no blow and no swoosh, the head barely nodding), the sapling in the
+## ground when the hand has lowered it, one soft pat after, and nothing else changed (one
+## sapling from the bag, where aimed, in the time it took before).
+func _f20_sapling(dir: String) -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var grove := SaplingGrove.instance
+	GameClock.set_time_of_day(10.0)
+	var anim: Array = ToolAnim.resolve("plant_sapling", null)
+	var profile: Dictionary = ToolAnim.PROFILES.get(anim[0], {})
+	var sharp := 0
+	var reach := 0.0
+	for k: Array in profile.get("keys", []):
+		reach = maxf(reach, -(k[1] as Vector3).z)
+		if k.size() > 4 and (k[3] in [Tween.TRANS_EXPO, Tween.TRANS_QUART, Tween.TRANS_QUINT, Tween.TRANS_BACK, Tween.TRANS_BOUNCE]):
+			sharp += 1
+	var kick: Vector4 = profile.get("kick", Vector4.ZERO)
+	_check(anim[0] == &"set_down" and int(anim[1]) == 1 and not ToolAnim.PROFILES.has(&"dig"),
+			"planting a sapling plays the placing hand, once (%s x%d), the old blows gone" % [anim[0], anim[1]])
+	_check(sharp == 0 and reach > 0.3 and not profile.get("whoosh", false) and float(profile.get("trauma", 0.0)) == 0.0
+			and absf(kick.x) <= 0.4 and absf(kick.w) <= 0.015,
+			"it eases out to the spot and back (a reach of %.2f m, %d sharp moves, no swoosh, no shake)" % [reach, sharp])
+	# By hand, as the farmer does it.
+	if inv.count_item(SaplingGrove.ITEM) == 0:
+		inv.add_item(SaplingGrove.ITEM, 2)
+	var spot := _open_ground(grove, Vector3(WorldLayout.PLAYER_SPAWN.x, 0.0, WorldLayout.PLAYER_SPAWN.z))
+	_check(spot != Vector3.INF, "found open ground for a sapling (%s)" % spot)
+	if spot == Vector3.INF:
+		return
+	player.global_position = _on_ground(Vector2(spot.x, spot.z + 1.8)) + Vector3(0, 0.1, 0)
+	_look_at(player, spot)
+	_select(SaplingGrove.ITEM)
+	await _frames(10)
+	_check(player.target is SaplingSpot and _last_prompt.contains(tr("ACTION_PLANT")), "the open ground offers PLANT ('%s')" % _last_prompt)
+	var length := 1.4
+	if player.target is SaplingSpot:
+		length = float((player.target as SaplingSpot).use_action(player, PlayerState.selected_stack()).get("duration", 0.0))
+	var cues: Array = ToolAnim.cues(anim[0], ToolAnim.strokes_for(int(anim[1]), length), length)
+	var kinds: Array = cues.map(func(c: Array) -> StringName: return c[1])
+	_check(is_equal_approx(length, 1.4) and kinds == [&"final", &"hit"] and float(cues[0][0]) > 0.7 and float(cues[0][0]) < 1.15,
+			"it takes as long as it did (%.1f s): in the ground as the hand lowers it (%.2f s in), then one pat (%s)" % [
+			length, float(cues[0][0]), kinds])
+	var strokes: Array = []
+	var on_impact := func(id: String, stroke: int, is_final: bool) -> void: strokes.append([id, stroke, is_final])
+	var planted: Array[Node] = []
+	var on_planted := func(sap: Node) -> void: planted.append(sap)
+	player.tool_impact.connect(on_impact)
+	Events.sapling_planted.connect(on_planted)
+	var before := inv.count_item(SaplingGrove.ITEM)
+	var count := FarmState.saplings.size()
+	if dir != "":
+		# The picture: the sapling held out over its spot, as it is lowered in.
+		player.held.debug_pose(&"set_down", 0.64)
+		await _seconds(0.4)
+		await _edges_shot(dir, "farm20_sapling")
+		player.held.debug_pose(&"", -1.0)
+		await _frames(4)
+	# How far the hand's reach brings the root ball down in the world (the stroke's offset
+	# is in the camera's space, and the gaze is lowered on the spot).
+	var drop := 0.0
+	var planted_at := -1.0
+	var start := Time.get_ticks_msec()
+	Input.action_press("use")
+	while Time.get_ticks_msec() - start < 1700:
+		await tree.process_frame
+		if planted.is_empty():
+			drop = maxf(drop, -(player.camera.global_basis * player.held._off_pos).y)
+		elif planted_at < 0.0:
+			planted_at = (Time.get_ticks_msec() - start) / 1000.0
+	Input.action_release("use")
+	await _frames(4)
+	player.tool_impact.disconnect(on_impact)
+	Events.sapling_planted.disconnect(on_planted)
+	var sap: Sapling = planted[0] as Sapling if planted.size() == 1 else null
+	_check(sap != null and inv.count_item(SaplingGrove.ITEM) == before - 1 and FarmState.saplings.size() == count + 1
+			and Vector2(sap.global_position.x, sap.global_position.z).distance_to(Vector2(spot.x, spot.z)) < 0.3,
+			"holding LMB still plants it where aimed, one sapling from the bag (%.2f s in)" % planted_at)
+	_check(strokes == [["plant_sapling", 0, true], ["plant_sapling", 0, false]] and drop > 0.1,
+			"the hand brought it down toward the ground (%.2f m lower), set it in and patted the soil once (%s)" % [drop, strokes])
+	if sap:
+		grove.remove(sap)
+		sap.queue_free()
+
+
+
+
+# --- Round 20: the clinic's windows, the vet's hands, the goal cards, the board's list ----
+
+## ui20: (1) the vet clinic's windows and glass door: no two faces of them share a plane
+## (CoplanarScan on the clinic's part of the town's meshes: a frame set into a frame
+## flickers), and the room behind stays clean; (2) Dr. Selin's hands rest on her work
+## top (or the clipboard on it) and never in it, through her writing, her pauses and a
+## greeting, measured as drawn against the counter as built; (3) the goal card's glass
+## follows what it says: short again after a long goal with a note, with a hint coming
+## and going, after a change behind a menu, and the side goals' cards the same;
+## (4) the construction board keeps its list where it was scrolled to when a card
+## further down is clicked (real clicks), when it is refreshed, and goes to the story
+## goal's card only as it opens. With -- --ui20-shots=/abs/dir: the clinic's windows from
+## the street, the vet's hands at the counter, the short goal card.
+func _scenario_ui20() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("ui20-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var kept_minute := GameClock.minute
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var clinic: VetClinic = town.vet_clinic if town else null
+	_check(clinic != null and clinic.counter != null, "ui20: the town has its vet clinic")
+	if clinic == null:
+		return
+	GameClock.set_time_of_day(10.0)
+	var r := Town.VET
+	# In the yard, clear of the door (shut leaves are scanned where they stand).
+	player.global_position = Vector3(r.end.x - VetClinic.WIN_AT, _people_floor(r.end.x - VetClinic.WIN_AT, r.position.y - 4.5, 0.5) + 0.05, r.position.y - 4.5)
+	player.velocity = Vector3.ZERO
+	_look_at(player, Vector3(r.end.x - VetClinic.WIN_AT, clinic.floor_y + 1.5, r.position.y))
+	await _seconds(1.2)
+	await _ui20_clinic(town, clinic)
+	if shots != "":
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = false
+		await _shot(shots + "/ui20_clinic_windows.png")
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = true
+	await _ui20_hands(clinic, shots)
+	GameClock.minute = kept_minute
+	await _ui20_goal_cards(shots)
+	await _ui20_board()
+	await _close_screens()
+
+
+## ui20 (1): the clinic's faces, and what lies in one plane at its windows and its door.
+func _ui20_clinic(town: Town, clinic: VetClinic) -> void:
+	var r := Town.VET
+	var y0 := clinic.floor_y
+	var origin := Vector3(r.position.x, 0.0, r.position.y)
+	var box := AABB(Vector3(r.position.x - 0.6, y0 - 0.4, r.position.y - 1.2), Vector3(r.size.x + 1.2, VetClinic.HEIGHT + 1.6, r.size.y + 1.8))
+	var meshes := _ui20_faces_in(town, box, UI20_SCAN_SKIP, origin)
+	var hits := CoplanarScan.fighting(CoplanarScan.scan_meshes(meshes, 0.001))
+	var triangles := CoplanarScan.last_triangles
+	var wx := r.size.x - VetClinic.WIN_AT
+	var dx := r.size.x - VetClinic.DOOR_AT
+	var wall := VetClinic.WALL
+	# [name, box (from the clinic's corner)]: the shop window, the side window, the glass
+	# door and what hangs by it (frames, glass, sills, plates and the wall round them,
+	# 30 cm out on both sides; the door from the floor up).
+	var places: Array = [
+		["the shop window", AABB(Vector3(wx - VetClinic.WIN_W * 0.5 - 0.3, y0 + VetClinic.WIN_SILL - 0.25, -0.3),
+				Vector3(VetClinic.WIN_W + 0.6, VetClinic.WIN_TOP - VetClinic.WIN_SILL + 0.5, wall + 0.6))],
+		["the side window", AABB(Vector3(-0.3, y0 + 0.75, r.size.y - 2.6 - 0.9), Vector3(wall + 0.6, 1.7, 1.8))],
+		["the glass door", AABB(Vector3(dx - VetClinic.DOOR_W - 0.2, y0 + 0.3, -0.3),
+				Vector3(VetClinic.DOOR_W * 2.0 + 0.4, VetClinic.DOOR_TOP + 0.2, wall + 0.7))]]
+	_check(triangles > 3000, "ui20: the clinic's faces are read out of the town's meshes (%d triangles)" % triangles)
+	for place: Array in places:
+		var here: Array[Dictionary] = []
+		here.assign(hits.filter(func(h: Dictionary) -> bool: return (place[1] as AABB).has_point(h["at"])))
+		var area := CoplanarScan.total_area(here)
+		_check(area <= 0.0001, "ui20: %s: no two faces share a plane (%.0f cm2 fighting)" % [place[0], area * 10000.0])
+		if area > 0.0001:
+			_ui20_dump(here, origin)
+	# The street front as a whole (what one sees walking up to it), up to the parapet.
+	var front: Array[Dictionary] = []
+	front.assign(hits.filter(func(h: Dictionary) -> bool: return (h["at"] as Vector3).z < 0.05 and (h["at"] as Vector3).y > y0 + 0.3))
+	var front_area := CoplanarScan.total_area(front)
+	_check(front_area <= 0.0001, "ui20: the clinic's street front: no two faces share a plane (%.0f cm2 fighting)" % (front_area * 10000.0))
+	if front_area > 0.0001:
+		_ui20_dump(front, origin)
+	if DebugTools.args.has("zdump"):
+		print("   the whole clinic: %.0f cm2" % (CoplanarScan.total_area(hits) * 10000.0))
+		_ui20_dump(hits, origin)
+	# What was wrong: a second frame of the kit's own section set into the kit's frame (the
+	# shop window as it was built) shares the faces round the glass with it.
+	var mb := MeshBuilder.new()
+	var cols := []
+	var top := VetClinic.WIN_TOP
+	var sill := VetClinic.WIN_SILL
+	var w := VetClinic.WIN_W
+	BuildingKit.wall(mb, cols, Vector2(8.0, 0.15), Vector2(0.0, 0.15), 0.0, VetClinic.HEIGHT, wall, &"t_plaster", VetClinic.PLASTER,
+			[{"at": 4.0, "w": w, "bottom": sill, "top": top, "glass": false}])
+	var alu := Color(0.7, 0.71, 0.72)
+	for y: float in [sill + 0.035, top - 0.035]:
+		mb.box_at(&"metal", Vector3(4.0, y, 0.15), Vector3(w, 0.07, 0.12), alu)
+	for sx: float in [-1.0, 1.0]:
+		mb.box_at(&"metal", Vector3(4.0 + sx * (w * 0.5 - 0.035), (sill + top) * 0.5, 0.15), Vector3(0.07, top - sill, 0.12), alu)
+	var twice := CoplanarScan.total_area(CoplanarScan.fighting(CoplanarScan.scan_meshes([[mb.build(Town._materials()), Transform3D.IDENTITY, "probe"]], 0.001)))
+	_check(twice > 1.0, "ui20: (the cause) a frame set into the kit's frame, as the shop window had it, fights over %.2f m2 of faces round the glass" % twice)
+	# For the vet's hands (_ui20_hands): what lies on and round her counter, as built.
+	var cz := VetClinic.COUNTER_Z
+	_ui20_counter_faces = _ui20_level_faces(meshes, origin, Rect2(VetClinic.COUNTER_X.x - 0.3, cz - 0.3,
+			VetClinic.COUNTER_X.y - VetClinic.COUNTER_X.x + 0.6, VetClinic.COUNTER_D + 0.9), y0 + 0.8, y0 + 1.5)
+
+
+func _ui20_dump(hits: Array[Dictionary], origin: Vector3) -> void:
+	var rows := CoplanarScan.summary(hits, 0.6)
+	for i in mini(rows.size(), int(DebugTools.args.get("zdump", "14"))):
+		var g: Dictionary = rows[i]
+		print("   %7.1f cm2 x%-3d gap %.2f mm  at %s facing %s  %s | %s" % [g["area"] * 10000.0, g["count"], g["gap"] * 1000.0,
+				((g["at"] as Vector3) + origin).snappedf(0.01), (g["n"] as Vector3).snappedf(0.1), g["a"], g["b"]])
+
+
+## The faces of the built models under `root` whose middles lie in `box` (world), as
+## [[mesh, transform, label]] for CoplanarScan.scan_meshes: a building that is part of a
+## bigger mesh (the clinic in the town's) taken on its own, moved to `origin` and laid on
+## a 0.1 mm grid across (the town lies 200 m out, where a float's last bit is 0.015 mm:
+## faces built in one plane come out a hair apart there, and the scan could not tell two
+## laps of one paint from two things). `skip`: node names left out (and all under them).
+func _ui20_faces_in(root: Node3D, box: AABB, skip: Array[StringName], origin: Vector3) -> Array:
+	var out: Array = []
+	var nodes: Array[Node] = [root]
+	while not nodes.is_empty():
+		var n: Node = nodes.pop_back()
+		if n != root and n.name in skip:
+			continue
+		for c in n.get_children():
+			nodes.append(c)
+		var mi := n as MeshInstance3D
+		if mi == null or mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		var xf := mi.global_transform
+		if not (xf * mi.get_aabb()).intersects(box):
+			continue
+		var part := ArrayMesh.new()
+		for s in mi.mesh.get_surface_count():
+			if mi.mesh is ArrayMesh and (mi.mesh as ArrayMesh).surface_get_primitive_type(s) != Mesh.PRIMITIVE_TRIANGLES:
+				continue
+			var arrays := mi.mesh.surface_get_arrays(s)
+			if arrays.is_empty() or arrays[Mesh.ARRAY_VERTEX] == null:
+				continue
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var index: Variant = arrays[Mesh.ARRAY_INDEX]
+			var colors: Variant = arrays[Mesh.ARRAY_COLOR]
+			var count: int = (index as PackedInt32Array).size() if index != null else verts.size()
+			var v := PackedVector3Array()
+			var col := PackedColorArray()
+			for i in range(0, count - 2, 3):
+				var ia: int = index[i] if index != null else i
+				var ib: int = index[i + 1] if index != null else i + 1
+				var ic: int = index[i + 2] if index != null else i + 2
+				var a := xf * verts[ia]
+				var b := xf * verts[ib]
+				var c := xf * verts[ic]
+				if not box.has_point((a + b + c) / 3.0):
+					continue
+				for q: Vector3 in [a, b, c]:
+					q -= origin
+					v.append(Vector3(snappedf(q.x, 0.0001), q.y, snappedf(q.z, 0.0001)))
+				if colors != null:
+					col.append_array(PackedColorArray([colors[ia], colors[ib], colors[ic]]))
+			if v.is_empty():
+				continue
+			var arr := []
+			arr.resize(Mesh.ARRAY_MAX)
+			arr[Mesh.ARRAY_VERTEX] = v
+			if colors != null:
+				arr[Mesh.ARRAY_COLOR] = col
+			part.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			var k := part.get_surface_count() - 1
+			var sname := (mi.mesh as ArrayMesh).surface_get_name(s) if mi.mesh is ArrayMesh else ""
+			part.surface_set_name(k, sname if sname != "" else str(s))
+			part.surface_set_material(k, mi.get_active_material(s))
+		if part.get_surface_count() > 0:
+			out.append([part, Transform3D.IDENTITY, String(root.get_path_to(mi))])
+	return out
+
+
+## The level faces among `meshes` (_ui20_faces_in, moved back by `origin`) over `area`
+## (XZ from the origin) between the heights `from` and `to`: [a, b, c (world), up] (`up`:
+## a top, looking up; else an underside).
+func _ui20_level_faces(meshes: Array, origin: Vector3, area: Rect2, from: float, to: float) -> Array:
+	var faces: Array = []
+	for m: Array in meshes:
+		var mesh: ArrayMesh = m[0]
+		for s in mesh.get_surface_count():
+			var verts: PackedVector3Array = mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]
+			for i in range(0, verts.size() - 2, 3):
+				var a := verts[i]
+				var b := verts[i + 1]
+				var c := verts[i + 2]
+				var y := (a.y + b.y + c.y) / 3.0
+				if y < from or y > to:
+					continue
+				# (MeshBuilder winds its triangles clockwise from the front)
+				var n := (b - a).cross(c - a)
+				if n.length_squared() < 1e-12 or absf(n.normalized().y) < 0.9:
+					continue
+				if area.intersects(Rect2(Vector2(a.x, a.z), Vector2.ZERO).expand(Vector2(b.x, b.z)).expand(Vector2(c.x, c.z)), true):
+					faces.append([a + origin, b + origin, c + origin, n.y < 0.0])
+	return faces
+
+
+## The level faces over and under the point (x, z) among _ui20_counter_faces: [[height, up]].
+func _ui20_faces_at(x: float, z: float) -> Array:
+	var out: Array = []
+	var p := Vector2(x, z)
+	for t: Array in _ui20_counter_faces:
+		var a := Vector2((t[0] as Vector3).x, (t[0] as Vector3).z)
+		var b := Vector2((t[1] as Vector3).x, (t[1] as Vector3).z)
+		var c := Vector2((t[2] as Vector3).x, (t[2] as Vector3).z)
+		var d1 := (b - a).cross(p - a)
+		var d2 := (c - b).cross(p - b)
+		var d3 := (a - c).cross(p - c)
+		if (d1 < 0.0 or d2 < 0.0 or d3 < 0.0) and (d1 > 0.0 or d2 > 0.0 or d3 > 0.0):
+			continue
+		out.append([((t[0] as Vector3).y + (t[1] as Vector3).y + (t[2] as Vector3).y) / 3.0, t[3]])
+	return out
+
+
+## How deep a ball of `radius` at `at` lies in what is built on and round the counter
+## (m; under 0: clear of it by that much): under a top it has not come out of (the first
+## level face over its lowest point is one looking up), or pushed up into an underside.
+func _ui20_sink(at: Vector3, radius: float) -> float:
+	var low := at.y - radius
+	var next := INF
+	var next_up := false
+	var worst := -INF
+	for f: Array in _ui20_faces_at(at.x, at.z):
+		var y: float = f[0]
+		if y >= low and y < next:
+			next = y
+			next_up = f[1]
+		if not bool(f[1]) and y > at.y:
+			# An underside over it (the ledge's): how far its top pokes up into that.
+			worst = maxf(worst, at.y + radius - y)
+		elif bool(f[1]) and y < low:
+			worst = maxf(worst, y - low)
+	if next != INF and next_up and next - low < 0.2:
+		worst = maxf(worst, next - low)
+	return worst
+
+
+## The top right under `at` (the highest face looking up no higher than 2 cm over it; -INF
+## for none).
+func _ui20_top_under(at: Vector3) -> float:
+	var best := -INF
+	for f: Array in _ui20_faces_at(at.x, at.z):
+		if bool(f[1]) and float(f[0]) <= at.y + 0.02 and float(f[0]) > best:
+			best = f[0]
+	return best
+
+
+## ui20 (2): Dr. Selin at her counter, posed frame by frame as the game does (people2's
+## way): her hands, wrists and forearms as drawn against the counter's tops as built
+## under them (the work top, the clipboard, what else lies there).
+func _ui20_hands(clinic: VetClinic, shots: String) -> void:
+	var player: Player = Game.player
+	var vet: Townsperson = clinic.vet
+	_check(vet != null and vet.visible and clinic.staffed and vet.act == Townsperson.Act.WRITE,
+			"ui20: at 10:00 Dr. Selin is at her counter, writing")
+	if vet == null:
+		return
+	await _frames(4)
+	var feet := vet.global_position.y
+	var top := clinic.work_top()
+	_check(absf(feet + vet.work_height - top) < 0.003, "ui20: she works at her work top's height (%.3f m over her feet, the top %.3f m)"
+			% [vet.work_height, top - feet])
+	# The work top is a face one can see: nothing of the counter's body over it where she works.
+	var v := clinic.vet_spot()
+	var built := _ui20_top_under(Vector3(v.x - 0.3, top + 0.3, v.z - 0.42))
+	_check(absf(built - top) < 0.002, "ui20: the counter's work top lies open in front of her (the face under her hands %.3f m, the top %.3f m)"
+			% [built - feet, top - feet])
+	var rig := vet.rig
+	var sk := rig.skeleton
+	var dt := 1.0 / 30.0
+	var res := {"sink": -1.0, "sink_at": "", "seen": 0, "_l": -1.0, "_r": -1.0, "rest_l": Vector2(INF, -INF), "rest_r": Vector2(INF, -INF)}
+	vet.set_process(false)
+	vet.set_physics_process(false)
+	var eye := _pp_view(vet, "front", null, false, 1.9)
+	vet._greet_t = 99.0
+	vet._stop_t = 0.0
+	# A whole turn of her work (writing, then a pause), a greeting, and on with the work.
+	for k in 400:
+		_pp_step(vet, dt, eye)
+		_ui20_measure_hands(vet, res, "at work %.2f s" % (k * dt), true)
+	var work_l: float = res["_l"]
+	var work_r: float = res["_r"]
+	vet.greet()
+	for k in int(vet._greet_len() / dt) + 20:
+		_pp_step(vet, dt, eye)
+		_ui20_measure_hands(vet, res, "greeting %.2f s" % vet._greet_t, false)
+	vet._bubble.visible = false
+	vet.set_process(true)
+	vet.set_physics_process(true)
+	var rest_l: Vector2 = res["rest_l"]
+	var rest_r: Vector2 = res["rest_r"]
+	if DebugTools.args.has("ui20-trace"):
+		print("   hands: at work left %.1f mm, right %.1f mm; with the greeting left %.1f mm, right %.1f mm (in the counter; under 0: clear)"
+				% [work_l * 1000.0, work_r * 1000.0, float(res["_l"]) * 1000.0, float(res["_r"]) * 1000.0])
+		for side: String in ["_l", "_r"]:
+			var tip := vet.to_local(rig.global_transform * rig.drawn_bone("middle_03" + side))
+			var wrist := vet.to_local(rig.global_transform * rig.drawn_bone("hand" + side))
+			print("   %s: wrist %s, middle finger's last joint %s (from her feet)" % [side, wrist.snappedf(0.001), tip.snappedf(0.001)])
+	_check(int(res["seen"]) > 2000 and float(res["sink"]) <= UI20_HAND_SINK,
+			"ui20: her hands, wrists and forearms never sink into the counter (deepest %.1f mm: %s; %d points looked at)"
+			% [float(res["sink"]) * 1000.0, res["sink_at"], res["seen"]])
+	_check(rest_l.x >= -UI20_HAND_SINK and rest_l.y <= UI20_HAND_HOVER and rest_r.x >= -UI20_HAND_SINK and rest_r.y <= UI20_HAND_HOVER,
+			"ui20: both hands rest on what lies under them while she works (their lowest skin %.1f..%.1f mm over it on the left, %.1f..%.1f mm on the right)"
+			% [rest_l.x * 1000.0, rest_l.y * 1000.0, rest_r.x * 1000.0, rest_r.y * 1000.0])
+	if shots != "":
+		# Her hands on the work top and the clipboard, seen from beside her behind the counter.
+		var cam := Camera3D.new()
+		cam.fov = 50.0
+		Game.world.add_child(cam)
+		cam.global_position = Vector3(v.x - 0.58, clinic.floor_y + 1.6, v.z - 0.18)
+		cam.look_at(Vector3(v.x - 0.03, top + 0.02, v.z - 0.46), Vector3.UP)
+		cam.make_current()
+		player.global_position = Vector3(v.x + 1.6, clinic.floor_y + 0.05, Town.VET.position.y + 1.2)
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = false
+		await _shot(shots + "/ui20_selin_hands.png")
+		for hud in tree.get_nodes_in_group("hud"):
+			hud.visible = true
+		cam.queue_free()
+		player.camera.make_current()
+		await _frames(2)
+
+
+## The worst so far in `res`: how deep a point of her hands or forearms (as drawn, a
+## ball of the limb's half thickness there) lies in what is built on and round the
+## counter; `resting`: also how far each hand's lowest skin is over what lies under it
+## ("rest_l", "rest_r": the least and the most over the frames).
+func _ui20_measure_hands(p: Townsperson, res: Dictionary, at: String, resting: bool) -> void:
+	var rig := p.rig
+	var sk := rig.skeleton
+	if sk.has_method(&"force_update_all_bone_transforms"):
+		sk.force_update_all_bone_transforms()
+	var to_world := rig.global_transform * HumanRig._rel(sk, rig)
+	for side: String in ["_l", "_r"]:
+		var e := to_world * sk.get_bone_global_pose(rig.bi("lowerarm" + side)).origin
+		var w := to_world * sk.get_bone_global_pose(rig.bi("hand" + side)).origin
+		var mid := to_world * sk.get_bone_global_pose(rig.bi("middle_01" + side)).origin
+		# [point, half thickness, name]; the hand's own from the wrist on.
+		var pts: Array = [[e, 0.036, "elbow"], [e.lerp(w, 0.33), 0.033, "forearm"], [e.lerp(w, 0.66), 0.028, "forearm"], [w, 0.02, "wrist"],
+			[w.lerp(mid, 0.5), 0.013, "palm"]]
+		for f: StringName in HumanRig.FINGERS:
+			var i2 := rig.bi("%s_02%s" % [f, side])
+			var i3 := rig.bi("%s_03%s" % [f, side])
+			var j1 := to_world * sk.get_bone_global_pose(rig.bi("%s_01%s" % [f, side])).origin
+			var j2 := to_world * sk.get_bone_global_pose(i2).origin
+			var j3 := to_world * sk.get_bone_global_pose(i3).origin
+			# The tip: on from the last joint as that joint is bent, most of the bone before it again.
+			var rest3 := sk.get_bone_global_rest(i3)
+			var tip := to_world * (sk.get_bone_global_pose(i3) * (rest3.basis.inverse() * (rest3.origin - sk.get_bone_global_rest(i2).origin) * 0.8))
+			pts.append_array([[j1, 0.011, "%s knuckle" % f], [j2, 0.009, "%s finger" % f], [j3, 0.008, "%s finger" % f],
+				[tip, 0.007, "%s fingertip" % f]])
+		for k in 3:
+			pts.append([to_world * sk.get_bone_global_pose(rig.bi("thumb_0%d%s" % [k + 1, side])).origin, 0.01, "thumb"])
+		var gap := INF
+		for k in pts.size():
+			var pt: Array = pts[k]
+			var sink := _ui20_sink(pt[0], pt[1])
+			if sink == -INF:
+				continue
+			res["seen"] = int(res["seen"]) + 1
+			res[side] = maxf(float(res[side]), sink)
+			if sink > float(res["sink"]):
+				res["sink"] = sink
+				res["sink_at"] = "%s %s, %s" % ["left" if side == "_l" else "right", pt[2], at]
+			if k >= 3:
+				var low := (pt[0] as Vector3) - Vector3(0.0, pt[1], 0.0)
+				var under := _ui20_top_under(low)
+				if under != -INF:
+					gap = minf(gap, low.y - under)
+		if resting and gap != INF:
+			var key := "rest" + side
+			res[key] = Vector2(minf((res[key] as Vector2).x, gap), maxf((res[key] as Vector2).y, gap))
+
+
+## The goal card's glass against what it holds: how much taller (px) it is than its
+## content needs now.
+func _ui20_slack(card: Control) -> float:
+	return card.size.y - card.get_combined_minimum_size().y
+
+
+## ui20 (3): the story's goal card and the side goals' cards follow their content.
+func _ui20_goal_cards(shots: String) -> void:
+	var hud: HUD = Game.hud
+	var card: Control = hud._quest_card
+	var step_was := Quests.step
+	var count_was := Quests.step_count
+	var hint_was := Quests._hint
+	# The story stands still for this (it works out its hint again a few times a second).
+	Quests.set_process(false)
+	var long_hint := "%s · %s" % [tr("HINT_MARKET_CRATES"), tr("HINT_LOAD_CRATES")]
+	# Chapter 10 "Market day", step 1 with Grandpa's note and a hint: a tall card.
+	Quests.step = Quests.index_of("harvest2")
+	Quests.step_count = 0
+	Quests._hint = long_hint
+	Quests.tutorial_changed.emit()
+	hud.show_chapter_note(Quests.chapter())
+	await _idle_frames(4)
+	var tall := card.size.y
+	_check(card.visible and hud._quest_note.visible and _ui20_slack(card) < 1.0,
+			"ui20: chapter 10's first goal with Grandpa's note and a hint: a tall card, as tall as it needs (%.0f px)" % tall)
+	# Step 2 ("load the harvest"): the note has gone, no hint. The card closes up.
+	hud._note_left = 0.01
+	Quests.step = Quests.index_of("load_crops")
+	Quests._hint = ""
+	Quests.tutorial_changed.emit()
+	await _idle_frames(4)
+	var short := card.size.y
+	var lines := hud._quest_text.get_line_count()
+	_check(not hud._quest_note.visible and short < tall - 40.0 and _ui20_slack(card) < 1.0 and lines <= 2,
+			"ui20: step 2's short goal: the card is short again (%.0f px after %.0f px, %d line(s), %.1f px to spare)"
+			% [short, tall, lines, _ui20_slack(card)])
+	var text_bottom := hud._quest_text.global_position.y + hud._quest_text.size.y - card.global_position.y
+	_check(card.size.y - text_bottom < 14.0, "ui20: the glass ends right under the goal's last line (%.0f px under it)" % (card.size.y - text_bottom))
+	if shots != "":
+		await _shot(shots + "/ui20_short_goal.png")
+	# A hint comes ("why the dot is somewhere else") and goes again.
+	Quests._hint = long_hint
+	Quests.tutorial_changed.emit()
+	await _idle_frames(4)
+	var hinted := card.size.y
+	Quests._hint = ""
+	Quests.tutorial_changed.emit()
+	await _idle_frames(4)
+	_check(hinted > short + 15.0 and absf(card.size.y - short) < 1.0,
+			"ui20: a hint under the goal makes the card taller (%.0f px), and it is short again when the hint goes (%.0f px)" % [hinted, card.size.y])
+	# A goal that changes while a menu hides the card: back the right size at once.
+	Quests._hint = long_hint
+	Quests.tutorial_changed.emit()
+	await _idle_frames(3)
+	Game.push_ui(&"ui20")
+	await _idle_frames(2)
+	Quests._hint = ""
+	Quests.tutorial_changed.emit()
+	await _idle_frames(2)
+	Game.pop_ui(&"ui20")
+	await _idle_frames(1)
+	_check(card.visible and absf(card.size.y - short) < 1.0, "ui20: a goal that got shorter behind a menu comes back short (%.0f px)" % card.size.y)
+	# A side goal's card (the wolves', the vet's): the same, and it keeps right under the story's.
+	var goal := SideGoal.new(&"ui20", "Test", "info", Color(0.6, 0.8, 1.0))
+	SideStory.add_goal(goal)
+	goal.set_goal(tr("QUEST_LOAD_CROPS") % 3 + " " + long_hint, long_hint)
+	await _idle_frames(4)
+	var e: Dictionary = hud._goal_cards.get(goal, {})
+	var side: Control = e.get("card")
+	_check(side != null and side.visible and _ui20_slack(side) < 1.0, "ui20: a side goal with a long text and a hint has its card")
+	if side:
+		var side_tall := side.size.y
+		goal.set_goal("Kısa", "")
+		await _idle_frames(4)
+		_check(side.size.y < side_tall - 40.0 and _ui20_slack(side) < 1.0 and absf(side.position.y - (card.position.y + card.size.y + 10.0)) < 1.0,
+				"ui20: its card is short with a short goal (%.0f px after %.0f px) and sits right under the story's" % [side.size.y, side_tall])
+		# Under a story card that grows and shrinks it moves along.
+		Quests._hint = long_hint
+		Quests.tutorial_changed.emit()
+		await _idle_frames(4)
+		var pushed := side.position.y
+		Quests._hint = ""
+		Quests.tutorial_changed.emit()
+		await _idle_frames(4)
+		_check(pushed > side.position.y + 15.0 and absf(side.position.y - (card.position.y + card.size.y + 10.0)) < 1.0,
+				"ui20: it moves down under a taller story card and back up under the short one")
+	SideStory.remove_goal(goal)
+	# A quiet errand's hint shows for a while, then its card closes up.
+	var errand := SideGoal.new(&"ui20_quiet", "Test", "info", Color(0.6, 0.8, 1.0))
+	errand.quiet = true
+	SideStory.add_goal(errand)
+	errand.set_goal("Posta kutusuna bak", long_hint)
+	await _idle_frames(4)
+	e = hud._goal_cards.get(errand, {})
+	side = e.get("card")
+	if side:
+		var with_hint := side.size.y
+		var hint_shown := (e["hint"] as Label).visible
+		e["hint_left"] = 0.0
+		await _idle_frames(4)
+		_check(hint_shown and not (e["hint"] as Label).visible and side.size.y < with_hint - 12.0 and _ui20_slack(side) < 1.0,
+				"ui20: a quiet errand's card closes up when its hint goes (%.0f px after %.0f px)" % [side.size.y, with_hint])
+	else:
+		_check(false, "ui20: a quiet errand has its card")
+	SideStory.remove_goal(errand)
+	Quests.step = step_was
+	Quests.step_count = count_was
+	Quests._hint = hint_was
+	Quests.set_process(true)
+	Quests.tutorial_changed.emit()
+	await _idle_frames(3)
+
+
+## A real click on the middle of `c` (the mouse moved there first), through the input
+## pipeline: what the player's mouse does.
+func _ui20_click(c: Control) -> void:
+	var at := tree.root.get_final_transform() * c.get_global_rect().get_center()
+	var move := InputEventMouseMotion.new()
+	move.position = at
+	move.global_position = at
+	Input.parse_input_event(move)
+	await tree.process_frame
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = at
+	down.global_position = at
+	Input.parse_input_event(down)
+	await tree.process_frame
+	var up := down.duplicate() as InputEventMouseButton
+	up.pressed = false
+	Input.parse_input_event(up)
+	await tree.process_frame
+
+
+## The mouse wheel turned `notches` down (up when negative) over `c`.
+func _ui20_wheel(c: Control, notches: int) -> void:
+	var at := tree.root.get_final_transform() * c.get_global_rect().get_center()
+	for i in absi(notches):
+		for pressed: bool in [true, false]:
+			var ev := InputEventMouseButton.new()
+			ev.button_index = MOUSE_BUTTON_WHEEL_DOWN if notches > 0 else MOUSE_BUTTON_WHEEL_UP
+			ev.pressed = pressed
+			ev.factor = 1.0
+			ev.position = at
+			ev.global_position = at
+			Input.parse_input_event(ev)
+		await tree.process_frame
+
+
+## The id of the lowest card of the board's list wholly in view that isn't `not_id`.
+func _ui20_low_card(screen: BuildScreen, not_id: StringName) -> StringName:
+	var best: StringName = &""
+	var low := -INF
+	for id: StringName in screen._cards:
+		var c := screen._cards[id] as Control
+		var y := c.position.y - screen._scroll.scroll_vertical
+		if id != not_id and y >= 0.0 and y + c.size.y <= screen._scroll.size.y and y > low:
+			low = y
+			best = id
+	return best
+
+
+## The list's scroll over the next `frames` frames: [lowest, highest].
+func _ui20_watch_scroll(screen: BuildScreen, frames: int) -> Vector2i:
+	var span := Vector2i(screen._scroll.scroll_vertical, screen._scroll.scroll_vertical)
+	for i in frames:
+		await tree.process_frame
+		var s := screen._scroll.scroll_vertical
+		span = Vector2i(mini(span.x, s), maxi(span.y, s))
+		if DebugTools.args.has("ui20-trace"):
+			print("   scroll %d (frame %d)" % [s, i])
+	return span
+
+
+## ui20 (4): the construction board's list stays where the player scrolled it.
+func _ui20_board() -> void:
+	await _close_screens()
+	var screen: BuildScreen = Game.hud.build_screen
+	var step_was := Quests.step
+	var count_was := Quests.step_count
+	Quests.set_process(false)
+	Quests.step = Quests.index_of("coop_kit")
+	Quests.step_count = 0
+	var goal := BuildScreen.goal_project()
+	screen.open()
+	await _idle_frames(6)
+	var scroll := screen._scroll
+	var room := int(scroll.get_v_scroll_bar().max_value - scroll.get_v_scroll_bar().page)
+	_check(screen.visible and room > 150, "ui20: the board is open and its list is longer than its view (%d px to scroll)" % room)
+	if goal != &"":
+		var gc := screen._cards.get(goal) as Control
+		var gy: float = gc.position.y - scroll.scroll_vertical if gc else -1.0
+		_check(screen._selected == goal and gc != null and gy >= -1.0 and gy + gc.size.y <= scroll.size.y + 1.0,
+				"ui20: it opens on the story goal's card (%s), in view" % goal)
+	# The player scrolls to the top with the wheel: the board doesn't pull back to the goal.
+	await _ui20_wheel(scroll, -30)
+	var span := await _ui20_watch_scroll(screen, 8)
+	_check(span == Vector2i.ZERO, "ui20: scrolled up to the top it stays there (not pulled back to the goal's card: %s)" % span)
+	# ... and down to the end: a card low in the list, clicked.
+	await _ui20_wheel(scroll, 30)
+	await _idle_frames(2)
+	var at_end := scroll.scroll_vertical
+	_check(at_end >= room - 2, "ui20: the wheel scrolls the list down to its end (%d of %d px)" % [at_end, room])
+	for turn in 3:
+		# Twice from the end, then from the middle of the list.
+		if turn == 2:
+			scroll.scroll_vertical = room / 2
+			await _idle_frames(3)
+		var from := scroll.scroll_vertical
+		var pick := _ui20_low_card(screen, screen._selected)
+		var card := screen._cards.get(pick) as Control
+		if card == null:
+			_check(false, "ui20: a card low in the list to click")
+			break
+		var top := card.position.y - from
+		var before := screen._selected
+		await _ui20_click(card)
+		span = await _ui20_watch_scroll(screen, 10)
+		var now := screen._cards.get(pick) as Control
+		var top_now: float = now.position.y - scroll.scroll_vertical if now else -1.0
+		var lit := 0
+		for id: StringName in screen._cards:
+			lit += 1 if bool((screen._cards[id] as Control).get_meta(&"active", false)) else 0
+		_check(screen._selected == pick and before != pick and now == card and bool(card.get_meta(&"active", false)) and lit == 1,
+				"ui20: a click on the card '%s' low in the list picks it: lit in place (the only one), the list not built again" % pick)
+		_check(span.x >= from - 1 and span.y <= from + 1 and absf(top_now - top) < 1.5,
+				"ui20: the list stays where it was scrolled to (%d px; over the next frames %d..%d px; the card at %.0f px, was %.0f px)"
+				% [from, span.x, span.y, top_now, top])
+	# The board refreshed from outside (something built, money spent): the list stays.
+	var from := scroll.scroll_vertical
+	FarmState.project_built.emit(&"ui20")
+	Events.money_changed.emit(Economy.money, 0)
+	span = await _ui20_watch_scroll(screen, 8)
+	_check(from > 0 and span.x >= from - 1 and span.y <= from + 1, "ui20: a refresh (something built, money spent) leaves the list where it was (%d px: %d..%d)"
+			% [from, span.x, span.y])
+	# Shut and opened again: on the goal's card once more (the old place is not kept).
+	var picked := screen._selected
+	screen.close_screen()
+	await _idle_frames(3)
+	screen.open()
+	span = await _ui20_watch_scroll(screen, 8)
+	if goal != &"":
+		var gc := screen._cards.get(goal) as Control
+		var gy: float = gc.position.y - scroll.scroll_vertical if gc else -1.0
+		_check(screen._selected == goal and picked != goal and gc != null and gy >= -1.0 and gy + gc.size.y <= scroll.size.y + 1.0,
+				"ui20: opened again the board is on the story goal's card, in view (at %.0f px of %.0f)" % [gy, scroll.size.y])
+	screen.close_screen()
+	Quests.step = step_was
+	Quests.step_count = count_was
+	Quests.set_process(true)
+	await _idle_frames(3)
+
+
+
+# --- The dog in his arms, in the pickup, in its own house (round 20) ---------------------------
+
+## The farmer's own dog picked up (G: in his arms low in the view, sitting up, its paws with
+## it; LMB and G set it down), the grown dog too; carried into the pickup it sits on the
+## passenger seat, rides along and is down beside him with a bark when he gets out; out
+## with him off the farm it follows him there; left behind (he gets in without it) it waits,
+## greets him if he comes back, and after Pet.WAIT_MINUTES is home at the farm (saved and
+## loaded while it waits); the construction board's doghouse (only with a dog; a kit, half
+## a minute, one a farm) put up near the house: the old bed goes, it sleeps in it at night
+## facing out and waits by it by day; its side goals one at a time (a doghouse, a ball, sit,
+## fetch once old enough), each a little XP; all of it saved. -- --pet20-shots=<dir> also
+## saves the pup in his arms, the dog on the seat from the driver's view and the doghouse.
+func _scenario_pet20() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var shots := String(DebugTools.args.get("pet20-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(10.0)
+	Pet.load_data({})
+	Pet.goals.testing = true
+	var inv := PlayerState.inventory
+	inv.remove_item(Pet.BALL, inv.count_item(Pet.BALL))
+	inv.remove_item(&"doghouse", inv.count_item(&"doghouse"))
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck
+	await _park(truck, Town.farm_truck_home())
+	var spot := _on_ground(Vector2(-9.0, -3.0))
+	player.global_position = spot + Vector3(0, 0.1, 0)
+	player.velocity = Vector3.ZERO
+	player.look_at_yaw_pitch(PI, -0.25)
+	await _frames(5)
+	_check(not BuildScreen.on_board(&"doghouse") and ProjectTable.kit_of(&"doghouse") == &"doghouse" and ItemDB.get_item(&"doghouse") != null
+			and ItemDB.get_item(&"doghouse").icon != null and tr("PROJECT_DOGHOUSE") != "PROJECT_DOGHOUSE" and tr("DESC_DOGHOUSE") != "DESC_DOGHOUSE",
+			"no dog yet: the board keeps the doghouse (a kit with its name and icon) back")
+	Pet.adopt("Fındık")
+	await _seconds(0.8)
+	var dog := Pet.dog
+	var hand := player.handler
+	_check(Pet.has_dog() and dog != null and is_instance_valid(dog) and notes.has(tr("MSG_PET_CARRY_HOWTO")) and BuildScreen.on_board(&"doghouse"),
+			"the pup is his: a note says G picks it up, and the board lists the doghouse now")
+	if dog == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	var goals := Pet.goals
+	goals.update()
+	var card := goals.goal()
+	_check(goals.is_up(&"kennel") and card != null and card.quiet and card.text == tr("DOG_GOAL_KENNEL") % "Fındık" and card.hint == tr("DOG_HINT_KENNEL_BOARD")
+			and card.point is Vector3 and _pet_flat(card.point, WorldLayout.BOARD_POS) < 0.5 and notes.has(tr("MSG_DOG_GOALS_NEW") % "Fındık"),
+			"its first quiet side goal: '%s' (the dot on the construction board)" % (card.text if card else ""))
+
+	# --- (1) G picks it up; LMB and G set it down ---
+	await _pet_settle(dog, player)
+	_look_at(player, dog.pet_point())
+	await _frames(4)
+	await _idle_frames(4)
+	_check(player.target == dog and _last_prompt.contains("G (%s)" % tr("ACTION_HOLD_ANIMAL")), "aimed at his dog: G (%s)" % tr("ACTION_HOLD_ANIMAL"))
+	await _press_key(KEY_G)
+	await _seconds(1.2)
+	_check(hand.carried_dog == dog and dog.task == &"held" and hand.busy() and not dog.is_in_group(&"interactable") and player.held.stowed
+			and dog.rig.held and dog.rig.sit_amount() > 0.8, "G: the pup is in his arms, sitting up (%.2f), out of the world's way" % dog.rig.sit_amount())
+	var cam := player.camera
+	var head := cam.global_transform.affine_inverse() * dog.rig.bone_world("head")
+	print("PET20 head in the view %s; in its own frame at full size %s" % [str(head), str(dog.to_local(dog.rig.bone_world("head")) / dog.size)])
+	_check(head.z < -0.3 and head.z > -0.9 and absf(head.x) < 0.2 and head.y < -0.08 and head.y > -0.4,
+			"its head low in the middle of the view, close by (%.2f, %.2f, %.2f)" % [head.x, head.y, head.z])
+	var paw_off := 0.0
+	for leg: String in ["fl", "fr", "rl", "rr"]:
+		paw_off = maxf(paw_off, dog.rig.paw_world(leg).distance_to(dog.global_position))
+	_check(paw_off < 0.6 * dog.size + 0.1, "its paws are with it (%.2f m from its middle at most)" % paw_off)
+	_check(_last_prompt.contains(tr("ACTION_SET_DOWN")), "the prompt says how to put it down")
+	if shots != "":
+		player.look_at_yaw_pitch(player.rotation.y, -0.1)
+		await _shot(shots + "/pet20_in_arms.png")
+	var far := _on_ground(Vector2(-9.0, 7.0))
+	player.global_position = far + Vector3(0, 0.1, 0)
+	player.look_at_yaw_pitch(0.4, -0.2)
+	await _seconds(0.6)
+	head = cam.global_transform.affine_inverse() * dog.rig.bone_world("head")
+	paw_off = 0.0
+	for leg: String in ["fl", "fr", "rl", "rr"]:
+		paw_off = maxf(paw_off, dog.rig.paw_world(leg).distance_to(dog.global_position))
+	_check(dog.task == &"held" and head.length() < 1.0 and paw_off < 0.6 * dog.size + 0.1, "carried 10 m it stays in his arms, paws and all")
+	await _press_mouse_use()
+	await _seconds(0.5)
+	var at := dog.global_position
+	_check(hand.carried_dog == null and not hand.busy() and dog.task == &"follow" and dog.is_in_group(&"interactable") and not dog.rig.held
+			and _pet_flat(at, player.global_position) < 1.6 and absf(at.y - TerrainData.height(at.x, at.z)) < 0.1 and not player.held.stowed,
+			"LMB: down on the ground in front of him (%.1f m), on its feet again" % _pet_flat(at, player.global_position))
+	hand.pick_up_dog(dog)
+	await _frames(3)
+	await _press_key(KEY_G)
+	await _seconds(0.3)
+	_check(hand.carried_dog == null and dog.task == &"follow", "picked up again, G sets it down too")
+	# Grown, it is still picked up (a bigger armful, held further off).
+	var born := Pet.adopted_at
+	Pet.adopted_at = GameClock.total_minutes - 9.0 * GameClock.MINUTES_PER_DAY
+	dog.grow()
+	hand.pick_up_dog(dog)
+	await _seconds(1.2)
+	head = cam.global_transform.affine_inverse() * dog.rig.bone_world("head")
+	_check(hand.carried_dog == dog and absf(dog.size - 1.0) < 0.01 and head.z < -0.5 and head.z > -1.0 and absf(head.x) < 0.25 and head.y < -0.1,
+			"grown, it is carried too (its head at %.2f, %.2f, %.2f)" % [head.x, head.y, head.z])
+	hand.let_go()
+	Pet.adopted_at = born
+	dog.grow()
+	await _frames(3)
+
+	# --- (2) Carried into the pickup: on the passenger seat, riding along, out with him ---
+	var beside := truck.exit_point()
+	player.global_position = beside + Vector3(0, 0.1, 0)
+	await _frames(3)
+	hand.pick_up_dog(dog)
+	await _frames(3)
+	player.enter_vehicle(truck)
+	await _seconds(1.2)
+	var seat := truck.global_transform * truck.passenger_seat()
+	var eye_x := truck._eye_rig.position.x
+	var local := truck.to_local(dog.global_position)
+	_check(player.driving == truck and dog.task == &"ride" and dog.vehicle == truck and hand.carried_dog == null and hand.riding_dog == dog
+			and not hand.busy(), "he gets in with it in his arms: it rides (not set down, his hands free)")
+	_check(truck.has_passenger_seat() and seat.origin.distance_to(dog.global_position) < 0.03 and signf(local.x) == -signf(eye_x)
+			and absf(local.x) > 0.25 and local.y > 0.5 and local.y < 1.1 and dog.rig.sit_amount() > 0.8
+			and dog.global_basis.z.dot(truck.global_basis.z) < -0.9,
+			"on the passenger seat beside him, sitting, facing the road (seat %s, the driver's eyes at x %.2f)" % [str(local), eye_x])
+	if shots != "":
+		truck._look = Vector2(-1.2, -0.52)
+		await _shot(shots + "/pet20_seat.png")
+		truck._look = Vector2.ZERO
+	var from := truck.global_position
+	Input.action_press("move_forward")
+	var worst := 0.0
+	for i in 30:
+		await _seconds(0.1)
+		worst = maxf(worst, (truck.get_global_transform_interpolated() * truck.passenger_seat()).origin.distance_to(dog.global_position))
+	Input.action_release("move_forward")
+	Input.action_press("move_back")
+	var braked := 0.0
+	while truck.speed_kmh() > 2.0 and braked < 5.0:
+		await _seconds(0.1)
+		braked += 0.1
+	Input.action_release("move_back")
+	await _seconds(1.0)
+	var driven := _pet_flat(truck.global_position, from)
+	seat = truck.global_transform * truck.passenger_seat()
+	_check(driven > 8.0 and worst < 0.6 and seat.origin.distance_to(dog.global_position) < 0.03 and dog.task == &"ride",
+			"driven %.0f m it rides along on its seat (never more than %.2f m off it)" % [driven, worst])
+	var barks := dog.barks
+	player.exit_vehicle()
+	await _seconds(1.2)
+	at = dog.global_position
+	var side := truck.to_local(at)
+	_check(player.driving == null and dog.task != &"ride" and hand.riding_dog == null and dog.vehicle == null and not dog.rig.held
+			and _pet_flat(at, player.global_position) < 2.2 and absf(at.y - TerrainData.height(at.x, at.z)) < 0.25
+			and absf(side.x) > truck.half_width() + 0.4 and dog.is_in_group(&"interactable"),
+			"he gets out: it is down on the ground beside him (%.1f m), clear of the pickup" % _pet_flat(at, player.global_position))
+	_check(dog.barks > barks, "with a bark for having arrived")
+	# Not in his arms when he gets in: it stays on the ground (on the farm: home by its bed).
+	await _pet_settle(dog, player)
+	player.enter_vehicle(truck)
+	await _pet20_task(dog, [&"home"])
+	_check(dog.task == &"home" and hand.riding_dog == null, "getting in without it: it stays behind (home, on the farm)")
+	player.exit_vehicle()
+	await _seconds(0.3)
+
+	# --- (3) Out with him off the farm; left behind: it waits, then it is home ---
+	await _pet_settle(dog, player)
+	hand.pick_up_dog(dog)
+	await _frames(3)
+	player.enter_vehicle(truck)
+	await _frames(5)
+	var road := PET20_ROAD
+	road.y = TerrainData.height(road.x, road.z) + 0.6
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), road))
+	await _seconds(2.0)
+	player.exit_vehicle()
+	await _seconds(1.0)
+	_check(not PetDog.on_farm(dog.global_position) and dog.task in [&"follow", &"come"] and _pet_flat(dog.global_position, player.global_position) < 2.5
+			and Pet.left_at < 0.0, "driven off the farm, it gets out with him and keeps to him there (%s)" % dog.task)
+	var ahead := player.global_position + Vector3(14.0, 0.0, 0.0)
+	player.global_position = ahead
+	await _frames(3)
+	Engine.time_scale = 3.0
+	for i in 150:
+		await _seconds(0.1)
+		if _pet_flat(dog.global_position, player.global_position) < PetDog.FOLLOW_FAR:
+			break
+	Engine.time_scale = 1.0
+	_check(_pet_flat(dog.global_position, player.global_position) < PetDog.FOLLOW_FAR and dog.task == &"follow", "he walks on along the road: it comes after him")
+	GameClock.set_time_of_day(23.0)
+	await _seconds(0.5)
+	_check(dog.task == &"follow", "by night too, out with him (its bed is at the farm)")
+	GameClock.set_time_of_day(10.0)
+	var left_spot := dog.global_position
+	player.enter_vehicle(truck)
+	await _pet20_task(dog, [&"wait"])
+	_check(dog.task == &"wait" and Pet.left_at >= 0.0 and hand.riding_dog == null, "he gets in without it: it waits where it was left")
+	player.exit_vehicle()
+	await _pet20_task(dog, [&"come", &"follow"])
+	_check(dog.task == &"come" and Pet.left_at < 0.0, "he gets out again: it runs to greet him (%s)" % dog.task)
+	await _seconds(0.3)
+	player.enter_vehicle(truck)
+	await _frames(5)
+	await _park(truck, Town.farm_truck_home())
+	await _pet20_task(dog, [&"wait"])
+	left_spot = dog.global_position
+	_check(dog.task == &"wait" and Pet.left_at >= 0.0 and not PetDog.on_farm(dog.global_position), "he drives home without it: it waits out there")
+	GameClock.total_minutes += 60.0
+	await _seconds(0.6)
+	_check(dog.task == &"wait" and _pet_flat(dog.global_position, left_spot) < PetDog.WAIT_PATCH * 2.0, "an hour on it still waits there")
+	# Saved and loaded while it waits out there.
+	var left := Pet.left_at
+	var slot := "slot_3"
+	_check(SaveGame.save(slot), "saved with the dog left out on the road")
+	Pet.load_data({})
+	_check(SaveGame.load_game(slot), "loading started")
+	await _until_loaded()
+	await _seconds(1.5)
+	player = Game.player
+	hand = player.handler
+	cam = player.camera
+	town = tree.get_first_node_in_group(&"town") as Town
+	truck = town.farm_truck
+	dog = Pet.dog
+	_check(Pet.has_dog() and dog != null and is_instance_valid(dog) and is_equal_approx(Pet.left_at, left) and _pet_flat(dog.global_position, left_spot) < 3.0
+			and dog.task == &"wait", "loaded: it still waits where it was left (%.1f m from there; %s, left at %.1f for %.1f, he is %.0f m off)" % [
+			_pet_flat(dog.global_position, left_spot) if dog else -1.0, dog.task if dog else &"", Pet.left_at, left,
+			_pet_flat(dog.global_position, player.global_position) if dog else -1.0])
+	if dog == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	notes.clear()
+	GameClock.total_minutes += Pet.WAIT_MINUTES - 59.0
+	await _pet20_task(dog, [&"home", &"come", &"follow"])
+	_check(dog.task in [&"home", &"come", &"follow"] and PetDog.on_farm(dog.global_position) and Pet.left_at < 0.0
+			and notes.has(tr("MSG_PET_WENT_HOME") % "Fındık"),
+			"after %d game minutes it is home at the farm, and he is told ('%s'; %s at %s, left at %.1f)" % [int(Pet.WAIT_MINUTES),
+			tr("MSG_PET_WENT_HOME") % "Fındık", dog.task, str(dog.global_position), Pet.left_at])
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+
+	# --- (4) The doghouse: the board's kit, put up near the house; it sleeps in it ---
+	goals = Pet.goals
+	Economy.add_money(200, "test")
+	inv.add_item(&"wood", 20)
+	inv.add_item(&"nails", 10)
+	var wood := inv.count_item(&"wood")
+	var nails := inv.count_item(&"nails")
+	var money := Economy.money
+	var project := ProjectTable.get_project(&"doghouse")
+	_check(FarmState.build(&"doghouse") and inv.count_item(&"doghouse") == 1 and inv.count_item(&"wood") == wood - int(project["items"][&"wood"])
+			and inv.count_item(&"nails") == nails - int(project["items"][&"nails"]) and Economy.money == money - int(project["cost"])
+			and int(project["cost"]) <= 15,
+			"the board cuts a doghouse kit ($%d, %d wood, %d nails) into the bag" % [int(project["cost"]), int(project["items"][&"wood"]), int(project["items"][&"nails"])])
+	goals.update()
+	card = goals.goal()
+	_check(card != null and card.hint == tr("DOG_HINT_KENNEL_PLACE") and card.point == null, "the goal's hint: put the kit up near the house")
+	var house: Doghouse = await _pet20_put_up(player)
+	_check(house != null and not house.is_built() and absf(house.seconds_left() - 30.0) < 1.5 and inv.count_item(&"doghouse") == 0
+			and house.get_node_or_null("Site") != null and house.get_node_or_null("Countdown") != null,
+			"the kit is put down by the real placer near the house: a site with a countdown (half a minute)")
+	if house == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	_check(Pet.kennel == null and Game.world.get_node_or_null("PetBed") != null and BuildScreen.single_stands(&"doghouse")
+			and Game.hud.build_screen._status(&"doghouse") == "built",
+			"going up: the bed by the farmhouse is still its place; the board shows the doghouse as done (one a farm)")
+	var xp := Progress.xp
+	notes.clear()
+	house.finish()
+	await _seconds(1.2)
+	_check(house.is_built() and Pet.kennel == house and Game.world.get_node_or_null("PetBed") == null and house.get_node_or_null("Site") == null
+			and house._name != null and house._name.text == UiTheme.caps("Fındık"),
+			"finished: it is the dog's home (the old bed is gone), its name over the door ('%s')" % (house._name.text if house._name else ""))
+	goals.update()
+	_check(goals.done.has(&"kennel") and Progress.xp >= xp + int(DogGoals.XP[&"kennel"]) and notes.has(tr("MSG_SIDE_DONE") % (tr("DOG_GOAL_KENNEL") % "Fındık")),
+			"the doghouse goal is done (+%d XP)" % int(DogGoals.XP[&"kennel"]))
+	# Night: in through its door, round to face out, lying down.
+	player.global_position = house.porch_point() + house.global_basis.z * 3.2 + house.global_basis.x * 1.2 + Vector3(0, 0.1, 0)
+	_look_at(player, house.global_position + Vector3(0, 0.4, 0))
+	dog._warp(house.porch_point() + house.global_basis.z * 2.0 - house.global_basis.x * 2.5)
+	dog._set_task(&"follow")
+	GameClock.set_time_of_day(22.5)
+	await _pet20_task(dog, [&"bed"])
+	_check(dog.task == &"bed", "night: off to its doghouse")
+	Engine.time_scale = 3.0
+	for i in 300:
+		await _seconds(0.1)
+		if dog._settled and dog.rig.lie_amount() > 0.9:
+			break
+	Engine.time_scale = 1.0
+	await _seconds(1.0)
+	var in_house := house.to_local(dog.global_position)
+	var out_of_door := -dog.global_basis.z.dot(house.global_basis.z)
+	_check(dog._settled and dog.rig.lie_amount() > 0.8 and _pet_flat(dog.global_position, house.sleep_point(dog.size)) < 0.25
+			and absf(in_house.x) < 0.25 and in_house.z < PlaceableModels.DOGHOUSE_D * 0.5 and in_house.z > -PlaceableModels.DOGHOUSE_D * 0.5
+			and out_of_door > 0.85 and dog._stuck_t < 5.0,
+			"it walked in at its door and lies inside, looking out (%.2f m from its place, facing out %.2f)" % [_pet_flat(dog.global_position, house.sleep_point(dog.size)), out_of_door])
+	if shots != "":
+		# In daylight for the picture, the dog as it lies.
+		dog.set_physics_process(false)
+		GameClock.set_time_of_day(17.3)
+		player.global_position = house.porch_point() + house.global_basis.z * 1.5 + house.global_basis.x * 1.3 + Vector3(0, 0.1, 0)
+		_look_at(player, house.global_position + Vector3(0, 0.45, 0) + house.global_basis.z * 0.5)
+		await _shot(shots + "/pet20_doghouse.png")
+		dog.set_physics_process(true)
+	# By day, away (he sits in the pickup in the yard, near enough for the dog to be drawn):
+	# it waits on the patch in front of its door.
+	GameClock.set_time_of_day(10.0)
+	player.enter_vehicle(truck)
+	await _pet20_task(dog, [&"home"])
+	_check(dog.task == &"home", "day, and he is in the pickup: it stays home")
+	Engine.time_scale = 4.0
+	for i in 100:
+		await _seconds(0.1)
+		if dog._home_area().has_point(Vector2(dog.global_position.x, dog.global_position.z)) and house.to_local(dog.global_position).z > PlaceableModels.DOGHOUSE_D * 0.5:
+			break
+	Engine.time_scale = 1.0
+	_check(dog._home_area().has_point(Vector2(dog.global_position.x, dog.global_position.z)) and _pet_flat(dog.global_position, house.yard_point()) < 3.5,
+			"out in front of its doghouse (%.1f m from its patch's middle, %.0f m from the pickup)" % [_pet_flat(dog.global_position, house.yard_point()),
+			_pet_flat(dog.global_position, truck.global_position)])
+	player.exit_vehicle()
+	await _frames(5)
+	player.global_position = house.porch_point() + house.global_basis.z * 4.0 + Vector3(0, 0.1, 0)
+	await _seconds(0.6)
+
+	# --- (5) The side goals, one at a time ---
+	goals.update()
+	card = goals.goal()
+	_check(goals.is_up(&"ball") and card.text == tr("DOG_GOAL_BALL") and card.point is Vector3 and town.market_counter != null
+			and _pet_flat(card.point, town.market_counter.global_position) < 0.5 and (ShopStock.town_market()["stock"] as Array).has(Pet.BALL),
+			"next: '%s' (the dot on the market, which sells one)" % card.text)
+	xp = Progress.xp
+	inv.add_item(Pet.BALL, 1)
+	goals.update()
+	_check(goals.done.has(&"ball") and Progress.xp == xp + int(DogGoals.XP[&"ball"]), "a ball in the bag: done (+%d XP)" % int(DogGoals.XP[&"ball"]))
+	goals.update()
+	_check(goals.is_up(&"sit") and card.text == tr("DOG_GOAL_SIT") % "Fındık" and card.hint == tr("DOG_HINT_SIT") % [0, Pet.need(&"sit")]
+			and card.point == dog, "next: '%s' ('%s', the dot on the dog)" % [card.text, card.hint])
+	Pet.practice[&"sit"] = Pet.need(&"sit") - 1
+	goals.update()
+	_check(card.hint == tr("DOG_HINT_SIT") % [Pet.need(&"sit") - 1, Pet.need(&"sit")], "the hint counts the practices (%s)" % card.hint)
+	xp = Progress.xp
+	Pet._since_pat = 99.0
+	Pet.command_sit()
+	await _idle_frames(2)
+	Pet.pat()
+	goals.update()
+	_check(Pet.knows(&"sit") and goals.done.has(&"sit") and Progress.xp == xp + int(DogGoals.XP[&"sit"]), "taught to sit (F, then a pat): the first lesson is done (+%d XP)" % int(DogGoals.XP[&"sit"]))
+	goals.update()
+	_check(goals.current() == &"fetch" and Pet.age_days() < Pet.FETCH_AGE and not SideStory.goals.has(card),
+			"bringing the ball back waits until it is old enough: no card for now")
+	Pet.adopted_at = GameClock.total_minutes - (Pet.FETCH_AGE + 0.5) * GameClock.MINUTES_PER_DAY
+	goals.update()
+	_check(goals.is_up(&"fetch") and card.text == tr("DOG_GOAL_FETCH") % "Fındık" and card.hint == tr("DOG_HINT_FETCH") % [0, Pet.need(&"fetch")],
+			"%.0f days old: '%s' ('%s')" % [Pet.FETCH_AGE, card.text, card.hint])
+	inv.remove_item(Pet.BALL, inv.count_item(Pet.BALL))
+	goals.update()
+	_check(card.hint == tr("DOG_HINT_FETCH_NO_BALL"), "without a ball the hint says where to get one")
+	xp = Progress.xp
+	Pet.practice[&"fetch"] = Pet.need(&"fetch")
+	Pet.ball_caught()
+	goals.update()
+	_check(Pet.knows(&"fetch") and goals.done.has(&"fetch") and Progress.xp == xp + int(DogGoals.XP[&"fetch"]) and goals.current() == &"",
+			"it brings the ball back: the last one is done (+%d XP)" % int(DogGoals.XP[&"fetch"]))
+	goals.update()
+	_check(not SideStory.goals.has(card), "no dog goal is left on the HUD")
+
+	# --- Saved and loaded: the doghouse, the goals, the dog at home ---
+	_check(SaveGame.save(slot), "saved with the doghouse")
+	Pet.load_data({})
+	_check(SaveGame.load_game(slot), "loading started")
+	await _until_loaded()
+	await _seconds(1.5)
+	var houses := tree.get_nodes_in_group(Doghouse.GROUP)
+	_check(houses.size() == 1 and (houses[0] as Doghouse).is_built() and Pet.kennel == houses[0] and Game.world.get_node_or_null("PetBed") == null,
+			"loaded: the doghouse stands, it is the dog's home (no bed by the door)")
+	_check(Pet.goals.done.size() == 4 and Pet.goals.up and Pet.knows(&"sit") and Pet.knows(&"fetch") and Pet.dog != null and is_instance_valid(Pet.dog)
+			and PetDog.on_farm(Pet.dog.global_position), "and the goals stay done, the dog is on the farm")
+	SaveGame.delete(slot)
+	Pet.goals.testing = false
+	Events.notification_requested.disconnect(on_note)
+	Weather.forced = -1
+
+
+## Waits (three seconds at most) until the dog's task is one of `tasks`.
+func _pet20_task(dog: PetDog, tasks: Array[StringName]) -> void:
+	for i in 180:
+		await tree.physics_frame
+		if is_instance_valid(dog) and dog.task in tasks:
+			break
+	await _frames(3)
+
+
+## Puts the doghouse kit in the bag up with the real placer at the first of PET20_PLOTS it
+## fits (the farmer standing in front of the plot, its door toward him). The site, or null.
+func _pet20_put_up(player: Player) -> Doghouse:
+	for plot: Vector2 in PET20_PLOTS:
+		var at := _on_ground(plot)
+		_free_hands()
+		await _frames(2)
+		var stand := at + Vector3(0, 0, 3.6)
+		player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.2, stand.z)
+		player.velocity = Vector3.ZERO
+		await _frames(6)
+		var aim := at + Vector3(0.0, 0.0, 0.9)
+		aim.y = TerrainData.height(aim.x, aim.z)
+		_look_at(player, aim)
+		await _frames(2)
+		_select(&"doghouse")
+		await _frames(8)
+		if not (player.placer.active and player.placer.is_building() and player.placer.valid):
+			print("PET20 plot %s: %s" % [str(plot), player.placer.reason])
+			continue
+		if not player.placer.place():
+			continue
+		await _frames(3)
+		for n in tree.get_nodes_in_group(Doghouse.GROUP):
+			return n as Doghouse
+	return null
+
+
+
+
+# --- Round 20: the quicker schedule and the autosaves ----------------------------------------
+
+## Round 20's schedule and autosaves. The days: Zeynep moves in on day 3 (met that day, the
+## welcome gift from day 4), her call for Karamel's pup at three hearts, the carnival on
+## day 4's night and every fourth after, the fishing contest on day 6 and every fourth
+## after (never a carnival day, Nuri Hoca's letter the morning before), the mailbox goal
+## from day 5, the town's quiet goals on days 2 and 3. The autosaves (SaveGame, in a folder
+## of this scenario's own): a moment after a story goal is done (once the player is free:
+## not under a window; goals done in a row make one save), by the clock (not under the
+## pause menu, not asleep or fainting, not with a pack on the farm), on the window's close
+## request, the pause menu's quit and its way back to the title; "continue" on the title
+## screen loads the newest save of any slot; a save made in the middle of day 3 brings
+## back the chapter, the goal, the time and where the player stood; one made at night with
+## the wolves on the farm loads with the night as it was and the pack coming again.
+func _scenario_sched20() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var clock_ran := GameClock.running
+	GameClock.running = false
+	var farm_spot := Vector3(-8.0, TerrainData.height(-8.0, 6.0) + 0.3, 6.0)
+	player.global_position = farm_spot
+	player.velocity = Vector3.ZERO
+
+	# --- The days ---
+	var fairs: Array[int] = []
+	var contests: Array[int] = []
+	var contest_letters: Array[int] = []
+	for d in range(1, 21):
+		if Carnival.is_carnival_day(d):
+			fairs.append(d)
+		if FishingContest.is_contest_day(d):
+			contests.append(d)
+		if FishingContest.is_contest_day(d + 1):
+			contest_letters.append(d)
+	_check(fairs == [4, 8, 12, 16, 20], "sched20: carnival nights on day 4, then every fourth (%s)" % str(fairs))
+	_check(contests == [6, 10, 14, 18] and contest_letters == [5, 9, 13, 17],
+			"sched20: the fishing contest on day 6, then every fourth, never a carnival day (%s); its letter the morning before (%s)" % [str(contests), str(contest_letters)])
+	_check(SideStory.MOVE_DAY == 3 and SideStory.GIFT_DAY == 4 and SideStory.PUPPY_LEVEL == 3 and Mail.MAILBOX_DAY == 5
+			and TownGoals.DAY == 2 and TownGoals.LAST_DAY == 3,
+			"sched20: Zeynep on day 3, her welcome gift from day 4, the pup at 3 hearts, the mailbox goal on day 5, the town's goals on days 2-3")
+	# The carnival's night and Beyza's letter that morning (looked at between frames).
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_carnival := Carnival.save_data()
+	Carnival.testing = true
+	var nights: Array[int] = []
+	var mornings: Array[int] = []
+	for d: int in [3, 4, 5]:
+		GameClock.day = d
+		GameClock.minute = 8.0 * 60.0
+		Carnival.load_data({})
+		if Carnival.letter_pending:
+			mornings.append(d)
+		GameClock.minute = 20.5 * 60.0
+		if Carnival.is_on() and Economy.carnival_factor() == 2.0:
+			nights.append(d)
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	Carnival.testing = false
+	Carnival.load_data(kept_carnival)
+	Carnival.letter_pending = false
+	_check(nights == [4] and mornings == [4], "sched20: the first carnival is day 4's night (double pay at 20:30: %s), Beyza's letter that morning (%s)" % [str(nights), str(mornings)])
+
+	# Zeynep: day 3 at 07:00, met that day, the welcome gift the day after.
+	var kept_side := SideStory.save_data()
+	var kept_rel := Relations.save_data()
+	var kept_mail := Mail.save_data()
+	var inv := PlayerState.inventory
+	inv.remove_item(SideStory.ITEM, inv.count_item(SideStory.ITEM))
+	SideStory.testing = true
+	SideStory.test_kind = ""
+	SideStory.load_data({})
+	Relations.load_data({})
+	GameClock.day = 2
+	GameClock.set_time_of_day(12.0)
+	await _seconds(0.8)
+	var nobody := SideStory.goal() == "" and not SideStory.moved_in()
+	GameClock.day = 3
+	GameClock.set_time_of_day(6.5)
+	await _seconds(0.8)
+	nobody = nobody and SideStory.goal() == ""
+	GameClock.set_time_of_day(7.05)
+	await _seconds(0.8)
+	_check(nobody and SideStory.goal() == "meet", "sched20: nobody on day 2 or before 07:00 on day 3; from 07:00 on day 3 the goal to meet Zeynep")
+	SideStory.on_met()
+	await _seconds(0.8)
+	_check(SideStory.met_day == 3 and SideStory.next_errand_day == 4 and Relations.level(SideStory.WHO) == 1 and SideStory.errand.is_empty(),
+			"sched20: met on day 3: a heart, nothing more that day")
+	GameClock.day = 4
+	GameClock.set_time_of_day(7.05)
+	await _seconds(0.8)
+	_check(SideStory.goal() == "gift_buy", "sched20: day 4 at 07:00: Karamel's welcome gift is asked for (%s)" % SideStory.goal())
+	# Two hearts: a favour; three: her call for the pup the next morning.
+	var first := SideStory.GIFT_DAY + 2
+	SideStory.load_data({"met": true, "met_day": 3, "deliveries": 1, "gift_day": 4, "announced": true, "next": first})
+	Relations.load_data({"points": {"zeynep": 2 * Relations.POINTS_PER_LEVEL}})
+	GameClock.day = first
+	GameClock.set_time_of_day(7.05)
+	await _seconds(0.8)
+	var favour := SideStory.errand_kind()
+	SideStory.on_delivered()
+	var call_day := SideStory.next_errand_day
+	GameClock.day = first + 1
+	GameClock.set_time_of_day(7.05)
+	notes.clear()
+	await _seconds(0.8)
+	_check(favour == "milk" and Relations.level(SideStory.WHO) == 3 and call_day == first + 1 and SideStory.goal() == "puppy"
+			and notes.has(tr("MSG_ZEYNEP_PUPPY_CALL")),
+			"sched20: at two hearts a favour (%s); at three her call for Karamel's pup comes the next morning (%s)" % [favour, SideStory.goal()])
+	# The mailbox goal.
+	SideStory.load_data({})
+	Relations.load_data({})
+	Mail.testing = true
+	Mail.load_data({})
+	GameClock.day = Mail.MAILBOX_DAY - 1
+	GameClock.set_time_of_day(12.0)
+	await _seconds(1.3)
+	var early := SideStory.goals.has(Mail._goal)
+	GameClock.day = Mail.MAILBOX_DAY
+	GameClock.set_time_of_day(7.05)
+	await _seconds(1.3)
+	_check(not early and SideStory.goals.has(Mail._goal), "sched20: the mailbox goal comes up on day 5 at 07:00, not on day 4")
+	Mail.testing = false
+	Mail.load_data(kept_mail)
+
+	# --- Autosaves (in this scenario's own folder) ---
+	var kept_dir := SaveGame._dir
+	SaveGame._dir = "user://test_saves/sched20/"
+	DirAccess.make_dir_recursive_absolute(SaveGame._dir)
+	for s: String in SaveGame.SLOTS:
+		SaveGame.delete(s)
+	SaveGame.started = true
+	SaveGame.testing_autosave = true
+	SaveGame.testing_quit = true
+	SaveGame.quits = 0
+	_check(SaveGame.latest() == "" and SaveGame.autosave_enabled() and SaveGame.AUTOSAVE_SECONDS >= 120.0 and SaveGame.AUTOSAVE_SECONDS <= 300.0,
+			"sched20: no saves yet; the game autosaves every few minutes of play (%d s)" % int(SaveGame.AUTOSAVE_SECONDS))
+	# Day 3, the rooster's chapter.
+	GameClock.day = 3
+	GameClock.set_time_of_day(14.0)
+	Quests.step = Quests.index_of("rooster_buy")
+	Quests.step_count = 0
+	Quests.tally = {}
+	Quests.tutorial_changed.emit()
+	await _seconds(1.3)
+	_check(String(Quests.current()["id"]) == "rooster_buy" and SaveGame.autosaves == 0 and not SaveGame._auto_asked,
+			"sched20: the story stands on the rooster's goal (set, not done: no autosave asked for)")
+	# A goal done under a window: saved once the window is shut.
+	SaveGame._since_save = 1000.0
+	var n := SaveGame.autosaves
+	Game.push_ui(&"sched20")
+	Quests.tally[Quests.DONE_MARK % "rooster_buy"] = 1
+	Quests._nudge()
+	await _seconds(SaveGame.AUTOSAVE_GOAL_DELAY + 1.5)
+	var went_on := String(Quests.current()["id"]) == "rooster_in"
+	var waited := SaveGame.autosaves == n and SaveGame._auto_asked and not SaveGame.can_autosave()
+	Game.pop_ui(&"sched20")
+	await _seconds(0.5)
+	var head := SaveGame.info(SaveGame.AUTO)
+	_check(went_on and waited and SaveGame.autosaves == n + 1 and SaveGame.last_autosave == "goal" and int(head.get("day", 0)) == 3,
+			"sched20: a story goal done: the autosave waits while a window is open (%s), then is written (%d, '%s')" % [waited, SaveGame.autosaves - n, SaveGame.last_autosave])
+	# Two more goals done one after the other, right after that save: one save, a little later.
+	n = SaveGame.autosaves
+	for id: String in ["rooster_in", "water3"]:
+		Quests.tally[Quests.DONE_MARK % id] = 1
+	Quests._nudge()
+	await _seconds(SaveGame.AUTOSAVE_GOAL_DELAY + 1.5)
+	var chain_at := String(Quests.current()["id"])
+	var held := SaveGame.autosaves == n and SaveGame._auto_asked
+	SaveGame._since_save = SaveGame.AUTOSAVE_GAP + 1.0
+	await _seconds(0.5)
+	_check(chain_at == "fishing_wait" and held and SaveGame.autosaves == n + 1 and SaveGame.last_autosave == "goal" and not SaveGame._auto_asked,
+			"sched20: goals done in a row (now at '%s') make one save, %d s after the last at the soonest" % [chain_at, int(SaveGame.AUTOSAVE_GAP)])
+	# By the clock: not under the pause menu, not with a pack on the farm, not in a faint.
+	n = SaveGame.autosaves
+	SaveGame._since_save = 1000.0
+	SaveGame._auto_left = 0.4
+	Game.hud.pause_menu.show_screen()
+	await _seconds(1.2)
+	var paused_ok := SaveGame.autosaves == n and SaveGame._auto_left > 0.3
+	Game.hud.pause_menu.hide_screen()
+	var kept_tonight := WolfRaids.tonight
+	WolfRaids.tonight = {"phase": "active"}
+	var raid_ok := SaveGame.can_save() and not SaveGame.can_autosave()
+	WolfRaids.tonight = kept_tonight
+	PlayerState.knocked_out = true
+	var faint_ok := not SaveGame.can_save()
+	PlayerState.knocked_out = false
+	var free := SaveGame.can_autosave()
+	await _seconds(1.0)
+	_check(paused_ok and raid_ok and faint_ok and free and SaveGame.autosaves == n + 1 and SaveGame.last_autosave == "timer"
+			and SaveGame._auto_left > SaveGame.AUTOSAVE_SECONDS - 5.0,
+			"sched20: the clock's autosave: not under the pause menu (%s), with a pack on the farm (%s) or in a faint (%s); once free it is written ('%s')"
+			% [paused_ok, raid_ok, faint_ok, SaveGame.last_autosave])
+	# What an autosave costs the frame it is made in (its picture is scaled and packed on a
+	# thread): the quickest of three.
+	var cost := INF
+	for i in 3:
+		await _idle_frames(4)
+		var t := Time.get_ticks_usec()
+		SaveGame.autosave("timer")
+		cost = minf(cost, (Time.get_ticks_usec() - t) / 1000.0)
+	await _seconds(0.5)
+	var pic_ok := true
+	if DisplayServer.get_name() != "headless":
+		# The picture: the right size, and a picture (not one flat colour).
+		var pic := Image.load_from_file(ProjectSettings.globalize_path(SaveGame.thumb_path(SaveGame.AUTO)))
+		var lo := 1.0
+		var hi := 0.0
+		if pic:
+			for i in 64:
+				var v := pic.get_pixel((i * 53) % pic.get_width(), (i * 31) % pic.get_height()).get_luminance()
+				lo = minf(lo, v)
+				hi = maxf(hi, v)
+			if DebugTools.args.has("sched20-shots"):
+				DirAccess.make_dir_recursive_absolute(String(DebugTools.args["sched20-shots"]))
+				pic.save_png(String(DebugTools.args["sched20-shots"]) + "/autosave_picture.png")
+		pic_ok = pic != null and pic.get_size() == SaveGame.THUMB and hi - lo > 0.05
+	_check(cost < 8.0 and pic_ok, "sched20: an autosave in the middle of play takes %.1f ms of its frame, its picture written behind it" % cost)
+	# The window's close request, the pause menu's quit and its way back to the title.
+	n = SaveGame.autosaves
+	await _sched_close_window()
+	var closed := SaveGame.autosaves == n + 1 and SaveGame.last_autosave == "quit" and SaveGame.quits == 1
+	Game.hud.pause_menu.show_screen()
+	await _idle_frames(3)
+	var quit_button := _sched_button(Game.hud.pause_menu, "UI_QUIT")
+	if quit_button:
+		quit_button.pressed.emit()
+	await _seconds(0.6)
+	var menu_quit := SaveGame.autosaves == n + 2 and SaveGame.last_autosave == "quit" and SaveGame.quits == 2
+	var title_button := _sched_button(Game.hud.pause_menu, "UI_MAIN_MENU")
+	if title_button:
+		title_button.pressed.emit()
+	await _idle_frames(3)
+	var title: TitleScreen = Game.hud.title_screen
+	var to_title := SaveGame.autosaves == n + 3 and SaveGame.last_autosave == "title" and title.visible
+	var back_button := _sched_button(title, "UI_BACK_TO_GAME")
+	if back_button:
+		back_button.pressed.emit()
+	await _seconds(0.8)
+	_check(closed and menu_quit and to_title and back_button != null and not Game.is_ui_open(),
+			"sched20: closing the window saves and quits (%s), so does the pause menu's quit (%s); going to the title saves too (%s)" % [closed, menu_quit, to_title])
+
+	# --- "Continue": the newest save of any slot; a save from the middle of day 3 ---
+	GameClock.day = 2
+	GameClock.set_time_of_day(9.0)
+	var t0 := Time.get_ticks_usec()
+	var older := SaveGame.save("slot_2")
+	var save_ms := (Time.get_ticks_usec() - t0) / 1000.0
+	_check(older, "sched20: an older game (day 2) saved by hand in slot 2 (%.1f ms, its picture packed at once)" % save_ms)
+	await _seconds(0.3)
+	GameClock.day = 3
+	GameClock.set_time_of_day(14.0 + 20.0 / 60.0)
+	Economy.money = 4321
+	Quests.tally["sched20"] = 7
+	SideStory.load_data({"met": true, "met_day": 3, "next": 4, "announced": true})
+	Relations.load_data({"points": {"zeynep": Relations.POINTS_PER_LEVEL}})
+	player.global_position = farm_spot
+	player.velocity = Vector3.ZERO
+	player.look_at_yaw_pitch(1.2, -0.1)
+	await _frames(40)
+	var standing := player.global_position
+	var goal_id := String(Quests.current()["id"])
+	var chapter := Quests.chapter()
+	var minute := GameClock.minute
+	await _sched_close_window()
+	_check(SaveGame.latest() == SaveGame.AUTO and int(SaveGame.info(SaveGame.AUTO).get("day", 0)) == 3 and SaveGame.last_autosave == "quit",
+			"sched20: the window closed in the middle of day 3: the autosave is the newest save (%s)" % SaveGame.latest())
+	# As if the game had been shut and started again: everything is something else.
+	GameClock.day = 9
+	GameClock.set_time_of_day(8.0)
+	Economy.money = 5
+	Quests.step = Quests.TUTORIAL.size()
+	Quests.tally = {}
+	Quests.tutorial_changed.emit()
+	SideStory.load_data({})
+	Relations.load_data({})
+	player.global_position = Vector3(12.0, TerrainData.height(12.0, 26.0) + 0.3, 26.0)
+	player.look_at_yaw_pitch(-2.0, 0.3)
+	SaveGame.started = false
+	title._fill_buttons()
+	await _idle_frames(2)
+	var cont := _sched_button(title, "UI_CONTINUE")
+	_check(cont != null and _sched_button(title, "UI_BACK_TO_GAME") == null, "sched20: on a fresh start the title screen offers \"%s\"" % tr("UI_CONTINUE"))
+	n = SaveGame.autosaves
+	if cont:
+		cont.pressed.emit()
+	await _until_loaded()
+	player = Game.player
+	await _seconds(SaveGame.AUTOSAVE_GOAL_DELAY + 1.0)
+	_check(GameClock.day == 3 and absf(GameClock.minute - minute) < 5.0 and Economy.money == 4321,
+			"sched20: continuing brings back day 3 at %s and the money (day %d, $%d)" % [GameClock.time_string(), GameClock.day, Economy.money])
+	_check(String(Quests.current().get("id", "")) == goal_id and Quests.chapter() == chapter and chapter == Quests.CHAPTERS.find("rooster")
+			and int(Quests.tally.get("sched20", 0)) == 7,
+			"sched20: the story goes on in the same chapter (%d) at the same goal ('%s')" % [Quests.chapter() + 1, String(Quests.current().get("id", ""))])
+	_check(player.global_position.distance_to(standing) < 0.5 and absf(angle_difference(player.rotation.y, 1.2)) < 0.01,
+			"sched20: the player stands where he stood, looking the same way (%.2f m off)" % player.global_position.distance_to(standing))
+	_check(SideStory.met and SideStory.met_day == 3 and SideStory.next_errand_day == 4 and Relations.level(SideStory.WHO) == 1,
+			"sched20: Zeynep, met that morning, is as she was (her gift's errand tomorrow)")
+	_check(SaveGame.started and not Game.is_ui_open() and not Game.hud.title_screen.visible and SaveGame.autosaves == n and not SaveGame._auto_asked,
+			"sched20: the game goes straight on; loading asks for no autosave of its own")
+	await _seconds(0.2)
+	_check(SaveGame.save("slot_1") and SaveGame.latest() == "slot_1", "sched20: a save made by hand after it is the newest: \"continue\" would load that one")
+
+	# --- A save at night with the wolves on the farm ---
+	WolfRaids.testing = true
+	await _raid_indoors(player)
+	await _raid_awake_pack(3, false)
+	var pack := WolfRaids.wolves().size()
+	var phase := String(WolfRaids.tonight.get("phase", ""))
+	n = SaveGame.autosaves
+	SaveGame._since_save = 1000.0
+	SaveGame._auto_left = 0.2
+	await _seconds(0.8)
+	held = SaveGame.autosaves == n
+	var night_minute := GameClock.minute
+	var in_house := player.global_position
+	await _sched_close_window()
+	_check(phase == "active" and pack >= WolfRaids.PACK.x and held and SaveGame.autosaves == n + 1 and SaveGame.last_autosave == "quit",
+			"sched20: at night with the pack on the farm (%d wolves) no autosave by the clock (%s); quitting still saves" % [pack, held])
+	_check(SaveGame.load_game(SaveGame.latest()), "sched20: loading the night's save")
+	await _until_loaded()
+	player = Game.player
+	await _seconds(1.0)
+	var wolves := WolfRaids.wolves()
+	var all_in := wolves.all(func(w: Node3D) -> bool: return w.is_inside_tree())
+	_check(GameClock.day == 3 and absf(GameClock.minute - night_minute) < 5.0 and GameClock.is_night()
+			and player.global_position.distance_to(in_house) < 0.6 and not PlayerState.knocked_out and not Game.is_ui_open(),
+			"sched20: the night is as it was (%s), the player in the house where he stood" % GameClock.time_string())
+	_check(WolfRaids.raid_pending() and wolves.size() == pack and all_in and tree.get_nodes_in_group(&"wolves").size() == pack,
+			"sched20: the raid is still tonight's and the pack comes again, no wolf twice (%d of %d)" % [wolves.size(), pack])
+
+	# Put everything back.
+	WolfRaids.load_data({})
+	WolfRaids.testing = false
+	for s: String in SaveGame.SLOTS:
+		SaveGame.delete(s)
+	SaveGame._dir = kept_dir
+	SaveGame.testing_autosave = false
+	SaveGame.testing_quit = false
+	SideStory.testing = false
+	SideStory.load_data(kept_side)
+	Relations.load_data(kept_rel)
+	Events.notification_requested.disconnect(on_note)
+	GameClock.running = clock_ran
+	await _seconds(0.5)
+
+
+## The window is asked to close (as its close button does): SaveGame saves and, in play,
+## quits (here it only counts: SaveGame.testing_quit).
+func _sched_close_window() -> void:
+	tree.auto_accept_quit = false
+	SaveGame.notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	await _seconds(0.6)
+	tree.auto_accept_quit = true
+
+
+## The button of the menu `root` that says `key` (null: none).
+func _sched_button(root: Node, key: String) -> Button:
+	var text := UiTheme.caps(tr(key))
+	for n: Node in root.find_children("*", "Button", true, false):
+		var b := n as Button
+		if b and b.text == text and not b.is_queued_for_deletion():
+			return b
+	return null
+
+
+
+# --- Round 20: the goal cards ----------------------------------------------------------------
+
+## Round 20's goal cards: (A) a goal short of money says how much more it takes and, under
+## that, how to earn it from what the farmer has (his goods named, never the goal's own
+## materials; the dot where that line says: the pickup at home, the market counter in
+## town; with nothing to sell, what to gather); (B) a building goal shows what it takes
+## against what he has and keeps it up to date (the barn's wood and money, a kit Grandpa
+## pays for, the doghouse's on its side card); (C) the first chick hatched: a note and a
+## quiet side goal, its dot on the chick, E on it opens the naming prompt, done once it is
+## named, once a save; (D) the afternoon before a contest a getting-ready goal with the
+## rod and the bait ticked, its dot at what is missing, still there the next morning,
+## gone when the contest starts. -- --goalshots=<dir> saves three pictures.
+func _scenario_goals20() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var farm: Farm = Game.world.farm
+	var town := tree.get_first_node_in_group(&"town") as Town
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(3)
+	var shots := String(DebugTools.args.get("goalshots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var money_had := Economy.money
+	var bag_had := inv.to_array()
+	var day_had := GameClock.day
+	var minute_had := GameClock.minute
+	var truck: Vehicle = town.farm_truck
+	var bed_had: Dictionary = truck.cargo.to_dict() if truck else {}
+	if truck:
+		truck.cargo.from_dict({"capacity": truck.cargo.capacity, "items": {}})
+	GameClock.day = 2
+	GameClock.set_time_of_day(14.0)
+	Weather.force(Weather.Kind.SUNNY)
+	inv.from_array([])
+	PlayerState.hotbar_unlocked = true
+	var yard := Vector3(-14.0, TerrainData.height(-14.0, -8.0) + 0.3, -8.0)
+	player.global_position = yard
+	player.velocity = Vector3.ZERO
+	await _frames(6)
+	# The field as the checks want it: no bed ripe unless a check ripens one, no egg lying
+	# about, nothing waiting in the bin.
+	var ripe_beds: Array[FarmPlot] = []
+	var a_bed: FarmPlot = null
+	for pl: FarmPlot in tree.get_nodes_in_group(&"farm_plots"):
+		if pl.is_ready():
+			ripe_beds.append(pl)
+			pl.remove_from_group(&"farm_plots")
+		elif a_bed == null and not pl.held_back():
+			a_bed = pl
+	for pk: Pickup in tree.get_nodes_in_group(&"pickups"):
+		if pk.stack != null and pk.stack.item.id == &"egg":
+			pk.free()
+	var bin := FarmState.get_storage(ShippingBin.STORAGE_ID, ShippingBin.SLOTS)
+	var bin_had: Array = bin.to_array()
+	bin.from_array([])
+	var egg_name := ItemDB.get_item(&"egg").display_name()
+	var wood_name := ItemDB.get_item(&"wood").display_name()
+
+	# (A) Broke at the workbench goal: how much more, how to earn it, the dot where that says.
+	var kit := ProjectTable.get_project(&"workbench")
+	var cost := int(kit["cost"])
+	var kit_wood := int((kit["items"] as Dictionary)[&"wood"])
+	await _tut20_goal("bench_kit")
+	Economy.money = 12
+	inv.add_item(&"wood", kit_wood + 6)
+	inv.add_item(&"egg", 3)
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var short := tr("HINT_NEED_MONEY") % UiTheme.money(cost - 12)
+	var home_line := tr("HINT_SELL_GOODS_HOME") % ", ".join([egg_name, wood_name])
+	_check(Quests.goal_hint() == "%s\n%s" % [short, home_line] and Quests.goal_text().contains(short) and Quests.goal_text().contains(home_line)
+			and Game.hud._quest_text.text == Quests.goal_text(),
+			"broke at the workbench goal with eggs and spare wood: the card says how much more and how to earn it ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	_check(home_line.contains(egg_name) and home_line.contains(wood_name) and truck != null
+			and _tut20_flat_distance(Quests.waypoint(), truck.global_position) < 3.0,
+			"the line names his goods, and the dot is on the pickup the line says to take them in")
+	if shots != "":
+		Events.money_changed.emit(Economy.money, 0)
+		player.look_at_yaw_pitch(deg_to_rad(-70.0), deg_to_rad(-4.0))
+		await _shot("%s/goals20_broke.png" % shots)
+	# The kit's own wood is never offered for sale.
+	inv.remove_item(&"wood", 6)
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	_check(Quests.goal_hint() == "%s\n%s" % [short, tr("HINT_SELL_GOODS_HOME") % egg_name] and inv.count_item(&"wood") == kit_wood,
+			"with only the kit's own wood in the bag the line offers the eggs alone ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	# In town the counter pays at once: the line and the dot say so.
+	var counter := town.market_counter.global_position
+	player.global_position = Vector3(counter.x, counter.y - 0.3, counter.z + 1.6)
+	await _frames(6)
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	_check(Quests._near("town") and Quests.goal_hint() == "%s\n%s" % [short, tr("HINT_SELL_GOODS") % egg_name]
+			and _tut20_flat_distance(Quests.waypoint(), counter) < 1.0,
+			"in town the line says the market counter pays at once, and the dot is on the counter ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	player.global_position = yard
+	await _frames(6)
+	# Nothing to sell: what there is to gather, the dot on it.
+	inv.remove_item(&"egg", inv.count_item(&"egg"))
+	var lying := Pickup.spawn(ItemStack.create(&"egg", 1), yard + Vector3(3.0, 0.3, 2.0))
+	await _frames(3)
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	_check(Quests.sellable_names(3, kit["items"]).is_empty() and Quests.goal_hint() == "%s\n%s" % [short, tr("HINT_EARN_EGGS")] and Quests.waypoint() == lying,
+			"nothing to sell and an egg lying about: the line says to collect the eggs, the dot is on the egg ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	lying.free()
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var logs: Variant = Quests._nearest_pickup(&"wood", player.global_position, 30.0)
+	var to_wood: Variant = logs if logs != null else Quests._nearest_tree(player.global_position)
+	_check(Quests.goal_hint() == "%s\n%s" % [short, tr("HINT_EARN_GATHER")] and to_wood != null and str(Quests.waypoint()) == str(to_wood),
+			"nothing to sell and nothing lying about: the line says how to earn (wood, eggs, fish), the dot is on the trees ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	if a_bed != null:
+		var bed_had_data: Dictionary = a_bed.save_data()
+		a_bed.load_data({"soil": FarmPlot.Soil.TILLED, "crop": "wheat", "growth": float(CropTable.get_crop(&"wheat").get("grow_h", 20)), "wet": 4.0})
+		Quests._wp_left = 0.0
+		await _idle_frames(4)
+		_check(a_bed.is_ready() and Quests.goal_hint() == "%s\n%s" % [short, tr("HINT_EARN_HARVEST")]
+				and _tut20_flat_distance(Quests.waypoint(), a_bed.global_position) < 0.5,
+				"with a ripe bed the line says to harvest it first, the dot is on the bed ('%s')" % Quests.goal_hint().replace("\n", " | "))
+		a_bed.load_data(bed_had_data)
+	# Goods waiting in the bin in the evening: paid in the morning, so to bed.
+	bin.add_item(&"egg", 4)
+	GameClock.set_time_of_day(19.0)
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var house := tree.get_first_node_in_group(&"farm_house") as FarmHouse
+	if house == null:
+		house = Quests._house()
+	_check(Quests._bin_value() > 0 and Quests.goal_hint() == "%s\n%s" % [short, tr("HINT_BIN_WAIT") % UiTheme.money(Quests._bin_value())]
+			and house != null and _tut20_flat_distance(Quests.waypoint(), house.door_point()) < 0.5,
+			"in the evening with goods in the bin: the line says they are paid for in the morning, the dot is on the house ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	bin.from_array([])
+	GameClock.set_time_of_day(14.0)
+	# With the money the lines go, and the dot is on the board.
+	Economy.money = cost
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var board_at := Vector2(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z)
+	var wp: Variant = Quests.waypoint()
+	_check(Quests.goal_hint() == "" and wp is Vector3 and Vector2((wp as Vector3).x, (wp as Vector3).z).distance_to(board_at) < 0.5,
+			"with the money (and the wood) the lines go and the dot is on the construction board")
+	# The same for the other goals that cost money: the rooster, a sheep, rope.
+	Economy.money = 0
+	inv.remove_item(&"wood", inv.count_item(&"wood"))
+	inv.add_item(&"egg", 2)
+	var others: Array[String] = []
+	for pair: Array in [["rooster_buy", LiveCrates.price(&"rooster")], ["sheep", LiveCrates.price(&"sheep")], ["rope", 2 * Economy.buy_price(&"rope")]]:
+		await _tut20_goal(String(pair[0]))
+		Quests._wp_left = 0.0
+		await _idle_frames(4)
+		var want := "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(int(pair[1])), tr("HINT_SELL_GOODS_HOME") % egg_name]
+		if Quests.goal_hint() != want or truck == null or _tut20_flat_distance(Quests.waypoint(), truck.global_position) > 3.0:
+			others.append("%s: '%s'" % [pair[0], Quests.goal_hint()])
+	_check(others.is_empty(), "the rooster, a sheep and the rope say the same when broke: how much more, and to sell the eggs (%s)" % str(others))
+	inv.remove_item(&"egg", inv.count_item(&"egg"))
+
+	# (B) The barn goal: wood and money, what he has over what it takes, kept up to date.
+	var barn := ProjectTable.get_project(&"barn_1")
+	var barn_cost := int(barn["cost"])
+	var barn_wood := int((barn["items"] as Dictionary)[&"wood"])
+	var built_had := FarmState.is_built(&"barn_1")
+	_check(not built_had, "the test farm has no barn yet")
+	await _tut20_goal("barn")
+	inv.remove_item(&"wood", inv.count_item(&"wood"))
+	inv.add_item(&"wood", 32)
+	Economy.money = 120
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var money_part := UiTheme.money(barn_cost).replace(UiTheme.number(barn_cost), "%s/%s" % [UiTheme.number(120), UiTheme.number(barn_cost)])
+	var needs := "%s 32/%d · %s" % [wood_name, barn_wood, money_part]
+	_check(Quests.goal_needs() == needs and Quests.goal_text().contains("\n" + needs) and Game.hud._quest_text.text.contains(needs)
+			and Quests.goal_text().find(needs) < Quests.goal_text().find(tr("HINT_NEED_MONEY") % UiTheme.money(barn_cost - 120)),
+			"the barn goal's card says what it takes against what he has ('%s'), over how much money is short" % Quests.goal_text().replace("\n", " | "))
+	# Wood picked up, money earned: the card follows by itself.
+	inv.add_item(&"wood", barn_wood - 32)
+	await _seconds(0.6)
+	var wood_done := "%s %d/%d %s · %s" % [wood_name, barn_wood, barn_wood, Quests.NEED_MET, money_part]
+	var after_wood: String = Game.hud._quest_text.text
+	Economy.money = barn_cost + 30
+	await _seconds(0.6)
+	var all_done := "%s %d/%d %s · %s %s" % [wood_name, barn_wood, barn_wood, Quests.NEED_MET,
+			UiTheme.money(barn_cost).replace(UiTheme.number(barn_cost), "%s/%s" % [UiTheme.number(barn_cost), UiTheme.number(barn_cost)]), Quests.NEED_MET]
+	wp = Quests.waypoint()
+	_check(after_wood.contains(wood_done) and Game.hud._quest_text.text.contains(all_done) and Quests.goal_hint() == ""
+			and wp is Vector3 and Vector2((wp as Vector3).x, (wp as Vector3).z).distance_to(board_at) < 0.5,
+			"it updates as he gathers: '%s', then '%s' with the dot on the board" % [wood_done, all_done])
+	inv.remove_item(&"wood", 18)
+	await _seconds(0.6)
+	Quests._hint = ""
+	var trees_dot: Variant = Quests._target("trees")
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	_check(Quests.goal_hint() == tr("HINT_NEED_ITEM") % ("%s ×%d" % [wood_name, 18]) and str(Quests.waypoint()) == str(trees_dot)
+			and Quests.goal_needs().begins_with("%s %d/%d · " % [wood_name, barn_wood - 18, barn_wood]),
+			"short of wood only: the card counts it ('%s'), the line says what is missing and the dot is on the trees" % Quests.goal_needs())
+	# The other building goals: the workbench kit, the bigger house (stone too), and a
+	# coop kit Grandpa pays for asks for its wood alone.
+	await _tut20_goal("bench_kit")
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var bench_needs := Quests.goal_needs()
+	await _tut20_goal("house")
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var house_needs := Quests.goal_needs()
+	await _tut20_goal("coop_kit")
+	Economy.money = 5
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var gift_needs := Quests.goal_needs()
+	Economy.money = 500
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var coop_needs := Quests.goal_needs()
+	await _tut20_goal("coop_wood")
+	Quests._wp_left = 0.0
+	await _idle_frames(4)
+	var stone_name := ItemDB.get_item(&"stone").display_name()
+	_check(bench_needs.begins_with("%s %d/%d %s · " % [wood_name, kit_wood, kit_wood, Quests.NEED_MET]) and house_needs.contains(stone_name + " 0/")
+			and house_needs.contains(wood_name) and Quests.coop_kit_is_gift() == false and gift_needs == "%s 15/15 %s" % [wood_name, Quests.NEED_MET]
+			and coop_needs.begins_with(gift_needs + " · ") and coop_needs.ends_with(Quests.NEED_MET) and Quests.goal_needs() == "",
+			"the workbench kit ('%s'), the bigger house ('%s') and the coop kit ('%s'; Grandpa's gift: '%s') show theirs; the wood goal counts its own"
+			% [bench_needs, house_needs, coop_needs, gift_needs])
+	# The doghouse on its side card (and how to earn its price when broke).
+	Pet.load_data({})
+	Pet.goals.testing = true
+	Pet.adopt("Fındık")
+	await _seconds(0.8)
+	Quests.skip_tutorial()
+	inv.remove_item(&"wood", inv.count_item(&"wood"))
+	inv.add_item(&"wood", 3)
+	inv.add_item(&"egg", 2)
+	Economy.money = 50
+	Pet.goals.update()
+	var dog_card := Pet.goals.goal()
+	var house_kit := ProjectTable.get_project(&"doghouse")
+	var dog_needs: String = dog_card.needs if dog_card else ""
+	var dog_label: Label = (Game.hud._goal_cards.get(dog_card, {}) as Dictionary).get("needs")
+	_check(Pet.goals.is_up(&"kennel") and dog_needs == Quests.needs_text(house_kit["items"], int(house_kit["cost"]))
+			and dog_needs.begins_with("%s 3/8 · " % wood_name) and dog_needs.ends_with(Quests.NEED_MET) and dog_card.hint == tr("DOG_HINT_KENNEL_BOARD")
+			and dog_label != null and dog_label.visible and dog_label.text == dog_needs,
+			"the doghouse goal's side card shows what the kit takes ('%s')" % dog_needs)
+	Economy.money = 0
+	Pet.goals.update()
+	_check(dog_card.hint == "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(int(house_kit["cost"])), tr("HINT_SELL_GOODS_HOME") % egg_name]
+			and truck != null and _tut20_flat_distance(dog_card.point, truck.global_position) < 3.0,
+			"broke, its hint says how much more and to sell the eggs, its dot on the pickup ('%s')" % dog_card.hint.replace("\n", " | "))
+	Pet.goals.testing = false
+	Pet.load_data({})
+	inv.from_array([])
+	Economy.money = 100
+	await _frames(3)
+
+	# (C) The first chick: a note and a quiet side goal, E names it, once a save.
+	Animals.chick_goal_in_tests = true
+	FarmState.flags.erase(Animals.FIRST_CHICK_FLAG)
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built(), "a test coop stands")
+	if coop == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	var h := coop.housing
+	var hen := Animals.release(&"chicken", h)
+	await _frames(4)
+	player.global_position = h.door_outside() + h.front() * 3.0 + Vector3(0, 0.3, 0)
+	await _frames(4)
+	notes.clear()
+	var nest_floor := h.door_inside()
+	nest_floor.y = h.ground_height(nest_floor) + 0.03
+	var chick_data := Animals.hatch(h, nest_floor, hen)
+	var chick := Animals.node_of(chick_data)
+	await _seconds(0.8)
+	var cg := Animals.chick_goal()
+	var chick_card: Dictionary = Game.hud._goal_cards.get(cg, {})
+	_check(chick != null and int(FarmState.flags.get(Animals.FIRST_CHICK_FLAG, 0)) == chick_data.id and notes.has(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CHICK"))
+			and cg != null and SideStory.goals.has(cg) and cg.quiet and cg.text == tr("SIDE_GOAL_CHICK") and cg.hint == tr("SIDE_HINT_CHICK")
+			and cg.guide_point() == chick and not chick_card.is_empty(),
+			"the farm's first chick hatches: a note and a quiet side goal ('%s'), its dot on the chick" % (cg.text if cg else ""))
+	_check(not chick.visible and chick.interact_prompt(player) != tr("ACTION_NAME_ANIMAL"), "still in its shell it can't be named yet")
+	chick.emerge()
+	await _seconds(Animal.HATCH_WOBBLE + Animal.HATCH_HOP + 0.6)
+	_check(chick.visible and Animals.wants_name(chick_data) and chick.interact_prompt(player) == tr("ACTION_NAME_ANIMAL"),
+			"out of its shell, E on it offers to name it ('%s')" % chick.interact_prompt(player))
+	var xp0 := Progress.xp
+	chick.interact(player)
+	await _idle_frames(5)
+	var prompt := Animals.naming_screen()
+	var ideas := tr("ANIMAL_NAME_IDEAS_CHICK").split("|", false)
+	_check(Animals.naming() == chick_data and prompt != null and prompt.visible and Game.top_ui() == &"pet_name" and prompt.edit.text == ideas[0]
+			and ideas.size() >= 4 and tr("ANIMAL_NAME_TITLE_CHICK") != "ANIMAL_NAME_TITLE_CHICK",
+			"E opens the naming prompt with a little one's names ('%s' first, of %s)" % [prompt.edit.text if prompt else "", str(ideas)])
+	if prompt:
+		prompt.edit.text = "Limon"
+		prompt.confirm()
+	await _idle_frames(5)
+	await _seconds(0.7)
+	_check(chick_data.name == "Limon" and not SideStory.goals.has(cg) and int(FarmState.flags.get(Animals.FIRST_CHICK_FLAG, -1)) == 0
+			and notes.has(tr("MSG_CHICK_NAMED") % "Limon") and Progress.xp >= xp0 + Animals.CHICK_GOAL_XP
+			and not Animals.wants_name(chick_data) and chick.interact_prompt(player) == tr("ACTION_PET"),
+			"named: the chick is Limon, the side goal is done with its note, and E pets it like the others")
+	# Once a save: the next chick comes with the usual note, and the flag is saved.
+	notes.clear()
+	var second := Animals.hatch(h, nest_floor, hen)
+	await _seconds(0.8)
+	_check(second != null and not SideStory.goals.has(cg) and not Animals.wants_name(second)
+			and notes.has(tr("MSG_CHICK_HATCHED") % [second.name, hen.name]) and (FarmState.save_data()["flags"] as Dictionary).has(Animals.FIRST_CHICK_FLAG),
+			"the next chick brings no goal (its usual note), and the save remembers the first was named")
+	# A first chick gone before it was named ends the goal without a word.
+	FarmState.flags[Animals.FIRST_CHICK_FLAG] = second.id
+	await _seconds(0.8)
+	var back_up: bool = SideStory.goals.has(cg) and cg.guide_point() == Animals.node_of(second)
+	Animals.sell(second)
+	await _seconds(0.8)
+	_check(back_up and not SideStory.goals.has(cg) and int(FarmState.flags[Animals.FIRST_CHICK_FLAG]) == 0,
+			"a chick gone before it had its name takes the goal with it")
+
+	# (D) The afternoon before the first contest: get ready (a rod, bait), until it starts.
+	FishingContest.testing = true
+	FishingContest.prep_testing = true
+	FishingContest.load_data({})
+	var eve := FishingContest.FIRST_DAY - 1
+	var bench_entry := FarmState.add_placed(&"workbench", Vector3(-19.5, TerrainData.height(-19.5, -6.0), -6.0), 0.0)
+	var bench := farm.spawn_placed(bench_entry) as Workbench
+	player.global_position = yard
+	GameClock.day = eve
+	GameClock.minute = 12.0 * 60.0
+	await _seconds(1.2)
+	var early: bool = FishingContest.prep_up()
+	GameClock.minute = float(FishingContest.PREP_MINUTE) + 5.0
+	notes.clear()
+	await _seconds(1.2)
+	var pg := FishingContest.prep_goal()
+	var rod_name := tr("CONTEST_PREP_ROD")
+	var bait_name := tr("CONTEST_PREP_BAIT")
+	var prep_label: Label = (Game.hud._goal_cards.get(pg, {}) as Dictionary).get("needs")
+	_check(not early and FishingContest.prep_up() and not FishingContest.goal_up() and pg.text == tr("SIDE_GOAL_CONTEST_PREP") and not pg.quiet
+			and notes.has(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CONTEST_PREP")) and pg.needs == "%s 0/1 · %s 0/%d" % [rod_name, bait_name, FishingContest.PREP_BAIT]
+			and prep_label != null and prep_label.visible and prep_label.text == pg.needs,
+			"the day before the first contest, from 13:00: 'get ready' comes up (prominent) with what it takes ('%s')" % pg.needs)
+	_check(bench != null and pg.hint == tr("SIDE_HINT_PREP_ROD") and pg.guide_point() is Vector3
+			and (pg.guide_point() as Vector3).distance_to(bench.top_point()) < 0.1,
+			"no rod: the hint says to make one at the workbench, and the dot is on the bench ('%s')" % pg.hint)
+	inv.add_item(&"cane_rod", 1)
+	await _seconds(0.8)
+	_check(pg.needs == "%s 1/1 %s · %s 0/%d" % [rod_name, Quests.NEED_MET, bait_name, FishingContest.PREP_BAIT] and pg.hint == tr("SIDE_HINT_PREP_BAIT")
+			and _tut20_flat_distance(pg.guide_point(), counter) < 1.0,
+			"a rod of any kind is ticked ('%s'); short of bait the hint and the dot say the market" % pg.needs)
+	Economy.money = 0
+	inv.add_item(&"egg", 2)
+	await _seconds(0.8)
+	_check(pg.hint == "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(FishingContest.PREP_BAIT * Economy.buy_price(&"worm")), tr("HINT_SELL_GOODS_HOME") % egg_name]
+			and truck != null and _tut20_flat_distance(pg.guide_point(), truck.global_position) < 3.0,
+			"broke: how much the bait takes and how to earn it ('%s')" % pg.hint.replace("\n", " | "))
+	inv.remove_item(&"egg", inv.count_item(&"egg"))
+	Economy.money = 100
+	inv.add_item(&"worm", 2)
+	await _seconds(0.8)
+	var two: String = pg.needs
+	# The next morning it is still there (the contest's own goal beside it), until 09:00.
+	GameClock.day = FishingContest.FIRST_DAY
+	GameClock.minute = 7.0 * 60.0
+	await _seconds(1.2)
+	_check(two == "%s 1/1 %s · %s 2/%d" % [rod_name, Quests.NEED_MET, bait_name, FishingContest.PREP_BAIT] and FishingContest.prep_up() and pg.needs == two
+			and FishingContest.goal_up(), "two worms bought ('%s'); the contest's morning: it is still up, beside 'join the fishing contest'" % two)
+	GameClock.minute = float(FishingContest.START_MINUTE) + 2.0
+	await _seconds(1.2)
+	_check(not FishingContest.prep_up() and FishingContest.goal_up() and FishingContest.is_on(), "the contest starts: 'get ready' goes, 'join the fishing contest' takes over")
+	# With everything in hand the day before: a done line for the rest of that day, gone in the morning.
+	GameClock.day = eve
+	GameClock.minute = 14.0 * 60.0
+	await _seconds(1.2)
+	notes.clear()
+	inv.add_item(&"worm", 3)
+	await _seconds(0.8)
+	var done_note := tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_CONTEST_PREP")
+	_check(FishingContest.prep_up() and pg.needs == "%s 1/1 %s · %s %d/%d %s" % [rod_name, Quests.NEED_MET, bait_name, FishingContest.PREP_BAIT, FishingContest.PREP_BAIT, Quests.NEED_MET]
+			and pg.hint == tr("SIDE_HINT_PREP_READY") % "09:00" and pg.guide_point() == null and notes.count(done_note) == 1,
+			"the rod and five bait in hand: both ticked, 'you're all set' and its note, no dot ('%s')" % pg.needs)
+	await _seconds(1.2)
+	var told_once: bool = notes.count(done_note) == 1
+	GameClock.day = FishingContest.FIRST_DAY
+	GameClock.minute = 7.0 * 60.0
+	await _seconds(1.2)
+	_check(told_once and not FishingContest.prep_up() and FishingContest.goal_up(), "told once; on the contest's morning, all set, only 'join the fishing contest' is up")
+	# A later contest's is quiet; none in runs that don't ask for it.
+	FishingContest.result_day = FishingContest.FIRST_DAY
+	FishingContest.goal_day = 0
+	inv.remove_item(&"worm", inv.count_item(&"worm"))
+	GameClock.day = FishingContest.FIRST_DAY + FishingContest.EVERY_DAYS - 1
+	GameClock.minute = 15.0 * 60.0
+	await _seconds(1.2)
+	var later_quiet: bool = FishingContest.prep_up() and pg.quiet and pg.needs.ends_with("0/%d" % FishingContest.PREP_BAIT)
+	FishingContest.prep_testing = false
+	await _seconds(1.0)
+	_check(later_quiet and not FishingContest.prep_up(), "a later contest's 'get ready' is quiet; none once the run doesn't ask for it")
+
+	# The pictures: the barn goal's card over the contest's and the first chick's, and the prompt.
+	if shots != "":
+		FishingContest.prep_testing = true
+		FishingContest.load_data({})
+		GameClock.day = eve
+		GameClock.set_time_of_day(14.0)
+		inv.add_item(&"worm", 2)
+		inv.add_item(&"wood", 32)
+		Economy.money = 120
+		Events.money_changed.emit(Economy.money, 0)
+		Quests.step = Quests.index_of("barn")
+		Quests.step_count = 0
+		Quests._wp_left = 0.0
+		Quests.tutorial_changed.emit()
+		var third := Animals.hatch(h, nest_floor, hen)
+		FarmState.flags[Animals.FIRST_CHICK_FLAG] = third.id
+		Animals.node_of(third).emerge()
+		player.global_position = h.door_outside() + h.front() * 5.0 + Vector3(0, 0.3, 0)
+		_look_at(player, h.door_outside() + Vector3(0, 0.8, 0))
+		await _seconds(Animal.HATCH_WOBBLE + Animal.HATCH_HOP + 1.0)
+		await _shot("%s/goals20_cards.png" % shots)
+		Animals.node_of(third).interact(player)
+		await _idle_frames(5)
+		await _shot("%s/goals20_name.png" % shots)
+		if Animals.naming_screen():
+			Animals.naming_screen().confirm()
+		await _idle_frames(5)
+		FishingContest.prep_testing = false
+
+	# Tidy up.
+	await _close_screens()
+	FishingContest.testing = false
+	FishingContest.load_data({})
+	Animals.chick_goal_in_tests = false
+	FarmState.flags.erase(Animals.FIRST_CHICK_FLAG)
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	for c in coop.get_children():
+		if c is HatchingEgg:
+			c.queue_free()
+	FarmState.remove_placed(coop.entry)
+	coop.queue_free()
+	FarmState.remove_placed(bench_entry)
+	if bench:
+		bench.queue_free()
+	for pl: FarmPlot in ripe_beds:
+		pl.add_to_group(&"farm_plots")
+	bin.from_array(bin_had)
+	Quests.skip_tutorial()
+	inv.from_array(bag_had)
+	if truck:
+		truck.cargo.from_dict(bed_had)
+	Economy.money = money_had
+	Events.money_changed.emit(Economy.money, 0)
+	GameClock.day = day_had
+	GameClock.minute = minute_had
+	Weather.forced = -1
+	player.global_position = yard
+	Events.notification_requested.disconnect(on_note)
+	await _frames(4)
+
+
+# --- Round 20: the tutorial's pace -----------------------------------------------------------
+
+## Real minutes the story's paced days last at the day length set (Settings): the first
+## day from its 13:00 start to sundown (19:15) and to nightfall (20:00), the first egg's
+## wait after the hens go in, and the second day's work from 06:00 to sundown.
+func _story_minutes() -> Dictionary:
+	var per_second := Settings.game_minutes_per_second()
+	var to_sundown := 0.0
+	var to_night := 0.0
+	var m := float(GameClock.FIRST_DAY_START_MINUTE)
+	while m < 20.0 * 60.0:
+		var real := 1.0 / (per_second * Quests.pace_for(m / 60.0)) / 60.0
+		to_night += real
+		if m < 19.25 * 60.0:
+			to_sundown += real
+		m += 1.0
+	return {"sundown": to_sundown, "night": to_night,
+		"egg": ChickenCoop.FIRST_EGG_MINUTES / (per_second * Quests.pace_for(13.0)) / 60.0,
+		"day_two": (19.25 - 6.0) * 60.0 / (per_second * Quests.second_day_pace()) / 60.0}
+
+
+## Metres on the ground from `from` to where a dot points (a Vector3 or a Node3D; INF for
+## none).
+func _tut20_flat_distance(dot: Variant, from: Vector3) -> float:
+	var at := Vector3.INF
+	if dot is Vector3:
+		at = dot
+	elif dot is Node3D and is_instance_valid(dot):
+		at = (dot as Node3D).global_position
+	if not at.is_finite():
+		return INF
+	return Vector2(at.x - from.x, at.z - from.z).length()
+
+
+## The story at goal `id`, its count and tally cleared, the dot and the checks fresh.
+func _tut20_goal(id: String) -> void:
+	Quests.step = Quests.index_of(id)
+	Quests.step_count = 0
+	Quests.tally = {}
+	Quests._hint = ""
+	Quests._wp_left = 0.0
+	Quests._poll = 5.0
+	Quests.tutorial_changed.emit()
+	await _idle_frames(3)
+
+
+## The chores' cards after a look (FarmChores.update), in their order.
+func _tut20_chores() -> Array[StringName]:
+	Quests.chores.update()
+	return Quests.chores.shown()
+
+
+## Round 20's story fixes: the story's first coop and workbench go up in ten seconds (the
+## note and the board say so), later ones in a minute; a day is 10 minutes long (8 or 12
+## in the settings, older values snap) and the story's paced days keep their real length
+## at each; the walk has two spots near the house, with stone and berries at the second
+## (old saves don't stall); broke at the seeds goal the line names what he can sell and
+## where, and with nothing to sell the grocer gives the first seeds, once; a goal that
+## waits for the morning lets him sleep at noon and brings the farm chores (three at a
+## time, each done by its own mechanic). -- --tutshots=<dir> saves three pictures.
+func _scenario_tut20() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var farm: Farm = Game.world.farm
+	var town := tree.get_first_node_in_group(&"town") as Town
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(3)
+	var shots := String(DebugTools.args.get("tutshots", ""))
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var money_had := Economy.money
+	var length_had := Settings.day_length_minutes
+	GameClock.day = 1
+	GameClock.set_time_of_day(14.0)
+	Weather.force(Weather.Kind.SUNNY)
+
+	# (1) Ten seconds for the story's first coop and workbench, a minute for later ones.
+	_check(Quests.tutorial_done() and is_equal_approx(Quests.build_seconds(&"coop_kit"), PlaceableTable.BUILD_SECONDS)
+			and is_equal_approx(Quests.build_seconds(&"workbench"), 60.0) and is_equal_approx(PlaceableTable.TUTORIAL_BUILD_SECONDS, 10.0),
+			"off the story a coop and a workbench take their minute")
+	_check(not FarmState.coop_started() and Quests._placed_count(&"workbench") == 0, "the test farm has no coop and no workbench yet")
+	await _tut20_goal("coop_kit")
+	var board: BuildScreen = Game.hud.build_screen
+	_check(is_equal_approx(Quests.build_seconds(&"coop_kit"), 10.0) and is_equal_approx(Quests.build_seconds(&"workbench"), 10.0)
+			and board.build_time_text(&"coop_kit") == tr("BUILD_TIME_SEC") % 10 and board.build_time_text(&"workbench") == tr("BUILD_TIME_SEC") % 10,
+			"with the coop's goal up the story's first coop and workbench take 10 seconds, and the board says so ('%s')" % board.build_time_text(&"coop_kit"))
+	inv.add_item(&"coop_kit", 1)
+	await _aim_plot(player, COOP_SPOT, &"coop_kit")
+	notes.clear()
+	var put_down := player.placer.active and player.placer.valid and player.placer.place()
+	await _frames(3)
+	var coop: ChickenCoop = farm.kit_coops().back() if put_down and not farm.kit_coops().is_empty() else null
+	_check(coop != null and not coop.is_built() and absf(coop.seconds_left() - 10.0) < 1.0 and is_equal_approx(coop.build_seconds(), 10.0)
+			and notes.has(tr("MSG_CONSTRUCTION_STARTED_SEC") % [tr("HOUSING_COOP"), 10]),
+			"the story's first coop put down: a site with 10 seconds on its sign, and the note says seconds (%s)" % str(notes))
+	if coop == null:
+		inv.remove_item(&"coop_kit", inv.count_item(&"coop_kit"))
+		Quests.skip_tutorial()
+		Events.notification_requested.disconnect(on_note)
+		return
+	for i in 20:
+		if Quests.current()["id"] == "coop_built":
+			break
+		Quests._poll = 0.0
+		await _idle_frames(2)
+	_check(Quests.current()["id"] == "coop_built" and Quests.goal_text().contains(ConstructionSite.clock_text(coop.seconds_left())),
+			"the goal waits for it with its clock ('%s')" % Quests.goal_text().replace("\n", " | "))
+	coop.entry["build_left"] = 5.0
+	_check(absf(coop.progress() - 0.5) < 0.02 and is_equal_approx(Quests.build_seconds(&"coop_kit"), 60.0)
+			and board.build_time_text(&"coop_kit") == tr("BUILD_TIME_MIN") % 1,
+			"half its ten seconds gone it is half built; a second coop would take the usual minute ('%s')" % board.build_time_text(&"coop_kit"))
+	var waited := 0.0
+	while not coop.is_built() and waited < 9.0:
+		await _seconds(0.5)
+		waited += 0.5
+	_check(coop.is_built() and waited <= 6.5, "it stands after the rest of its ten seconds (%.1f s for the last 5)" % waited)
+	# A site saved before the round (no time of its own) keeps the usual minute.
+	var old_total: Variant = coop.entry.get("build_total")
+	coop.entry.erase("build_total")
+	_check(is_equal_approx(coop.build_seconds(), 60.0), "a site from an older save keeps the usual minute")
+	coop.entry["build_total"] = old_total
+	# The workbench: the story's first in ten seconds, the next in a minute, as later in the story.
+	await _tut20_goal("bench_place")
+	var first_bench := Quests.build_seconds(&"workbench")
+	var bench_entry := FarmState.add_placed(&"workbench", Vector3(-19.5, TerrainData.height(-19.5, -6.0), -6.0), 0.0)
+	var second_bench := Quests.build_seconds(&"workbench")
+	FarmState.remove_placed(bench_entry)
+	await _tut20_goal("rooster_buy")
+	_check(is_equal_approx(first_bench, 10.0) and is_equal_approx(second_bench, 60.0) and is_equal_approx(Quests.build_seconds(&"workbench"), 60.0)
+			and is_equal_approx(Quests.build_seconds(&"coop_kit"), 60.0),
+			"the story's first workbench takes 10 seconds, a second one and any after its goals the minute")
+	var texts_ok := true
+	for lang: String in ["en", "tr"]:
+		var t := TranslationServer.get_translation_object(lang)
+		for key: String in ["DESC_WORKBENCH", "PROJECT_WORKBENCH_DESC"]:
+			var text := String(t.get_message(key)).to_lower()
+			texts_ok = texts_ok and text != "" and not text.contains("minute") and not text.contains("dakika")
+	_check(texts_ok, "the workbench's descriptions no longer promise a minute")
+
+	# (2) A day is 10 minutes by default, 8 or 12 in the settings; the story's days keep
+	# their real length at each.
+	_check(is_equal_approx(Settings.DEFAULT_DAY_LENGTH, 10.0) and Settings.DAY_LENGTHS == [8.0, 10.0, 12.0],
+			"a day is 10 real minutes by default, with 8 and 12 on offer")
+	_check(is_equal_approx(Settings.snap_day_length(15.0), 12.0) and is_equal_approx(Settings.snap_day_length(5.0), 8.0)
+			and is_equal_approx(Settings.snap_day_length(40.0), 12.0) and is_equal_approx(Settings.snap_day_length(9.2), 10.0)
+			and is_equal_approx(Settings.snap_day_length(10.0), 10.0), "any other length snaps to the nearest (15 -> 12, 5 -> 8)")
+	var cfg_path := "user://tut20_settings.cfg"
+	var cfg := ConfigFile.new()
+	cfg.set_value("general", "day_length_minutes", 15.0)
+	cfg.save(cfg_path)
+	Settings.load_settings(cfg_path)
+	var loaded := Settings.day_length_minutes
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(cfg_path))
+	_check(is_equal_approx(loaded, 12.0), "the old default saved in a settings file (15) loads as 12 (%.0f)" % loaded)
+	Settings.day_length_minutes = Settings.DEFAULT_DAY_LENGTH
+	_check(is_equal_approx(Settings.game_minutes_per_second(), 2.0) and is_equal_approx(Quests.pace_for(13.0), Quests.FIRST_DAY_PACE)
+			and is_equal_approx(Quests.pace_for(18.0), Quests.LINGER_PACE) and is_equal_approx(Quests.second_day_pace(), Quests.SECOND_DAY_PACE)
+			and absf(Quests.FIRST_DAY_PACE - 0.0933) < 0.001 and absf(Quests.LINGER_PACE - 0.0733) < 0.001 and absf(Quests.SECOND_DAY_PACE - 0.2667) < 0.001,
+			"at 10 minutes a day (2 game minutes a second) the story's clock runs at %.3f, lingers at %.3f, the second day at %.3f"
+			% [Quests.FIRST_DAY_PACE, Quests.LINGER_PACE, Quests.SECOND_DAY_PACE])
+	var base: Dictionary = _story_minutes()
+	# What it was at the old 15-minute day (80 game minutes a real minute at 0.14 and 0.11, 0.4 on day two).
+	var old_sundown := 240.0 / (80.0 * 0.14) + 135.0 / (80.0 * 0.11)
+	var old_day_two := 795.0 / (80.0 * 0.4)
+	_check(absf(float(base["sundown"]) - old_sundown) < 0.3 and absf(float(base["day_two"]) - old_day_two) < 0.3,
+			"the story's days last what they did: %.1f real minutes of daylight on day one (was %.1f), %.1f on day two (was %.1f)"
+			% [float(base["sundown"]), old_sundown, float(base["day_two"]), old_day_two])
+	for length: float in Settings.DAY_LENGTHS:
+		Settings.day_length_minutes = length
+		var real: Dictionary = _story_minutes()
+		var sundown := float(real["sundown"])
+		var night := float(real["night"])
+		var day_two := float(real["day_two"])
+		_check(sundown > TUT20_SUNDOWN.x and sundown < TUT20_SUNDOWN.y and night > TUT20_NIGHT.x and night < TUT20_NIGHT.y
+				and day_two > TUT20_DAY_TWO.x and day_two < TUT20_DAY_TWO.y and absf(sundown - float(base["sundown"])) < 0.1
+				and float(real["egg"]) < 1.0 and Quests.pace_for(13.0) < 1.0 and Quests.second_day_pace() < 1.0,
+				"a %d-minute day: %.1f real minutes to day one's sundown, %.1f to nightfall, %.1f for day two's work (the egg after %.1f)"
+				% [int(length), sundown, night, day_two, float(real["egg"])])
+	Settings.day_length_minutes = Settings.DEFAULT_DAY_LENGTH
+	# The settings page offers the three lengths.
+	Game.hud.open_settings()
+	Game.hud.settings_screen._select("general")
+	await _idle_frames(3)
+	var picker := Game.hud.settings_screen.find_child("DayLength", true, false) as OptionSelector
+	_check(picker != null and picker.options.size() == 3 and picker.index == 1 and String(picker.options[0]) == tr("SETTINGS_MINUTES") % 8
+			and String(picker.options[2]) == tr("SETTINGS_MINUTES") % 12, "the settings offer 8, 10 and 12 minutes, 10 picked")
+	if shots != "":
+		await _shot("%s/tut20_settings.png" % shots)
+	if picker:
+		picker._step(1)
+		var longer := Settings.day_length_minutes
+		picker._step(1)
+		var shorter := Settings.day_length_minutes
+		_check(is_equal_approx(longer, 12.0) and is_equal_approx(shorter, 8.0), "stepping it sets 12, then 8 minutes")
+	Settings.day_length_minutes = length_had
+	Game.hud.settings_screen.hide_screen()
+	await _close_screens()
+
+	# (3) The walk: two spots near the house, none of the far ones; stone and berries at hand.
+	var door := Vector2(WorldLayout.HOUSE_DOOR_X, WorldLayout.HOUSE_FRONT_Z)
+	var spots: Array = Quests.EXPLORE_SPOTS.keys()
+	var near_ok := true
+	for id: String in spots:
+		var at: Vector2 = Quests.EXPLORE_SPOTS[id]["at"]
+		near_ok = near_ok and at.distance_to(door) <= Quests.EXPLORE_NEAR and not WorldLayout.BARN_PEN.grow(25.0).has_point(at)
+		near_ok = near_ok and not WorldLayout.QUARRY_RECT.grow(8.0).has_point(at)
+	_check(spots == ["pond", "woods"] and int(Quests.TUTORIAL[Quests.index_of("explore")]["count"]) == 2 and near_ok,
+			"the walk has two spots, both within %.0f m of the house door, neither at the old pasture and barn nor at the quarry" % Quests.EXPLORE_NEAR)
+	var woods: Vector2 = Quests.EXPLORE_SPOTS["woods"]["at"]
+	var rocks_by := 0
+	for r: BreakableRock in tree.get_nodes_in_group(&"rocks"):
+		if not r.broken and Vector2(r.global_position.x, r.global_position.z).distance_to(woods) < 12.0:
+			rocks_by += 1
+	var bushes_by := 0
+	for bb: BerryBush in tree.get_nodes_in_group(&"berry_bushes"):
+		if Vector2(bb.global_position.x, bb.global_position.z).distance_to(woods) < 12.0:
+			bushes_by += 1
+	_check(rocks_by >= 2 and bushes_by >= 2 and int(Quests.TUTORIAL[Quests.index_of("stones")]["count"]) == 4
+			and int(Quests.TUTORIAL[Quests.index_of("berries")]["count"]) == 4,
+			"at the forest's edge %d rocks and %d berry bushes stand within a few steps: the four stones and four berries are at hand" % [rocks_by, bushes_by])
+	await _tut20_goal("stones")
+	player.global_position = Vector3(woods.x, TerrainData.height(woods.x, woods.y + 6.0) + 0.4, woods.y + 6.0)
+	await _frames(4)
+	Quests._hint = ""
+	var rock_far := _tut20_flat_distance(Quests._target("rocks"), player.global_position)
+	Quests._hint = ""
+	var bush_far := _tut20_flat_distance(Quests._target("berries"), player.global_position)
+	_check(rock_far < 15.0 and bush_far < 15.0, "from there the stone's dot is %.0f m away and the berries' %.0f m" % [rock_far, bush_far])
+	if shots != "":
+		GameClock.set_time_of_day(16.5)
+		var back := Vector3(woods.x + 3.0, TerrainData.height(woods.x + 3.0, woods.y + 14.0) + 0.4, woods.y + 14.0)
+		player.global_position = back
+		await _tut20_goal("explore")
+		Quests.tally = {"visit:": 1, "visit:pond": 1}
+		Quests.step_count = 1
+		Quests._wp_left = 0.0
+		_look_at(player, Quests.spot_point("woods") + Vector3(0, -2.4, 0))
+		await _shot("%s/tut20_woods.png" % shots)
+		GameClock.set_time_of_day(14.0)
+	# Old saves mid-walk: one of the far spots reached, then the pond: the walk is done.
+	var orders := Quests.orders.duplicate(true)
+	Quests.load_data({"chain": Quests.CHAIN, "id": "explore", "count": 1, "orders": orders, "tally": {"visit:": 1, "visit:pasture": 1}})
+	var left := Quests.spots_left()
+	Quests.reach_spot("pond")
+	_check(left == ["pond", "woods"] and Quests.passed("explore"),
+			"a save with one of the old far spots reached goes on with the near ones, and one more ends the walk (now '%s')" % Quests.current().get("id", "-"))
+	Quests.load_data({"chain": Quests.CHAIN, "id": "stones", "count": 4, "orders": orders, "tally": {"picked:": 4, "picked:stone": 4}})
+	Quests._poll = 0.0
+	await _idle_frames(3)
+	_check(Quests.passed("stones"), "a save with four of the old five stones gathered has its stone (now '%s')" % Quests.current().get("id", "-"))
+
+	# (4) The seeds: what sells is told; broke, the line names his goods; with none, the grocer's gift.
+	var teach := true
+	for pair: Array in [["en", ["eggs", "wood", "stone", "berries", "fish", "next morning"]], ["tr", ["yumurta", "odun", "taş", "balık", "ertesi sabah"]]]:
+		var t := TranslationServer.get_translation_object(String(pair[0]))
+		for word: String in pair[1]:
+			teach = teach and String(t.get_message("CHAPTER_MARKET_NOTE")).to_lower().contains(word)
+			teach = teach and String(t.get_message("HINT_WHAT_SELLS")).to_lower().contains(word)
+	_check(teach, "Grandpa's market note and the line under the selling goal say what sells and where (the market at once, the bin next morning)")
+	var bag_had := inv.to_array()
+	var truck: Vehicle = town.farm_truck
+	var bed_had: Dictionary = truck.cargo.to_dict() if truck else {}
+	if truck:
+		truck.cargo.from_dict({"capacity": truck.cargo.capacity, "items": {}})
+	inv.from_array([])
+	PlayerState.hotbar_unlocked = true
+	inv.add_item(&"hoe", 1)
+	FarmState.flags.erase(Quests.SEED_GIFT_FLAG)
+	var yard := Vector3(-14.0, TerrainData.height(-14.0, -8.0) + 0.3, -8.0)
+	player.global_position = yard
+	await _tut20_goal("sell_market")
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	_check(Quests.goal_hint() == tr("HINT_WHAT_SELLS") and Quests.goal_text().contains(tr("HINT_WHAT_SELLS")),
+			"selling the harvest: the goal's card says what sells ('%s')" % Quests.goal_hint())
+	await _tut20_goal("seeds")
+	var seed_id := Quests._seed_to_buy()
+	var cost := Quests.seeds_cost()
+	Economy.money = 500
+	Quests._hint = ""
+	var rich: Variant = Quests._target("seeds")
+	var rich_hint := Quests.goal_hint()
+	Quests._hint = ""
+	_check(cost == 3 * Economy.buy_price(seed_id) and cost > 0 and rich_hint == tr("HINT_MARKET") and _tut20_flat_distance(rich, town.market_counter.global_position) < 1.0,
+			"with money the dot goes to the market counter for the three seeds ($%d)" % cost)
+	# Broke with eggs and wood in the bag.
+	Economy.money = 0
+	inv.add_item(&"wood", 4)
+	inv.add_item(&"egg", 2)
+	var goods := Quests.sellable_names()
+	Quests._hint = ""
+	var short_home: Variant = Quests._target("seeds")
+	var short_hint := Quests.goal_hint()
+	_check(goods == [ItemDB.get_item(&"egg").display_name(), ItemDB.get_item(&"wood").display_name()]
+			and short_hint == "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(cost), tr("HINT_SELL_GOODS") % ", ".join(goods)]
+			and truck != null and _tut20_flat_distance(short_home, truck.global_position) < 3.0
+			and not Quests.seed_gift_due(),
+			"broke with eggs and wood: the lines say how much is short and name them, best first ('%s'), and the dot goes to the pickup that takes them to market"
+			% short_hint.replace("\n", " | "))
+	var counter := town.market_counter.global_position
+	player.global_position = Vector3(counter.x, counter.y - 0.3, counter.z + 1.6)
+	await _frames(6)
+	Quests._hint = ""
+	var short_town: Variant = Quests._target("seeds")
+	_check(Quests._near("town") and _tut20_flat_distance(short_town, counter) < 1.0 and Quests.goal_hint() == short_hint,
+			"in town the dot is on the market counter, where his goods sell at once")
+	Game.hud.open_shop(ShopStock.town_market())
+	await _idle_frames(4)
+	_check(Game.top_ui() == &"shop" and Game.hud.shop_screen.is_town_market() and not FarmState.flags.has(Quests.SEED_GIFT_FLAG)
+			and inv.count_item(seed_id) == 0, "with goods to sell the grocer gives nothing away")
+	# He sells them: the eggs' money alone buys the seeds.
+	var egg_money := Economy.sell(&"egg", 2)
+	inv.remove_item(&"egg", 2)
+	await _idle_frames(4)
+	Quests._hint = ""
+	Quests._target("seeds")
+	_check(egg_money >= cost and Quests.goal_hint() == tr("HINT_MARKET") and not FarmState.flags.has(Quests.SEED_GIFT_FLAG),
+			"two eggs sold ($%d) pay for the seeds: the line is the market's again, no gift" % egg_money)
+	Game.hud.shop_screen.hide_screen()
+	await _idle_frames(3)
+	# Broke with nothing to sell: the line says to drop by, and the grocer hands them over.
+	Economy.money = 0
+	inv.remove_item(&"wood", inv.count_item(&"wood"))
+	Quests._hint = ""
+	var gift_dot: Variant = Quests._target("seeds")
+	_check(Quests.sellable_names().is_empty() and Quests.goal_hint() == "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(cost), tr("HINT_SEEDS_GIFT")]
+			and Quests.seed_gift_due() and _tut20_flat_distance(gift_dot, counter) < 1.0,
+			"broke with nothing to sell: the line sends him to the counter all the same ('%s')" % Quests.goal_hint().replace("\n", " | "))
+	Quests._hint = ""
+	notes.clear()
+	Game.hud.open_shop(ShopStock.town_market())
+	await _idle_frames(5)
+	var gift_note := tr("MSG_SEED_GIFT") % [tr("PERSON_SHOPKEEPER"), 3, ItemDB.get_item(seed_id).display_name()]
+	_check(inv.count_item(seed_id) == 3 and Economy.money == 0 and FarmState.flags.has(Quests.SEED_GIFT_FLAG) and notes.has(gift_note)
+			and Quests.passed("seeds") and Quests.current()["id"] == "till2",
+			"at the counter the grocer gives the three seeds ('%s'); the goal is done (now '%s')" % [gift_note, Quests.current().get("id", "-")])
+	Game.hud.shop_screen.hide_screen()
+	await _idle_frames(3)
+	# Once only.
+	inv.remove_item(seed_id, inv.count_item(seed_id))
+	await _tut20_goal("seeds")
+	Game.hud.open_shop(ShopStock.town_market())
+	await _idle_frames(5)
+	_check(not Quests.seed_gift_due() and inv.count_item(seed_id) == 0 and Quests.current()["id"] == "seeds", "the gift comes once")
+	Game.hud.shop_screen.hide_screen()
+	await _idle_frames(3)
+	FarmState.flags.erase(Quests.SEED_GIFT_FLAG)
+	Economy.money = money_had
+	inv.from_array(bag_had)
+	if truck:
+		truck.cargo.from_dict(bed_had)
+	player.global_position = yard
+	await _frames(6)
+
+	# (5) A goal that waits for the morning: the bed at noon, and the farm chores.
+	var chores := Quests.chores
+	chores.testing = true
+	chores.load_data({})
+	var bed := tree.get_first_node_in_group(&"beds") as Bed
+	var needs := PlayerState.needs
+	var energy_had := needs.energy
+	needs.energy = Needs.MAX
+	GameClock.day = 2
+	GameClock.set_time_of_day(12.0)
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	var h := coop.housing
+	var hens: Array[AnimalData] = []
+	for i in 3:
+		hens.append(Animals.release(&"chicken", h))
+	await _frames(3)
+	h.feed.set_amount(0.0)
+	h.water.set_amount(0.0)
+	var eggs: Array[Pickup] = []
+	for i in 2:
+		eggs.append(Pickup.spawn(ItemStack.create(&"egg", 1), h.door_outside() + Vector3(0.6 * i, 0.3, 1.0)))
+	await _frames(3)
+	await _tut20_goal("knife")
+	notes.clear()
+	var working := Bed.can_sleep_now()
+	bed.interact(player)
+	await _frames(2)
+	_check(not Quests.day_work_done() and not working and notes.has(tr("MSG_SLEEP_NOT_TIRED")) and not Game.hud.sleep_screen.is_busy()
+			and _tut20_chores().is_empty(),
+			"at noon with the knife still to make: the bed refuses a rested farmer, and no chores are up")
+	await _tut20_goal("rooster_wait")
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	_check(Quests.day_work_done() and Bed.can_sleep_now() and Quests.goal_hint() == tr("HINT_DAY_DONE") and Quests.goal_text().contains(tr("HINT_DAY_DONE")),
+			"the knife made, the goal waits for the morning: the bed is open at noon and the card says so ('%s')" % Quests.goal_hint())
+	var up := _tut20_chores()
+	var cards := true
+	for id: StringName in up:
+		var g := chores.goal(id)
+		cards = cards and g.quiet and g.text != "" and g.hint != "" and SideStory.goals.has(g) and Game.hud._goal_cards.has(g)
+	_check(up == [&"bin", &"eggs", &"care"] and cards and notes.has(tr("MSG_FARM_CHORES_NEW")) and chores.goal(&"eggs").text.contains("0/2"),
+			"three farm chores come up on compact cards: %s ('%s')" % [str(up), chores.goal(&"eggs").text])
+	var egg_dot: Variant = chores.goal(&"eggs").point
+	var dots: bool = chores.goal(&"bin").point != null and (egg_dot == eggs[0] or egg_dot == eggs[1])
+	_check(dots and _tut20_flat_distance(chores.goal(&"care").point, h.feed.global_position) < 0.5,
+			"their dots: the bin, an egg lying about, the empty feeder")
+	if shots != "":
+		player.global_position = yard
+		player.look_at_yaw_pitch(deg_to_rad(-70.0), deg_to_rad(-4.0))
+		await _shot("%s/tut20_chores.png" % shots)
+	# Each done by its own mechanic, three cards at most, the next one coming up.
+	var most := up.size()
+	var xp0 := Progress.xp
+	Events.shipped.emit(&"egg", 1)
+	up = _tut20_chores()
+	most = maxi(most, up.size())
+	_check(chores.done.has(&"bin") and up == [&"eggs", &"care", &"pet"] and Progress.xp == xp0 + int(FarmChores.XP[&"bin"]),
+			"something put in the bin: done (+%d xp), and petting the hens comes up (%s)" % [int(FarmChores.XP[&"bin"]), str(up)])
+	eggs[0].queue_free()
+	Events.item_picked_up.emit(&"egg", 1)
+	up = _tut20_chores()
+	var one_egg := chores.goal(&"eggs").text
+	eggs[1].queue_free()
+	Events.item_picked_up.emit(&"egg", 1)
+	up = _tut20_chores()
+	most = maxi(most, up.size())
+	_check(one_egg.contains("1/2") and chores.done.has(&"eggs") and up == [&"care", &"pet", &"wood"],
+			"the two eggs picked up ('%s' on the way): done, the firewood comes up" % one_egg)
+	Events.coop_fed.emit(coop)
+	up = _tut20_chores()
+	var half_care := chores.goal(&"care").text
+	var water_dot := _tut20_flat_distance(chores.goal(&"care").point, h.water.global_position) < 0.5
+	h.water.set_amount(h.water.capacity)
+	up = _tut20_chores()
+	most = maxi(most, up.size())
+	_check(half_care.contains("1/2") and water_dot and chores.done.has(&"care") and up == [&"pet", &"wood", &"stones"],
+			"the feeder filled ('%s', the dot on to the water), then the water full: done, the stones come up" % half_care)
+	for a: AnimalData in hens:
+		Animals.pet(a)
+	Events.item_picked_up.emit(&"wood", FarmChores.WOOD)
+	Events.item_picked_up.emit(&"stone", FarmChores.STONES - 1)
+	up = _tut20_chores()
+	_check(chores.done.has(&"pet") and chores.done.has(&"wood") and up == [&"stones"] and chores.goal(&"stones").text.contains("%d/%d" % [FarmChores.STONES - 1, FarmChores.STONES]),
+			"three hens petted and ten wood picked up: done; the stones are one short ('%s')" % chores.goal(&"stones").text)
+	Events.item_picked_up.emit(&"stone", 1)
+	up = _tut20_chores()
+	var all_xp := 0
+	var thanked := 0
+	for id: StringName in FarmChores.CHORES:
+		all_xp += int(FarmChores.XP[id])
+		if notes.has(tr("MSG_SIDE_DONE") % chores.goal(id).text):
+			thanked += 1
+	# (Achievements met on the way give experience of their own.)
+	_check(up.is_empty() and chores.done.size() == FarmChores.CHORES.size() and thanked == FarmChores.CHORES.size() and most <= FarmChores.SHOWN
+			and Progress.xp >= xp0 + all_xp and all_xp <= 20,
+			"all six done, each with its note: no card left (%s), never more than %d up at a time (%d), %d xp in all (%d gained)"
+			% [str(up), FarmChores.SHOWN, most, all_xp, Progress.xp - xp0])
+	# Saved with the story, and the same day brings none back.
+	var saved: Dictionary = Quests.save_data()
+	chores.load_data({})
+	chores.load_data(saved.get("chores", {}))
+	_check(chores.done.size() == FarmChores.CHORES.size() and _tut20_chores().is_empty(), "the day's chores are saved: none comes back the same day")
+	# A new morning with the story still waiting (day three's evening): afresh, in another
+	# order; what is in hand already is passed over without a word.
+	await _tut20_goal("fishing_wait")
+	GameClock.day = 3
+	for a: AnimalData in hens:
+		a.petted_today = false
+	h.feed.set_amount(h.feed.capacity)
+	h.water.set_amount(h.water.capacity)
+	xp0 = Progress.xp
+	up = _tut20_chores()
+	_check(up == [&"pet", &"wood", &"stones"] and chores.done.has(&"care") and not chores.is_up(&"eggs") and Progress.xp == xp0,
+			"day three's wait: the chores start afresh in another order (%s); full troughs are passed over, no eggs lying means no egg chore" % str(up))
+	# With another side goal's card up (the town's, the wolves') only two come up.
+	chores.load_data({})
+	var other := SideGoal.new(&"tut20_other", "Test", "info", Color.WHITE)
+	other.quiet = true
+	other.set_goal("Test")
+	SideStory.add_goal(other)
+	var busy := _tut20_chores()
+	SideStory.remove_goal(other)
+	_check(busy.size() == FarmChores.SHOWN_BUSY and FarmChores.SHOWN_BUSY == 2, "beside another side goal's card only two chores come up (%s)" % str(busy))
+	# The story goes on: the cards go, never in its way; nor on later days.
+	await _tut20_goal("rope")
+	var on_story := _tut20_chores()
+	await _tut20_goal("fishing_wait")
+	GameClock.day = FarmChores.LAST_DAY + 1
+	var later := _tut20_chores()
+	GameClock.day = 1
+	await _tut20_goal("free")
+	var first_evening := _tut20_chores()
+	_check(on_story.is_empty() and later.is_empty() and first_evening.is_empty() and Bed.can_sleep_now(),
+			"a story goal up takes the chores down; none after day %d, none on the first evening (the bed is open then too)" % FarmChores.LAST_DAY)
+	# And the sleep itself, at noon on day two.
+	GameClock.day = 2
+	GameClock.set_time_of_day(12.0)
+	await _tut20_goal("rooster_wait")
+	bed.interact(player)
+	await _seconds(1.6)
+	var woke := GameClock.day == 3 and GameClock.time_string() == "06:00"
+	for i in 8:
+		if not Game.hud.sleep_screen.is_busy():
+			break
+		Game.hud.sleep_screen.confirm()
+		await _seconds(0.6)
+	Quests._poll = 0.0
+	await _idle_frames(4)
+	_check(woke and Quests.current()["id"] == "rooster_buy",
+			"asleep at noon on day two, awake on day three at 06:00 with the rooster's chapter (now '%s')" % Quests.current().get("id", "-"))
+
+	# Tidy up.
+	await _close_screens()
+	chores.testing = false
+	chores.load_data({})
+	needs.energy = energy_had
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	Quests.skip_tutorial()
+	FarmState.remove_placed(coop.entry)
+	coop.queue_free()
+	Events.notification_requested.disconnect(on_note)
+	await _frames(3)
+

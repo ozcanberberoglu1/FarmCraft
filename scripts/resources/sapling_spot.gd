@@ -2,9 +2,10 @@ class_name SaplingSpot
 extends Node3D
 ## Where the sapling in hand would go: the open ground the player aims at
 ## (SaplingGrove.ground_target), the Player's hold-to-use target there. Holding LMB
-## digs the hole and presses the sapling in (ToolAnim "dig"). A ring lies on the
-## ground under the aim while it is the target: green where a sapling can go, red
-## where not, the reason under the prompt.
+## brings the sapling down to the ground, sets it into the soil and pats the earth round
+## it once (ToolAnim "set_down": a placing hand, no blows). A ring lies on the ground
+## under the aim while it is the target: green where a sapling can go, red where not,
+## the reason under the prompt.
 
 const RING_RADIUS := 0.34
 
@@ -95,22 +96,17 @@ func set_highlight(on: bool) -> void:
 	visible = on
 
 
-## Each press: the spade-work of a hand digging, soil thrown back toward the player; the
-## last presses the sapling in with a puff of loose soil.
-func use_impact(player: Node, _stack: ItemStack, _action: Dictionary, hit: Dictionary) -> void:
+## The sapling going into the soil (the final stroke): a little loose earth gives way round
+## its root ball. The pat that follows firms it down: a soft thud and a breath of dust.
+func use_impact(_player: Node, _stack: ItemStack, _action: Dictionary, hit: Dictionary) -> void:
 	var at := global_position + Vector3(0, 0.04, 0)
-	var back := Vector3.ZERO
-	if player is Node3D:
-		back = (player as Node3D).global_position - at
-		back.y = 0.0
-		back = back.normalized() * 0.6 if back.length() > 0.01 else Vector3.ZERO
 	if hit.get("final", false):
-		Fx.dirt_burst(at, 0.45, global_position.y)
-		Audio.play("plant", at + Vector3(0, 0.2, 0), -1.0, 0.08, &"Effects", 5.0)
-		Audio.play("dig", at + Vector3(0, 0.2, 0), -12.0, 0.08, &"Effects", 5.0, 1.15)
+		Fx.dirt_burst(at, 0.3, global_position.y)
+		Audio.play("plant", at + Vector3(0, 0.2, 0), -3.0, 0.08, &"Effects", 5.0)
+		Audio.play("dig", at + Vector3(0, 0.2, 0), -15.0, 0.08, &"Effects", 5.0, 1.15)
 	else:
-		Fx.dirt_clods(at, back, 0.8, global_position.y)
-		Audio.play("hoe", at + Vector3(0, 0.2, 0), -5.0, 0.08, &"Effects", 5.0, 1.08)
+		Fx.dirt_burst(at, 0.15, global_position.y)
+		Audio.play("plant", at + Vector3(0, 0.2, 0), -9.0, 0.08, &"Effects", 5.0, 0.85)
 
 
 func complete_use(_player: Node, _stack: ItemStack, _action: Dictionary) -> void:

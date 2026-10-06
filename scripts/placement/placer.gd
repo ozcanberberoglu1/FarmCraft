@@ -340,11 +340,15 @@ func place() -> bool:
 			msg = "%s %s" % [tr("MSG_CANT_BUILD_HERE"), msg]
 		Game.notify(msg, UiTheme.RED)
 		return false
+	# The story's first coop and workbench go up quickly (Quests.build_seconds, asked
+	# before this one is on the farm); the site keeps its own time for its progress.
+	var build_time := Quests.build_seconds(_id) if building else 0.0
 	var e := FarmState.add_placed(_id, global_position, _yaw)
 	if building:
 		# It goes up as a construction site first.
 		e["stage"] = "site"
-		e["build_left"] = PlaceableTable.build_seconds(_id)
+		e["build_total"] = build_time
+		e["build_left"] = build_time
 	var node := Game.world.farm.spawn_placed(e) as PlacedObject
 	var id := _id
 	PlayerState.inventory.remove_item(_id, 1)
@@ -355,7 +359,11 @@ func place() -> bool:
 		Audio.play("wood_hit", global_position + Vector3(0, 0.5, 0), -4.0)
 		Fx.dust_cloud(global_position + Vector3(0, 0.4, 0), Vector2(size.x, size.z) * 0.4)
 		var what := tr(String(_info["name_key"])) if _info.has("name_key") else ItemDB.get_item(id).display_name()
-		Game.notify(tr("MSG_CONSTRUCTION_STARTED") % [what, maxi(ceili(float(e["build_left"]) / 60.0), 1)], UiTheme.GREEN)
+		var secs := float(e["build_left"])
+		if secs < 60.0:
+			Game.notify(tr("MSG_CONSTRUCTION_STARTED_SEC") % [what, ceili(secs)], UiTheme.GREEN)
+		else:
+			Game.notify(tr("MSG_CONSTRUCTION_STARTED") % [what, ceili(secs / 60.0)], UiTheme.GREEN)
 		Events.construction_started.emit(StringName(_info.get("build_id", id)), node)
 	else:
 		Audio.play("plank", global_position + Vector3(0, 0.3, 0), -4.0)

@@ -1,5 +1,11 @@
 extends Node
-## Saved games: three slots plus an autosave written every morning after sleeping.
+## Saved games: three slots plus an autosave, so that continuing loses nothing: written
+## every morning after sleeping (SleepScreen), a moment after a story goal is done, every
+## AUTOSAVE_SECONDS of play, on going back to the title screen and on quitting (the pause
+## menu's and the title's "quit", the window closed). The ones the game makes by itself
+## wait until the player is free (can_autosave: no window or conversation open, not
+## asleep or fainting, no pack on the farm) and are quiet (no note). "Continue" on the
+## title screen loads the newest save of any slot (latest).
 ## One compressed file per slot: a small header (version, day, money, play time,
 ## date) that the slot list reads on its own, then each system's save_data(). Godot
 ## variants keep ids, vectors and transforms exactly.
@@ -17,6 +23,15 @@ const VERSION := 2
 const AUTO := "auto"
 const SLOTS: Array[String] = ["auto", "slot_1", "slot_2", "slot_3"]
 const THUMB := Vector2i(384, 216)
+## Seconds of play (the pause menu and its like not counted) between the autosaves the
+## game makes by itself.
+const AUTOSAVE_SECONDS := 180.0
+## A story goal done is saved this long after it (goals done one after another make one
+## save), and never sooner than AUTOSAVE_GAP after the last save.
+const AUTOSAVE_GOAL_DELAY := 1.5
+const AUTOSAVE_GAP := 20.0
+## Quitting waits at most this long for the save's picture to come back from the GPU.
+const QUIT_THUMB_WAIT := 0.4
 
 ## Seconds played in this game (menus and loading excluded).
 var play_seconds := 0.0
@@ -37,7 +52,31 @@ var _thumb: Image
 var _thumb_pending := false
 ## Slots saved while it was: they get the picture when it lands.
 var _thumb_slots: Array[String] = []
+## Pictures being scaled down or written off the main thread (WorkerThreadPool task ids).
+var _thumb_tasks: Array[int] = []
 var _veil: ColorRect
+## Set by tests: the game autosaves by itself in this automated run (other runs only on
+## the mornings, so their checks never write a save behind their backs).
+var testing_autosave := false
+## Autosaves made since the game started (the mornings' not counted), and why the last
+## one was made: "goal", "timer", "title" or "quit".
+var autosaves := 0
+var last_autosave := ""
+## Seconds of play until the next autosave by the clock.
+var _auto_left := AUTOSAVE_SECONDS
+## A story goal was done: autosave once the player is free (and how long from now at the
+## earliest).
+var _auto_asked := false
+var _auto_wait := 0.0
+## Real seconds since the last save into any slot.
+var _since_save := INF
+## The story's step as last seen: a goal done is a step further.
+var _quest_step := 0
+## The window was asked to close: the game is saved and quits (once).
+var _quitting := false
+## Set by tests: save_and_quit saves and counts (quits) but the run goes on.
+var testing_quit := false
+var quits := 0
 
 
 func _ready() -> void:
@@ -46,11 +85,24 @@ func _ready() -> void:
 		_dir = "user://test_saves/"
 	DirAccess.make_dir_recursive_absolute(_dir)
 	_build_veil()
+	_quest_step = Quests.step
+	Quests.tutorial_changed.connect(_on_goal_changed)
+	# Closing the window saves first (_notification); automated runs quit as they are.
+	if not DebugTools.is_automated():
+		get_tree().auto_accept_quit = false
 
 
 func _process(delta: float) -> void:
 	if started and not loading and Game.player and not Game.is_ui_open():
 		play_seconds += delta
+	_tick_autosave(delta)
+	if not _thumb_tasks.is_empty():
+		_reap_thumb_tasks()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and not get_tree().auto_accept_quit:
+		save_and_quit()
 
 
 func path_of(slot: String) -> String:
@@ -65,8 +117,10 @@ func thumb_path(slot: String) -> String:
 
 ## Keeps the current frame as the next save's picture (call before a menu covers it).
 ## On RenderingDevice renderers the frame is copied back without stalling the GPU
-## and lands a few frames later; otherwise it is read at once.
-func snapshot() -> void:
+## and lands a few frames later, scaled down off the main thread (an autosave in the
+## middle of play must not cost a frame); otherwise it is read at once, which stalls for
+## a moment: not with `may_stall` off (the last picture stays).
+func snapshot(may_stall := true) -> void:
 	# Nothing is drawn when running headless (tests).
 	if DisplayServer.get_name() == "headless":
 		return
@@ -81,20 +135,33 @@ func snapshot() -> void:
 				and rd.texture_get_data_async(rid, 0, _on_snapshot_read.bind(fmt.width, fmt.height)) == OK:
 			_thumb_pending = true
 			return
-	_keep_thumb(tex.get_image())
+	if may_stall:
+		_keep_thumb(tex.get_image())
 
 
 func _on_snapshot_read(data: PackedByteArray, width: int, height: int) -> void:
-	_thumb_pending = false
-	if data.size() == width * height * 4:
+	if data.size() != width * height * 4:
+		_snapshot_landed(null)
+		return
+	# Like get_image(): an opaque viewport's picture has no alpha.
+	var opaque := not get_viewport().transparent_bg
+	var scale_down := func() -> void:
 		var img := Image.create_from_data(width, height, false, Image.FORMAT_RGBA8, data)
-		# Like get_image(): an opaque viewport's picture has no alpha.
-		if not get_viewport().transparent_bg:
+		if opaque:
 			img.convert(Image.FORMAT_RGB8)
-		_keep_thumb(img)
-	if _thumb:
-		for slot in _thumb_slots:
-			_thumb.save_png(ProjectSettings.globalize_path(thumb_path(slot)))
+		img.resize(THUMB.x, THUMB.y, Image.INTERPOLATE_BILINEAR)
+		_snapshot_landed.call_deferred(img)
+	_thumb_tasks.append(WorkerThreadPool.add_task(scale_down))
+
+
+## The snapshot is ready (null: it could not be read, the last picture stays): the slots
+## saved while it was on its way get it.
+func _snapshot_landed(img: Image) -> void:
+	_thumb_pending = false
+	if img and not img.is_empty():
+		_thumb = img
+	if _thumb and not _thumb_slots.is_empty():
+		_write_thumb(_thumb_slots, true)
 	_thumb_slots.clear()
 
 
@@ -105,7 +172,35 @@ func _keep_thumb(img: Image) -> void:
 	_thumb = img
 
 
-func save(slot: String) -> bool:
+## Writes the kept picture as `slots`' own. `later`: off the main thread (packing a PNG
+## takes several milliseconds), for the saves made in the middle of play.
+func _write_thumb(slots: Array[String], later: bool) -> void:
+	var img := _thumb
+	var paths := PackedStringArray()
+	for slot in slots:
+		paths.append(ProjectSettings.globalize_path(thumb_path(slot)))
+	if not later:
+		for path in paths:
+			img.save_png(path)
+		return
+	# (The picture is never changed once kept, only replaced: safe to read from a thread.)
+	var write := func() -> void:
+		for path in paths:
+			img.save_png(path)
+	_thumb_tasks.append(WorkerThreadPool.add_task(write))
+
+
+## Finished picture tasks are let go of; `wait`: all of them, finished first (quitting).
+func _reap_thumb_tasks(wait := false) -> void:
+	for id: int in _thumb_tasks.duplicate():
+		if wait or WorkerThreadPool.is_task_completed(id):
+			WorkerThreadPool.wait_for_task_completion(id)
+			_thumb_tasks.erase(id)
+
+
+## Writes the game into `slot`. `picture_later`: its picture is written off the main
+## thread (the game's own autosaves in the middle of play).
+func save(slot: String, picture_later := false) -> bool:
 	if Game.player == null or loading:
 		return false
 	var path := path_of(slot)
@@ -127,9 +222,115 @@ func save(slot: String) -> bool:
 	if _thumb_pending:
 		_thumb_slots.append(slot)
 	elif _thumb:
-		_thumb.save_png(ProjectSettings.globalize_path(thumb_path(slot)))
+		var one: Array[String] = [slot]
+		_write_thumb(one, picture_later)
+	# Just saved: the game's own autosaves start counting again.
+	_auto_left = AUTOSAVE_SECONDS
+	_auto_asked = false
+	_since_save = 0.0
 	saved.emit(slot)
 	return true
+
+
+# --- Autosaves ---------------------------------------------------------------------------
+
+## The game autosaves by itself in this run (always in play; automated runs only when a
+## test asks).
+func autosave_enabled() -> bool:
+	return testing_autosave or not DebugTools.is_automated()
+
+
+## A game is in progress and in a state a save can hold: not while loading, not in a
+## faint (the morning's autosave follows it anyway).
+func can_save() -> bool:
+	if not started or loading or Game.player == null or not is_instance_valid(Game.player):
+		return false
+	return not PlayerState.knocked_out
+
+
+## The game may save by itself now: the player is free (no window, conversation or letter
+## open, not asleep) and no pack is on the farm (a raid is saved before it or after, never
+## in the middle of its bites).
+func can_autosave() -> bool:
+	if not can_save() or Game.is_ui_open():
+		return false
+	var hud := Game.hud as HUD
+	if hud == null or not is_instance_valid(hud) or hud.sleep_screen.is_busy():
+		return false
+	return not (String(WolfRaids.tonight.get("phase", "")) in ["active", "asleep"])
+
+
+## Writes the autosave now, quietly (`reason`: "goal", "timer", "title" or "quit"). With
+## no window over the game its picture is the frame as it is; under a menu, the one kept
+## when the menu opened. False when nothing was saved (no game in progress, a faint...).
+func autosave(reason: String) -> bool:
+	if not can_save():
+		return false
+	if not Game.is_ui_open():
+		snapshot(false)
+	if not save(AUTO, true):
+		return false
+	autosaves += 1
+	last_autosave = reason
+	return true
+
+
+## Saves the game in progress and quits: the pause menu's and the title's "quit", and the
+## window's close button. (A fresh launch's farm behind the title screen is no game yet:
+## nothing is saved.)
+func save_and_quit() -> void:
+	if _quitting:
+		return
+	_quitting = true
+	if autosave_enabled():
+		autosave("quit")
+	# The save's picture may still be on its way back from the GPU: give it a moment,
+	# and let it be written.
+	var waited := 0.0
+	while _thumb_pending and waited < QUIT_THUMB_WAIT:
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	_reap_thumb_tasks(true)
+	if testing_quit:
+		_quitting = false
+		quits += 1
+		return
+	Game.quit_game()
+
+
+## Going back to the title screen from the pause menu: the game in progress is saved.
+func autosave_for_title() -> void:
+	if autosave_enabled():
+		autosave("title")
+
+
+## A story goal done (the step went on): an autosave is due once the player is free.
+func _on_goal_changed() -> void:
+	var step := Quests.step
+	if step == _quest_step:
+		return
+	var went_on := step > _quest_step
+	_quest_step = step
+	if went_on and started and not loading:
+		_auto_asked = true
+		_auto_wait = AUTOSAVE_GOAL_DELAY
+
+
+## The autosaves the game makes by itself: after a goal, and every AUTOSAVE_SECONDS of
+## play. One that is due waits for the player to be free (can_autosave).
+func _tick_autosave(delta: float) -> void:
+	_since_save += delta
+	if not autosave_enabled() or not started or loading:
+		return
+	if not Game.is_paused():
+		_auto_left -= delta
+		_auto_wait -= delta
+	var goal := _auto_asked and _auto_wait <= 0.0
+	if not goal and _auto_left > 0.0:
+		return
+	if _since_save < AUTOSAVE_GAP or not can_autosave():
+		return
+	autosave("goal" if goal else "timer")
 
 
 func _header() -> Dictionary:
@@ -305,6 +506,9 @@ func _migrate(data: Dictionary, from_version: int) -> Dictionary:
 func _rebuild(apply: Callable, start := true) -> void:
 	loading = true
 	started = started or start
+	# The world built next is as its save left it (or new): nothing to autosave yet.
+	_auto_left = AUTOSAVE_SECONDS
+	_auto_asked = false
 	await _fade_veil(1.0, 0.25)
 	if apply.is_valid():
 		apply.call()

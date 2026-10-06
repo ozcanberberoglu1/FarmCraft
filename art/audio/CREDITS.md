@@ -230,6 +230,11 @@ crack are synthesised in the script.
 ## The farmer's whistle
 
 `sfx/player/whistle_1-2.wav`: synthesised by `tools/build_whistle_audio.py` (no source recording; project-owned).
+
+## The windscreen wipers
+
+`sfx/vehicle/wiper_1-2.wav`: synthesised by `tools/build_wiper_audio.py` (no source recording; project-owned).
+
 ## The fishing contest (`sfx/contest/*`)
 
 Cut, faded and levelled from Mixkit previews by `tools/build_contest_audio.py` (Mixkit Sound Effects Free License:
@@ -249,3 +254,39 @@ The contest's crowd round the pond, made by `tools/build_contest_crowd_audio.py`
 | ambience/carnival_crowd.ogg (also the contest's murmur loop, `contest_crowd`) | kyles' park crowd, https://freesound.org/people/kyles/sounds/629887/ | CC0 |
 | sfx/contest/crowd_call_1..5.ogg | voices speaking up in that same crowd recording, cut and high-passed | CC0 |
 | sfx/contest/cheer_1..2.ogg | Mixkit applause (485) breaking out, with a few of those voices raised over it | Mixkit free licence + CC0 |
+
+## The car radio (`sfx/vehicle/radio_*`, the stations' playlists)
+
+`sfx/vehicle/radio_tune_1-3.wav` (the static between two stations) and `sfx/vehicle/radio_click.wav` (the knob):
+synthesised by `tools/build_radio_audio.py` (no source recording; project-owned).
+
+The stations (`CarRadio.STATIONS`) play five recordings of their own between them (`music/radio/*.ogg`: two, two
+and one), downloaded and prepared by `tools/fetch_radio_music.py` (no account needed; none is on two stations); the
+game's own tracks above fill the rest of each list. **Two of the three sets need attribution (CC BY 4.0)**: the game names their authors on the title screen
+(`UI_CREDITS`) and beside each track on the radio's line. Changes made to every recording: the silence before and
+after it cut, its loudness matched to the others (-14 LUFS, ITU-R BS.1770, under a limiter), re-encoded as Ogg Vorbis.
+
+**Yeşilova FM 94.5**: from the album *Alleys of Istanbul* by **Turku, Nomads of the Silk Road**
+(https://freemusicarchive.org/music/Turku_Nomads_of_the_Silk_Road/Alleys_of_Istanbul/): traditional Anatolian tunes
+on saz, oud, violin and drums. Licence: Creative Commons Attribution 4.0 International (CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/). The files are the copies on Wikimedia Commons.
+
+| File | Title (as the album has it) | Source |
+|---|---|---|
+| music/radio/yesilova_yesilim.ogg | Yeşilim (*-Yesilim*) | https://commons.wikimedia.org/wiki/File:Turku_Nomads_of_the_Silk_Road_-_08_-_-Yesilim.ogg |
+| music/radio/yesilova_uskudara_gider_iken.ogg | Üsküdar'a Gider İken (*-Uskudara Gideriken*) | https://commons.wikimedia.org/wiki/File:Turku_Nomads_of_the_Silk_Road_-_01_-_-Uskudara_Gideriken.ogg |
+
+**Radyo Yol 98.2**: by **Kevin MacLeod** (https://incompetech.com). Licensed under Creative Commons: By Attribution 4.0
+License (http://creativecommons.org/licenses/by/4.0/).
+
+| File | Title | Source |
+|---|---|---|
+| music/radio/yol_bama_country.ogg | Bama Country | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Bama%20Country.mp3 |
+| music/radio/yol_cattails.ogg | Cattails | https://incompetech.com/music/royalty-free/mp3-royaltyfree/Cattails.mp3 |
+
+**Radyo Huzur 88.4**: solo piano, public domain (no attribution needed; the player is named all the same).
+The file is the copy on Wikimedia Commons.
+
+| File | Work | Played by | Licence | Source |
+|---|---|---|---|---|
+| music/radio/huzur_satie_gymnopedie_1.ogg | Erik Satie, Gymnopédie No. 1 | Robin Alciatore (Musopen) | Public domain | https://commons.wikimedia.org/wiki/File:Erik_Satie_-_gymnopedies_-_la_1_ere._lent_et_douloureux.ogg |

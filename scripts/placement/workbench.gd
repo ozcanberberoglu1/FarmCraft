@@ -69,9 +69,10 @@ func is_built() -> bool:
 	return String(entry.get("stage", "done")) == "done"
 
 
-## Real seconds the whole construction takes.
+## Real seconds the whole construction takes (its own, set when it was put down: the
+## story's first one goes up quickly, Quests.build_seconds).
 func build_seconds() -> float:
-	return PlaceableTable.build_seconds(item_id)
+	return float(entry.get("build_total", PlaceableTable.build_seconds(item_id)))
 
 
 ## Real seconds of play until it is finished (0 once it is).

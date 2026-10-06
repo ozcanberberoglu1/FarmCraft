@@ -27,6 +27,19 @@ extends Node
 ## give up on; with nothing left to take they prowl a while (LINGER) and go. Asleep (or
 ## knocked out, Events.player_knocked_out) the rest of the night is worked out the same
 ## way as the time is skipped. The morning report says what happened (take_report).
+##
+## With the farmer away from the farm (in town, out on the road: farmer_away) no wolf
+## nobody would see is put out: a note tells him they are down at the farm (the howls far
+## off) and the raid goes on unseen (phase "away") for AWAY_RAID game minutes. Back at the
+## farm before that, he finds the pack there (it comes out of the forest as he arrives,
+## nothing taken yet); else it is worked out as on a night slept through (resolve_night,
+## once), the wolves are gone, and as he comes back a note says what was lost or that the
+## animals were safe (the morning report too). A raid under way that he leaves for long
+## enough (AWAY_GRACE) goes on unseen the same way.
+## Wolves sent back into the forest (the raid over, given up) leave a coop or barn by its
+## door (Wolf); one still about GONE_AFTER game minutes later is taken away once he isn't
+## looking at it, or is far off (_sweep), and none is left when the night is skipped or by
+## day.
 ## The first hurt animal brings the vet's side goal: have it treated in town.
 ## Automated runs (tests, screenshots) bring no wolves unless the run asks (`--raids`, or
 ## `testing` set by the raids scenario).
@@ -78,6 +91,18 @@ const APPROACH_BACK := 20.0
 const ARRIVE_NEAR := 9.0
 ## Game minutes they prowl with nothing (more) to take before they go.
 const LINGER := 60.0
+## The farmer is away from the farm beyond AWAY_RANGE metres from the valley's middle, and
+## back within BACK_RANGE (the wolves' own land ends there). A raid nobody is there for
+## lasts AWAY_RAID game minutes; one under way goes on unseen once he has been away, every
+## wolf UNSEEN_RANGE m and more from him, for AWAY_GRACE seconds.
+const AWAY_RANGE := WorldLayout.VALLEY_RADIUS + 50.0
+const BACK_RANGE := WorldLayout.VALLEY_RADIUS + 25.0
+const AWAY_RAID := 60.0
+const AWAY_GRACE := 12.0
+const UNSEEN_RANGE := 60.0
+## Game minutes after the wolves were sent off: one still on the farm then is taken away
+## as soon as the farmer isn't looking at it or is far off.
+const GONE_AFTER := 20.0
 ## Seconds between the pack's orders.
 const THINK := 0.5
 ## The colours of the side goals: the wolves' (the lesson, the note), the vet's.
@@ -115,6 +140,12 @@ var _approach := Vector3.ZERO
 ## Ids of the animals the wolves could get to as the farmer went to bed (day_ending).
 var _sleep_targets: Variant = null
 var _goal_wait := 0.0
+## Wolves sent back into the forest and when (GameClock.total_minutes): see _sweep.
+var _sent_off := {}
+## The farmer is away from the farm (farmer_away), and for how many seconds of a raid
+## under way with no wolf near him.
+var _away := false
+var _away_time := 0.0
 ## The lesson goal's step ("door" / "sleep").
 var _lesson_step := ""
 var _wolf_goal: SideGoal
@@ -237,12 +268,15 @@ func _set_tonight(lesson: bool) -> void:
 func _process(delta: float) -> void:
 	if SaveGame.loading or Wolf.frozen() or Game.world == null or Game.player == null or not is_instance_valid(Game.player):
 		return
+	_update_away()
 	_schedule()
 	_update_night(delta)
 	_goal_wait -= delta
 	if _goal_wait <= 0.0:
 		_goal_wait = 0.25
 		_update_goals()
+		_sweep()
+		_tell_on_return()
 
 
 func _update_night(delta: float) -> void:
@@ -259,7 +293,12 @@ func _update_night(delta: float) -> void:
 				_give_note()
 			_howl(delta, now)
 			if now >= float(tonight["at"]):
-				_arrive()
+				if _away:
+					_raid_unseen(true)
+				else:
+					_arrive()
+		"away":
+			_drive_unseen(now)
 		"active":
 			_drive_pack(delta)
 
@@ -308,7 +347,92 @@ func _arrive() -> void:
 	_arrive_time = 0.0
 	_idle_from = -1.0
 	_think = 0.0
+	_away_time = 0.0
 	play_distant_howls(1.0)
+
+
+# --- A raid with the farmer away --------------------------------------------------------------
+
+## The farmer is away from the farm: in town, out on the road, anywhere beyond AWAY_RANGE
+## of the valley's middle (once away, until he is back within BACK_RANGE).
+func farmer_away() -> bool:
+	return _away
+
+
+func _update_away() -> void:
+	var d := _flat(Wolf._player_centre(Game.player as Node3D), Vector3.ZERO)
+	_away = d > (BACK_RANGE if _away else AWAY_RANGE)
+
+
+## The raid goes on with nobody there to see it (no wolves put out): for AWAY_RAID game
+## minutes, then it is worked out (_drive_unseen). `coming`: the pack comes just now (a
+## note says so: howls far off, they are down at the farm).
+func _raid_unseen(coming: bool) -> void:
+	tonight["phase"] = "away"
+	tonight["away_until"] = GameClock.total_minutes + AWAY_RAID
+	_wolves.clear()
+	_orders.clear()
+	_away_time = 0.0
+	if coming:
+		play_distant_howls(1.0)
+		Game.notify(tr("MSG_WOLVES_AWAY"), AMBER)
+		Audio.ui("notify", -6.0)
+
+
+## The raid nobody sees: the farmer back at the farm before it is over finds the pack
+## there (it comes out of the forest now, the losses so far standing); else, its time up,
+## it is worked out at once as on a night slept through and the wolves are gone: what was
+## lost (or that nothing was) is kept for the note on his return (_tell_on_return).
+func _drive_unseen(now: float) -> void:
+	if not _away:
+		_arrive()
+		return
+	if now < float(tonight.get("away_until", 0.0)):
+		return
+	var from := report.size()
+	resolve_night()
+	var lines := []
+	for i in range(from, report.size()):
+		if report[i] != tr("REPORT_WOLVES_SAFE") and report[i] != tr("REPORT_WOLVES_LATER"):
+			lines.append(report[i])
+	tonight["away_lines"] = lines
+	tonight["away_told"] = false
+	Game.notify(tr("MSG_WOLVES_LEFT"), AMBER)
+
+
+## Back at the farm after a raid that was worked out while he was away: what the wolves
+## took or hurt (the morning report's own lines), or that the animals were safe. Once.
+func _tell_on_return() -> void:
+	if _away or tonight.is_empty() or bool(tonight.get("away_told", true)):
+		return
+	tonight["away_told"] = true
+	var lines: Array = tonight.get("away_lines", [])
+	var lost := int(tonight.get("killed", 0)) + int(tonight.get("hurt", 0))
+	Game.notify(tr("MSG_WOLVES_AWAY_CAME") if lost > 0 else tr("MSG_WOLVES_AWAY_SAFE"), AMBER)
+	for line: String in lines:
+		Game.notify(line, Color(1.0, 0.45, 0.35) if lost > 0 else AMBER)
+	Audio.ui("notify", -6.0)
+
+
+## A wolf goes back into the forest (and is watched until it is gone: _sweep).
+func _send_off(w: Node3D) -> void:
+	_order(w, &"flee", _flee_point(w.global_position))
+	_sent_off[w] = GameClock.total_minutes
+
+
+## The safety net for wolves sent off: one still about GONE_AFTER game minutes later
+## (held up somewhere, shut in) is taken away as soon as the farmer isn't looking at it or
+## is far off (Wolf.unwatched). A carcass stays.
+func _sweep() -> void:
+	if _sent_off.is_empty():
+		return
+	var now := GameClock.total_minutes
+	for w: Variant in _sent_off.keys():
+		if not is_instance_valid(w) or (w as Node).is_queued_for_deletion() or (w as Wolf).dead:
+			_sent_off.erase(w)
+		elif now - float(_sent_off[w]) >= GONE_AFTER and (w as Wolf).unwatched():
+			(w as Wolf).queue_free()
+			_sent_off.erase(w)
 
 
 func _spawn_wolf(at: Vector3) -> Wolf:
@@ -351,6 +475,18 @@ func _drive_pack(delta: float) -> void:
 		return
 	if live.is_empty() or GameClock.total_minutes >= float(tonight["leave"]):
 		_end_raid()
+		return
+	# The farmer gone from the farm, no wolf anywhere near him: after a while the raid
+	# goes on unseen (the pack back into the trees; it is there again if he comes back).
+	var cam := get_viewport().get_camera_3d()
+	var near := false
+	for w in live:
+		near = near or cam == null or cam.global_position.distance_to(w.global_position) < UNSEEN_RANGE
+	_away_time = _away_time + THINK if _away and not near else 0.0
+	if _away_time >= AWAY_GRACE:
+		for w in live:
+			_send_off(w)
+		_raid_unseen(false)
 		return
 	if not _arrived:
 		for w in live:
@@ -477,6 +613,7 @@ func _on_wolf_died(wolf: Node3D) -> void:
 func _on_gave_up(wolf: Node3D) -> void:
 	_wolves.erase(wolf)
 	_orders.erase(wolf)
+	_sent_off[wolf] = GameClock.total_minutes
 	if raid_pending() and String(tonight["phase"]) == "active" and wolves().is_empty():
 		_end_raid()
 
@@ -486,7 +623,7 @@ func _end_raid() -> void:
 	if not raid_pending():
 		return
 	for w in wolves():
-		_order(w, &"flee", _flee_point(w.global_position))
+		_send_off(w)
 	_wolves.clear()
 	_orders.clear()
 	tonight["phase"] = "done"
@@ -505,12 +642,17 @@ func _close_night() -> void:
 		report.append(tr("REPORT_WOLVES_LATER"))
 
 
-## Wolves out tonight gone at once (the night is skipped).
+## Wolves out tonight gone at once (the night is skipped), those on their way back into
+## the forest too; a carcass stays.
 func _clear_wolves() -> void:
 	for w in wolves():
 		w.queue_free()
+	for w: Variant in _sent_off:
+		if is_instance_valid(w) and not (w as Wolf).dead:
+			(w as Wolf).queue_free()
 	_wolves.clear()
 	_orders.clear()
+	_sent_off.clear()
 
 
 # --- Asleep, or knocked out ------------------------------------------------------------------
@@ -534,7 +676,7 @@ func _on_knocked_out() -> void:
 		return
 	tonight["fainted"] = true
 	for w in wolves():
-		_order(w, &"flee", _flee_point(w.global_position))
+		_send_off(w)
 	_wolves.clear()
 	_orders.clear()
 	if String(tonight["phase"]) == "active":
@@ -546,6 +688,8 @@ func _on_knocked_out() -> void:
 ## only just begun, or not yet) doesn't, so the lesson is never spent on a loss he was
 ## never told how to prevent: it comes the next night.
 func _on_time_skipped(_minutes: float) -> void:
+	# Whatever the night was: no wolf is left on the farm in the morning.
+	_clear_wolves()
 	if not raid_pending():
 		_sleep_targets = null
 		return
@@ -553,7 +697,6 @@ func _on_time_skipped(_minutes: float) -> void:
 		tonight = {}
 		_sleep_targets = null
 		return
-	_clear_wolves()
 	resolve_night()
 
 
@@ -598,6 +741,7 @@ func _pick(ids: Array) -> int:
 
 
 func _on_day_started(_day: int) -> void:
+	_clear_wolves()
 	if not tonight.is_empty() and String(tonight["phase"]) == "done" and GameClock.day > int(tonight["day"]):
 		tonight = {}
 	_lesson_step = ""
@@ -608,7 +752,7 @@ func _on_settings() -> void:
 		return
 	# Turned off: tonight's wolves go back, nothing comes of it.
 	for w in wolves():
-		_order(w, &"flee", _flee_point(w.global_position))
+		_send_off(w)
 	_wolves.clear()
 	_orders.clear()
 	tonight = {}
@@ -758,13 +902,13 @@ static func _flat(a: Vector3, b: Vector3) -> float:
 
 ## The wolves' card (the lesson night's goals, a later raid's note) and the vet's.
 func _update_goals() -> void:
-	var noted := raid_pending() and bool(tonight.get("noted", false)) and String(tonight["phase"]) in ["warned", "active"]
+	var noted := raid_pending() and bool(tonight.get("noted", false)) and String(tonight["phase"]) in ["warned", "active", "away"]
 	if noted:
 		_wolf_goal.title = tr("SIDE_WOLVES_TITLE")
 		if bool(tonight["lesson"]):
 			_lesson_goal()
 		else:
-			var hint := tr("SIDE_HINT_WOLVES_HERE") if String(tonight["phase"]) == "active" else tr("SIDE_HINT_WOLVES_NOTE")
+			var hint := tr("SIDE_HINT_WOLVES_HERE") if String(tonight["phase"]) in ["active", "away"] else tr("SIDE_HINT_WOLVES_NOTE")
 			_wolf_goal.set_goal(tr("SIDE_NOTE_WOLVES"), hint)
 		SideStory.add_goal(_wolf_goal)
 	else:
@@ -801,7 +945,7 @@ func _lesson_goal() -> void:
 	_lesson_step = "sleep"
 	var bed := get_tree().get_first_node_in_group(&"beds") as Node3D
 	var where: Variant = bed.global_position + Vector3(0, 1.1, 0) if bed else null
-	var hint := tr("SIDE_HINT_WOLVES_HERE") if String(tonight["phase"]) == "active" else tr("SIDE_HINT_WOLF_SLEEP")
+	var hint := tr("SIDE_HINT_WOLVES_HERE") if String(tonight["phase"]) in ["active", "away"] else tr("SIDE_HINT_WOLF_SLEEP")
 	_wolf_goal.set_goal(tr("SIDE_GOAL_WOLF_SLEEP"), hint, where, tr("SIDE_LABEL_BED"))
 
 
@@ -889,5 +1033,6 @@ func load_data(d: Dictionary) -> void:
 	_sleep_targets = null
 	_lesson_step = ""
 	_goal_wait = 0.0
+	_away_time = 0.0
 	SideStory.remove_goal(_wolf_goal)
 	SideStory.remove_goal(_vet_goal)

@@ -1123,8 +1123,8 @@ func hurt() -> void:
 
 
 ## A wolf coming at it from `from`: it bolts the other way for a few seconds, as far as its
-## pen (or its side of the coop wall) lets it (not one sitting on a nest, hatching, ridden
-## or away).
+## pen (or, indoors, the building's open floor: never in among the nest boxes or the
+## troughs, out of sight) lets it (not one sitting on a nest, hatching, ridden or away).
 func scare(from: Vector3) -> void:
 	if ridden or led or data.away or state in [State.NEST, State.HATCH, State.AWAY, State.RIDDEN]:
 		return
@@ -1138,6 +1138,8 @@ func scare(from: Vector3) -> void:
 		away = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
 	var to := global_position + away.normalized().rotated(Vector3.UP, _rng.randf_range(-0.6, 0.6)) * SCARE_RUN
 	to = housing.constrain(to, radius(), indoors)
+	if indoors:
+		to = housing.keep_on_floor(to)
 	_go(to, indoors, State.WANDER)
 	if _rng.randf() < 0.6:
 		Audio.animal_voice(data.species, data.adult, global_position + Vector3(0, 0.4, 0), -6.0)
@@ -1156,7 +1158,7 @@ func status_key() -> String:
 		return "cold"
 	if data.hydration < 25.0:
 		return "thirsty"
-	if data.fullness < 25.0:
+	if data.fullness < Animals.HUNGRY_LEVEL:
 		return "hungry"
 	if data.product_ready and data.species == &"cow":
 		return "milk"
@@ -1205,6 +1207,9 @@ func interact_prompt(_player: Node) -> String:
 	# On the halter: E lets it go (AnimalHandler's line).
 	if _faint_t >= 0.0 or led:
 		return ""
+	# The farm's first chick, out of its shell: E gives it its name (Animals.wants_name).
+	if visible and Animals.wants_name(data):
+		return tr("ACTION_NAME_ANIMAL")
 	if can_ride():
 		return tr("ACTION_RIDE")
 	return tr("ACTION_PET") if not data.petted_today else ""
@@ -1216,6 +1221,11 @@ func info_prompt() -> String:
 
 func interact(player: Node) -> void:
 	if _faint_t >= 0.0 or led:
+		return
+	if visible and Animals.wants_name(data):
+		_face((player as Node3D).global_position)
+		_attention = 2.0
+		Animals.offer_name(data)
 		return
 	if can_ride():
 		(player as Player).mount(self)

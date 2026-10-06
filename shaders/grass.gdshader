@@ -17,6 +17,8 @@ uniform vec3 blade_color : source_color = vec3(0.34, 0.4, 0.17);
 uniform vec3 tip_color : source_color = vec3(0.54, 0.51, 0.3);
 // How far toward straw the tips of a clump can go (0..1).
 uniform float dry_tips = 0.55;
+// Roughness of soaked blades: a soft sheen at grazing angles, never a mirror of the sky.
+uniform float wet_roughness : hint_range(0.3, 1.0) = 0.62;
 
 varying float v_h;
 varying vec3 v_base;
@@ -61,9 +63,12 @@ void fragment() {
 	vec3 col = mix(v_base * 0.55, v_base, smoothstep(0.0, 0.45, v_h));
 	col = mix(col, v_tip, smoothstep(0.55, 1.0, v_h));
 	col = mix(col, snow_color(), snow_amount * smoothstep(0.35, 1.0, v_h));
-	ALBEDO = col;
-	ROUGHNESS = mix(0.78, 0.45, wetness);
-	SPECULAR = 0.25;
+	// Wet grass is darker and deeper in colour, not brighter.
+	float grey = dot(col, vec3(0.3, 0.59, 0.11));
+	ALBEDO = mix(vec3(grey), col, 1.0 + 0.25 * wetness) * (1.0 - wetness * 0.18);
+	ROUGHNESS = mix(0.78, wet_roughness, wetness);
+	METALLIC = 0.0;
+	SPECULAR = mix(0.25, 0.18, wetness);
 	AO = mix(0.55, 1.0, v_h);
 	AO_LIGHT_AFFECT = 0.2;
 	BACKLIGHT = col * 0.35;

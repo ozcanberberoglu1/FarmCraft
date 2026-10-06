@@ -13,6 +13,12 @@ extends Node
 ## hand; E or G lets it go where it stands. Pulled too far (it can't follow, or he ran off)
 ## the halter slips off its head. With his hands full the item in hand is put away;
 ## leading, he walks at the animal's pace. Never the market's animals or a neighbour's.
+## G on his own dog (PetDog: the pup, and grown too) picks it up the same way: sitting on
+## his forearm low in the view, looking about and up at him, wagging; LMB, E or G sets it
+## down at his feet. Getting into a vehicle with it in his arms (board) puts it on the
+## passenger seat, where it rides along (PetDog &"ride"); getting out (alight) it is down
+## on the ground beside him. Only carried in does it ride: left on the ground when he
+## drives off, it stays (and goes home on its own, Pet).
 
 ## Seconds between a held bird's clucks, and between its wriggles; a wriggle's length.
 const CLUCK_EVERY := Vector2(3.5, 9.0)
@@ -55,9 +61,21 @@ const HALTER := {
 ## Seconds after the halter goes on that the face's way is taken again (its head is up by
 ## then, whatever it was doing).
 const FACE_SETTLE := 0.8
+## The dog in the arms: where its head is in the view (across and down per metre of its
+## distance), that distance by its size (the pup's, the grown dog's), how far it is turned
+## (its head toward the left and round to him, its face in three-quarter view), and its
+## head in its own frame sitting, at Karamel's size (m: up, and ahead of its feet; measured).
+## The head stays clear above the hotbar, its chest and paws run down behind it.
+const DOG_HEAD := Vector2(-0.03, -0.27)
+const DOG_DIST := Vector2(0.5, 0.76)
+const DOG_YAW := 2.3
+const DOG_HEAD_LOCAL := Vector3(0.0, 0.54, -0.16)
 
 var carried: Animal
 var led: Animal
+## His own dog in his arms, and on the seat beside him in the vehicle he drives.
+var carried_dog: PetDog
+var riding_dog: PetDog
 
 var _player: Player
 var _rng := RandomNumberGenerator.new()
@@ -96,9 +114,14 @@ func _ready() -> void:
 	Events.day_ending.connect(_on_day_ending)
 
 
-## Hands full: a bird in the arms or an animal on the halter.
+## Hands full: a bird or his dog in the arms, or an animal on the halter.
 func busy() -> bool:
-	return carried != null or led != null
+	return carried != null or led != null or carried_dog != null
+
+
+## Something alive in his arms (a bird, his dog): LMB sets it down.
+func in_arms() -> bool:
+	return carried != null or carried_dog != null
 
 
 ## The farmer's top pace (m/s) while he leads an animal (INF otherwise).
@@ -110,7 +133,11 @@ func pace_cap(sprinting: bool) -> float:
 
 ## The line offering G on `target` ("" when there is nothing to take hold of).
 func offer_line(target: Object) -> String:
-	if busy() or not is_instance_valid(target) or not target is Animal or _player.riding or _player.driving:
+	if busy() or not is_instance_valid(target) or _player.riding or _player.driving:
+		return ""
+	if target is PetDog:
+		return "G (%s)" % tr("ACTION_HOLD_ANIMAL") if (target as PetDog).can_carry() else ""
+	if not target is Animal:
 		return ""
 	var a := target as Animal
 	if a.can_carry():
@@ -124,7 +151,7 @@ func offer_line(target: Object) -> String:
 ## when nothing else takes it, `e_free`).
 func busy_lines(e_free: bool) -> PackedStringArray:
 	var lines := PackedStringArray()
-	if carried:
+	if in_arms():
 		lines.append("%s (%s)" % [tr("KEY_LMB"), tr("ACTION_SET_DOWN")])
 	elif led:
 		lines.append("%s (%s)" % [tr("KEY_E") if e_free else "G", tr("ACTION_LET_GO")])
@@ -136,7 +163,12 @@ func handle_pressed(target: Object) -> void:
 	if busy():
 		let_go()
 		return
-	if not is_instance_valid(target) or not target is Animal or _player.riding or _player.driving:
+	if not is_instance_valid(target) or _player.riding or _player.driving:
+		return
+	if target is PetDog:
+		pick_up_dog(target as PetDog)
+		return
+	if not target is Animal:
 		return
 	var a := target as Animal
 	if a.can_carry():
@@ -145,10 +177,12 @@ func handle_pressed(target: Object) -> void:
 		lead(a)
 
 
-## Sets the bird down or takes the halter off, whichever is in hand.
+## Sets the bird (the dog) down or takes the halter off, whichever is in hand.
 func let_go() -> void:
 	if carried:
 		set_down()
+	elif carried_dog:
+		set_down_dog()
 	elif led:
 		release()
 
@@ -291,6 +325,134 @@ func _voice(a: Animal, volume_db: float) -> void:
 		Audio.play("chick", at, volume_db + 2.0, 0.12, &"Effects", 3.0, _rng.randf_range(0.95, 1.12))
 	else:
 		Audio.play("chicken", at, volume_db, 0.06, &"Effects", 4.0, 0.82 if a.data.species == &"rooster" else 1.0)
+
+
+# --- His dog -------------------------------------------------------------------------------
+
+## His own dog up into his arms (the pup, and grown too: a bigger armful, held further off).
+func pick_up_dog(d: PetDog) -> void:
+	if busy() or d == null or not d.can_carry():
+		return
+	d.pick_up()
+	carried_dog = d
+	_player.held.set_stowed(true)
+	var dist := clampf(0.3 + d.size * 0.44, DOG_DIST.x, DOG_DIST.y)
+	_head_local = DOG_HEAD_LOCAL * d.size
+	_head_at = Vector3(DOG_HEAD.x * dist, DOG_HEAD.y * dist, -dist)
+	_sway = Vector2(0.0, -0.3)
+	_last_basis = _player.camera.global_basis
+	_wriggle_wait = _rng.randf_range(WRIGGLE_EVERY.x, WRIGGLE_EVERY.y)
+	_wriggle_t = 0.0
+	_pose_dog(0.0)
+
+
+## The dog down on the ground in front of the farmer (at his feet when a wall is right
+## there), turned to him.
+func set_down_dog() -> void:
+	var d := carried_dog
+	if d == null:
+		return
+	_clear_carry_dog()
+	if not is_instance_valid(d) or not d.is_inside_tree() or d.task != &"held":
+		return
+	var fwd := -_player.global_basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
+	var feet := _player.global_position
+	var spot := feet + fwd * (0.75 + 0.3 * d.size)
+	var space := _player.get_world_3d().direct_space_state
+	var chest := PhysicsRayQueryParameters3D.create(feet + Vector3(0, 0.9, 0), spot + Vector3(0, 0.3, 0), 1)
+	if not space.intersect_ray(chest).is_empty():
+		spot = feet + fwd * 0.25
+	d.put_down(_on_ground(spot, []), atan2(fwd.x, fwd.z))
+
+
+func _clear_carry_dog() -> void:
+	carried_dog = null
+	_wriggle_t = -1.0
+	_restore_hands()
+
+
+## `spot` on what is under it (the ground, a floor, a pavement), `exclude` left out.
+func _on_ground(spot: Vector3, exclude: Array[RID]) -> Vector3:
+	var down := PhysicsRayQueryParameters3D.create(spot + Vector3(0, 1.2, 0), spot - Vector3(0, 2.5, 0), 1)
+	down.exclude = exclude
+	var hit := _player.get_world_3d().direct_space_state.intersect_ray(down)
+	return Vector3(spot.x, (hit["position"] as Vector3).y if not hit.is_empty() else TerrainData.height(spot.x, spot.z), spot.z)
+
+
+## Getting into `v`: the dog in his arms goes onto the passenger seat and rides along
+## (where there is one); anything else in hand is set down or let go first.
+func board(v: Vehicle) -> void:
+	var d := carried_dog
+	if d != null and is_instance_valid(d) and d.task == &"held" and v != null and v.has_passenger_seat():
+		_clear_carry_dog()
+		riding_dog = d
+		d.seat_in(v)
+		return
+	let_go()
+
+
+## Out of `v` at `spot`: the dog that rode along is down on the ground beside him (on the
+## side away from the vehicle, a step ahead), turned to him.
+func alight(v: Vehicle, spot: Vector3) -> void:
+	var d := riding_dog
+	riding_dog = null
+	if d == null or not is_instance_valid(d) or d.task != &"ride":
+		return
+	var out := spot - v.global_position
+	out.y = 0.0
+	out = out.normalized() if out.length() > 0.01 else v.global_basis.x
+	var ahead := v.global_basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized()
+	var at := spot + out * 0.7 + ahead * 0.8
+	var space := _player.get_world_3d().direct_space_state
+	var chest := PhysicsRayQueryParameters3D.create(spot + Vector3(0, 0.9, 0), at + Vector3(0, 0.3, 0), 1)
+	chest.exclude = [v.get_rid(), _player.get_rid()]
+	if not space.intersect_ray(chest).is_empty():
+		at = spot + ahead * 0.5
+	var to := spot - at
+	d.leave_vehicle(_on_ground(at, [v.get_rid(), _player.get_rid()]), atan2(-to.x, -to.z))
+
+
+## The dog in the arms this frame: in front of the view as a held bird is (lagging the
+## turn, bobbing with the steps, breathing), shifting about, now and then a wriggle; its
+## own pose (sitting up, looking about and at him, wagging) is PetDog.pose_held.
+func _pose_dog(delta: float) -> void:
+	var d := carried_dog
+	var cam := _player.camera
+	_t += delta
+	var speed := Vector2(_player.velocity.x, _player.velocity.z).length()
+	var on_floor := _player.is_on_floor()
+	_wriggle_wait -= delta
+	if _wriggle_wait <= 0.0 and _wriggle_t < 0.0:
+		_wriggle_wait = _rng.randf_range(WRIGGLE_EVERY.x, WRIGGLE_EVERY.y) * 1.5
+		_wriggle_t = 0.0
+	var wr := 0.0
+	if _wriggle_t >= 0.0:
+		_wriggle_t += delta
+		var u := _wriggle_t / WRIGGLE_TIME
+		wr = sin(PI * clampf(u, 0.0, 1.0))
+		if u >= 1.0:
+			_wriggle_t = -1.0
+	var basis_now := cam.global_basis
+	var turn := (_last_basis.inverse() * basis_now).get_euler()
+	_last_basis = basis_now
+	_sway += Vector2(-turn.y, turn.x) * 0.5
+	_sway = _sway.lerp(Vector2.ZERO, clampf(delta * 7.0, 0.0, 1.0))
+	_sway = _sway.clamp(Vector2(-0.07, -0.35), Vector2(0.07, 0.07))
+	var bob := sin(_t * 9.0) * 0.012 * clampf(speed / 4.0, 0.0, 1.5) if on_floor else 0.0
+	var breath := sin(_t * 2.4) * 0.003
+	var off := Vector3(_sway.x, _sway.y + bob + breath, 0.0)
+	var shift := sin(_t * 0.6) * 0.06 + sin(_t * 1.7) * 0.025
+	var w := maxf(_wriggle_t, 0.0)
+	var yaw := DOG_YAW + shift + sin(w * 17.0) * 0.1 * wr
+	var roll := sin(w * 21.0 + 1.0) * 0.05 * wr + sin(_t * 1.1) * 0.02
+	var b := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -0.04) * Basis(Vector3.BACK, roll)
+	var origin := _head_at - b * _head_local + off
+	d.global_transform = cam.global_transform * Transform3D(b, origin)
+	d.pose_held(delta)
 
 
 # --- Leading ------------------------------------------------------------------------------
@@ -556,6 +718,11 @@ func _process(delta: float) -> void:
 			_pose_carried(delta)
 		else:
 			_clear_carry()
+	if carried_dog:
+		if is_instance_valid(carried_dog) and carried_dog.is_inside_tree() and carried_dog.task == &"held":
+			_pose_dog(delta)
+		else:
+			_clear_carry_dog()
 	if led:
 		if is_instance_valid(led):
 			if _face_wait > 0.0:
@@ -584,6 +751,13 @@ func _restore_hands() -> void:
 ## Off to bed: the bird and the animal on the halter go home for the night (Animals puts
 ## them in their housing).
 func _on_day_ending() -> void:
+	if carried_dog:
+		# His dog goes to its own place for the night.
+		var d := carried_dog
+		set_down_dog()
+		if is_instance_valid(d):
+			d.send_home()
+		return
 	var a := carried if carried else led
 	if a == null or not is_instance_valid(a):
 		return

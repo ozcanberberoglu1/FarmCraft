@@ -23,7 +23,7 @@ void fragment() {
 	ALPHA = a;
 	ALPHA_SCISSOR_THRESHOLD = alpha_cut;
 	ALPHA_ANTIALIASING_EDGE = 0.0;
-	ROUGHNESS = mix(0.78, 0.4, wetness);
+	ROUGHNESS = mix(0.78, 0.56, wetness);
 	SPECULAR = 0.2;
 	BACKLIGHT = back;
 }

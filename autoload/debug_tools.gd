@@ -426,16 +426,24 @@ func _town_vehicle() -> Vehicle:
 	return town.for_sale if town else null
 
 
-## The vehicle a shot works on: the dealer's pickup, or Grandpa's with "farm_truck".
+## The vehicle a shot works on: the dealer's pickup, Grandpa's with "farm_truck", or the
+## dealer's one of a kind with "vehicle_kind".
 func _shot_vehicle(shot: Dictionary) -> Vehicle:
+	var town := get_tree().get_first_node_in_group(&"town") as Town
 	if shot.get("farm_truck", false):
-		var town := get_tree().get_first_node_in_group(&"town") as Town
 		return town.farm_truck if town else null
+	if shot.has("vehicle_kind") and town:
+		for v: Vehicle in town.dealer_stock:
+			if v.kind == StringName(String(shot["vehicle_kind"])):
+				return v
 	return _town_vehicle()
 
 
-## Vehicle keys: farm_truck, own_vehicle, vehicle_at [x, y, z, yaw], clear_cargo, cargo /
-## stock [[id, n]], drive, exit_vehicle, chase, throttle (-1..1), steer (-1..1).
+## Vehicle keys: farm_truck, vehicle_kind, own_vehicle, vehicle_at [x, y, z, yaw],
+## clear_cargo, cargo / stock [[id, n]], drive, exit_vehicle, chase, throttle (-1..1),
+## steer (-1..1), cab_look [yaw, pitch] (degrees: where the driver looks, left and up
+## positive), vehicle_look [yaw, pitch], wiper_hold (0..1), handbrake, vehicle_cam
+## [x, y, z, look x, y, z], player_look [yaw, pitch].
 func _setup_vehicle(shot: Dictionary) -> void:
 	var v := _shot_vehicle(shot)
 	if v == null:
@@ -458,6 +466,9 @@ func _setup_vehicle(shot: Dictionary) -> void:
 		Input.action_release("move_forward")
 		Input.action_release("move_back")
 		Game.player.exit_vehicle()
+	if shot.has("cab_look"):
+		var cl: Array = shot["cab_look"]
+		v._look = Vector2(deg_to_rad(float(cl[0])), deg_to_rad(float(cl[1])))
 	if shot.has("chase"):
 		v.chase_camera = bool(shot["chase"])
 		if v.driver:
@@ -479,6 +490,30 @@ func _setup_vehicle(shot: Dictionary) -> void:
 			Input.action_press("move_left", st)
 		elif st < 0.0:
 			Input.action_press("move_right", -st)
+	if shot.has("vehicle_look"):
+		# [round about, up] in degrees: where the driver looks (left positive).
+		var vl: Array = shot["vehicle_look"]
+		v._look = Vector2(deg_to_rad(float(vl[0])), deg_to_rad(float(vl[1])))
+	if shot.has("wiper_hold") and VehicleWipers.of(v):
+		# 0..1: the wipers held that far along their stroke up (negative: let go).
+		VehicleWipers.of(v).hold(float(shot["wiper_hold"]))
+	if shot.has("handbrake"):
+		# Holds the vehicle where it stands while a shot waits.
+		if bool(shot["handbrake"]):
+			Input.action_press("jump")
+		else:
+			Input.action_release("jump")
+	if shot.has("vehicle_cam"):
+		# [x, y, z, look x, y, z] in the vehicle's body frame (+X left, +Y up, +Z ahead): the
+		# debug camera there, e.g. on its windscreen from outside.
+		var vc: Array = shot["vehicle_cam"]
+		var from := v.to_global(Vector3(vc[0], vc[1], vc[2]))
+		var to := v.to_global(Vector3(vc[3], vc[4], vc[5]))
+		_place_debug_camera({"pos": [from.x, from.y, from.z], "look": [to.x, to.y, to.z], "fov": shot.get("fov", 70.0)})
+	if shot.has("player_look"):
+		# [yaw, pitch] in degrees: turns the player where he stands (e.g. just out of the cab).
+		var pl: Array = shot["player_look"]
+		Game.player.look_at_yaw_pitch(deg_to_rad(float(pl[0])), deg_to_rad(float(pl[1])))
 
 
 func _place_debug_camera(shot: Dictionary) -> void:

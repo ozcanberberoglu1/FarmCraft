@@ -174,13 +174,17 @@ const PROFILES := {
 		[0.64, Vector3(-0.004, -0.022, -0.06), Vector3(-9, 0, -2.5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
 		[0.77, Vector3(0.004, -0.018, -0.06), Vector3(-7, 0, 2.5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
-	# A sapling lowered to the ground and pressed down into the dug hole, twice (the
-	# head dips with each press).
-	&"dig": {"impact": 0.56, "kick": Vector4(-0.9, 0.0, 0.3, -0.03), "trauma": 0.04, "keys": [
+	# A sapling set into the ground by hand, nothing struck: the hand reaches out to the
+	# spot under the aim in one easy move (forward along the lowered gaze is down to the
+	# ground), straightening the sapling as it goes, lowers its root ball into the soil
+	# (it is planted at "final"), then firms the earth round it with one soft pat (the
+	# "impact", after it) and comes back. Every move eases in and out; the head only nods.
+	&"set_down": {"final": 0.64, "impact": 0.84, "kick": Vector4(-0.3, 0.0, 0.0, -0.012), "trauma": 0.0, "keys": [
 		[0.0, Vector3.ZERO, Vector3.ZERO],
-		[0.3, Vector3(0.0, 0.04, 0.03), Vector3(8, 0, -2), Tween.TRANS_SINE, Tween.EASE_OUT],
-		[0.56, Vector3(-0.07, -0.22, -0.14), Vector3(-26, 6, 8), Tween.TRANS_EXPO, Tween.EASE_IN],
-		[0.68, Vector3(-0.07, -0.23, -0.14), Vector3(-27, 6, 8), Tween.TRANS_LINEAR, Tween.EASE_IN],
+		[0.42, Vector3(-0.2, 0.15, -0.34), Vector3(14, 4, -3), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.64, Vector3(-0.23, 0.1, -0.42), Vector3(24, 4, -5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.75, Vector3(-0.22, 0.12, -0.4), Vector3(22, 4, -5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
+		[0.84, Vector3(-0.23, 0.1, -0.42), Vector3(24, 4, -5), Tween.TRANS_SINE, Tween.EASE_IN_OUT],
 		[1.0, Vector3.ZERO, Vector3.ZERO, Tween.TRANS_SINE, Tween.EASE_IN_OUT]]},
 	# The knife: drawn back a hand's width, then a fast straight stab ahead along the blade,
 	# a hold at full reach, and back (Combat: LMB with the knife in hand).
@@ -203,7 +207,7 @@ const ACTIONS := {
 	"cut": [&"scythe", 1], "harvest": [&"scythe", 1], "water": [&"can_pour", 1], "fill_water": [&"can_pour", 1],
 	"refill": [&"can_dip", 1], "plant": [&"scatter", 1], "fertilize": [&"sack", 1], "fill_feed": [&"sack", 1],
 	"muck": [&"fork", 1], "brush": [&"brush", 0], "shear": [&"brush", 0], "douse": [&"can_pour", 1],
-	"plant_sapling": [&"dig", 2],
+	"plant_sapling": [&"set_down", 1],
 }
 ## A tool's own stroke (clearing a bed, swinging at nothing).
 const TOOL_PROFILES := {&"axe": &"axe", &"pickaxe": &"pickaxe", &"hoe": &"hoe", &"scythe": &"scythe", &"pitchfork": &"fork"}

@@ -56,6 +56,9 @@ const SETS := {
 	"wolf_bite": "sfx/animals/wolf_bite_%d.ogg", "wolf_yelp": "sfx/animals/wolf_yelp_%d.ogg",
 	"wolf_death": "sfx/animals/wolf_death_%d.ogg",
 	"engine_start": ["sfx/vehicle/engine_start.mp3"], "car_door": ["sfx/vehicle/door_slam.mp3"],
+	# One stroke of the windscreen wipers over wet glass (VehicleWipers;
+	# tools/build_wiper_audio.py, synthesised).
+	"wiper": "sfx/vehicle/wiper_%d.wav",
 	"click": ["sfx/ui/click.ogg"], "hover": ["sfx/ui/hover.ogg"], "open": ["sfx/ui/open.ogg"], "close": ["sfx/ui/close.ogg"],
 	"confirm": ["sfx/ui/confirm.ogg"], "error": ["sfx/ui/error.ogg"], "toggle": ["sfx/ui/toggle.ogg"],
 	"drop": ["sfx/ui/drop.ogg"], "notify": ["sfx/ui/notify.ogg"],
@@ -163,6 +166,10 @@ var _vehicle: Vehicle
 var _engine_delay := 0.0
 ## Headless runs (tests) have no audio output: nothing plays.
 var _silent := false
+## The car radio (CarRadio): while it plays, the music here waits (_update_music).
+var radio: CarRadio
+## Seconds into the world's track at which the radio cut in (-1 when it is not held).
+var _music_held := -1.0
 
 
 func _ready() -> void:
@@ -187,6 +194,9 @@ func _ready() -> void:
 	# The fair plays on without a pause; the farm's music leaves quiet stretches.
 	_music.finished.connect(func() -> void: _music_gap = 1.0 if _music_state == "carnival" else randf_range(45.0, 110.0))
 	add_child(_music)
+	radio = CarRadio.new()
+	radio.silent = _silent
+	add_child(radio)
 	for key: String in LOOPS:
 		var positional: bool = key in ANIMAL_BEDS or key in ["engine", "hooves_walk", "hooves_gallop", "hooves_road", "contest_crowd"]
 		_loops[key] = Loop.new(self, _stream(LOOPS[key]), positional, &"Effects" if key.begins_with("engine") or key.begins_with("hooves") else &"Ambience")
@@ -204,6 +214,7 @@ func shutdown() -> void:
 	for p in _pool_2d + _pool_3d:
 		p.stop()
 	_music.stop()
+	radio.shutdown()
 
 
 func _exit_tree() -> void:
@@ -752,6 +763,22 @@ func _update_animals(delta: float, player: Node3D) -> void:
 ## tunes take over (the track playing fades out first) and hand back when it ends or the
 ## player leaves town.
 func _update_music(delta: float) -> void:
+	# The car radio plays instead (CarRadio): the track here fades out and keeps its place
+	# for when the set goes off or the driver gets out.
+	if radio.holds_music():
+		if _music.playing:
+			_music_fade = maxf(_music_fade - delta / 1.2, 0.0)
+			_music.volume_db = linear_to_db(maxf(_music_fade, 0.0001))
+			if _music_fade <= 0.0:
+				_music_held = _music.get_playback_position()
+				_music.stop()
+		return
+	if _music_held >= 0.0:
+		_music.volume_db = -80.0
+		_music.play(_music_held)
+		_music_held = -1.0
+		_music_fade = 0.0
+		return
 	var hour := GameClock.get_hour_float()
 	var title := Game.hud != null and is_instance_valid(Game.hud) and (Game.hud.get("title_screen") as Control) != null \
 			and (Game.hud.get("title_screen") as Control).visible
