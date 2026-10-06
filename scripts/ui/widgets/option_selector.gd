@@ -9,7 +9,8 @@ var index := 0
 var _label: Label
 
 
-func _init(p_options: Array = [], start := 0) -> void:
+## `label_width`: room for the longest label, so the arrows stay put while stepping.
+func _init(p_options: Array = [], start := 0, label_width := 200.0) -> void:
 	options = p_options
 	index = clampi(start, 0, maxi(options.size() - 1, 0))
 	add_theme_constant_override("separation", 6)
@@ -17,7 +18,7 @@ func _init(p_options: Array = [], start := 0) -> void:
 	prev.pressed.connect(_step.bind(-1))
 	add_child(prev)
 	_label = UiTheme.make_label("", UiTheme.heading(21, UiTheme.TEXT, 700, 2))
-	_label.custom_minimum_size = Vector2(200, 0)
+	_label.custom_minimum_size = Vector2(label_width, 0)
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	add_child(_label)

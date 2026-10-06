@@ -2,12 +2,14 @@ class_name LiveCrates
 extends RefCounted
 ## Live animals in transport crates (a hen in a slatted crate, item "chicken_crate"):
 ## bought at the Animal Market in town (its hen stall, a pen's gate, the office hatch),
-## they wait on the ground in front of the seller (the market's pickup spot, MarketCrates)
-## until the farmer carries them to the pickup, ride in a truck bed, wait in the warehouse
-## crate corner or go by hand, and are let out at their housing (the coop package does
-## that). One crate holds one grown animal. The rules and counts shared by the market,
-## the pickup spot, the bed, the warehouse, the storage screen and the story; also what
-## the market wants to see on a farm before it sells a kind (market_lock).
+## they come straight into the farmer's hands and bag (buy); only what doesn't fit waits
+## on the ground in front of the seller (the market's pickup spot, MarketCrates) until
+## it is fetched. They ride in a truck bed, wait in the warehouse crate corner or go by
+## hand, and are let out at their housing (the coop package does that). One crate holds
+## one grown animal. The rules and counts shared by the market, the pickup spot, the bed,
+## the warehouse, the storage screen and the story; also what the market wants to see on
+## a farm before it sells a kind (market_lock), and what the story's first days keep it
+## from selling (story_lock).
 
 ## The player's own vehicle parked this close to where the market was opened counts as
 ## parked at it (Town.vehicle_at_poultry: the street in front of the Animal Market counts).
@@ -110,9 +112,31 @@ static func vehicle_near(at: Vector3, radius := STALL_RANGE) -> Vehicle:
 	return best
 
 
-## How many more crates can be bought now: the market's pickup spot holds MAX_WAITING.
+## How many more crates the market's pickup spot takes (it holds MAX_WAITING): the room
+## for what the hands and the bag can't carry.
 static func market_room() -> int:
 	return FarmState.market_crates.space()
+
+
+## How many more crates of `crate` the farmer can carry: the room on the stacks of it in
+## the bag (hotbar included) and a stack's worth for every free slot.
+static func carry_room(crate: StringName) -> int:
+	var item := ItemDB.get_item(crate)
+	if item == null:
+		return 0
+	var n := 0
+	for s in PlayerState.inventory.slots:
+		if s == null:
+			n += item.max_stack
+		elif s.item.id == crate and s.quality == 0:
+			n += s.space_left()
+	return n
+
+
+## How many crates of `crate` one order can take now: what the farmer carries and what
+## the pickup spot still takes.
+static func buy_room(crate: StringName) -> int:
+	return carry_room(crate) + market_room()
 
 
 ## The Animal Market's pickup spot, where bought crates wait (null before the town is built).
@@ -122,24 +146,39 @@ static func market_spot() -> MarketCrates:
 
 
 ## "" when the Animal Market sells `species` to this farm, else why not: the farm level
-## it opens at (UnlockTable), then the building the market wants to see first
-## (AnimalTable.market_needs: the closed barn before a horse...). Room and money are
-## asked separately (can_buy, Animals.can_buy).
+## it opens at (UnlockTable), then the story (story_lock: hens only at first), then the
+## building the market wants to see first (AnimalTable.market_needs: the closed barn
+## before a horse...). Room and money are asked separately (can_buy, Animals.can_buy).
 static func market_lock(species: StringName) -> String:
 	var need := UnlockTable.animal_level(species)
 	if Progress.level < need:
 		return tr_key("UI_NEEDS_LEVEL") % [need, Progress.level]
+	var story := story_lock(species)
+	if story != "":
+		return story
 	var project := AnimalTable.market_needs(species)
 	if project != &"" and not FarmState.is_built(project):
 		return tr_key("MSG_NEED_HOUSING") % tr_key("PROJECT_" + String(project).to_upper())
 	return ""
 
 
+## Why the story keeps the Animal Market from selling `species` yet ("" when it doesn't):
+## until the rooster's own goal comes up (Quests "rooster_buy") the market sells hens
+## only, so the first days' money can't go on a bird the story doesn't count. A farm with
+## the story done or skipped buys what it likes.
+static func story_lock(species: StringName) -> String:
+	if species == &"chicken" or Quests.tutorial_done() or Quests.step >= Quests.index_of("rooster_buy"):
+		return ""
+	return tr_key("MARKET_LOCK_STORY")
+
+
 ## "" when `count` crated animals of `species` can be bought (the market opened at `_at`),
 ## else the reason. No coop is needed: the animals wait in their crates (unless the market
-## asks for something first, see market_lock), as long as the pickup spot has room.
+## asks for something first, see market_lock), as long as the farmer can carry them or
+## the pickup spot has room for the rest.
 static func can_buy(species: StringName, count: int, _at: Vector3) -> String:
-	if AnimalTable.crate_item(species) == &"" or count <= 0:
+	var crate := AnimalTable.crate_item(species)
+	if crate == &"" or count <= 0:
 		return tr_key("MSG_NO_ROOM")
 	var lock := market_lock(species)
 	if lock != "":
@@ -147,25 +186,35 @@ static func can_buy(species: StringName, count: int, _at: Vector3) -> String:
 	var cost := price(species) * count
 	if Economy.money < cost:
 		return tr_key("MSG_NEED_GOLD") % UiTheme.money(cost - Economy.money)
-	if market_room() < count:
+	if buy_room(crate) < count:
 		return tr_key("MSG_MARKET_CRATES_FULL") % count_at(&"market")
 	return ""
 
 
-## Buys `count` crated animals of `species` (the market opened at `at`): they are set
-## down in front of the seller, at the Animal Market's pickup spot by the gate
-## (FarmState.market_crates, shown by MarketCrates), for the farmer to carry to the
-## pickup. Returns how many were bought.
+## Buys `count` crated animals of `species` (the market opened at `at`): they come
+## straight to the farmer, into the hands first (put_in_hand) and then the bag; only what
+## fits in neither is set down in front of the seller, at the Animal Market's pickup spot
+## by the gate (FarmState.market_crates, shown by MarketCrates), and a toast says so.
+## Returns how many were bought.
 static func buy(species: StringName, count: int, at: Vector3) -> int:
 	if can_buy(species, count, at) != "":
 		return 0
 	var crate := AnimalTable.crate_item(species)
 	if not Economy.spend(price(species) * count, "REPORT_ANIMALS"):
 		return 0
-	FarmState.market_crates.add(crate, count)
-	Game.notify(tr_key("MSG_CRATES_WAITING") % [ItemDB.get_item(crate).display_name(), count], UiTheme.GREEN)
+	var carried := put_in_hand(crate, count)
+	if carried < count:
+		carried += (count - carried) - PlayerState.inventory.add_item(crate, count - carried)
+	var left := count - carried
+	if left > 0:
+		FarmState.market_crates.add(crate, left)
+	var crate_name := ItemDB.get_item(crate).display_name()
+	if carried > 0:
+		Game.notify(tr_key("MSG_CRATES_BOUGHT") % [crate_name, carried], UiTheme.GREEN)
+	if left > 0:
+		Game.notify(tr_key("MSG_CRATES_OVERFLOW") % left, UiTheme.GOLD)
 	var spot := market_spot()
-	Audio.animal_voice(species, true, spot.global_position if spot else at, -6.0)
+	Audio.animal_voice(species, true, spot.global_position if spot and left > 0 else at, -6.0)
 	Events.animals_bought.emit(species, count)
 	return count
 

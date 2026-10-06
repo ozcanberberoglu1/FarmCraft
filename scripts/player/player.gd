@@ -126,6 +126,9 @@ func _ready() -> void:
 	camera.top_level = true
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	camera.fov = Settings.fov
+	# Its near plane (the scene's 0.08 m) is as far out as the held items allow (food comes
+	# up to about 0.12 m from the eye): on a 24-bit depth buffer the depth steps at 30 m are
+	# near 1 mm at 0.05 and shrink in proportion, which is what makes close faces flicker.
 	held = HeldItem.new()
 	held.name = "HeldItem"
 	camera.add_child(held)
@@ -385,6 +388,12 @@ func _update_target(delta: float) -> void:
 			if new_target == null:
 				# Open ground, with a sapling in hand: the spot to plant it.
 				new_target = SaplingGrove.ground_target(self, ray)
+		# Inside the farm warehouse with nothing else to use under the crosshair (a wall,
+		# the floor, the empty crate corner): its storage opens from anywhere in there.
+		if (new_target == null or _offers_nothing(new_target)) and driving == null and riding == null and not handler.busy():
+			var shed := Warehouse.target_for(self)
+			if shed:
+				new_target = shed
 	if new_target != target:
 		if target and is_instance_valid(target) and target.has_method("set_highlight"):
 			target.set_highlight(false)
@@ -400,6 +409,12 @@ func _update_target(delta: float) -> void:
 ## Rebuilds the prompt on the next physics tick.
 func _refresh_prompt() -> void:
 	_prompt_timer = 0.0
+
+
+## Whether the crate corner `node` has nothing for E now (no crate to lift or set down):
+## the warehouse it stands in then takes E instead (_update_target).
+func _offers_nothing(node: Node) -> bool:
+	return node is CrateBay and (node as CrateBay).interact_prompt(self) == ""
 
 
 static func _find_interactable(node: Object) -> Node:

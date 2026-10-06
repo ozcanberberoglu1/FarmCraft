@@ -67,6 +67,8 @@ func _ready() -> void:
 	for m: MeshInstance3D in [_egg]:
 		m.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		m.layers = 2
+	# It shimmers near by like the egg it was a moment ago (Pickup).
+	_egg.add_child(Pickup.egg_shimmer(_egg.mesh))
 	Audio.play("egg_crack", global_position, -12.0, 0.12, &"Effects", 3.0)
 
 

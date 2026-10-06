@@ -95,7 +95,8 @@ func missing_cost(cost: int, items: Dictionary) -> String:
 ## Pays `cost` dollars for construction and takes `items` from the bag (check
 ## missing_cost first).
 func pay(cost: int, items: Dictionary) -> void:
-	Economy.spend(cost, "REPORT_CONSTRUCTION")
+	if cost > 0:
+		Economy.spend(cost, "REPORT_CONSTRUCTION")
 	for item_id: StringName in items:
 		PlayerState.inventory.remove_item(item_id, items[item_id])
 
@@ -104,11 +105,16 @@ func pay(cost: int, items: Dictionary) -> void:
 ## A kit project (ProjectTable "kit") is cut and bundled instead: the kit goes into the
 ## bag (at the player's feet when the bag is full) and the project stays open. A coop's
 ## expansion is bought for one coop (ChickenCoop.buy_expansion), never here.
-func build(id: StringName) -> bool:
-	if ProjectTable.is_per_coop(id) or not can_build(id) or missing_for(id) != "":
+## `gift`: no money is asked, only the materials (the story's first coop kit when the
+## money is gone: Quests.coop_kit_is_gift).
+func build(id: StringName, gift := false) -> bool:
+	if ProjectTable.is_per_coop(id) or not can_build(id):
 		return false
 	var p := ProjectTable.get_project(id)
-	pay(int(p["cost"]), p["items"])
+	var cost := 0 if gift else int(p["cost"])
+	if missing_cost(cost, p["items"]) != "":
+		return false
+	pay(cost, p["items"])
 	var kit := ProjectTable.kit_of(id)
 	if kit != &"":
 		if PlayerState.give(kit, 1) > 0 and Game.player:

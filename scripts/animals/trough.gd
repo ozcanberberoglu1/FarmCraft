@@ -77,7 +77,8 @@ func _build() -> void:
 
 ## Open-topped box: bottom plate and four walls.
 func _open_box(mb: MeshBuilder, key: StringName, base: Vector3, size: Vector3, wall: float, col: Color) -> void:
-	mb.box_at(key, base + Vector3(0, wall * 0.5, 0), Vector3(size.x, wall, size.z), col.darkened(0.1))
+	# The bottom lies between the walls (its edges would lie in their outer faces).
+	mb.box_at(key, base + Vector3(0, wall * 0.5, 0), Vector3(size.x - wall * 2.0, wall, size.z - wall * 2.0), col.darkened(0.1))
 	for sx: float in [-1.0, 1.0]:
 		mb.box_at(key, base + Vector3(sx * (size.x - wall) * 0.5, size.y * 0.5, 0), Vector3(wall, size.y, size.z), col)
 	for sz: float in [-1.0, 1.0]:

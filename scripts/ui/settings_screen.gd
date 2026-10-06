@@ -1,7 +1,7 @@
 class_name SettingsScreen
 extends ModalScreen
 ## Settings: general (language, day length, wolf raids, funny animals; the developer's
-## test shortcuts), video (quality preset, fullscreen, v-sync, resolution scale, field of
+## test shortcuts), video (quality preset, display mode, resolution, v-sync, field of
 ## view, camera shake, FPS counter), audio and controls (mouse, key bindings). Changes
 ## apply at once and are saved when the window closes.
 
@@ -163,12 +163,13 @@ func _slider(title_key: String, desc_key: String, lo: float, hi: float, step: fl
 	_row(title_key, desc_key, box)
 
 
-func _choice(title_key: String, desc_key: String, options: Array, index: int, apply: Callable) -> void:
-	var sel := OptionSelector.new(options, index)
+func _choice(title_key: String, desc_key: String, options: Array, index: int, apply: Callable, label_width := 200.0) -> OptionSelector:
+	var sel := OptionSelector.new(options, index, label_width)
 	sel.changed.connect(func(i: int) -> void:
 		apply.call(i)
 		Settings.apply())
 	_row(title_key, desc_key, sel)
+	return sel
 
 
 func _general() -> void:
@@ -252,11 +253,8 @@ func _video() -> void:
 	_choice("SETTINGS_QUALITY", "SETTINGS_QUALITY_DESC",
 			[tr("QUALITY_LOW"), tr("QUALITY_MEDIUM"), tr("QUALITY_HIGH"), tr("QUALITY_ULTRA")], Settings.quality,
 			func(i: int) -> void: Settings.quality = i as Settings.Quality)
-	_switch("SETTINGS_FULLSCREEN", "", Settings.fullscreen, func(on: bool) -> void: Settings.fullscreen = on)
+	_display()
 	_switch("SETTINGS_VSYNC", "SETTINGS_VSYNC_DESC", Settings.vsync, func(on: bool) -> void: Settings.vsync = on)
-	_slider("SETTINGS_RENDER_SCALE", "SETTINGS_RENDER_SCALE_DESC", 0.5, 1.0, 0.05, Settings.render_scale,
-			func(v: float) -> String: return UiTheme.percent(roundi(v * 100.0)),
-			func(v: float) -> void: Settings.render_scale = v)
 	_slider("SETTINGS_FOV", "", 60.0, 100.0, 1.0, Settings.fov,
 			func(v: float) -> String: return "%d°" % int(v),
 			func(v: float) -> void: Settings.fov = v)
@@ -264,6 +262,26 @@ func _video() -> void:
 			func(v: float) -> String: return UiTheme.percent(roundi(v * 100.0)),
 			func(v: float) -> void: Settings.camera_shake = v)
 	_switch("SETTINGS_SHOW_FPS", "", Settings.show_fps, func(on: bool) -> void: Settings.show_fps = on)
+
+
+## The display mode (full screen, borderless window, window) and the resolution: the
+## screen's own (marked) and the common smaller ones that fit on it. What the resolution
+## sets depends on the mode (Settings.resolution), which the line under it says.
+func _display() -> void:
+	var set_mode := func(i: int) -> void:
+		Settings.display_mode = i as Settings.DisplayMode
+		# The line under the resolution is another one now.
+		_select.call_deferred("video")
+	_choice("SETTINGS_DISPLAY_MODE", "", [tr("SETTINGS_FULLSCREEN"), tr("DISPLAY_BORDERLESS"), tr("DISPLAY_WINDOWED")],
+			Settings.display_mode, set_mode, 230.0).name = "DisplayMode"
+	var names: Array = []
+	for size in Settings.resolutions():
+		var text := "%d × %d" % [size.x, size.y]
+		names.append(tr("RESOLUTION_NATIVE") % text if names.is_empty() else text)
+	var windowed := Settings.display_mode == Settings.DisplayMode.WINDOWED
+	var set_resolution := func(i: int) -> void: Settings.set_resolution_index(i)
+	_choice("SETTINGS_RESOLUTION", "SETTINGS_RESOLUTION_DESC_WINDOW" if windowed else "SETTINGS_RESOLUTION_DESC_SCREEN",
+			names, Settings.resolution_index(), set_resolution, 230.0).name = "Resolution"
 
 
 func _audio() -> void:

@@ -1,10 +1,13 @@
-// A felled tree (ChoppableTree) is drawn twice, cut where the axe's notch went in: the
-// stump keeps what lies under the cut, the falling trunk what lies over it. Both clip
-// against the same face, so they fit together, in the shadow pass too. The face, in the
-// notch's frame (metres; origin on the trunk's axis at the notch floor, +X out through
-// the notch, Y up): the flat floor the axe cut and, behind the notch's crease, the hinge
-// wood, torn into splinters. The falling trunk also lacks the wedge the axe took out
-// (up to the notch's sloping roof). Needs noise.gdshaderinc.
+// A felled tree's trunk (ChoppableTree) is drawn twice, cut where the axe's notch went
+// in: the stump keeps what lies under the cut in the column the trunk stands in, the
+// falling trunk the rest (what lies over the cut, and whatever hangs lower than the cut
+// out beyond the column: low limbs go over with the trunk they grow from, they are not
+// left in the air). Both clip against the same face, so they fit together, in the
+// shadow pass too. The limbs and the leaf cards are never cut: they all fall. The face,
+// in the notch's frame (metres; origin on the trunk's axis at the notch floor, +X out
+// through the notch, Y up): the flat floor the axe cut and, behind the notch's crease,
+// the hinge wood, torn into splinters. The falling trunk also lacks the wedge the axe
+// took out (up to the notch's sloping roof). Needs noise.gdshaderinc.
 
 // xyz: the notch floor on the trunk's axis, in the mesh's space. w: the side kept, 1
 // under the cut (the stump), -1 over it (the falling trunk).
@@ -61,9 +64,17 @@ float cut_face(vec2 s) {
 	return h;
 }
 
-// Whether this copy keeps the point (in the notch's frame).
+// How far from the trunk's axis the stump reaches at height y (0 at the cut): the trunk's
+// own column, wider toward the roots (ChoppableTree.STUMP_COLUMN, STUMP_FLARE).
+float cut_column(float y) {
+	return cut_reach() + 0.25 + max(-y, 0.0) * 0.5;
+}
+
+// Whether this copy keeps the point (in the notch's frame): the stump what is under the
+// cut face inside its column, the falling trunk everything else.
 bool cut_keeps(vec3 s) {
-	return (s.y - cut_face(s.xz)) * cut_origin.w < 0.0;
+	bool stump = s.y < cut_face(s.xz) && length(s.xz) < cut_column(s.y);
+	return stump == (cut_origin.w > 0.0);
 }
 
 // Where the view ray from `cam` to `p` (a back face of the kept bark, seen through the
@@ -94,7 +105,8 @@ bool cut_hit(vec3 cam, vec3 p, out vec3 hit) {
 		}
 	}
 	hit = cam + d * hi;
-	return length(hit.xz) < cut_reach();
+	// (A fork's second stem is cut by the same face, out to the column's rim.)
+	return length(hit.xz) < cut_column(0.0);
 }
 
 // The cut face's normal at (x, z), out of the wood, in the notch's frame.

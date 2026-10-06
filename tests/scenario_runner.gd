@@ -165,6 +165,18 @@ func run(scenario: String) -> void:
 			await _scenario_handle()
 		"fix16":
 			await _scenario_fix16()
+		"trees19":
+			await _scenario_trees19()
+		"trees19_shots":
+			await _scenario_trees19_shots()
+		"vehicle19":
+			await _scenario_vehicle19()
+		"display19":
+			await _scenario_display19()
+		"visual19":
+			await _scenario_visual19()
+		"flow19":
+			await _scenario_flow19()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -1328,29 +1340,31 @@ func _town() -> void:
 	_check(town.vehicle_at_poultry() == v, "the pickup on the street counts as parked at the stall")
 	_check(LiveCrates.can_buy(&"chicken", 2, stall.global_position) == "", "two crated hens can be bought without a coop")
 	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+	var had_crates := PlayerState.inventory.count_item(&"chicken_crate")
 	var got := LiveCrates.buy(&"chicken", 2, stall.global_position)
 	await _frames(3)
-	_check(got == 2 and LiveCrates.count_at(&"market", &"chicken_crate") == 2 and v.cargo.count(&"chicken_crate") == 0
+	_check(got == 2 and LiveCrates.count_at(&"market", &"chicken_crate") == 0 and v.cargo.count(&"chicken_crate") == 0
+			and PlayerState.inventory.count_item(&"chicken_crate") == had_crates + 2
 			and Economy.money == money - 2 * LiveCrates.price(&"chicken") and bought[0] == 2,
-			"bought 2 crated hens: they wait at the market's pickup spot, not in the bed (%d gold)" % (money - Economy.money))
+			"bought 2 crated hens: they come into the hands, not the bed or the ground (%d gold)" % (money - Economy.money))
 	var loaded: int = await _load_market_crates(v)
-	_check(loaded == 2 and v.cargo.count(&"chicken_crate") == 2 and LiveCrates.count_at(&"market") == 0 and stored.has(&"bed"),
-			"E at the crates and E at the tailgate load both into the bed")
+	_check(loaded >= 2 and v.cargo.count(&"chicken_crate") == loaded and LiveCrates.count_at(&"market") == 0 and stored.has(&"bed"),
+			"E at the tailgate loads the crates in hand into the bed")
 	await _seconds(1.0)
-	_check(v.load_view().package_count() == 2 and v.load_view().live_count() == 2, "the bed shows 2 crates with a live hen in each")
+	_check(v.load_view().package_count() == loaded and v.load_view().live_count() == loaded, "the bed shows the crates with a live hen in each")
 	stall.interact(player)
 	await _frames(3)
 	var rancher: RancherScreen = Game.hud.rancher_screen
 	_check(rancher.visible and rancher._tab == "buy" and rancher._selected == &"chicken", "E at the stall opens the Animal Market on hens")
 	rancher.close_screen()
 	await _frames(3)
-	# No vehicle of the player's nearby: the crate waits all the same, nothing goes into the bag.
+	# No vehicle of the player's nearby: the crate comes into the bag all the same, none waits.
 	v.teleport(Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(280.0, TerrainData.height(280.0, 20.0) + 0.5, 20.0)))
 	await _frames(20)
 	var in_bag := PlayerState.inventory.count_item(&"chicken_crate")
 	_check(town.vehicle_at_poultry() == null and LiveCrates.buy(&"chicken", 1, stall.global_position) == 1
-			and PlayerState.inventory.count_item(&"chicken_crate") == in_bag and LiveCrates.count_at(&"market") == 1,
-			"with no vehicle near, the crate waits at the pickup spot too")
+			and PlayerState.inventory.count_item(&"chicken_crate") == in_bag + 1 and LiveCrates.count_at(&"market") == 0,
+			"with no vehicle near, the crate comes into the bag too")
 	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	PlayerState.inventory.remove_item(&"chicken_crate", PlayerState.inventory.count_item(&"chicken_crate"))
 	v.cargo.from_dict({"capacity": v.cargo.capacity, "items": {}})
@@ -3199,7 +3213,13 @@ func _quests() -> void:
 		await _idle_frames(2)
 		_check(Quests.current()["id"] == "coop_place" and int(Quests.tally.get("crafted:", 0)) == 0,
 				"a kit cut at the board moves on to placing it (and isn't the workshop's first craft)")
+		# A kit that is nowhere (not in the bag, not on the ground): the board makes another.
+		var lost: Variant = Quests._target("coop_spot")
+		_check(lost is Vector3 and Vector2((lost as Vector3).x, (lost as Vector3).z).distance_to(Vector2(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z)) < 0.1,
+				"with the kit lost the dot goes back to the board")
+		inv.add_item(&"coop_kit", 1)
 		var spot: Variant = Quests._target("coop_spot")
+		inv.remove_item(&"coop_kit", 1)
 		_check(spot is Vector3 and not Placer.reserved((spot as Vector3).x, (spot as Vector3).z),
 				"the dot suggests open farm land for the coop (%s)" % str(spot))
 		var at: Vector3 = spot if spot is Vector3 else Vector3(22.0, 0.0, -22.0)
@@ -3340,7 +3360,11 @@ func _quests() -> void:
 	var same := func(x: Variant, y: Variant) -> bool: return typeof(x) == typeof(y) and x == y
 	var feed_had := inv.count_item(&"feed")
 	inv.remove_item(&"feed", feed_had)
-	_check(same.call(Quests._target("feeder"), Quests._target("warehouse")), "no feed in the bag: the dot points at the warehouse")
+	Quests._hint = ""
+	var in_shed: Variant = Quests._target("feeder")
+	_check(in_shed is Node3D and in_shed == WaypointMarker.anchor(Warehouse.ANCHOR_INSIDE) and Quests._hint == tr("HINT_FEED_WAREHOUSE"),
+			"no feed in the bag: the dot floats inside the warehouse, and the goal says to open it ('%s')" % Quests._hint)
+	Quests._hint = ""
 	inv.add_item(&"feed", 1)
 	_check(same.call(Quests._target("feeder"), Quests._anchor(&"coop_feeder", Quests._target("coop"))),
 			"feed in the bag: the dot points at the coop's feeder")
@@ -6612,11 +6636,11 @@ func _poultry() -> void:
 			and info.get("product", &"x") == &"" and tr("ANIMAL_ROOSTER") != "ANIMAL_ROOSTER",
 			"the rooster: coop housing, $%d at the animal market, in his own crate" % int(info.get("adult_price", 0)))
 	Economy.add_money(500, "test")
+	var roosters_had := inv.count_item(&"rooster_crate")
 	var bought := LiveCrates.buy(&"rooster", 1, Vector3(0, -500, 0))
-	var waited := LiveCrates.count_at(&"market", &"rooster_crate") == 1 and inv.count_item(&"rooster_crate") == 0
-	var taken_up: int = await _take_market_crates()
-	_check(bought == 1 and waited and taken_up == 1 and inv.count_item(&"rooster_crate") == 1,
-			"a rooster bought waits in his crate at the market, then goes into the hands")
+	await _frames(1)
+	_check(bought == 1 and LiveCrates.count_at(&"market", &"rooster_crate") == 0 and inv.count_item(&"rooster_crate") == roosters_had + 1,
+			"a rooster bought comes in his crate straight into the hands")
 	_select(&"rooster_crate")
 	notes.clear()
 	var ok := CoopDoor.release_held(h)
@@ -7068,8 +7092,8 @@ func _market() -> void:
 	_check(town.poultry_marker != null and String(town.poultry_marker.get_meta(&"waypoint", "")) == "town_chickens"
 			and target is Node3D and (target as Node3D).global_position.distance_to(stall.global_position) < 4.0,
 			"the story's 'stall' waypoint points at the market's hen stall")
-	# E at the hen stall opens the market on hens; one bought waits at the pickup spot by
-	# the gate (not in the pickup parked in the street in front), the screen says so.
+	# E at the hen stall opens the market on hens; one bought comes into the bag (not into
+	# the pickup parked in the street in front, nor onto the ground), the screen says so.
 	stall.interact(player)
 	await _frames(3)
 	_check(market.visible and market._tab == "buy" and market._selected == &"chicken", "E at the hen stall opens the market on hens")
@@ -7087,10 +7111,11 @@ func _market() -> void:
 	var old_lines := false
 	for l in market.find_children("*", "Label", true, false):
 		if (l as Label).is_visible_in_tree():
-			wait_line = wait_line or (l as Label).text == tr("RANCHER_CRATES_WAIT")
+			wait_line = wait_line or (l as Label).text == tr("RANCHER_CRATES_TO_BAG")
 			old_lines = old_lines or (l as Label).text in [tr("RANCHER_CRATE_TO_BAG"),
 					tr("RANCHER_CRATE_TO_BED") % [truck.display_name(), truck.cargo.space()]]
-	_check(wait_line and not old_lines, "the hen order says the crates wait in front of the seller (no bed or bag line)")
+	_check(wait_line and not old_lines, "the hen order says the crates come into the hands and the bag (no bed line)")
+	var hens_had := PlayerState.inventory.count_item(&"chicken_crate")
 	var buy_button: UiButton = null
 	for bt in market.find_children("*", "UiButton", true, false):
 		var ub := bt as UiButton
@@ -7100,9 +7125,11 @@ func _market() -> void:
 	if buy_button:
 		buy_button.pressed.emit()
 	await _frames(3)
-	_check(truck.cargo.count(&"chicken_crate") == 0 and LiveCrates.count_at(&"market", &"chicken_crate") == 1
+	_check(truck.cargo.count(&"chicken_crate") == 0 and LiveCrates.count_at(&"market", &"chicken_crate") == 0
+			and PlayerState.inventory.count_item(&"chicken_crate") == hens_had + 1
 			and Economy.money == 500 - LiveCrates.price(&"chicken"),
-			"a crated hen bought for %s waits at the pickup spot" % UiTheme.money(LiveCrates.price(&"chicken")))
+			"a crated hen bought for %s comes into the bag" % UiTheme.money(LiveCrates.price(&"chicken")))
+	PlayerState.inventory.remove_item(&"chicken_crate", 1)
 	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
 	truck.cargo.from_dict(kept_truck[1])
 	truck.teleport(kept_truck[0])
@@ -7185,11 +7212,12 @@ func _market_shot(shot_name: String) -> void:
 
 # --- Crates waiting at the Animal Market --------------------------------------------------
 
-## Crates bought at the Animal Market wait at its pickup spot, just inside the gate by the
-## office hatch, whether a pickup is parked near or not: nothing goes into a bed or the bag
-## by itself. E there lifts one into the hands, E at the tailgate loads it (the second one
-## too, onto a hen already aboard); a crate still waiting is saved and loaded with the
-## game; the story counts waiting crates as bought, and its dot points at them (the line
+## Crates bought at the Animal Market come straight into the hands and the bag, whether a
+## pickup is parked near or not; only what a full bag can't take waits at the market's
+## pickup spot, just inside the gate by the office hatch (a toast says so). E there lifts
+## one into the hands, E at the tailgate loads it (the second one too, onto a hen already
+## aboard); a crate still waiting is saved and loaded with the game; the story counts
+## crates carried or waiting as bought, and its dot points at those left waiting (the line
 ## under the goal says why) until they are in the pickup. With -- --crate-shots=/abs/dir it
 ## also saves screenshots (the crates from the gate, a crate in hand, the loaded bed, the
 ## rooster taken with a full hotbar).
@@ -7229,39 +7257,62 @@ func _market_crates() -> void:
 		Events.notification_requested.disconnect(on_note)
 		return
 
-	# (2) Two hens bought with the pickup far away: both wait at the spot, nothing in the
-	# bed or the bag; the story counts them as bought.
+	# (2) Two hens bought with the pickup far away: both come into the hands, nothing in
+	# the bed or on the ground; the story counts them as bought. With a full bag the next
+	# two wait at the spot, and a toast says so.
 	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(280.0, TerrainData.height(280.0, 20.0) + 0.5, 20.0)))
 	Economy.money = 1500
 	var all_before := LiveCrates.count_at(&"all", &"chicken_crate")
 	var got := LiveCrates.buy(&"chicken", 2, stall.global_position)
 	await _frames(3)
 	var hen_name := ItemDB.get_item(&"chicken_crate").display_name()
-	_check(got == 2 and LiveCrates.count_at(&"market", &"chicken_crate") == 2 and truck.cargo.total() == 0
-			and inv.count_item(&"chicken_crate") == 0 and Economy.money == 1500 - 2 * LiveCrates.price(&"chicken")
+	_check(got == 2 and LiveCrates.count_at(&"market", &"chicken_crate") == 0 and truck.cargo.total() == 0
+			and LiveCrates.count_at(&"hand", &"chicken_crate") == 2 and Economy.money == 1500 - 2 * LiveCrates.price(&"chicken")
 			and LiveCrates.count_at(&"all", &"chicken_crate") == all_before + 2,
-			"2 hens bought with the pickup far away wait at the spot: none in the bed or the bag")
-	_check(notes.has(tr("MSG_CRATES_WAITING") % [hen_name, 2]), "the toast says where they wait (%s)" % [notes.back() if not notes.is_empty() else ""])
+			"2 hens bought with the pickup far away come into the hands: none in the bed or on the ground")
+	_check(notes.has(tr("MSG_CRATES_BOUGHT") % [hen_name, 2]), "the toast says they are in the bag (%s)" % [notes.back() if not notes.is_empty() else ""])
 	_check(Quests._check_progress("hens:owned") >= 2 and Quests._check_progress("owned:chicken") >= 2,
-			"the story counts the waiting crates as bought hens")
+			"the story counts the crates in the bag as bought hens")
+	inv.remove_item(&"chicken_crate", 2)
+	var bag_kept := inv.to_array()
+	var hand_kept := PlayerState.selected
+	# (Tools: nothing a tool in hand could be stacked onto to free the hands.)
+	for i in inv.size():
+		if inv.get_stack(i) == null:
+			inv.set_stack(i, ItemStack.create(&"hoe", 1))
+	notes.clear()
+	got = LiveCrates.buy(&"chicken", 2, stall.global_position)
+	await _frames(3)
+	_check(got == 2 and LiveCrates.count_at(&"market", &"chicken_crate") == 2 and inv.count_item(&"chicken_crate") == 0
+			and truck.cargo.total() == 0 and notes.has(tr("MSG_CRATES_OVERFLOW") % 2),
+			"with a full bag the 2 hens wait at the spot, and the toast says so (%s)" % [notes.back() if not notes.is_empty() else ""])
+	_check(Quests._check_progress("hens:owned") >= 2, "the story counts the waiting crates as bought hens too")
+	inv.from_array(bag_kept)
+	PlayerState.select(hand_kept)
 	await _seconds(0.5)
 	_check(spot.shown() == 2 and spot.live_count() == 2, "the spot shows 2 crates with a live hen in each")
-	# The market screen: where the crates wait instead of the bed or the bag; the order
-	# is capped by what the spot still takes.
+	# The market screen: the crates come into the bag, and those still waiting are
+	# counted; an order is capped by what the bag and the spot still take.
 	Game.hud.rancher_screen.open_poultry(stall.global_position)
 	await _idle_frames(3)
 	var lines := PackedStringArray()
 	for l in Game.hud.rancher_screen.find_children("*", "Label", true, false):
 		if (l as Label).is_visible_in_tree():
 			lines.append((l as Label).text)
-	_check(lines.has(tr("RANCHER_CRATES_WAIT")) and lines.has(tr("RANCHER_CRATES_WAITING") % [2, LiveCrates.MAX_WAITING])
-			and not lines.has(tr("RANCHER_CRATE_TO_BAG")), "the market screen says the crates wait in front of the seller (2 waiting)")
+	_check(lines.has(tr("RANCHER_CRATES_TO_BAG")) and lines.has(tr("RANCHER_CRATES_WAITING") % [2, LiveCrates.MAX_WAITING])
+			and not lines.has(tr("RANCHER_CRATE_TO_BAG")), "the market screen says the crates come into the bag (2 still waiting)")
 	await _crate_shot("market_screen")
 	FarmState.market_crates.add(&"chicken_crate", LiveCrates.MAX_WAITING - 2)
-	var full := LiveCrates.can_buy(&"chicken", 1, stall.global_position)
+	var purse := Economy.money
+	Economy.money = 1000000
+	var carry := LiveCrates.carry_room(&"chicken_crate")
+	var fits := LiveCrates.can_buy(&"chicken", 1, stall.global_position)
+	var full := LiveCrates.can_buy(&"chicken", carry + 1, stall.global_position)
+	Economy.money = purse
 	FarmState.market_crates.take(&"chicken_crate", LiveCrates.MAX_WAITING - 2, 0)
-	_check(full == tr("MSG_MARKET_CRATES_FULL") % LiveCrates.MAX_WAITING and LiveCrates.market_room() == LiveCrates.MAX_WAITING - 2,
-			"a full spot takes no more orders ('%s')" % full)
+	_check(carry > 0 and fits == "" and full == tr("MSG_MARKET_CRATES_FULL") % LiveCrates.MAX_WAITING
+			and LiveCrates.market_room() == LiveCrates.MAX_WAITING - 2,
+			"a full spot still sells what the bag carries, and no more ('%s')" % full)
 	Game.hud.rancher_screen.close_screen()
 	await _frames(3)
 
@@ -7358,7 +7409,7 @@ func _market_crates() -> void:
 
 	# (6) A crate still waiting is saved and loaded with the game.
 	Economy.money = 1500
-	LiveCrates.buy(&"chicken", 1, stall.global_position)
+	FarmState.market_crates.add(&"chicken_crate", 1)
 	await _frames(3)
 	var gate_eye := Vector3(lane_x - 0.8, 0, Town.WALK_S.end.y - 1.2)
 	gate_eye.y = TerrainData.height(gate_eye.x, gate_eye.z) + 0.25
@@ -7383,24 +7434,35 @@ func _market_crates() -> void:
 			and truck.cargo.count(&"chicken_crate") == 2, "after a load the crate still waits at the spot (and the loaded two ride on)")
 	SaveGame.delete(slot)
 
-	# (7) The rooster: bought, he waits too; his goal's dot points at him until he is in
-	# the pickup. A few more hens make a stack for the picture from the gate.
+	# (7) The rooster: before his own goal the market doesn't sell him; at it he is bought
+	# into the hands. Left waiting (a full bag), his goal's dot points at him until he is
+	# in the pickup. A few more hens make a stack for the picture from the gate.
 	Progress.level = maxi(Progress.level, UnlockTable.animal_level(&"rooster"))
 	Economy.money = 3000
+	Quests.step = Quests.index_of("buy_chickens")
+	Quests.step_count = 0
+	Quests._poll = 100.0
+	_check(LiveCrates.market_lock(&"rooster") == tr("MARKET_LOCK_STORY") and LiveCrates.buy(&"rooster", 1, stall.global_position) == 0
+			and Economy.money == 3000 and LiveCrates.market_lock(&"chicken") == "",
+			"on the first day the market sells hens only: no rooster, no money gone")
 	Quests.step = Quests.index_of("rooster_buy")
 	Quests.step_count = 0
 	Quests._poll = 0.0
+	inv.set_stack(7, null)
+	PlayerState.select(7)
 	LiveCrates.buy(&"rooster", 1, stall.global_position)
 	await _idle_frames(3)
 	var r_marker := spot.waypoint()
-	_check(LiveCrates.count_at(&"market", &"rooster_crate") == 1 and Quests.current()["id"] == "rooster_in",
-			"the rooster bought waits at the spot and counts as bought")
+	_check(LiveCrates.count_at(&"hand", &"rooster_crate") == 1 and LiveCrates.count_at(&"market", &"rooster_crate") == 0
+			and Quests.current()["id"] == "rooster_in", "the rooster bought at his goal comes into the hands and counts as bought")
+	inv.remove_item(&"rooster_crate", 1)
+	FarmState.market_crates.add(&"rooster_crate", 1)
 	Quests._wp_left = 0.0
 	Quests._poll = 100.0
 	await _idle_frames(3)
 	_check(Quests.waypoint() == r_marker and Quests.goal_hint() == tr("HINT_MARKET_CRATES"),
-			"letting him in: the dot points at his crate at the market first ('%s')" % Quests.goal_hint())
-	LiveCrates.buy(&"chicken", 3, stall.global_position)
+			"letting him in: the dot points at his crate left at the market first ('%s')" % Quests.goal_hint())
+	FarmState.market_crates.add(&"chicken_crate", 3)
 	await _seconds(0.6)
 	_check(spot.shown() == 5 and spot.live_count() == 5, "five crates wait in a tidy stack (%d shown)" % spot.shown())
 	player.global_position = gate_eye
@@ -7444,8 +7506,8 @@ func _market_crates() -> void:
 	Quests.tutorial_changed.emit()
 
 
-## market_crates (8): every hotbar slot taken (tools, seeds, a knife: the usual by the
-## rooster's day). E at the crates still puts the rooster in the hands and the seeds that
+## market_crates (8): a rooster left waiting at the spot, every hotbar slot taken (tools,
+## seeds, a knife: the usual by the rooster's day). E at the crates still puts the rooster in the hands and the seeds that
 ## were in hand go into the bag (a toast says so); the dot and E at the tailgate then load
 ## him, not the seeds. Crates filling the hands already, or a bag with no room for what
 ## is in hand, leave him waiting with a toast saying why; a crate in the bag is not taken
@@ -7468,7 +7530,7 @@ func _market_crates_full_hotbar(spot: MarketCrates, truck: Vehicle, stall: Node3
 	Economy.money = maxi(Economy.money, 1000)
 	Quests.step = Quests.index_of("rooster_in")
 	Quests.step_count = 0
-	LiveCrates.buy(&"rooster", 1, stall.global_position)
+	FarmState.market_crates.add(&"rooster_crate", 1)
 	await _frames(3)
 	var row_mid := spot.to_global(Vector3(MarketCrates.STEP * 0.5, 0.2, 0))
 	var stand := row_mid + Vector3(1.5, 0, -0.3)
@@ -7508,7 +7570,7 @@ func _market_crates_full_hotbar(spot: MarketCrates, truck: Vehicle, stall: Node3
 	# Crates in hand and no hotbar slot free: the hands are full, he waits.
 	var sel := PlayerState.selected
 	inv.set_stack(sel, ItemStack.create(&"chicken_crate", 4))
-	LiveCrates.buy(&"rooster", 1, stall.global_position)
+	FarmState.market_crates.add(&"rooster_crate", 1)
 	await _frames(2)
 	notes.clear()
 	spot.interact(player)
@@ -7624,17 +7686,22 @@ func _take_market_crates() -> int:
 	return taken
 
 
-## Carries every crate waiting at the Animal Market's pickup spot to `v` one at a time:
-## E at the crates, E at the tailgate (MarketCrates.interact, BedPoint.interact). Returns
-## how many went aboard.
+## Loads the crates bought at the Animal Market into `v`: those in hand first (bought
+## crates come into the hands: E at the tailgate), then every crate left waiting at the
+## pickup spot, one at a time (E at the crates, E at the tailgate: MarketCrates.interact,
+## BedPoint.interact). Returns how many went aboard.
 func _load_market_crates(v: Vehicle) -> int:
 	var spot := LiveCrates.market_spot()
 	var bed := v.find_child("BedPoint", true, false) as BedPoint
 	if spot == null or bed == null:
 		return 0
 	var player: Player = Game.player
-	_free_hands()
 	var aboard := v.cargo.total()
+	if LiveCrates.held() != &"":
+		LiveCrates.lifted_from = 0
+		bed.interact(player)
+		await _frames(1)
+	_free_hands()
 	for i in LiveCrates.MAX_WAITING:
 		if LiveCrates.count_at(&"market") == 0:
 			break
@@ -12040,7 +12107,7 @@ func _scenario_turntable() -> void:
 	await _seconds(3.5)
 	var first := _turntable_sample(v)
 	var deck_from: float = town._deck.rotation.y
-	# How the tyres stand on the deck as it settled (a loaded tyre sits a few cm into it).
+	# How the tyres stand on the deck as it settled (on it, as drawn: Vehicle._seat_tyres).
 	var settled := {}
 	for key: String in ["fl", "fr", "rl", "rr"]:
 		settled[key] = _turntable_tyre_gap(v, key)
@@ -12125,7 +12192,7 @@ func _turntable_sample(v: Vehicle) -> Dictionary:
 ## How far the bottom of wheel `key`'s tyre is above what it stands on (below: sunk in).
 func _turntable_tyre_gap(v: Vehicle, key: String) -> float:
 	var w: VehicleWheel3D = v._wheels[key]
-	var c := w.global_position
+	var c := v.tyre_center(key)
 	var q := PhysicsRayQueryParameters3D.create(c + Vector3(0, 0.05, 0), c - Vector3(0, w.wheel_radius + 0.5, 0), 1)
 	q.exclude = [v.get_rid()]
 	var hit := v.get_world_3d().direct_space_state.intersect_ray(q)
@@ -19237,3 +19304,1858 @@ func _scenario_fields17() -> void:
 	Quests.step = step_was
 	Quests.step_count = count_was
 
+
+
+# --- Trees: the cut, the felling moment, nothing left in the air (round 19) --------------
+
+## The six choppable tree models: [kind, variant, name] (NatureModels CONIFER_VARIANTS and
+## BROADLEAF_VARIANTS).
+const T19_MODELS := [[0, 1, "fir_b"], [0, 2, "pine_b"], [0, 3, "pine_c"], [1, 1, "broadleaf"], [1, 2, "olive"],
+	[1, 3, "locust"]]
+## The big locust in front of the warehouse (NatureSpawner.FARM_TREES).
+const T19_WAREHOUSE_TREE := Vector3(-26.0, 0.0, 4.0)
+
+
+## Left out of the buildings' coplanar-face scan: photo-scanned props (a scan's shell
+## folds over itself) and the furniture that is a node of its own (bed, chest, drawer).
+const V19_SCAN_SKIP: Array[StringName] = [&"OldBarrel", &"Bed", &"Chest", &"Slide"]
+## Square metres of coplanar faces (within 1 mm) a whole building may still hold, and
+## the most in any one place: what is left is out of sight (the walls' tops where they
+## lap in the corners under the roof, sheet and rafter ends), nowhere a face one sees.
+const V19_SCAN_TOTAL := 0.07
+const V19_SCAN_PATCH := 0.025
+
+
+
+# --- Round 19b: the first day's flow ------------------------------------------------------
+
+## flow19: the first day's snags from the playtest, walked through the real screens.
+## (8) Before the rooster's own goal the Animal Market refuses a rooster (a reason on his
+## card) and sells hens; bought hens land in the hands and the bag, only what doesn't fit
+## waits at the seller's spot; with the crates in the bag buy_chickens, drive_home and
+## crates_in still follow one another. (11, 12) The construction board opens on the coop
+## kit's card (picked, in view, tagged), locks the other paid projects until the coop kit
+## is made and gives a farmer without money that first kit for its wood; with the kit in
+## hand the dot shows where it goes and never a tree, the goal moves on when the kit is
+## put down through the placer and again when the coop is built, and the hens go in.
+## (13) E anywhere inside the warehouse opens its storage, a crate aimed at (or stood
+## beside) keeps its own prompt, and the feed goal's dot floats inside the shed.
+## With -- --flow-shots=/abs/dir it runs in Turkish and saves four screenshots.
+func _scenario_flow19() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(3)
+	if DebugTools.args.has("flow-shots"):
+		TranslationServer.set_locale("tr")
+	GameClock.set_time_of_day(10.0)
+	Weather.force(Weather.Kind.SUNNY)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	await _flow19_market(notes)
+	await _flow19_home()
+	await _flow19_board(notes)
+	await _flow19_coop()
+	await _flow19_warehouse()
+	Events.notification_requested.disconnect(on_note)
+	await _close_screens()
+	Quests.skip_tutorial()
+
+
+## The live control under `root` marked `mark` (the screens tag a few of their rows with
+## the meta "mark": rows rebuilt within one frame can't share a node name).
+func _flow19_find(root: Node, mark: String) -> Control:
+	for n in root.find_children("*", "Control", true, false):
+		if not n.is_queued_for_deletion() and String(n.get_meta(&"mark", "")) == mark:
+			return n as Control
+	return null
+
+
+## The texts of the labels showing under `root`.
+func _flow19_labels(root: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	for l in root.find_children("*", "Label", true, false):
+		if (l as Label).is_visible_in_tree() and not l.is_queued_for_deletion():
+			out.append((l as Label).text)
+	return out
+
+
+func _flow19_shot(shot_name: String) -> void:
+	if not DebugTools.args.has("flow-shots"):
+		return
+	await _idle_frames(20)
+	var dir := String(DebugTools.args["flow-shots"])
+	DirAccess.make_dir_recursive_absolute(dir)
+	tree.root.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, shot_name])
+
+
+## flow19 (8): the market during the first day's hen goal.
+func _flow19_market(notes: Array[String]) -> void:
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var stall := town.poultry_stall
+	var truck := town.farm_truck
+	var spot := town.market_crates
+	var inv := PlayerState.inventory
+	var screen: RancherScreen = Game.hud.rancher_screen
+	var hen := &"chicken_crate"
+	var cock := &"rooster_crate"
+	var at := stall.global_position
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+	for id: StringName in [hen, cock]:
+		inv.remove_item(id, inv.count_item(id))
+		FarmState.warehouse.take(id, FarmState.warehouse.count(id, 0), 0)
+	truck.cargo.from_dict({"capacity": truck.cargo.capacity, "items": {}})
+	# In the market's lane by the gate, the pickup parked in the street in front of it.
+	var lane_x := Town.MARKET_LANE.get_center().x
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(lane_x, TerrainData.height(lane_x, 21.5) + 0.5, 21.5)))
+	var stand := spot.to_global(Vector3(MarketCrates.STEP * 0.5, 0.2, 0)) + Vector3(1.5, 0, -0.3)
+	stand.y = TerrainData.height(stand.x, stand.z) + 0.1
+	player.global_position = stand
+	player.velocity = Vector3.ZERO
+	await _frames(4)
+	Quests.tally = {}
+	Quests.step = Quests.index_of("buy_chickens")
+	Quests.step_count = 0
+	Quests._poll = 100.0
+	Economy.money = Economy.STARTING_MONEY
+
+	# The rooster is not for sale yet: refused, with a reason; nothing is paid.
+	var lock := tr("MARKET_LOCK_STORY")
+	_check(LiveCrates.market_lock(&"rooster") == lock and LiveCrates.market_lock(&"chicken") == ""
+			and LiveCrates.can_buy(&"rooster", 1, at) == lock,
+			"before the rooster's goal the market sells hens only ('%s')" % LiveCrates.market_lock(&"rooster"))
+	_check(LiveCrates.buy(&"rooster", 2, at) == 0 and Economy.money == Economy.STARTING_MONEY
+			and LiveCrates.count_at(&"all", cock) == 0, "a rooster asked for all the same is refused: no money goes")
+	screen.open_market(at, &"rooster")
+	await _idle_frames(3)
+	var buy := _flow19_find(screen, "BuyCrates") as Button
+	_check(screen.visible and _flow19_labels(screen).has(lock) and buy != null and buy.disabled
+			and screen.why_not(&"rooster", true, 1) == lock, "the market screen shows the rooster locked with the reason, its button off")
+	await _flow19_shot("market_rooster_locked")
+
+	# Hens: two bought with the screen's button land in the hands, none on the ground.
+	screen.open_poultry(at)
+	await _idle_frames(3)
+	buy = _flow19_find(screen, "BuyCrates") as Button
+	_check(buy != null and not buy.disabled and _flow19_labels(screen).has(tr("RANCHER_CRATES_TO_BAG")),
+			"hens are for sale, and the screen says they come into the bag")
+	notes.clear()
+	if buy:
+		buy.pressed.emit()
+	await _idle_frames(4)
+	var hen_name := ItemDB.get_item(hen).display_name()
+	_check(LiveCrates.count_at(&"hand", hen) == 2 and LiveCrates.count_at(&"market") == 0 and truck.cargo.total() == 0
+			and Economy.money == Economy.STARTING_MONEY - 2 * LiveCrates.price(&"chicken"),
+			"two hens bought come straight into the hands (%d in hand, %d waiting)" % [LiveCrates.count_at(&"hand", hen), LiveCrates.count_at(&"market")])
+	_check(notes.has(tr("MSG_CRATES_BOUGHT") % [hen_name, 2]) and not notes.has(tr("MSG_CRATES_OVERFLOW") % 2),
+			"the toast says they are in the bag ('%s')" % [notes.back() if not notes.is_empty() else ""])
+	_check(Quests.passed("buy_chickens") and Quests.current()["id"] == "drive_home",
+			"hens in the bag count as bought: on to bringing them home (now '%s')" % Quests.current().get("id", ""))
+	await _close_screens()
+
+	# Overflow: a bag with room for six takes six of eight, two wait at the seller's spot.
+	var bag := inv.to_array()
+	var in_hand := PlayerState.selected
+	var money := Economy.money
+	var free := 0
+	for i in inv.size():
+		if inv.get_stack(i) == null:
+			free += 1
+			if free > 1:
+				inv.set_stack(i, ItemStack.create(&"stone", 1))
+	Economy.money = 1000
+	notes.clear()
+	var room := LiveCrates.carry_room(hen)
+	var got := LiveCrates.buy(&"chicken", 8, at)
+	await _frames(3)
+	_check(room == 6 and got == 8 and inv.count_item(hen) == 8 and LiveCrates.count_at(&"market", hen) == 2
+			and notes.has(tr("MSG_CRATES_OVERFLOW") % 2),
+			"a full bag: 6 of 8 carried, 2 wait at the seller's spot, and the toast says so ('%s')" % [notes.back() if not notes.is_empty() else ""])
+	await _seconds(0.4)
+	Quests._hint = ""
+	var back: Variant = Quests._target("home")
+	_check(spot.shown() == 2 and back == spot.waypoint() and Quests._hint == tr("HINT_MARKET_CRATES"),
+			"the story's dot still goes back for the crates left at the market")
+	FarmState.market_crates.add(hen, LiveCrates.MAX_WAITING - 2)
+	_check(LiveCrates.buy_room(hen) == 0 and LiveCrates.can_buy(&"chicken", 1, at) == tr("MSG_MARKET_CRATES_FULL") % LiveCrates.MAX_WAITING,
+			"bag and spot both full: no more orders")
+	FarmState.market_crates.from_dict({"capacity": LiveCrates.MAX_WAITING, "items": {}})
+
+	# The rooster's own goal opens him (he comes into the bag like the hens).
+	Quests.step = Quests.index_of("rooster_buy")
+	inv.from_array(bag)
+	var cock_ok := LiveCrates.market_lock(&"rooster") == "" and LiveCrates.buy(&"rooster", 1, at) == 1
+	_check(cock_ok and inv.count_item(cock) == 1 and LiveCrates.count_at(&"market") == 0,
+			"at the rooster's goal he is for sale and comes into the bag")
+	inv.from_array(bag)
+	PlayerState.select(in_hand)
+	Economy.money = money
+	Quests.tally.erase("bought:rooster")
+	Quests.tally.erase("bought:")
+	Quests.step = Quests.index_of("drive_home")
+	Quests.step_count = 0
+	Quests._poll = 100.0
+	await _frames(2)
+
+
+## flow19 (8): home with the hens in the bag, and into the warehouse's crate corner.
+func _flow19_home() -> void:
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var truck := town.farm_truck
+	var inv := PlayerState.inventory
+	var wh := Game.world.farm.get_node("Warehouse") as Warehouse
+	var hen := &"chicken_crate"
+	Quests._hint = ""
+	var to_bed: Variant = Quests._target("home")
+	_check(LiveCrates.count_at(&"hand", hen) == 2 and to_bed == truck.waypoint_bed() and Quests._hint == tr("HINT_LOAD_CRATES"),
+			"in town with the hens in hand the dot offers the pickup's bed ('%s')" % Quests._hint)
+	# He keeps them in the bag and goes home: the farmyard is enough.
+	var door := Quests._warehouse_door()
+	player.global_position = Vector3(door.x, TerrainData.height(door.x, door.z + 4.0) + 0.2, door.z + 4.0)
+	player.velocity = Vector3.ZERO
+	await _frames(3)
+	Quests._poll = 0.0
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	_check(Quests.passed("drive_home") and Quests.current()["id"] == "crates_in",
+			"home with the hens in the bag: on to the warehouse (now '%s')" % Quests.current().get("id", ""))
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	_check(Quests.waypoint() == wh.crate_bay.waypoint(), "the dot points at the warehouse's crate corner")
+	# A tool in hand, the crates in the bag: E at the corner sets them down all the same.
+	_free_hands()
+	var bay := wh.crate_bay
+	player.global_position = bay.to_global(Vector3(1.0, 0.1, 1.5))
+	player.velocity = Vector3.ZERO
+	_look_at(player, bay.to_global(Vector3(1.0, 0.3, 0.0)))
+	await _frames(8)
+	var down := tr("ACTION_SET_DOWN_CRATES") % 2
+	_check(player.target == bay and _last_prompt.contains(down), "at the crate corner E offers '%s' ('%s')" % [down, _last_prompt])
+	await _press_key(KEY_E)
+	await _frames(4)
+	_check(FarmState.warehouse.count(hen, 0) == 2 and inv.count_item(hen) == 0 and not Game.is_ui_open(),
+			"E sets the two crates down in the warehouse")
+	Quests._poll = 0.0
+	await _idle_frames(4)
+	_check(Quests.passed("crates_in"), "crates in the warehouse: on to the coop (now '%s')" % Quests.current().get("id", ""))
+
+
+## flow19 (11, 12): the construction board during the coop goal.
+func _flow19_board(notes: Array[String]) -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var screen: BuildScreen = Game.hud.build_screen
+	var board := Game.world.farm.get_node("ConstructionBoard") as ConstructionBoard
+	for id: StringName in [&"wood", &"coop_kit", &"workbench"]:
+		inv.remove_item(id, inv.count_item(id))
+	_check(not FarmState.coop_started(), "no coop stands yet")
+	Quests.step = Quests.index_of("coop_wood")
+	Quests.step_count = 0
+	Economy.money = 50
+	inv.add_item(&"wood", 15)
+	Events.item_picked_up.emit(&"wood", 15)
+	await _idle_frames(3)
+	_check(Quests.current()["id"] == "coop_kit" and Quests.board_project() == &"coop_kit" and Quests.coop_comes_first(),
+			"fifteen wood: the goal is the coop kit, and the board keeps the money for it")
+	# The dot: the board with the wood at hand; short of wood the trees, and the goal says why.
+	Quests._hint = ""
+	var at_board: Variant = Quests._target("board")
+	_check(at_board is Vector3 and Vector2((at_board as Vector3).x, (at_board as Vector3).z).distance_to(Vector2(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z)) < 0.1
+			and Quests._hint == "", "with the wood in the bag the dot points at the board")
+	inv.remove_item(&"wood", 10)
+	Quests._hint = ""
+	var at_trees: Variant = Quests._target("board")
+	var short := tr("HINT_NEED_ITEM") % ("%s ×%d" % [ItemDB.get_item(&"wood").display_name(), 10])
+	_check(at_trees != null and not (at_trees is Vector3 and at_trees == at_board) and Quests._hint == short,
+			"short of wood the dot goes to the trees and the goal says what is missing ('%s')" % Quests._hint)
+	inv.add_item(&"wood", 10)
+
+	# E at the board: it opens on the coop kit's card, in view and tagged; the rest that
+	# costs money is locked.
+	player.global_position = board.global_position + board.global_basis.z * 1.6 + Vector3(0, 0.3, 0)
+	player.velocity = Vector3.ZERO
+	_look_at(player, board.global_position + Vector3(0, 1.3, 0))
+	await _frames(6)
+	board.interact(player)
+	await _idle_frames(5)
+	var card := screen._cards.get(&"coop_kit") as Control
+	var top: float = card.position.y - screen._scroll.scroll_vertical if card else -1.0
+	_check(screen.visible and screen._selected == &"coop_kit" and BuildScreen.goal_project() == &"coop_kit",
+			"the board opens on the coop kit (picked: %s)" % screen._selected)
+	_check(card != null and card.position.y + card.size.y > screen._scroll.size.y and top >= -1.0
+			and top + card.size.y <= screen._scroll.size.y + 1.0,
+			"its card, far down the list, is scrolled into view (at %.0f of %.0f)" % [top, screen._scroll.size.y])
+	_check(card != null and _flow19_find(card, "GoalTag") != null and _flow19_find(screen._cards.get(&"workbench"), "GoalTag") == null,
+			"only the coop kit's card carries the goal tag")
+	_check(screen._status(&"workbench") == "locked" and BuildScreen.story_lock(&"workbench") == "BUILD_COOP_FIRST"
+			and BuildScreen.story_lock(&"coop_kit") == "" and screen._status(&"coop_kit") == "available",
+			"the workbench waits for the coop, the coop kit is open")
+	_check(not BuildScreen.is_gift(&"coop_kit") and _flow19_find(screen._detail, "GrandpaPaid") == null,
+			"with $50 the kit has its price")
+	(screen._cards[&"workbench"] as Button).pressed.emit()
+	await _idle_frames(3)
+	var make := _flow19_find(screen._detail, "BuildButton") as Button
+	_check(screen._selected == &"workbench" and make != null and make.disabled and _flow19_find(screen._detail, "StoryLock") != null,
+			"picked by hand, the workbench says the coop comes first and can't be made")
+	await _flow19_shot("board_workbench_locked")
+	var money := Economy.money
+	screen._build(&"workbench")
+	await _idle_frames(2)
+	_check(inv.count_item(&"workbench") == 0 and Economy.money == money and inv.count_item(&"wood") == 15 and screen.visible,
+			"no money and no wood go on a workbench before the coop")
+
+	# The money gone at the market: the first coop kit is made for its wood alone.
+	Economy.money = 10
+	(screen._cards[&"coop_kit"] as Button).pressed.emit()
+	await _idle_frames(3)
+	make = _flow19_find(screen._detail, "BuildButton") as Button
+	_check(BuildScreen.is_gift(&"coop_kit") and _flow19_find(screen._detail, "GrandpaPaid") != null and make != null and not make.disabled,
+			"with $10 left the board gives the first coop kit for its wood (Grandpa paid)")
+	await _flow19_shot("board_goal_gift")
+	notes.clear()
+	if make:
+		make.pressed.emit()
+	await _idle_frames(3)
+	var hand := PlayerState.selected_stack()
+	_check(hand != null and hand.item.id == &"coop_kit" and inv.count_item(&"coop_kit") == 1 and Economy.money == 10
+			and inv.count_item(&"wood") == 0 and not screen.visible and notes.has(tr("BUILD_GRANDPA_PAID")),
+			"the kit is in hand: 15 wood taken, no money, the board closed")
+	_check(not Quests.coop_comes_first() and BuildScreen.story_lock(&"workbench") == "",
+			"with the kit made the board's other projects open again")
+
+
+## flow19 (11): the kit in hand, put down through the placer, built, the hens in.
+func _flow19_coop() -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var farm: Farm = Game.world.farm
+	var wh := farm.get_node("Warehouse") as Warehouse
+	await _idle_frames(4)
+	await _seconds(0.4)
+	_check(Quests.current()["id"] == "coop_place", "the kit made: the goal is to put it down (now '%s')" % Quests.current().get("id", ""))
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	var spot: Variant = Quests.waypoint()
+	_check(spot is Vector3 and spot == Quests._coop_spot and Quests.goal_hint() == "",
+			"the dot floats over a place for the coop (%s), no tree asked for" % str(spot))
+	# Whatever goal of the coop is up, a kit in the bag never sends the dot to the trees.
+	var here := Quests.step
+	var never := true
+	for id: String in ["coop_wood", "coop_kit", "coop_place"]:
+		Quests.step = Quests.index_of(id)
+		Quests._hint = ""
+		var t: Variant = Quests._target(String(Quests.current()["at"]))
+		never = never and t is Vector3 and t == spot and Quests._hint == ""
+	Quests.step = here
+	_check(never, "with the kit in the bag the wood, kit and placing goals all point at the placing spot")
+	if not (spot is Vector3):
+		return
+	# Put down where the dot says, through the placer.
+	var center := spot as Vector3
+	center.y = 0.0
+	await _aim_plot(player, center, &"coop_kit")
+	var fits := player.placer.active and player.placer.valid
+	_check(fits, "the kit's ghost is green at the suggested spot (%s)" % player.placer.reason)
+	if not fits:
+		await _aim_plot(player, COOP_SPOT, &"coop_kit")
+	var put_down := player.placer.place()
+	await _idle_frames(4)
+	var coop: ChickenCoop = farm.kit_coops().back() if put_down and not farm.kit_coops().is_empty() else null
+	_check(put_down and coop != null and inv.count_item(&"coop_kit") == 0, "the kit is put down: a site stands")
+	if coop == null:
+		return
+	await _seconds(0.4)
+	_check(Quests.current()["id"] == "coop_built", "putting the kit down moves the goal on to waiting (now '%s')" % Quests.current().get("id", ""))
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	_check(Quests.waypoint() == WaypointMarker.anchor(ChickenCoop.ANCHOR_COOP) and Quests.goal_hint() == "",
+			"the dot floats over the site, no tree asked for")
+	coop.entry["build_left"] = 0.5
+	await _seconds(1.2)
+	await _idle_frames(3)
+	_check(coop.is_built() and Quests.current()["id"] == "hens_in", "the coop built moves the goal on to the hens (now '%s')" % Quests.current().get("id", ""))
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	_check(Quests.waypoint() == wh.crate_bay.waypoint(), "the dot points at the hens waiting in the warehouse")
+	# The hens: out of the crate corner into the hands, in at the coop door.
+	_free_hands()
+	var free := inv.first_empty(0, PlayerState.HOTBAR_SIZE)
+	if free >= 0:
+		PlayerState.select(free)
+	wh.crate_bay.interact(player)
+	wh.crate_bay.interact(player)
+	await _frames(2)
+	_check(LiveCrates.count_at(&"hand", &"chicken_crate") == 2, "both crates lifted out of the crate corner")
+	var h := coop.housing
+	player.global_position = h.door_outside() + h.front() * 0.8 + Vector3(0, 0.3, 0)
+	player.velocity = Vector3.ZERO
+	_look_at(player, h.door_inside() + Vector3(0, 0.7, 0) - h.front() * 1.0)
+	await _frames(8)
+	var target := player.target
+	if target and _last_prompt.contains(tr("ACTION_RELEASE_HEN")):
+		target.interact(player)
+		target.interact(player)
+	await _idle_frames(5)
+	_check(Animals.count_at(h) == 2 and Quests.passed("hens_in"), "two hens let in at the door: the coop chapter is done (now '%s')" % Quests.current().get("id", ""))
+
+
+## flow19 (13): E anywhere inside the warehouse, the crates' own prompt, the feed's dot.
+func _flow19_warehouse() -> void:
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var wh := Game.world.farm.get_node("Warehouse") as Warehouse
+	var bay := wh.crate_bay
+	var open := tr("ACTION_OPEN_WAREHOUSE")
+	var c := WorldLayout.WAREHOUSE_RECT.get_center()
+	var floor_y := bay.global_position.y
+	for id: StringName in [&"chicken_crate", &"rooster_crate"]:
+		inv.remove_item(id, inv.count_item(id))
+		FarmState.warehouse.take(id, FarmState.warehouse.count(id, 0), 0)
+	_free_hands()
+	await _seconds(0.3)
+	# In the middle of the shed, looking at the floor, then up into the roof.
+	player.global_position = Vector3(c.x + 0.8, floor_y + 0.1, c.y + 1.2)
+	player.velocity = Vector3.ZERO
+	var seen := 0
+	for pitch: float in [-1.2, 1.2]:
+		player.look_at_yaw_pitch(PI * 0.25, pitch)
+		await _frames(8)
+		if player.target == wh and _last_prompt.contains(open):
+			seen += 1
+	_check(wh.inside(player.global_position) and seen == 2, "anywhere inside the warehouse E offers '%s' ('%s')" % [open, _last_prompt])
+	await _flow19_shot("warehouse_open_anywhere")
+	await _press_key(KEY_E)
+	await _frames(6)
+	_check(Game.hud.storage_screen.visible, "E there opens the storage")
+	await _close_screens()
+	# The empty crate corner has nothing of its own: aimed at, it is the warehouse still.
+	player.global_position = bay.to_global(Vector3(1.0, 0.1, 1.5))
+	_look_at(player, bay.to_global(Vector3(1.0, 0.3, 0.0)))
+	await _frames(8)
+	_check(player.target == wh and _last_prompt.contains(open), "the empty crate corner leaves E to the warehouse ('%s')" % _last_prompt)
+
+	# Two crates in the corner: aimed at, a crate keeps its own prompt and E lifts it.
+	FarmState.warehouse.add(&"chicken_crate", 2)
+	await _seconds(0.4)
+	var take := tr("ACTION_TAKE_CRATE") % [ItemDB.get_item(&"chicken_crate").display_name(), 2]
+	player.global_position = bay.to_global(Vector3(0.3, 0.1, 1.5))
+	_look_at(player, bay.to_global(Vector3(0.3, 0.3, 0.0)))
+	await _frames(8)
+	_check(player.target == bay and _last_prompt.contains(take) and not _last_prompt.contains(open),
+			"aimed at a crate, E offers the crate, not the storage ('%s')" % _last_prompt)
+	# Beside the crates with the crosshair over them (the wall behind): the crate still.
+	player.look_at_yaw_pitch(0.0, 0.0)
+	await _frames(8)
+	_check(player.target == bay and _last_prompt.contains(take), "standing beside the crates and turned their way is enough ('%s')" % _last_prompt)
+	await _press_key(KEY_E)
+	await _frames(4)
+	_check(LiveCrates.count_at(&"hand", &"chicken_crate") == 1 and FarmState.warehouse.count(&"chicken_crate", 0) == 1
+			and not Game.hud.storage_screen.visible, "E lifts the crate, the storage stays shut")
+	# Turned away from them: the warehouse again.
+	_free_hands()
+	player.look_at_yaw_pitch(PI, -0.2)
+	await _frames(8)
+	_check(player.target != bay and _last_prompt.contains(open), "turned away from the crates E opens the storage again ('%s')" % _last_prompt)
+	# Out in the yard, looking away: nothing of the warehouse's.
+	var door := Quests._warehouse_door()
+	player.global_position = Vector3(door.x, TerrainData.height(door.x, door.z + 4.0) + 0.2, door.z + 4.0)
+	player.look_at_yaw_pitch(PI, 0.0)
+	await _frames(8)
+	_check(not wh.inside(player.global_position) and player.target != wh and not _last_prompt.contains(open),
+			"out in the yard there is no warehouse prompt ('%s')" % _last_prompt)
+
+	# The feed goal: the dot floats inside the shed, and the goal says what to do there.
+	inv.remove_item(&"feed", inv.count_item(&"feed"))
+	Quests.step = Quests.index_of("feed")
+	Quests.step_count = 0
+	Quests._hint = ""
+	var feed_dot: Variant = Quests._target("feeder")
+	var marker := wh.waypoint_inside()
+	_check(feed_dot == marker and wh.inside(marker.global_position - Vector3(0, 1.0, 0)) and Quests._hint == tr("HINT_FEED_WAREHOUSE"),
+			"with no feed in the bag the dot floats inside the warehouse ('%s')" % Quests._hint)
+	inv.add_item(&"feed", 1)
+	Quests._hint = ""
+	var to_coop: Variant = Quests._target("feeder")
+	_check(to_coop != marker and to_coop != wh.waypoint_door() and Quests._hint == "", "with the feed in the bag the dot goes on to the coop's feeder")
+	inv.remove_item(&"feed", 1)
+	inv.remove_item(&"chicken_crate", inv.count_item(&"chicken_crate"))
+	FarmState.warehouse.take(&"chicken_crate", FarmState.warehouse.count(&"chicken_crate", 0), 0)
+
+
+
+## Round 19 visuals: the egg the farmer looks at is outlined and loses it when he looks
+## away, eggs shimmer near by (and the hatching egg with them); the first-person near
+## plane; no faces fighting over one plane in the coop (as built and made longer), the
+## house (the ruin and every level) and the warehouse (the scan itself is checked first).
+func _scenario_visual19() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var farm: Farm = Game.world.farm
+	GameClock.set_time_of_day(12.0)
+	Weather.force(Weather.Kind.SUNNY)
+	PlayerState.select(0)
+
+	# (1) An egg in the yard, 2 m ahead: it shimmers; looked at, it is outlined.
+	var spot := COOP_SPOT + Vector3(-9.0, 0.0, 6.0)
+	spot.y = TerrainData.height(spot.x, spot.z)
+	player.global_position = spot + Vector3(0, 0.1, 2.0)
+	player.look_at_yaw_pitch(0.0, 0.0)
+	var egg := Pickup.spawn(ItemStack.create(&"egg", 1), spot + Vector3(0, 0.12, 0))
+	var wood := Pickup.spawn(ItemStack.create(&"stone", 1), spot + Vector3(1.5, 0.2, -3.0))
+	await _seconds(1.2)
+	_check(egg.by_hand and egg.is_in_group(&"look_highlight") and egg.shimmer() != null and egg.shimmer().visible,
+			"an egg on the ground has its shimmer shell")
+	_check(not egg.is_highlighted(), "not looked at, the egg has no outline")
+	var range_end := egg.shimmer().visibility_range_end if egg.shimmer() else 0.0
+	_check(range_end >= Pickup.EGG_SHIMMER_RANGE and range_end < Pickup.EGG_SHIMMER_RANGE + 1.0
+			and Pickup.shimmer_at(2.0) > 0.99 and Pickup.shimmer_at(3.4) > 0.2 and Pickup.shimmer_at(3.4) < 0.8
+			and is_zero_approx(Pickup.shimmer_at(Pickup.EGG_SHIMMER_RANGE)) and is_zero_approx(Pickup.shimmer_at(9.0)),
+			"eggs shimmer within %.0f m (full at 2 m, fading by 3.4 m, none further; the shell is not drawn past %.1f m)"
+			% [Pickup.EGG_SHIMMER_RANGE, range_end])
+	_check(wood.shimmer() == null and not wood.is_highlighted() and not wood.is_in_group(&"look_highlight"),
+			"other pickups neither shimmer nor light up")
+	# Stills for a look (-- --shotdir=/abs/dir): the egg at 2 m beside the aim, then aimed at.
+	var shots := String(DebugTools.args.get("shotdir", ""))
+	if shots != "":
+		_look_at(player, egg.global_position + Vector3(0.22, 0.12, 0.0))
+		await _frames(8)
+		await _shot(shots + "/egg_near.png")
+	_look_at(player, egg.global_position)
+	await _frames(8)
+	_check(player.target == egg and egg.is_highlighted() and _last_prompt.contains(tr("ACTION_TAKE_EGG")),
+			"looked at, the egg is outlined (and offers itself: '%s')" % _last_prompt)
+	if shots != "":
+		await _shot(shots + "/egg_aimed.png")
+	var aimed: Variant = egg.shimmer().get_instance_shader_parameter(&"aimed") if egg.shimmer() else 0.0
+	_check(is_equal_approx(float(aimed), 1.0), "and its rim lights up")
+	_look_at(player, egg.global_position + Vector3(1.6, 0.4, 0.0))
+	await _frames(8)
+	_check(player.target != egg and not egg.is_highlighted(), "looking away, the outline is gone")
+	# A second egg beside it: only the one looked at is outlined.
+	var other := Pickup.spawn(ItemStack.create(&"egg", 1), spot + Vector3(0.5, 0.12, 0.1))
+	await _seconds(1.0)
+	_look_at(player, other.global_position)
+	await _frames(8)
+	_check(other.is_highlighted() and not egg.is_highlighted(), "of two eggs only the one looked at is outlined")
+	# Taken with E, it goes (and its outline with it).
+	var eggs := PlayerState.inventory.count_item(&"egg")
+	await _press_key(KEY_E)
+	await _frames(6)
+	_check(PlayerState.inventory.count_item(&"egg") == eggs + 1 and not is_instance_valid(other), "E takes the outlined egg")
+	PlayerState.inventory.remove_item(&"egg", 1)
+	# A hatching egg shimmers like the egg it was.
+	var hatching := HatchingEgg.start(Game.world, spot + Vector3(-0.6, 0.0, 0.0), 0.0, null)
+	await _frames(2)
+	_check(hatching.find_child("Shimmer", true, false) is MeshInstance3D, "a hatching egg shimmers too")
+	hatching.queue_free()
+	egg.queue_free()
+	wood.queue_free()
+
+	# (2) The near plane: out as far as the held items allow.
+	_check(player.camera.near > 0.079 and player.camera.near < 0.101, "the first-person near plane is %.2f m (was 0.05)" % player.camera.near)
+
+	# (3) The scan finds two faces in one plane, and none once they are 5 mm apart.
+	for gap: float in [0.0, 0.005]:
+		var mb := MeshBuilder.new()
+		mb.box_at(&"wood", Vector3(0, 0.5, 0), Vector3(1.0, 1.0, 0.1), Color(0.5, 0.4, 0.3))
+		mb.box_at(&"paint_ext", Vector3(0.2, 0.5, 0.025 + gap), Vector3(0.3, 0.6, 0.05), Color(0.9, 0.9, 0.85))
+		var hits := CoplanarScan.fighting(CoplanarScan.scan_meshes([[mb.build(), Transform3D.IDENTITY, "probe"]], 0.001))
+		var area := CoplanarScan.total_area(hits)
+		if gap == 0.0:
+			_check(absf(area - 0.18) < 0.001, "the scan finds a board's face lying in a wall's (%.3f m2 of 0.18)" % area)
+		else:
+			_check(hits.is_empty(), "and nothing once it stands 5 mm proud")
+
+	# (4) The buildings: the coop as built and made longer twice, the house at every level,
+	# the warehouse at every level.
+	var coop: ChickenCoop = await _poultry_coop()
+	_check(coop != null and coop.is_built(), "a kit coop stands for the scan")
+	if coop:
+		for step in 3:
+			if step > 0:
+				coop.start_expansion()
+				coop.finish_expansion()
+				await _frames(3)
+			_v19_scan("the coop (%d m longer)" % roundi(step * ChickenCoop.EXPAND_STEP) if step > 0 else "the coop", coop, 0.0, 0.0)
+	var house: FarmHouse = Game.world.get_node("FarmHouse")
+	var house_level := house.level
+	for lv in 4:
+		house.level = lv
+		house.build()
+		await _frames(3)
+		_v19_scan("the house, %s" % ("run down" if lv == 0 else "level %d" % lv), house, V19_SCAN_TOTAL, V19_SCAN_PATCH)
+	house.level = house_level
+	house.build()
+	var wh := farm.get_node("Warehouse") as Warehouse
+	var wh_level := wh.level
+	for lv in 3:
+		wh.set_level(lv)
+		await _frames(3)
+		_v19_scan("the warehouse, %s" % ("run down" if lv == 0 else "level %d" % lv), wh, V19_SCAN_TOTAL, V19_SCAN_PATCH)
+	wh.set_level(wh_level)
+	await _frames(3)
+	if shots != "":
+		# The house's windows from 25 m, and the coop's front wall at a grazing angle from 25 m.
+		var hr := WorldLayout.house_rect(house.level)
+		var from := Vector3(WorldLayout.HOUSE_DOOR_X + 7.0, 0.0, hr.end.y + 24.0)
+		from.y = TerrainData.height(from.x, from.z) + 0.05
+		player.global_position = from
+		_look_at(player, Vector3(WorldLayout.HOUSE_DOOR_X, FarmHouse.FLOOR_Y + 1.5, hr.end.y))
+		await _frames(10)
+		await _shot(shots + "/house_25m.png")
+		if coop:
+			var side := coop.global_transform * Vector3(-22.0, 0.0, 9.0)
+			side.y = TerrainData.height(side.x, side.z) + 0.05
+			player.global_position = side
+			_look_at(player, coop.global_transform * Vector3(1.0, 1.4, -1.0))
+			await _frames(10)
+			await _shot(shots + "/coop_grazing_25m.png")
+
+
+## Scans `root` for faces sharing a plane (CoplanarScan, within 1 mm): at most `total` m2
+## of them in all and `patch` m2 in any one place (0.6 m across). What it finds is printed.
+func _v19_scan(title: String, root: Node3D, total: float, patch: float) -> void:
+	var hits := CoplanarScan.fighting(CoplanarScan.scan(root, 0.001, V19_SCAN_SKIP))
+	var area := CoplanarScan.total_area(hits)
+	var rows := CoplanarScan.summary(hits, 0.6)
+	var worst: float = rows[0]["area"] if not rows.is_empty() else 0.0
+	_check(CoplanarScan.last_triangles > 3000 and area <= total + 0.00001 and worst <= patch + 0.00001,
+			"%s: no faces fight over a plane (%d triangles; %.0f cm2 left out of sight, %.0f cm2 at most in one place)"
+			% [title, CoplanarScan.last_triangles, area * 10000.0, worst * 10000.0])
+	if area > total or worst > patch or DebugTools.args.has("zdump"):
+		for i in mini(rows.size(), int(DebugTools.args.get("zdump", "12"))):
+			var g: Dictionary = rows[i]
+			print("   %7.1f cm2 x%-3d gap %.2f mm  at %s facing %s  %s | %s" % [g["area"] * 10000.0, g["count"], g["gap"] * 1000.0,
+					(g["at"] as Vector3).snappedf(0.01), (g["n"] as Vector3).snappedf(0.1), g["a"], g["b"]])
+
+
+
+
+# --- Display mode and resolution -----------------------------------------------------------
+
+## The display settings (Settings.display_mode, Settings.resolution): a new install starts
+## in full screen (no settings file) and an old settings file keeps its full screen switch;
+## an automated run keeps the project's window; the resolution list of a screen (its own
+## first, the common smaller ones that fit); as a window the picked size, in the middle of
+## the desktop, and not pulled back by other settings; in full screen and borderless the 3D
+## scene at the picked height, the lower of that and the pixel cap; the two rows of the
+## settings page; the choice saved and read back.
+## With -- --display-fullscreen the window really goes borderless and full screen and
+## back (not in the plain run: it takes the whole screen for a few seconds).
+## With -- --display-shots=/abs/dir it also saves the settings page.
+func _scenario_display19() -> void:
+	await _close_screens()
+	var root := tree.root
+	var kept := [Settings.display_mode, Settings.resolution, Settings.render_scale, root.size, root.position]
+	var dir := String(DebugTools.args.get("display-shots", ""))
+	var script: GDScript = load("res://autoload/settings.gd")
+	var file := "user://display19.cfg"
+	var screen: Vector2i = Settings.screen_size()
+	var list: Array[Vector2i] = Settings.resolutions()
+	Settings.render_scale = 1.0
+
+	# --- (1) A new install, an old settings file ---
+	var fresh = script.new()
+	fresh.load_settings("user://display19_none.cfg")
+	_check(fresh.display_mode == Settings.DisplayMode.FULLSCREEN and fresh.resolution == Vector2i.ZERO
+			and fresh.window_mode() == Window.MODE_EXCLUSIVE_FULLSCREEN and fresh.current_resolution(screen) == screen,
+			"display: with no settings file the game starts in full screen at the screen's own resolution")
+	fresh.display_mode = Settings.DisplayMode.WINDOWED
+	fresh.resolution = Vector2i(1280, 720)
+	fresh.reset_defaults()
+	_check(fresh.display_mode == Settings.DisplayMode.FULLSCREEN and fresh.resolution == Vector2i.ZERO, "display: the defaults are full screen too")
+	var old := ConfigFile.new()
+	old.set_value("video", "fullscreen", false)
+	old.set_value("video", "render_scale", 0.75)
+	old.save(file)
+	fresh.load_settings(file)
+	var opened := Vector2i(1600, 900) if list.has(Vector2i(1600, 900)) else Vector2i.ZERO
+	_check(fresh.display_mode == Settings.DisplayMode.WINDOWED and fresh.resolution == opened,
+			"display: an old settings file with full screen off stays a window, at the size the game opened at (%s)" % fresh.resolution)
+	old.set_value("video", "fullscreen", true)
+	old.set_value("video", "render_scale", 1.0)
+	old.save(file)
+	fresh.load_settings(file)
+	_check(fresh.display_mode == Settings.DisplayMode.FULLSCREEN and fresh.resolution == Vector2i.ZERO,
+			"display: an old settings file with full screen on stays in full screen")
+	fresh._load_old_display(true, 0.75, Vector2i(2560, 1440))
+	var three_quarters: Vector2i = fresh.resolution
+	fresh._load_old_display(true, 0.5, Vector2i(3840, 2160))
+	_check(three_quarters == Vector2i(1920, 1080) and fresh.resolution == Vector2i(1920, 1080),
+			"display: an old resolution scale becomes the resolution nearest to it (75%% of 1440p: %s, 50%% of 4K: %s)" % [three_quarters, fresh.resolution])
+	fresh.free()
+
+	# --- (2) The list of a screen ---
+	_check(str(Settings.resolutions(Vector2i(3840, 2160))) == "[(3840, 2160), (2560, 1440), (1920, 1080), (1600, 900), (1366, 768), (1280, 720)]"
+			and str(Settings.resolutions(Vector2i(2560, 1440))) == "[(2560, 1440), (1920, 1080), (1600, 900), (1366, 768), (1280, 720)]"
+			and str(Settings.resolutions(Vector2i(3024, 1964))) == "[(3024, 1964), (2560, 1440), (1920, 1080), (1600, 900), (1366, 768), (1280, 720)]",
+			"display: a screen's own resolution comes first, then the common ones that fit on it")
+	_check(str(Settings.resolutions(Vector2i(1366, 768))) == "[(1366, 768), (1280, 720)]"
+			and str(Settings.resolutions(Vector2i(1280, 800))) == "[(1280, 800), (1280, 720)]"
+			and str(Settings.resolutions(Vector2i(1280, 720))) == "[(1280, 720)]",
+			"display: nothing bigger than the screen is offered")
+	var fits := list[0] == screen
+	for r in list:
+		fits = fits and r.x <= screen.x and r.y <= screen.y
+	_check(fits and list.size() >= 1, "display: this screen's list is %s" % str(list))
+	Settings.resolution = Vector2i(1920, 1080)
+	var on_1440 := Settings.resolution_index(Vector2i(2560, 1440))
+	var on_768 := Settings.resolution_index(Vector2i(1366, 768))
+	Settings.resolution = Vector2i(1500, 800)
+	var odd := Settings.resolution_index(Vector2i(2560, 1440))
+	Settings.set_resolution_index(0, Vector2i(2560, 1440))
+	var own := Settings.resolution
+	Settings.set_resolution_index(2, Vector2i(2560, 1440))
+	_check(on_1440 == 1 and on_768 == 0 and odd == 3 and own == Vector2i.ZERO and Settings.resolution == Vector2i(1600, 900),
+			"display: a picked size is found in the list, one from a bigger screen falls to what fits, the screen's own stays the screen's own")
+
+	# --- (3) An automated run keeps its window ---
+	var scale_was := root.scaling_3d_scale
+	Settings.display_mode = Settings.DisplayMode.FULLSCREEN
+	Settings.resolution = list[list.size() - 1]
+	Settings.apply()
+	await _seconds(0.4)
+	_check(not Settings.manages_window() and root.mode == Window.MODE_WINDOWED and root.size == kept[3]
+			and is_equal_approx(root.scaling_3d_scale, scale_was),
+			"display: an automated run keeps its window and its 3D scale whatever the settings say (%s, %.2f)" % [root.size, root.scaling_3d_scale])
+
+	# --- (4) As a window: the picked size, in the middle of the desktop ---
+	Settings.window_in_tests = true
+	var screen_id := DisplayServer.window_get_current_screen()
+	var free := DisplayServer.screen_get_usable_rect(screen_id)
+	var frame := DisplayServer.window_get_size_with_decorations() - DisplayServer.window_get_size()
+	var sizes: Array[Vector2i] = []
+	for i in range(list.size() - 1, 0, -1):
+		if sizes.size() < 2 and list[i].x + frame.x <= free.size.x and list[i].y + frame.y <= free.size.y:
+			sizes.append(list[i])
+	_check(Settings.manages_window() and not sizes.is_empty(), "display: this screen has room for a window from the list (%s)" % str(sizes))
+	Settings.display_mode = Settings.DisplayMode.WINDOWED
+	for size in sizes:
+		Settings.resolution = size
+		Settings.apply()
+		await _seconds(0.5)
+		var off := DisplayServer.window_get_position_with_decorations() * 2 + DisplayServer.window_get_size_with_decorations() \
+				- free.position * 2 - free.size
+		_check(root.mode == Window.MODE_WINDOWED and root.size == size and DisplayServer.window_get_size() == size,
+				"display: as a window, %d x %d makes the window that size (%s)" % [size.x, size.y, root.size])
+		_check(absi(off.x) <= 6 and absi(off.y) <= 6, "display: ... in the middle of the desktop (off by %s half pixels)" % off)
+		_check(is_equal_approx(root.scaling_3d_scale, _display19_cap(size)),
+				"display: ... with the 3D scene at the window's own size (scale %.2f)" % root.scaling_3d_scale)
+	if not sizes.is_empty():
+		# Dragged bigger by hand: another setting does not pull it back.
+		var dragged := sizes[0] + Vector2i(40, 20)
+		root.size = dragged
+		await _seconds(0.3)
+		Settings.apply()
+		await _seconds(0.3)
+		_check(root.size == dragged, "display: a window resized by hand is left alone by the other settings (%s)" % root.size)
+	# The screen's own size does not fit with a title bar: as large as the desktop lets it.
+	Settings.resolution = Vector2i.ZERO
+	Settings.apply()
+	await _seconds(0.8)
+	_check(root.mode == Window.MODE_MAXIMIZED and is_equal_approx(root.scaling_3d_scale, _display19_cap(root.size)),
+			"display: as a window, the screen's own resolution maximizes it (%s, 3D scale %.2f)" % [root.size, root.scaling_3d_scale])
+	if not sizes.is_empty():
+		Settings.resolution = sizes[sizes.size() - 1]
+		Settings.apply()
+		await _seconds(0.6)
+		_check(root.mode == Window.MODE_WINDOWED and root.size == Settings.resolution, "display: and a smaller one brings it back to that size (%s)" % root.size)
+
+	# --- (5) Full screen and borderless: the 3D scene at the picked height ---
+	var modes_ok := true
+	var scales_ok := true
+	var report := PackedStringArray()
+	for mode: Settings.DisplayMode in [Settings.DisplayMode.FULLSCREEN, Settings.DisplayMode.BORDERLESS]:
+		Settings.display_mode = mode
+		modes_ok = modes_ok and Settings.window_mode() == (Window.MODE_EXCLUSIVE_FULLSCREEN if mode == Settings.DisplayMode.FULLSCREEN else Window.MODE_FULLSCREEN)
+		for i in list.size():
+			Settings.set_resolution_index(i)
+			var want := clampf(minf(_display19_cap(screen), float(list[i].y) / float(screen.y)), Settings.MIN_3D_SCALE, 1.0)
+			scales_ok = scales_ok and is_equal_approx(Settings.scale_3d_for(screen), want)
+			if mode == Settings.DisplayMode.FULLSCREEN:
+				report.append("%d: %.2f" % [list[i].y, Settings.scale_3d_for(screen)])
+	_check(modes_ok, "display: full screen is the engine's exclusive full screen, borderless its full-screen window")
+	_check(scales_ok, "display: filling this screen, the 3D scale is the picked height over the screen's, within the pixel cap (%s)" % ", ".join(report))
+	Settings.display_mode = Settings.DisplayMode.WINDOWED
+	_check(is_equal_approx(Settings.scale_3d_for(screen), _display19_cap(screen)), "display: a window is never scaled down by the resolution")
+	if list.has(Vector2i(2560, 1440)) and list.has(Vector2i(1920, 1080)):
+		Settings.display_mode = Settings.DisplayMode.FULLSCREEN
+		Settings.resolution = Vector2i(1920, 1080)
+		var hd := Settings.scale_3d_for(Vector2i(2560, 1440))
+		Settings.resolution = Vector2i(2560, 1440)
+		var on_4k := Settings.scale_3d_for(Vector2i(3840, 2160))
+		Settings.resolution = Vector2i(1280, 720)
+		var floor_4k := Settings.scale_3d_for(Vector2i(3840, 2160))
+		_check(is_equal_approx(hd, 0.75) and is_equal_approx(on_4k, 2.0 / 3.0) and is_equal_approx(floor_4k, Settings.MIN_3D_SCALE),
+				"display: 1080p on a 1440p screen is 0.75, 1440p on a 4K screen 0.67 (the cap and the choice are not multiplied), 720p on 4K the floor (%.2f, %.2f, %.2f)" % [hd, on_4k, floor_4k])
+	# The viewport itself, the window being what it is: its 3D scale follows.
+	Settings.display_mode = Settings.DisplayMode.BORDERLESS
+	Settings.resolution = list[list.size() - 1]
+	Settings._apply_3d_scale()
+	var lowered := clampf(minf(_display19_cap(root.size), float(Settings.resolution.y) / float(root.size.y)), Settings.MIN_3D_SCALE, 1.0)
+	var low_scale := root.scaling_3d_scale
+	Settings.display_mode = Settings.DisplayMode.WINDOWED
+	Settings._apply_3d_scale()
+	_check(is_equal_approx(low_scale, lowered) and (lowered < 1.0 or sizes.size() < 2) and is_equal_approx(root.scaling_3d_scale, _display19_cap(root.size)),
+			"display: the viewport's 3D scale takes it (%.2f borderless at %d high in a %d high window, %.2f as a window)" % [
+			low_scale, Settings.resolution.y, root.size.y, root.scaling_3d_scale])
+
+	# --- (6) For real: borderless, full screen and back to a window ---
+	if DebugTools.args.has("display-fullscreen"):
+		Settings.display_mode = Settings.DisplayMode.BORDERLESS
+		Settings.resolution = list[list.size() - 1]
+		Settings.apply()
+		await _seconds(2.0)
+		_check(root.mode == Window.MODE_FULLSCREEN and root.size.x == screen.x and root.size.y > free.size.y - frame.y,
+				"display: borderless covers the screen (%s of %s)" % [root.size, screen])
+		_check(is_equal_approx(root.scaling_3d_scale, clampf(minf(_display19_cap(root.size), float(Settings.resolution.y) / float(root.size.y)), Settings.MIN_3D_SCALE, 1.0)),
+				"display: ... with the 3D scene at %d high (scale %.2f)" % [Settings.resolution.y, root.scaling_3d_scale])
+		Settings.display_mode = Settings.DisplayMode.FULLSCREEN
+		Settings.resolution = Vector2i.ZERO
+		Settings.apply()
+		await _seconds(2.5)
+		_check(root.mode == Window.MODE_EXCLUSIVE_FULLSCREEN and root.size.x == screen.x,
+				"display: full screen takes the screen (%s of %s)" % [root.size, screen])
+		_check(is_equal_approx(root.scaling_3d_scale, _display19_cap(root.size)),
+				"display: ... at the screen's own resolution only the pixel cap counts (scale %.2f)" % root.scaling_3d_scale)
+		if list.size() > 2:
+			Settings.set_resolution_index(2)
+			Settings.apply()
+			await _seconds(0.3)
+			_check(root.mode == Window.MODE_EXCLUSIVE_FULLSCREEN and is_equal_approx(root.scaling_3d_scale,
+					clampf(minf(_display19_cap(root.size), float(list[2].y) / float(root.size.y)), Settings.MIN_3D_SCALE, 1.0)),
+					"display: ... and a lower one lowers the 3D scene at once (%d high: %.2f)" % [list[2].y, root.scaling_3d_scale])
+		if not sizes.is_empty():
+			Settings.display_mode = Settings.DisplayMode.WINDOWED
+			Settings.resolution = sizes[0]
+			Settings.apply()
+			await _seconds(2.5)
+			_check(root.mode == Window.MODE_WINDOWED and root.size == sizes[0] and is_equal_approx(root.scaling_3d_scale, _display19_cap(sizes[0])),
+					"display: back as a window at the picked size (%s)" % root.size)
+	else:
+		print("SCENARIO NOTE: display: the real full screen switch is left out (-- --display-fullscreen runs it)")
+
+	# The window as the run had it, and left alone again.
+	Settings.window_in_tests = false
+	Settings._window_asked = []
+	if root.mode != Window.MODE_WINDOWED:
+		root.mode = Window.MODE_WINDOWED
+	root.size = kept[3]
+	root.position = kept[4]
+	await _seconds(0.5)
+	Settings._apply_3d_scale()
+
+	# --- (7) The settings page ---
+	Settings.display_mode = Settings.DisplayMode.FULLSCREEN
+	Settings.resolution = Vector2i.ZERO
+	Game.hud.open_settings()
+	var page: SettingsScreen = Game.hud.settings_screen
+	page._select("video")
+	await _idle_frames(3)
+	var texts := _debugkeys_texts(page)
+	var mode_row := page.find_child("DisplayMode", true, false) as OptionSelector
+	var res_row := page.find_child("Resolution", true, false) as OptionSelector
+	_check(texts.has(UiTheme.caps(tr("SETTINGS_DISPLAY_MODE"))) and texts.has(UiTheme.caps(tr("SETTINGS_RESOLUTION")))
+			and mode_row != null and res_row != null, "display: the video page has a display mode and a resolution row")
+	if mode_row == null or res_row == null:
+		page.hide_screen()
+		return
+	var own_name := tr("RESOLUTION_NATIVE") % ("%d × %d" % [screen.x, screen.y])
+	_check(str(mode_row.options) == str([tr("SETTINGS_FULLSCREEN"), tr("DISPLAY_BORDERLESS"), tr("DISPLAY_WINDOWED")])
+			and mode_row.index == 0 and texts.has(UiTheme.caps(tr("SETTINGS_FULLSCREEN"))),
+			"display: the modes are full screen, borderless window and window; a new game shows full screen")
+	_check(res_row.options.size() == list.size() and res_row.index == 0 and String(res_row.options[0]) == own_name
+			and texts.has(UiTheme.caps(own_name)) and String(res_row.options[res_row.options.size() - 1]) == "%d × %d" % [list[list.size() - 1].x, list[list.size() - 1].y],
+			"display: the resolutions are this screen's, its own marked ('%s')" % own_name)
+	_check(texts.has(tr("SETTINGS_RESOLUTION_DESC_SCREEN")) and not texts.has(tr("SETTINGS_RESOLUTION_DESC_WINDOW"))
+			and not texts.has(UiTheme.caps(tr("SETTINGS_RENDER_SCALE"))),
+			"display: the line under it says the game world is drawn at that size (and the old resolution scale is gone)")
+	if dir != "":
+		await _raid_shot(dir, "display19_fullscreen")
+	if list.size() > 1:
+		res_row._step(1)
+		await _idle_frames(2)
+		var stepped := Settings.resolution
+		res_row._step(-1)
+		await _idle_frames(2)
+		_check(stepped == list[1] and Settings.resolution == Vector2i.ZERO, "display: stepping the resolution picks the next one and back (%s)" % stepped)
+	mode_row._step(1)
+	await _idle_frames(3)
+	var second := Settings.display_mode
+	mode_row = page.find_child("DisplayMode", true, false) as OptionSelector
+	mode_row._step(1)
+	await _idle_frames(3)
+	texts = _debugkeys_texts(page)
+	_check(second == Settings.DisplayMode.BORDERLESS and Settings.display_mode == Settings.DisplayMode.WINDOWED
+			and texts.has(UiTheme.caps(tr("DISPLAY_WINDOWED"))) and texts.has(tr("SETTINGS_RESOLUTION_DESC_WINDOW"))
+			and not texts.has(tr("SETTINGS_RESOLUTION_DESC_SCREEN")),
+			"display: stepping the mode goes to borderless, then to a window, and the line says it is the window's size")
+	_check(root.mode == Window.MODE_WINDOWED and root.size == kept[3], "display: the test window stayed as it was through the page")
+	if dir != "":
+		if list.size() > 2:
+			res_row = page.find_child("Resolution", true, false) as OptionSelector
+			res_row._step(1)
+			res_row._step(1)
+			await _idle_frames(2)
+		await _raid_shot(dir, "display19_window")
+
+	# --- (8) Saved and read back ---
+	var real_file_time := FileAccess.get_modified_time(Settings.PATH) if FileAccess.file_exists(Settings.PATH) else 0
+	var real_file := FileAccess.file_exists(Settings.PATH)
+	Settings.display_mode = Settings.DisplayMode.BORDERLESS
+	Settings.resolution = list[list.size() - 1]
+	page.hide_screen()
+	await _idle_frames(2)
+	Settings.save_settings(file)
+	var again = script.new()
+	again.load_settings(file)
+	_check(again.display_mode == Settings.DisplayMode.BORDERLESS and again.resolution == list[list.size() - 1]
+			and again.window_mode() == Window.MODE_FULLSCREEN,
+			"display: borderless at %s is saved and read back at the next start" % again.resolution)
+	Settings.display_mode = Settings.DisplayMode.WINDOWED
+	Settings.resolution = Vector2i.ZERO
+	Settings.save_settings(file)
+	again.reset_defaults()
+	again.load_settings(file)
+	_check(again.display_mode == Settings.DisplayMode.WINDOWED and again.resolution == Vector2i.ZERO, "display: and so is a window at the screen's own size")
+	again.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(file))
+	_check(FileAccess.file_exists(Settings.PATH) == real_file
+			and (not real_file or FileAccess.get_modified_time(Settings.PATH) == real_file_time),
+			"display: the player's own settings file was not touched by the test")
+
+	Settings.display_mode = kept[0]
+	Settings.resolution = kept[1]
+	Settings.render_scale = kept[2]
+	Settings.apply()
+
+
+## The 3D scale the pixel cap alone leaves a window of `size` pixels (Settings.MAX_3D_PIXELS).
+func _display19_cap(size: Vector2i) -> float:
+	return clampf(sqrt(Settings.MAX_3D_PIXELS / maxf(float(size.x * size.y), 1.0)), Settings.MIN_3D_SCALE, 1.0)
+
+
+
+
+## Round 19's vehicle fixes: every tyre stands on the road as it is drawn (the county
+## road's asphalt, the farm's gravel track, the town street: parked, rolling and stopped),
+## the steering wheel turns the way the car steers, the driver looks all the way round at
+## the wheel, and no car gets into the warehouse (stopped at the door of the run-down and
+## the repaired shed, one a save left inside put out on the apron). With
+## -- --shotdir=/abs/dir it saves the screenshots.
+func _scenario_vehicle19() -> void:
+	var player: Player = Game.player
+	var dir := String(DebugTools.args.get("shotdir", ""))
+	await _close_screens()
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var town := tree.get_first_node_in_group(&"town") as Town
+	GameClock.set_time_of_day(13.0)
+	await _v19_wheels(town, dir)
+	await _v19_steering(town, dir)
+	await _v19_look(town, dir)
+	await _v19_warehouse(town, dir)
+	await _park(town.farm_truck, Town.farm_truck_home())
+
+
+## Tyres on the ground: every vehicle as it stands on a new farm and at the dealer's, then
+## five of them (every chassis there is) on the asphalt, the gravel and the town street.
+func _v19_wheels(town: Town, dir: String) -> void:
+	var player: Player = Game.player
+	await _seconds(2.0)
+	var cars: Array[Vehicle] = [town.farm_truck]
+	cars.append_array(town.dealer_stock)
+	var worst := 0.0
+	var line := ""
+	for v in cars:
+		var g := _v19_gaps(v, true)
+		line += " %s %.3f..%.3f" % [v.kind, g.x, g.y]
+		worst = maxf(worst, maxf(absf(g.x), absf(g.y)))
+		var w: VehicleWheel3D = v._wheels["fl"]
+		_check(absf(_v19_tyre_radius(v, "fl") - w.wheel_radius) < 0.005 and absf(_v19_tyre_radius(v, "rl") - (v._wheels["rl"] as VehicleWheel3D).wheel_radius) < 0.005,
+				"the %s's wheels roll on the radius of their tyres as drawn (%.3f for %.3f m)" % [v.kind, w.wheel_radius, _v19_tyre_radius(v, "fl")])
+	_check(worst <= 0.02, "every vehicle's tyres stand on what it is parked on (lowest point of each over it:%s)" % line)
+	var spots := {"asphalt": Vector3(120, 0, 30.9), "gravel": Vector3(0, 0, 15.7), "town": Vector3(215, 0, 21.5)}
+	for v in cars:
+		if v.kind not in [&"pickup_old", &"wagon", &"tractor", &"truck", &"offroad"]:
+			continue
+		var back := Town.farm_truck_home() if v == town.farm_truck else town.dealer_spot(v.kind)
+		for where: String in spots:
+			var at: Vector3 = spots[where]
+			at.y = _v19_drawn_y(at + Vector3(0, 5, 0)) + 0.3
+			await _park(v, Transform3D(Basis(Vector3.UP, PI * 0.5), at))
+			await _seconds(2.2)
+			await RenderingServer.frame_pre_draw
+			var parked := _v19_gaps(v, false, true)
+			player.enter_vehicle(v)
+			await _frames(5)
+			Input.action_press("move_forward")
+			var rolling := Vector2(INF, -INF)
+			var kmh := 0.0
+			for i in 25:
+				await _seconds(0.1)
+				# Up to speed, then held there.
+				if v.speed_kmh() > 30.0:
+					Input.action_press("move_forward", 0.3)
+				if i >= 5:
+					# With the frame's wheels placed, before it is drawn.
+					await RenderingServer.frame_pre_draw
+					var g := _v19_gaps(v, false, true)
+					rolling = Vector2(minf(rolling.x, g.x), maxf(rolling.y, g.y))
+					kmh = maxf(kmh, v.speed_kmh())
+			Input.action_release("move_forward")
+			Input.action_press("move_back")
+			var braked := 0.0
+			while v.speed_kmh() > 2.0 and braked < 4.0:
+				await _seconds(0.1)
+				braked += 0.1
+			Input.action_release("move_back")
+			await _seconds(1.5)
+			await RenderingServer.frame_pre_draw
+			var stopped := _v19_gaps(v, false, true)
+			var touching := 0
+			for key: String in ["fl", "fr", "rl", "rr"]:
+				if (v._wheels[key] as VehicleWheel3D).is_in_contact():
+					touching += 1
+			print("VEHICLE19 %s on %s: parked %.3f..%.3f rolling (%.0f km/h) %.3f..%.3f stopped %.3f..%.3f" % [v.kind, where,
+					parked.x, parked.y, kmh, rolling.x, rolling.y, stopped.x, stopped.y])
+			_check(touching == 4 and kmh > 15.0 and _v19_within(parked, 0.02) and _v19_within(rolling, 0.02) and _v19_within(stopped, 0.02),
+					"the %s's tyres sit on the %s, parked, rolling at %.0f km/h and stopped (%.3f..%.3f m over it at worst)" % [v.kind, where, kmh,
+					minf(parked.x, minf(rolling.x, stopped.x)), maxf(parked.y, maxf(rolling.y, stopped.y))])
+			player.exit_vehicle()
+			await _frames(5)
+			if dir != "" and v == town.farm_truck and where == "asphalt":
+				# Square on the road's crown, then low by the front wheel on the sunny side,
+				# the camera on the asphalt too.
+				var mid := Vector3(at.x, 0.0, Town._road_center_z(at.x))
+				mid.y = _v19_drawn_y(mid + Vector3(0, 5, 0)) + 0.3
+				await _park(v, Transform3D(Basis(Vector3.UP, PI * 0.5), mid))
+				await _seconds(2.5)
+				var hub := v.tyre_center("fr")
+				var eye := hub - v.global_basis.x * 1.35 + v.global_basis.z * 0.75
+				eye.y = _v19_drawn_y(eye + Vector3(0, 3, 0)) + 0.16
+				await _v19_shot("%s/v19_wheels_asphalt.png" % dir, eye, hub + Vector3(0, -0.24, 0) - v.global_basis.z * 0.5, 40.0)
+		await _park(v, back)
+
+
+## Whether gaps from `span.x` to `span.y` are all within `tol` of the ground.
+func _v19_within(span: Vector2, tol: float) -> bool:
+	return span.x >= -tol and span.y <= tol
+
+
+## The lowest and the highest of a vehicle's four tyres over the ground (m; x the lowest,
+## below it negative): each tyre's lowest point as drawn, over the surface right under
+## that point: as drawn too, or (`solid`) what the physics has there. `rolling` (call it
+## on RenderingServer.frame_pre_draw) takes the tyres as the frame draws them on the
+## moving body and leaves out a wheel that is in the air (over a crest, off the ground
+## by right).
+func _v19_gaps(v: Vehicle, solid: bool, rolling := false) -> Vector2:
+	var out := Vector2(INF, -INF)
+	for key: String in ["fl", "fr", "rl", "rr"]:
+		if rolling and not (v._wheels[key] as VehicleWheel3D).is_in_contact():
+			continue
+		var low := _v19_tyre_low(v, key, rolling)
+		var ground := -INF
+		if solid:
+			var q := PhysicsRayQueryParameters3D.create(low + Vector3(0, 0.5, 0), low - Vector3(0, 2.0, 0), 1)
+			q.exclude = [v.get_rid()]
+			var hit := v.get_world_3d().direct_space_state.intersect_ray(q)
+			if not hit.is_empty():
+				ground = (hit["position"] as Vector3).y
+		else:
+			ground = _v19_drawn_y(low + Vector3(0, 0.5, 0))
+		out = Vector2(minf(out.x, low.y - ground), maxf(out.y, low.y - ground))
+	return out
+
+
+## Tread vertices of tyre meshes (the outer ones, in the mesh's own frame), by mesh instance.
+var _v19_treads := {}
+
+
+func _v19_tread(mi: MeshInstance3D) -> PackedVector3Array:
+	if not _v19_treads.has(mi):
+		var c := mi.get_aabb().get_center()
+		var faces := mi.mesh.get_faces()
+		var far := 0.0
+		for f in faces:
+			far = maxf(far, f.distance_to(c))
+		var keep := {}
+		for f in faces:
+			if f.distance_to(c) > far * 0.8:
+				keep[f.snappedf(0.001)] = true
+		var pts := PackedVector3Array()
+		for p: Vector3 in keep:
+			pts.append(p)
+		_v19_treads[mi] = pts
+	return _v19_treads[mi]
+
+
+## The lowest point of a wheel's tyre as it is drawn (world). `moving`: on the body as
+## this frame draws it between its physics ticks, the wheel on it as placed for the frame.
+func _v19_tyre_low(v: Vehicle, key: String, moving := false) -> Vector3:
+	var mi := v._tyres[key] as MeshInstance3D
+	var xf := mi.global_transform
+	if moving:
+		xf = v.get_global_transform_interpolated() * v.global_transform.affine_inverse() * xf
+	var low := Vector3(0, INF, 0)
+	for p in _v19_tread(mi):
+		var g := xf * p
+		if g.y < low.y:
+			low = g
+	return low
+
+
+## A tyre's radius as drawn: how far its tread reaches from its axle (the body's X).
+func _v19_tyre_radius(v: Vehicle, key: String) -> float:
+	var mi := v._tyres[key] as MeshInstance3D
+	var xf := v.global_transform.affine_inverse() * mi.global_transform
+	var c := xf * mi.get_aabb().get_center()
+	var r := 0.0
+	for p in _v19_tread(mi):
+		var d := xf * p - c
+		r = maxf(r, Vector2(d.y, d.z).length())
+	return r
+
+
+## Triangle meshes of the drawn ground, by mesh instance.
+var _v19_meshes := {}
+
+
+## Height of the ground as it is drawn (the terrain, the asphalt, the town's paving) under
+## `from`: the first of them straight below it.
+func _v19_drawn_y(from: Vector3) -> float:
+	var best := -INF
+	var world := Game.world as Node
+	var found: Array[Node] = world.find_children("Chunk_*", "MeshInstance3D", true, false)
+	for part: String in ["Asphalt", "TownMesh"]:
+		var n := world.find_child(part, true, false)
+		if n is MeshInstance3D:
+			found.append(n)
+	for n in found:
+		var mi := n as MeshInstance3D
+		var box := mi.global_transform * mi.get_aabb()
+		if from.x < box.position.x or from.x > box.end.x or from.z < box.position.z or from.z > box.end.z:
+			continue
+		if not _v19_meshes.has(mi):
+			_v19_meshes[mi] = mi.mesh.generate_triangle_mesh()
+		var hit := (_v19_meshes[mi] as TriangleMesh).intersect_ray(mi.global_transform.affine_inverse() * from, Vector3.DOWN)
+		if not hit.is_empty():
+			best = maxf(best, (mi.global_transform * (hit["position"] as Vector3)).y)
+	return best
+
+
+## A screenshot from `eye` towards `at` (no HUD), then back to the camera in use.
+func _v19_shot(path: String, eye: Vector3, at: Vector3, fov: float) -> void:
+	var was := tree.root.get_viewport().get_camera_3d()
+	var cam := Camera3D.new()
+	tree.current_scene.add_child(cam)
+	cam.fov = fov
+	cam.near = 0.05
+	cam.global_position = eye
+	cam.look_at(at, Vector3.UP)
+	cam.make_current()
+	Game.hud.visible = false
+	await _frames(4)
+	await _shot(path)
+	Game.hud.visible = true
+	cam.queue_free()
+	if was and is_instance_valid(was):
+		was.make_current()
+
+
+## The steering wheel of every vehicle: its top goes right when the car steers right and
+## left when it steers left, a believable number of times the road wheels' angle, about
+## the axis its rim is modelled round.
+func _v19_steering(town: Town, dir: String) -> void:
+	var player: Player = Game.player
+	var cars: Array[Vehicle] = [town.farm_truck]
+	cars.append_array(town.dealer_stock)
+	for v in cars:
+		var mi := _v19_steer_mesh(v)
+		_check(mi != null, "the %s has a steering wheel" % v.kind)
+		if mi == null:
+			continue
+		player.enter_vehicle(v)
+		await _frames(8)
+		var rim := _v19_rim(v, mi)
+		var axis: Vector3 = rim["axis"]
+		var off_axis := rad_to_deg(axis.angle_to(v._steer_axis))
+		var hub := v._steer_pivot.position
+		var top0 := _v19_wheel_top(v, mi, rim["top"])
+		# A light touch: under a quarter turn of the steering wheel, so its top tells which way.
+		Input.action_press("move_right", 0.15)
+		await _seconds(0.8)
+		var steer_r := v.steering
+		var top_r := _v19_wheel_top(v, mi, rim["top"])
+		Input.action_release("move_right")
+		Input.action_press("move_left", 0.15)
+		await _seconds(1.2)
+		var steer_l := v.steering
+		var top_l := _v19_wheel_top(v, mi, rim["top"])
+		Input.action_release("move_left")
+		await _seconds(0.6)
+		# About the column, pointing away from the driver: clockwise from the seat is positive.
+		var turn_r := (top0 - hub).signed_angle_to(top_r - hub, axis)
+		var turn_l := (top0 - hub).signed_angle_to(top_l - hub, axis)
+		var ratio := absf(turn_r / steer_r) if absf(steer_r) > 0.001 else 0.0
+		# The body's +X is its left: steering right swings the rim's top to -X.
+		print("VEHICLE19 steering %s: right %.3f rad, wheel %.2f rad, rim top %.3f m; left %.3f rad, wheel %.2f rad, rim top %.3f m; ratio %.1f; axis off the rim's %.1f deg, pivot off it %.3f m" % [
+				v.kind, steer_r, turn_r, top_r.x - top0.x, steer_l, turn_l, top_l.x - top0.x, ratio, off_axis, float(rim["off"])])
+		_check(steer_r < -0.05 and turn_r > 0.3 and top_r.x - top0.x < -0.03 and steer_l > 0.05 and turn_l < -0.3 and top_l.x - top0.x > 0.03,
+				"the %s's steering wheel turns the way it steers (right: clockwise, its top %.2f m to the right; left: its top %.2f m to the left)" % [v.kind,
+				top0.x - top_r.x, top_l.x - top0.x])
+		_check(ratio >= 6.0 and ratio <= 18.0 and off_axis < 8.0 and float(rim["off"]) < 0.03,
+				"the %s's steering wheel turns %.1f times the road wheels' angle, about its own column (%.1f deg, %.3f m off)" % [v.kind, ratio,
+				off_axis, float(rim["off"])])
+		player.exit_vehicle()
+		await _frames(5)
+	if dir == "":
+		return
+	# Grandpa's pickup on the town street, rolling and steering to the right: the cab.
+	var truck := town.farm_truck
+	await _park(truck, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(205, _v19_drawn_y(Vector3(205, 5, 19.6)) + 0.3, 19.6)))
+	await _seconds(1.5)
+	player.enter_vehicle(truck)
+	await _frames(5)
+	truck.chase_camera = false
+	truck._current_camera().make_current()
+	truck._look = Vector2(0.0, -0.4)
+	Game.hud.visible = false
+	Input.action_press("move_forward", 0.45)
+	await _seconds(1.2)
+	Input.action_press("move_right", 0.45)
+	await _seconds(0.5)
+	await _shot("%s/v19_steering_right.png" % dir)
+	print("VEHICLE19 shot: steering %.3f rad (right is negative), wheel turned %.2f rad, %.0f km/h" % [truck.steering, truck.steering_wheel_turn(), truck.speed_kmh()])
+	Input.action_release("move_right")
+	Input.action_release("move_forward")
+	Input.action_press("move_back")
+	var braked := 0.0
+	while truck.speed_kmh() > 2.0 and braked < 4.0:
+		await _seconds(0.1)
+		braked += 0.1
+	Input.action_release("move_back")
+	await _seconds(1.5)
+	Game.hud.visible = true
+	truck._look = Vector2.ZERO
+	player.exit_vehicle()
+	await _frames(5)
+
+
+## The steering wheel's mesh (it hangs on the pivot the steering turns).
+func _v19_steer_mesh(v: Vehicle) -> MeshInstance3D:
+	if v._steer_pivot == null:
+		return null
+	for n in v._steer_pivot.find_children("*", "MeshInstance3D", true, false):
+		return n as MeshInstance3D
+	return null
+
+
+## A steering wheel's rim as modelled, with the wheel straight: "axis" the direction its
+## outer vertices lie round (body frame, pointing forward), "off" how far the pivot is
+## from that axis through their middle (m), "top" its topmost vertex (the mesh's frame).
+func _v19_rim(v: Vehicle, mi: MeshInstance3D) -> Dictionary:
+	var to_body := v.global_transform.affine_inverse() * mi.global_transform
+	var c := v._steer_pivot.position
+	var pts := PackedVector3Array()
+	var far := 0.0
+	for f in mi.mesh.get_faces():
+		var p := to_body * f
+		pts.append(p)
+		far = maxf(far, p.distance_to(c))
+	var rim := PackedVector3Array()
+	var mid := Vector3.ZERO
+	var top := Vector3.ZERO
+	var top_y := -INF
+	var faces := mi.mesh.get_faces()
+	for i in pts.size():
+		if pts[i].distance_to(c) > far * 0.85:
+			rim.append(pts[i])
+			mid += pts[i]
+			if pts[i].y > top_y:
+				top_y = pts[i].y
+				top = faces[i]
+	mid /= maxf(float(rim.size()), 1.0)
+	# The direction the rim spreads least along: power iteration on (trace - covariance).
+	var xx := 0.0
+	var yy := 0.0
+	var zz := 0.0
+	var xy := 0.0
+	var xz := 0.0
+	var yz := 0.0
+	for p in rim:
+		var d := p - mid
+		xx += d.x * d.x
+		yy += d.y * d.y
+		zz += d.z * d.z
+		xy += d.x * d.y
+		xz += d.x * d.z
+		yz += d.y * d.z
+	var trace := xx + yy + zz
+	var a := v._steer_axis
+	for i in 80:
+		a = Vector3(a.x * (trace - xx) - a.y * xy - a.z * xz, -a.x * xy + a.y * (trace - yy) - a.z * yz,
+				-a.x * xz - a.y * yz + a.z * (trace - zz)).normalized()
+	if a.z < 0.0:
+		a = -a
+	var from_pivot := mid - c
+	return {"axis": a, "off": (from_pivot - a * from_pivot.dot(a)).length(), "top": top}
+
+
+## Where the vertex `top` of the steering wheel's mesh is now (body frame).
+func _v19_wheel_top(v: Vehicle, mi: MeshInstance3D, top: Vector3) -> Vector3:
+	return v.global_transform.affine_inverse() * (mi.global_transform * top)
+
+
+## The driver's look: all the way round to the left and on, back round to the right and
+## on, never a jump, up and down within a neck's reach; the body and the steering do not
+## follow; the chase camera goes round the same way. In the pickup and on the tractor.
+func _v19_look(town: Town, dir: String) -> void:
+	var player: Player = Game.player
+	var tractor: Vehicle = null
+	for v in town.dealer_stock:
+		if v.kind == &"tractor":
+			tractor = v
+	for v: Vehicle in [town.farm_truck, tractor]:
+		if v == null:
+			continue
+		player.enter_vehicle(v)
+		await _frames(8)
+		v.chase_camera = false
+		v._current_camera().make_current()
+		await _idle_frames(2)
+		var body := v.global_transform
+		var step := 0.2
+		var px := step / Settings.mouse_sensitivity
+		var yaw := _v19_cam_yaw(v)
+		var turned := 0.0
+		var most := 0.0
+		var least := 0.0
+		var jump := 0.0
+		var in_range := true
+		# 46 steps to the left (over 500 degrees), then 92 to the right.
+		for i in 138:
+			v.turn_look(Vector2(-px if i < 46 else px, 0.0))
+			await _idle_frames(2)
+			var now := _v19_cam_yaw(v)
+			var d := angle_difference(yaw, now)
+			jump = maxf(jump, absf(absf(d) - step))
+			turned += d
+			yaw = now
+			most = maxf(most, turned)
+			least = minf(least, turned)
+			in_range = in_range and absf(v.look().x) <= PI + 0.0001
+		_check(most > TAU + 0.5 and least < -TAU - 0.5 and jump < 0.02 and in_range,
+				"at the %s's wheel the view turns all the way round and on, both ways, without a jump (%.0f deg left, %.0f deg right, steps off by %.3f rad at most)" % [
+				v.kind, rad_to_deg(most), rad_to_deg(-least), jump])
+		v.turn_look(Vector2(0.0, -100000.0))
+		await _idle_frames(2)
+		var up := _v19_cam_pitch(v)
+		v.turn_look(Vector2(0.0, 100000.0))
+		await _idle_frames(2)
+		var down := _v19_cam_pitch(v)
+		_check(absf(up - Vehicle.LOOK_UP) < 0.02 and absf(down + Vehicle.LOOK_DOWN) < 0.02,
+				"up and down the look stops where a neck does (%.0f deg up, %.0f deg down)" % [rad_to_deg(up), rad_to_deg(-down)])
+		var moved := v.global_position.distance_to(body.origin)
+		var swung := absf(angle_difference(body.basis.get_euler().y, v.global_basis.get_euler().y))
+		# (Where it stands it may creep a hand's breadth on the coasting brake; it must not turn.)
+		_check(moved < 0.3 and swung < 0.01 and absf(v.steering) < 0.001 and absf(v.steering_wheel_turn()) < 0.001,
+				"looking round does not turn the %s or its steering (turned %.3f rad, crept %.3f m)" % [v.kind, swung, moved])
+		# Straight back from the cab: the rear glass and the bed (the carry box).
+		v._look = Vector2(PI, -0.12)
+		await _idle_frames(2)
+		var back := -v._cam.global_basis.z
+		_check(back.dot(v.global_basis.z) < -0.95, "turned right round the driver looks back over the %s's tail" % v.kind)
+		if dir != "" and v == town.farm_truck:
+			Game.hud.visible = false
+			await _shot("%s/v19_look_back.png" % dir)
+			Game.hud.visible = true
+		# The chase camera goes round with the look: from behind the car to in front of it.
+		v._look = Vector2.ZERO
+		v.chase_camera = true
+		v._snap_chase()
+		await _idle_frames(3)
+		var behind := (v._chase.global_position - v.global_position).dot(v.global_basis.z)
+		for i in 16:
+			v.turn_look(Vector2(-PI / 16.0 / Settings.mouse_sensitivity, 0.0))
+			await _idle_frames(2)
+		v._snap_chase()
+		await _idle_frames(2)
+		var ahead := (v._chase.global_position - v.global_position).dot(v.global_basis.z)
+		_check(behind < -5.0 and ahead > 5.0, "the chase camera swings right round the %s (%.1f m behind, then %.1f m in front)" % [v.kind, -behind, ahead])
+		v.chase_camera = false
+		v._look = Vector2.ZERO
+		player.exit_vehicle()
+		await _frames(5)
+
+
+## Which way the driver's camera looks round the body's up (radians; 0 ahead, positive left).
+func _v19_cam_yaw(v: Vehicle) -> float:
+	var f := v.get_global_transform_interpolated().basis.inverse() * (-v._cam.global_basis.z)
+	return atan2(f.x, f.z)
+
+
+## How far up the driver's camera looks, in the body's frame (radians).
+func _v19_cam_pitch(v: Vehicle) -> float:
+	var f := v.get_global_transform_interpolated().basis.inverse() * (-v._cam.global_basis.z)
+	return asin(clampf(f.normalized().y, -1.0, 1.0))
+
+
+## No car in the warehouse: driven at the big door of the run-down and of the repaired
+## shed the pickup stops outside, the farmer walks in; nothing but vehicles runs into the
+## barrier; a pickup saved inside, or with its nose through the door, is put out on the
+## apron when the game is loaded, one parked beside the shed stays.
+func _v19_warehouse(town: Town, dir: String) -> void:
+	var player: Player = Game.player
+	var truck := town.farm_truck
+	var home := Town.farm_truck_home()
+	var wh := tree.get_first_node_in_group(&"warehouse") as Warehouse
+	var r := WorldLayout.WAREHOUSE_RECT
+	var door := Vector3(r.position.x + Warehouse.DOOR_AT, 0.0, r.end.y)
+	var barrier := wh.get_node_or_null("VehicleBarrier") as StaticBody3D
+	var others := 0
+	for n in tree.root.find_children("*", "CollisionObject3D", true, false):
+		if not n is Vehicle and ((n as CollisionObject3D).collision_mask & Vehicle.BARRIER_LAYER) != 0:
+			others += 1
+	_check(barrier != null and barrier.collision_layer == Vehicle.BARRIER_LAYER and (truck.collision_mask & Vehicle.BARRIER_LAYER) != 0
+			and (player.collision_mask & Vehicle.BARRIER_LAYER) == 0 and others == 0,
+			"the warehouse door has a barrier only vehicles run into (%d other bodies would)" % others)
+	var level_was := wh.level
+	for level: int in [0, 1]:
+		wh.set_level(level)
+		await _frames(5)
+		var shed := "run-down" if level == 0 else "repaired"
+		_check(wh.get_node_or_null("VehicleBarrier") == barrier, "the %s shed keeps the barrier" % shed)
+		# Nose to the door from the yard, a run-up of a few metres, foot down.
+		var from := Vector3(door.x, TerrainData.height(door.x, door.z + 9.0) + 0.3, door.z + 9.0)
+		await _park(truck, Transform3D(Basis(Vector3.UP, PI), from))
+		await _seconds(1.5)
+		player.enter_vehicle(truck)
+		await _frames(5)
+		Input.action_press("move_forward")
+		var fastest := 0.0
+		for i in 45:
+			await _seconds(0.1)
+			fastest = maxf(fastest, truck.speed_kmh())
+		var nose := _v19_nose_z(truck)
+		var kmh := truck.speed_kmh()
+		_check(fastest > 10.0 and kmh < 2.0 and nose > door.z - 0.08 and nose < door.z + 1.0 and truck.global_basis.y.y > 0.9
+				and not Warehouse.holds_vehicle(truck.global_transform, truck._footprint),
+				"driven at the %s shed's door at %.0f km/h the pickup stops outside (its nose %.2f m out of the doorway, %.1f km/h)" % [shed, fastest,
+				nose - door.z, kmh])
+		Input.action_release("move_forward")
+		await _seconds(0.6)
+		if dir != "" and level == 0:
+			await _v19_shot("%s/v19_warehouse_door.png" % dir, door + Vector3(6.2, TerrainData.height(door.x + 6.2, door.z + 8.5) + 1.75, 8.5),
+					door + Vector3(0.0, TerrainData.height(door.x, door.z + 2.0) + 1.1, 1.6), 55.0)
+		player.exit_vehicle()
+		await _frames(5)
+		await _park(truck, home)
+		# On foot through the same doorway, up the ramp.
+		player.global_position = Vector3(door.x, TerrainData.height(door.x, door.z + 3.0) + 0.3, door.z + 3.0)
+		player.velocity = Vector3.ZERO
+		player.look_at_yaw_pitch(0.0, 0.0)
+		await _frames(10)
+		Input.action_press("move_forward")
+		await _seconds(1.6)
+		Input.action_release("move_forward")
+		await _seconds(0.4)
+		_check(player.global_position.z < door.z - 1.0, "the farmer walks in through the %s shed's door (%.2f m inside)" % [shed,
+				door.z - player.global_position.z])
+		player.global_position = Vector3(door.x + 6.0, TerrainData.height(door.x + 6.0, door.z + 6.0) + 0.3, door.z + 6.0)
+		await _frames(5)
+	wh.set_level(level_was)
+	await _frames(5)
+	# A game saved with the pickup in the shed (it could be driven in): out on the apron.
+	var apron := Warehouse.apron_spot(-truck._footprint.position.y)
+	var mid := r.get_center()
+	var saved := truck.save_data()
+	saved["xform"] = Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(mid.x, TerrainData.height(mid.x, mid.y) + 0.6, mid.y))
+	truck.load_data(saved)
+	await _seconds(3.0)
+	var off := Vector2(truck.global_position.x - apron.origin.x, truck.global_position.z - apron.origin.z).length()
+	var touching := 0
+	for key: String in ["fl", "fr", "rl", "rr"]:
+		if (truck._wheels[key] as VehicleWheel3D).is_in_contact():
+			touching += 1
+	_check(not Warehouse.holds_vehicle(truck.global_transform, truck._footprint) and off < 0.5 and truck.global_basis.y.y > 0.95 and touching == 4
+			and _v19_nose_z(truck) > door.z + Warehouse.RAMP_RUN,
+			"a pickup saved inside the warehouse is put out on the apron on load, on its wheels, clear of the ramp (%.2f m from the spot)" % off)
+	# Saved with its nose through the door: out as well.
+	saved["xform"] = Transform3D(Basis(Vector3.UP, PI), Vector3(door.x, TerrainData.height(door.x, door.z + 1.2) + 0.6, door.z + 1.2))
+	truck.load_data(saved)
+	await _seconds(2.0)
+	off = Vector2(truck.global_position.x - apron.origin.x, truck.global_position.z - apron.origin.z).length()
+	_check(not Warehouse.holds_vehicle(truck.global_transform, truck._footprint) and off < 0.5,
+			"one saved with its nose through the door too (%.2f m from the spot)" % off)
+	# Saved where it belongs (its spot by the shed, and close along the shed's east wall): it stays.
+	var beside := Transform3D(Basis(Vector3.UP, PI), Vector3(r.end.x + truck.half_width() + 0.25, 0.0, mid.y))
+	beside.origin.y = TerrainData.height(beside.origin.x, beside.origin.z) + 0.3
+	for kept: Transform3D in [home, beside]:
+		saved["xform"] = kept
+		truck.load_data(saved)
+		await _seconds(1.5)
+		var slid := Vector2(truck.global_position.x - kept.origin.x, truck.global_position.z - kept.origin.z).length()
+		_check(slid < 0.3, "a pickup saved outside the shed stays where it was (%.2f m)" % slid)
+
+
+## The northmost point of a vehicle's body (the smallest z of its footprint's corners):
+## its nose when it faces the warehouse door, its tail when it stands nose to the yard.
+func _v19_nose_z(v: Vehicle) -> float:
+	var z := INF
+	var f := v._footprint
+	for c: Vector2 in [f.position, f.end, Vector2(f.position.x, f.end.y), Vector2(f.end.x, f.position.y)]:
+		z = minf(z, (v.global_transform * Vector3(c.x, 0.0, c.y)).z)
+	return z
+
+
+
+
+
+## The standing tree of a model nearest `from` (null when the valley has none).
+func _t19_tree(kind: int, variant: int, from: Vector3) -> ChoppableTree:
+	var best: ChoppableTree = null
+	var best_d := INF
+	for t: ChoppableTree in tree.get_nodes_in_group(&"trees"):
+		if t.felled or t.kind != kind or (maxi(t.variant, 1) - 1) % 3 != variant - 1:
+			continue
+		var d := Vector2(t.global_position.x - from.x, t.global_position.z - from.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+## Stands the farmer `dist` m from a tree (on its `side`), looking at its trunk `height`
+## m up.
+func _t19_face(player: Player, t: ChoppableTree, dist: float, height: float, side := Vector3(0.45, 0.0, 1.0)) -> void:
+	var at := t.global_position + side.normalized() * dist
+	player.global_position = Vector3(at.x, TerrainData.height(at.x, at.z) + 0.1, at.z)
+	player.velocity = Vector3.ZERO
+	_look_at(player, t.global_position + Vector3(0, height, 0))
+
+
+## `blows` axe blows on a tree, landing `height` m up the side facing the farmer: the
+## look and the chopping, as the axe does them (use_impact, then complete_use).
+func _t19_blows(player: Player, t: ChoppableTree, blows: int, height := 1.1) -> void:
+	var stack := ItemStack.create(&"axe")
+	for i in blows:
+		if t.felled:
+			return
+		var toward := player.global_position - t.global_position
+		toward.y = 0.0
+		t.use_impact(player, stack, {}, {"point": t.global_position + toward.normalized() * 0.3 + Vector3(0, height, 0)})
+		t.complete_use(player, stack, {})
+
+
+## Frames drawn while `seconds` pass: [the worst frame (ms), seconds in when it ended].
+func _t19_worst_frame(seconds: float) -> Array:
+	var worst := 0.0
+	var at := 0.0
+	var start := Time.get_ticks_usec()
+	var last := start
+	while Time.get_ticks_usec() - start < int(seconds * 1e6):
+		await tree.process_frame
+		var now := Time.get_ticks_usec()
+		var ms := (now - last) / 1000.0
+		if ms > worst:
+			worst = ms
+			at = (now - start) / 1e6
+		last = now
+	return [worst, at]
+
+
+## The frames drawn while a tree goes over, from its last blow until its trunk is cleared
+## away (`limit` s at most): [the worst frame (ms) of the moments the felling itself has
+## work in, seconds in when it ended, seconds in when the trunk landed]. Those moments:
+## the blow's own frames (the stump and the falling trunk are made) and from the trunk
+## landing (its logs drop) for a second. A stall in between is the machine's, not the
+## tree's (other programs draw on the same graphics card while the tests run).
+func _t19_felling_frames(t: ChoppableTree, limit := 30.0) -> Array:
+	var worst := 0.0
+	var at := 0.0
+	var landed := -1.0
+	var pickups := tree.get_nodes_in_group(&"pickups").size()
+	var start := Time.get_ticks_usec()
+	var last := start
+	while true:
+		await tree.process_frame
+		var now := Time.get_ticks_usec()
+		var ms := (now - last) / 1000.0
+		var secs := (now - start) / 1e6
+		last = now
+		# The frame just drawn made the first logs: the trunk landed in it.
+		var count := tree.get_nodes_in_group(&"pickups").size()
+		if landed < 0.0 and count > pickups:
+			landed = secs
+		pickups = count
+		if (secs < 0.35 or (landed >= 0.0 and secs <= landed + 1.0)) and ms > worst:
+			worst = ms
+			at = secs
+		if secs > limit or (t._top == null and landed >= 0.0 and secs > landed + 1.0):
+			break
+	return [worst, at, landed]
+
+
+## Share of a trunk's bark (by area, between `low` and `high` m up: where the axe goes
+## in) on triangles whose texture is smeared: stretched or squeezed several times over
+## against the trunk's own texel density (UV islands bridged by the simplifying).
+func _t19_bark_smear(trunk: ArrayMesh, low: float, high: float) -> float:
+	var arrays := trunk.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var most: Array[float] = []
+	var least: Array[float] = []
+	for t in idx.size() / 3:
+		var a := idx[t * 3]
+		var b := idx[t * 3 + 1]
+		var c := idx[t * 3 + 2]
+		var r0 := uvs[a].distance_to(uvs[b]) / maxf(verts[a].distance_to(verts[b]), 1e-5)
+		var r1 := uvs[b].distance_to(uvs[c]) / maxf(verts[b].distance_to(verts[c]), 1e-5)
+		var r2 := uvs[c].distance_to(uvs[a]) / maxf(verts[c].distance_to(verts[a]), 1e-5)
+		most.append(maxf(r0, maxf(r1, r2)))
+		least.append(minf(r0, minf(r1, r2)))
+	var sorted := most.duplicate()
+	sorted.sort()
+	var density: float = sorted[sorted.size() / 2]
+	var smeared := 0.0
+	var total := 0.0
+	for t in most.size():
+		var a := verts[idx[t * 3]]
+		var b := verts[idx[t * 3 + 1]]
+		var c := verts[idx[t * 3 + 2]]
+		var y := (a.y + b.y + c.y) / 3.0
+		if y < low or y > high:
+			continue
+		var area := (b - a).cross(c - a).length() * 0.5
+		total += area
+		if most[t] > density * 4.0 or least[t] < density / 6.0:
+			smeared += area
+	return smeared / maxf(total, 1e-6)
+
+
+## Triangles of a trunk that lie across the line between its two barks (the scanned
+## foot's atlas and the plain bark above, tree_bark.gdshader upper_from): none may, each
+## is one bark or the other.
+func _t19_bark_straddles(trunk: ArrayMesh) -> int:
+	var from: Variant = (trunk.surface_get_material(0) as ShaderMaterial).get_shader_parameter("upper_from")
+	if from == null:
+		return 0
+	var arrays := trunk.surface_get_arrays(0)
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var out := 0
+	for t in idx.size() / 3:
+		var above := 0
+		for k in 3:
+			if uvs[idx[t * 3 + k]].y > float(from):
+				above += 1
+		if above == 1 or above == 2:
+			out += 1
+	return out
+
+
+## Vertices of a felled tree's whole mesh, surface by surface ([trunk, limbs, leaf
+## cards]), that lie under its cut: [how many, how many of them the stump still draws].
+## The stump is the trunk's mesh alone, so of the limbs and the cards it draws none; of
+## the trunk what ChoppableTree.in_stump keeps (as the cut shader has it).
+func _t19_under_cut(t: ChoppableTree) -> Array:
+	var whole := t.tree_mesh()
+	var out := []
+	for s in whole.get_surface_count():
+		var verts: PackedVector3Array = whole.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]
+		var under := 0
+		var kept := 0
+		for v in verts:
+			var p := v * t.tree_scale
+			if p.y < t.cut_height:
+				under += 1
+				if s == 0 and t.in_stump(p):
+					kept += 1
+		out.append([under, kept])
+	return out
+
+
+## The cut, the felling moment and what is left of a felled tree, for every tree model:
+## the bark where the axe goes in is not smeared (UV islands bridged by the simplifying);
+## the notch has its own fresh-wood material on a mesh of its own; the frames while the
+## trunk goes over, lands and turns into logs stay within a budget set by the frames just
+## before (the first felling of a game froze for one to four seconds when its logs
+## appeared); and nothing of the tree is left over its stump: the falling trunk is gone,
+## all that is drawn is the trunk alone under the cut, no limb, no leaf card, whatever
+## hung lower than the cut (the olive's and the locust's low branches) went over with it.
+func _scenario_trees19() -> void:
+	var player: Player = Game.player
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(11.0)
+	_select(&"axe")
+	await _seconds(2.0)
+	var worst_felling := 0.0
+	var hung_low := 0
+	for m: Array in T19_MODELS:
+		var label: String = m[2]
+		var t := _t19_tree(m[0], m[1], Vector3(-30, 0, 0))
+		if t == null:
+			_check(false, "%s: one standing in the valley" % label)
+			continue
+		var whole := t.tree_mesh()
+		var trunk := NatureModels.trunk(whole)
+		# The bark of the chopping zone (CUT_MIN..CUT_MAX, on the smallest and the biggest tree).
+		var smear := _t19_bark_smear(trunk, 0.3, 2.0) if trunk else 1.0
+		var straddles := _t19_bark_straddles(trunk) if trunk else -1
+		var scanned := NatureModels._has_upper_bark(NatureModels.tree_info(label))
+		var plain: Variant = (whole.surface_get_material(0) as ShaderMaterial).get_shader_parameter("upper_albedo_tex")
+		_check(trunk != null and trunk.get_surface_count() == 1 and smear < 0.01 and straddles == 0 and (plain != null) == scanned,
+				"%s: the bark where the axe goes in is sound (%.1f %% of it smeared, %d triangles across two barks%s)" % [label,
+				smear * 100.0, straddles, ", plain bark over the scanned foot" if scanned else ""])
+		# Standing: the tree's own mesh and materials; the first blows cut the notch.
+		_t19_face(player, t, 2.2, 1.3)
+		await _seconds(0.6)
+		_check(t._mesh.mesh == whole and whole.get_surface_count() == 3 and t._mesh.get_surface_override_material(0) == null,
+				"%s: standing, it is drawn whole with its own materials" % label)
+		# A high cut (chest height): what hangs lower than it is the test.
+		_t19_blows(player, t, t.max_hp() - 1, 1.6)
+		var notch := t._notch
+		var notch_mat := (notch.material_override as ShaderMaterial) if notch else null
+		_check(notch != null and notch.mesh != null and notch.mesh.get_faces().size() >= 3 and notch_mat != null
+				and notch_mat.shader.resource_path.ends_with("tree_notch.gdshader") and notch.radius > 0.1 and notch.radius < 0.9
+				and notch.depth > 0.0 and notch.depth < notch.radius,
+				"%s: mid-chop the notch is fresh wood on the trunk (radius %.2f m, %.2f m deep at %.2f m up)" % [label,
+				notch.radius if notch else 0.0, notch.depth if notch else 0.0, t.cut_height])
+		var calm: Array = await _t19_worst_frame(1.5)
+		# The last blow: the trunk goes over, lands, turns into logs and is cleared away.
+		_t19_blows(player, t, 1, 1.6)
+		var fell: Array = await _t19_felling_frames(t)
+		var budget: float = calm[0] * 2.5 + 80.0
+		worst_felling = maxf(worst_felling, fell[0])
+		_check(t.felled and fell[2] > 0.0 and fell[0] <= budget,
+				"%s: felling it never stalls: worst frame %.0f ms (%.1f s after the blow, the trunk landing at %.1f s; before it %.0f ms, budget %.0f ms)" % [
+				label, fell[0], fell[1], fell[2], calm[0], budget])
+		# What is left: the stump, and nothing else.
+		var drawn := t.drawn()
+		var stump := drawn[0] if drawn.size() == 1 else null
+		var stump_mat := (stump.get_surface_override_material(0) as ShaderMaterial) if stump else null
+		_check(t._top == null and t._notch == null and stump != null and stump.mesh == trunk and stump_mat != null
+				and stump_mat.shader.resource_path.ends_with("tree_bark_cut.gdshader"),
+				"%s: felled, all that is drawn of it is its trunk, cut (%d mesh instances, the falling trunk gone)" % [label, drawn.size()])
+		var leafy := 0
+		for mi in drawn:
+			for s in mi.mesh.get_surface_count():
+				var mat := mi.get_active_material(s) as ShaderMaterial
+				if mat == null or mat.shader.resource_path.contains("leaves"):
+					leafy += 1
+		var top: float = stump.custom_aabb.end.y * t.tree_scale if stump else INF
+		_check(leafy == 0 and top <= t.cut_height + ChoppableTree.STUMP_TEAR + 0.01 and top > t.cut_height,
+				"%s: no leaves on the stump, and it is drawn no higher than its cut (%.2f m, cut %.2f m)" % [label, top, t.cut_height])
+		# Under the cut: the trunk's column stays, the low limbs and leaves went over.
+		var under := _t19_under_cut(t)
+		var limbs: int = under[1][0] + under[2][0]
+		hung_low += limbs
+		_check(under[0][1] > 50 and under[1][1] == 0 and under[2][1] == 0,
+				"%s: the stump keeps its trunk (%d of %d vertices under the cut) and none of the %d limb and leaf vertices hanging lower than the cut" % [
+				label, under[0][1], under[0][0], limbs])
+	_check(hung_low > 100, "the low-branched trees were in the check (%d limb and leaf vertices under their cuts)" % hung_low)
+	print("T19 worst felling frame: %.0f ms" % worst_felling)
+	# A stump put back from a save is the same; a regrown tree is whole again.
+	var t0 := _t19_tree(1, 3, Vector3(-30, 0, 0))
+	if t0:
+		t0.cut_height = 1.4
+		t0._set_felled(true)
+		_check(t0.drawn().size() == 1 and t0._mesh.mesh == NatureModels.trunk(t0.tree_mesh()), "a stump from a save is the trunk alone too")
+		t0._set_felled(false)
+		_check(t0.drawn().size() == 1 and t0._mesh.mesh == t0.tree_mesh() and t0._mesh.get_surface_override_material(0) == null
+				and t0._mesh.custom_aabb.size == Vector3.ZERO, "regrown, it is the whole tree again")
+	Weather.forced = -1
+
+
+## The middle of the view (`share` of its width and height) as a picture.
+func _t19_crop(share: float) -> Image:
+	var img := tree.root.get_viewport().get_texture().get_image()
+	var w := int(img.get_width() * share)
+	var h := int(img.get_height() * share)
+	return img.get_region(Rect2i((img.get_width() - w) / 2, (img.get_height() - h) / 2, w, h))
+
+
+## Pictures side by side in rows of `columns`, saved as one sheet.
+func _t19_sheet(pics: Array[Image], columns: int, path: String) -> void:
+	if pics.is_empty():
+		return
+	var w := pics[0].get_width()
+	var h := pics[0].get_height()
+	var sheet := Image.create(w * columns, h * ceili(float(pics.size()) / columns), false, pics[0].get_format())
+	for i in pics.size():
+		sheet.blit_rect(pics[i], Rect2i(0, 0, w, h), Vector2i((i % columns) * w, (i / columns) * h))
+	sheet.save_png(path)
+	print("SHOT ", path)
+
+
+## Pictures of the cut (-- --shotdir=/abs/dir): a conifer's and a broadleaf's trunk
+## mid-chop, close (trees19_chop.png: two blows in and one before it falls, each); the
+## stumps of all six models (trees19_stumps.png); a felled tree's stump with its logs
+## (trees19_logs.png); the big trees in front of the warehouse, one of them felled
+## (trees19_warehouse.png).
+func _scenario_trees19_shots() -> void:
+	var dir := String(DebugTools.args.get("shotdir", OS.get_user_data_dir()))
+	var player: Player = Game.player
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(11.0)
+	for hud in tree.get_nodes_in_group("hud"):
+		hud.visible = false
+	_select(&"axe")
+	var chops: Array[Image] = []
+	var stumps: Array[Image] = []
+	for m: Array in T19_MODELS:
+		var t := _t19_tree(m[0], m[1], Vector3(-60, 0, -30))
+		if t == null or t.global_position.distance_to(T19_WAREHOUSE_TREE) < 3.0:
+			continue
+		var close: bool = m[2] in ["fir_b", "broadleaf"]
+		for stage: int in [2, t.max_hp() - 1]:
+			_t19_face(player, t, 1.5, 1.25)
+			_t19_blows(player, t, stage - (t.max_hp() - t.hp), 1.25)
+			if close:
+				await _seconds(0.9)
+				await _idle_frames(4)
+				chops.append(_t19_crop(0.5))
+		_t19_blows(player, t, 1, 1.25)
+		await _seconds(5.5)
+		_t19_face(player, t, 2.6, 1.0)
+		await _seconds(0.4)
+		await _idle_frames(4)
+		stumps.append(_t19_crop(0.6))
+	_t19_sheet(chops, 2, dir + "/trees19_chop.png")
+	_t19_sheet(stumps, 3, dir + "/trees19_stumps.png")
+	# A felled tree's stump and its logs, lying where they dropped (kept from flying to
+	# the bag for the picture).
+	var far := _t19_tree(0, 2, Vector3(-60, 0, -30))
+	if far:
+		var side := Vector3(0.45, 0.0, 1.0).normalized()
+		_t19_face(player, far, 2.0, 1.2, side)
+		_t19_blows(player, far, far.max_hp(), 1.2)
+		# It falls away from the farmer: seen from beside the trunk, half way along it.
+		var across := Vector3(side.z, 0.0, -side.x)
+		_t19_face(player, far, 5.4, 0.3, across * 5.0 - side * 2.0)
+		_look_at(player, far.global_position - side * 2.0 + Vector3(0, 0.3, 0))
+		for i in 46:
+			await _seconds(0.1)
+			for p: Pickup in tree.get_nodes_in_group(&"pickups"):
+				p.seek = false
+		await _idle_frames(4)
+		tree.root.get_viewport().get_texture().get_image().save_png(dir + "/trees19_logs.png")
+		print("SHOT ", dir + "/trees19_logs.png")
+	# The big trees in front of the warehouse: the locust felled chest-high.
+	var big := _t19_tree(1, 3, T19_WAREHOUSE_TREE)
+	if big and big.global_position.distance_to(T19_WAREHOUSE_TREE) < 3.0:
+		_t19_face(player, big, 2.0, 1.5, Vector3(0.0, 0.0, -1.0))
+		_t19_blows(player, big, big.max_hp(), 1.6)
+		await _seconds(5.5)
+		_t19_face(player, big, 9.0, 2.2, Vector3(-0.35, 0.0, -1.0))
+		await _shot(dir + "/trees19_warehouse.png")
+	else:
+		_check(false, "the locust in front of the warehouse")
+	Weather.forced = -1

@@ -7,8 +7,10 @@ extends Node3D
 ## it (level 1); the construction board enlarges it (level 2: a loft over the back
 ## racks). Inside, pallets fill up with crates and sacks as the stock grows,
 ## and crated hens kept in stock stand in the crate corner in front of the back
-## pallets (CrateBay, the same at every level). The ledger by the door opens the
-## storage screen.
+## pallets (CrateBay, the same at every level). E opens the storage screen from anywhere
+## inside the shed (the player's interaction falls back to the warehouse he stands in when
+## nothing else is aimed at: target_for), as do the ledger by the door and the doorway
+## from outside; beside the crates on show the crate corner keeps its own prompt.
 
 const PALLETS := 8
 const H := 3.4
@@ -22,6 +24,16 @@ const TRIM := Color(0.36, 0.3, 0.25)
 const TIN := Color(0.52, 0.52, 0.52)
 ## Seed of the ruin's damage: the same broken boards on every load.
 const RUIN_SEED := 5150
+## The big door in the front (south) wall: its middle along the wall from the west
+## corner and its width; how far the ramp up to it runs out into the yard.
+const DOOR_AT := 4.0
+const DOOR_W := 3.6
+const RAMP_RUN := 1.3
+## How far the block that keeps vehicles out reaches into the shed from the door (m).
+const BARRIER_DEPTH := 1.2
+## Waypoint anchor id in the middle of the shed's floor (the story's dot for what is
+## fetched from the storage: the feed sack).
+const ANCHOR_INSIDE := &"warehouse_inside"
 
 ## 0 = run-down, 1 = repaired, 2 = bigger (FarmState.warehouse_level()); -1 = not built.
 var level := -1
@@ -40,6 +52,7 @@ var _stock_queued := false
 ## The crate corner (crated hens in the warehouse stock).
 var crate_bay: CrateBay
 var _door_marker: Marker3D
+var _inside_marker: Marker3D
 
 
 func _ready() -> void:
@@ -63,11 +76,95 @@ func _ready() -> void:
 	WaypointMarker.tag(_door_marker, &"warehouse")
 	_door_marker.add_to_group(&"waypoints")
 	add_child(_door_marker)
+	_add_vehicle_barrier()
+	_inside_marker = Marker3D.new()
+	_inside_marker.name = "InsideMarker"
+	_inside_marker.position = Vector3(_rect.get_center().x, _y0 + 1.5, _rect.get_center().y)
+	WaypointMarker.tag(_inside_marker, ANCHOR_INSIDE)
+	_inside_marker.add_to_group(&"waypoints")
+	add_child(_inside_marker)
+
+
+## No vehicle goes in through the big door: a block in the doorway on the layer only
+## vehicles run into (Vehicle.BARRIER_LAYER) stops them on the ramp, nose at the door.
+## The farmer, the animals and what is carried in pass through it. It is not part of the
+## shell: the run-down shed and the repaired ones have the same.
+func _add_vehicle_barrier() -> void:
+	var body := StaticBody3D.new()
+	body.name = "VehicleBarrier"
+	body.collision_layer = Vehicle.BARRIER_LAYER
+	body.collision_mask = 0
+	var shape := BoxShape3D.new()
+	# The opening and its jambs, from under the ramp's foot to over the door beam, and
+	# well into the shed: a car that hits it fast is pushed back out, not through.
+	shape.size = Vector3(DOOR_W + 0.4, 4.4, BARRIER_DEPTH)
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	cs.position = Vector3(_rect.position.x + DOOR_AT, _y0 + 1.4, _rect.end.y - BARRIER_DEPTH * 0.5)
+	body.add_child(cs)
+	add_child(body)
+
+
+## Whether a vehicle standing at `xf` reaches into the shed (in it, or through the door):
+## `footprint` is its body's, in its own frame (x across, y along). Only a game saved
+## before the doorway was blocked has one there (Vehicle._leave_warehouse).
+static func holds_vehicle(xf: Transform3D, footprint: Rect2) -> bool:
+	# One pressed against the barrier (a few cm into the doorway) is not in.
+	var inside := WorldLayout.WAREHOUSE_RECT.grow(-0.3)
+	var mid := footprint.get_center()
+	for p: Vector2 in [mid, footprint.position, footprint.end, Vector2(footprint.position.x, footprint.end.y),
+			Vector2(footprint.end.x, footprint.position.y), Vector2(mid.x, footprint.position.y), Vector2(mid.x, footprint.end.y)]:
+		var g := xf * Vector3(p.x, 0.0, p.y)
+		if inside.has_point(Vector2(g.x, g.z)):
+			return true
+	return false
+
+
+## Where a vehicle found in the shed is put: on the apron in front of the big door, clear
+## of the ramp, its tail (`tail` m behind its origin) to the door, nose to the yard.
+static func apron_spot(tail: float) -> Transform3D:
+	var r := WorldLayout.WAREHOUSE_RECT
+	var x := r.position.x + DOOR_AT
+	var z := r.end.y + RAMP_RUN + 0.6 + tail
+	return Transform3D(Basis(), Vector3(x, TerrainData.height(x, z) + 0.25, z))
 
 
 ## Where the story's waypoint dot floats to send the farmer here: over the big door.
 func waypoint_door() -> Node3D:
 	return _door_marker
+
+
+## Where the story's dot floats for what is fetched from the storage: inside the shed.
+func waypoint_inside() -> Node3D:
+	return _inside_marker
+
+
+## Whether `at` (a world position: the farmer's feet) is inside the shed, between its walls
+## and under its roof.
+func inside(at: Vector3) -> bool:
+	return _rect.grow(-T).has_point(Vector2(at.x, at.z)) and at.y > _y0 - 0.6 and at.y < _y0 + H + RISE
+
+
+## What E works on for `player` when nothing else is under the crosshair: the warehouse he
+## stands in (its storage opens from anywhere inside), or its crate corner when he stands
+## beside the crates on show and is turned their way (a crate to lift keeps its own
+## prompt). null out of doors.
+static func target_for(player: Player) -> Node:
+	var wh := player.get_tree().get_first_node_in_group(&"warehouse") as Warehouse
+	if wh == null or not wh.inside(player.global_position):
+		return null
+	if wh.crate_bay and wh.crate_bay.beside(player):
+		return wh.crate_bay
+	return wh
+
+
+## E anywhere inside: the storage screen.
+func interact_prompt(_player: Node) -> String:
+	return tr("ACTION_OPEN_WAREHOUSE")
+
+
+func interact(_player: Node) -> void:
+	Game.hud.open_storage(null)
 
 
 ## Builds the shed for `new_level`; a repair or upgrade raises a cloud of dust.
@@ -96,7 +193,8 @@ func _build_base(mb: MeshBuilder, cols: Array, ruined: bool) -> void:
 	var c := _rect.get_center()
 	var x0 := _rect.position.x
 	var z1 := _rect.end.y
-	mb.box_at(&"stone_old" if ruined else &"stone_ext", Vector3(c.x, _y0 - 0.2, c.y), Vector3(_rect.size.x, 0.5, _rect.size.y),
+	# (Its top at the walls' foot: 5 cm higher, its sides lay in the plane of the end studs'.)
+	mb.box_at(&"stone_old" if ruined else &"stone_ext", Vector3(c.x, _y0 - 0.225, c.y), Vector3(_rect.size.x, 0.45, _rect.size.y),
 			Color(0.46, 0.45, 0.43) if ruined else Color(0.5, 0.5, 0.5))
 	BuildingKit.slab(mb, cols, _rect.grow(-0.05), _y0 + 0.06, 0.1, &"concrete",
 			Color(0.42, 0.41, 0.38) if ruined else Color(0.55, 0.54, 0.52))
@@ -288,8 +386,10 @@ func _build_ruin(parent: Node3D) -> void:
 	# The east window, boarded up from outside (it stops people like the glass did).
 	var wz := z1 - T - 3.3
 	var wmid := y0 + 1.8
-	for piece: Array in [[Vector3(0, 0, -0.74), Vector3(T + 0.04, 1.14, 0.08)], [Vector3(0, 0, 0.74), Vector3(T + 0.04, 1.14, 0.08)],
-			[Vector3(0, 0.54, 0), Vector3(T + 0.04, 0.08, 1.56)], [Vector3(0.04, -0.54, 0), Vector3(T + 0.12, 0.07, 1.64)]]:
+	# Its frame stands 8 mm into the opening (the wall's boards and studs end behind its
+	# faces, not in them), the jambs between the head and the sill.
+	for piece: Array in [[Vector3(0, 0, -0.736), Vector3(T + 0.04, 0.984, 0.088)], [Vector3(0, 0, 0.736), Vector3(T + 0.04, 0.984, 0.088)],
+			[Vector3(0, 0.536, 0), Vector3(T + 0.04, 0.088, 1.56)], [Vector3(0.04, -0.5335, 0), Vector3(T + 0.12, 0.083, 1.64)]]:
 		mb.box_at(&"wood_old", Vector3(x1 - ht, wmid, wz) + (piece[0] as Vector3), piece[1], POST_OLD.lightened(0.1))
 	for k in 3:
 		var tilt := Basis(Vector3.RIGHT, deg_to_rad(rng.randf_range(-8.0, 8.0)))
@@ -301,11 +401,13 @@ func _build_ruin(parent: Node3D) -> void:
 	for cx: float in [x0 + 0.1, x1 - 0.1]:
 		for cz: float in [z0 + 0.1, z1 - 0.1]:
 			var lean := 2.5 if cx < c.x and cz > c.y else 0.0
-			mb.box_at(&"wood_old", Vector3(cx, y0 + H * 0.5, cz), Vector3(0.24, H, 0.24), POST_OLD * rng.randf_range(0.9, 1.05),
+			# (Let 2 cm into the plinth and ending 2 cm under the walls' tops: not in their planes.)
+			mb.box_at(&"wood_old", Vector3(cx, y0 + H * 0.5 - 0.02, cz), Vector3(0.24, H, 0.24), POST_OLD * rng.randf_range(0.9, 1.05),
 					Vector3(0, 0, lean), true)
-	mb.box_at(&"wood_old", Vector3(x0 + 4.0, y0 + 3.1, z1 + 0.02), Vector3(4.2, 0.25, 0.3), POST_OLD)
+	# (The beam's back 2 cm inside the studs' inner faces, the jambs let 1 cm into the floor.)
+	mb.box_at(&"wood_old", Vector3(x0 + 4.0, y0 + 3.1, z1 + 0.01), Vector3(4.2, 0.25, 0.32), POST_OLD)
 	for jx: float in [x0 + 2.14, x0 + 5.86]:
-		mb.box_at(&"wood_old", Vector3(jx, y0 + 1.5, z1 - ht), Vector3(0.1, 3.0, T + 0.04), POST_OLD.lightened(0.08), Vector3.ZERO, true)
+		mb.box_at(&"wood_old", Vector3(jx, y0 + 1.49, z1 - ht), Vector3(0.1, 3.0, T + 0.04), POST_OLD.lightened(0.08), Vector3.ZERO, true)
 	# Door leaves: the west one off its rail, leaning on the wall outside; the east one
 	# hanging askew where it was parked. The rail has broken in two.
 	var ground := TerrainData.height(x0 + 1.0, z1 + 1.0)

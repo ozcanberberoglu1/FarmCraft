@@ -38,6 +38,16 @@ const SIDE_GRIME := 0.45
 ## deep (more than the springs give on a bump).
 const SINK_MEAN := 0.15
 const SINK_DEEPEST := 0.32
+## The steering wheel turns this many times the road wheels' angle (about three quarters
+## of a turn to full lock; a real box is nearer 16:1, too busy to watch with a key held).
+## An entry's "steer_ratio" sets its own.
+const STEER_RATIO := 8.0
+## How far down and up the driver can look (radians); round about there is no limit.
+const LOOK_DOWN := deg_to_rad(55.0)
+const LOOK_UP := deg_to_rad(40.0)
+## Collision layer of barriers only vehicles run into (the warehouse door): people,
+## animals and what they carry pass.
+const BARRIER_LAYER := 64
 
 ## Every vehicle in the world (walkers keep off them: keep_out, way_round).
 static var all: Array[Vehicle] = []
@@ -68,6 +78,11 @@ var odometer := 0.0
 var _wheels := {}
 ## Wheel -> suspension mount point (body frame).
 var _mounts := {}
+## Wheel -> its hub where the springs hold it at rest (body frame: the model's own).
+var _hubs := {}
+## Wheel -> its tyre mesh, and where that sits on the wheel node (see _seat_tyres).
+var _tyres := {}
+var _tyre_at := {}
 var _steer_pivot: Node3D
 var _steer_axis := Vector3.FORWARD
 var _steer := 0.0
@@ -137,7 +152,7 @@ func _ready() -> void:
 	_base_mass = float(info.get("mass", 1400.0))
 	mass = _base_mass
 	collision_layer = 1 | 4
-	collision_mask = 1 | 2 | 16
+	collision_mask = 1 | 2 | 16 | BARRIER_LAYER
 	add_to_group(&"interactable")
 	add_to_group(GROUP)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
@@ -192,7 +207,7 @@ func _build_model() -> void:
 		for key: String in names:
 			if String(names[key]) in String(mi.name):
 				meshes[key] = mi
-		if String(info.get("steering_wheel", "~")) in String(mi.name):
+		if _is_steering_wheel(mi):
 			meshes["steer"] = mi
 		_restyle(mi)
 	# Centre the wheelbase on the body origin (model +X became body +Z).
@@ -209,14 +224,18 @@ func _build_model() -> void:
 	for key: String in ["fl", "fr", "rl", "rr"]:
 		var mi: MeshInstance3D = meshes[key]
 		var c := to_local(_center_of(mi))
-		var radius := mi.get_aabb().size[mi.get_aabb().get_longest_axis_index()] * 0.5
+		# The tyre as it stands on the body, across its axle (body X): the model's wheel
+		# nodes are scaled, so the mesh's own box is not its size.
+		var tyre_box := global_transform.affine_inverse() * mi.global_transform * mi.get_aabb()
+		var radius := maxf(tyre_box.size.y, tyre_box.size.z) * 0.5
 		var w := VehicleWheel3D.new()
 		w.name = "Wheel_" + key
 		var rest := float(susp.get("rest", 0.2))
 		# Spring force is scaled by the chassis mass: every wheel sags g / (4 k) at
-		# rest whatever the load. Mount it that much higher so the body sits at the
-		# model's ride height and the wheel can still drop that far over dips.
-		var sag := gravity_sag(float(susp.get("stiffness", 48.0)))
+		# rest whatever the load, as the engine sees it (really more: spring_seen). Mount
+		# it that much higher so the body sits at the model's ride height and the wheel
+		# can still drop that far over dips.
+		var sag := gravity_sag(float(susp.get("stiffness", 48.0))) / spring_seen(rest, radius)
 		w.position = c + Vector3(0, rest - sag, 0)
 		w.wheel_radius = radius
 		w.wheel_rest_length = rest
@@ -233,26 +252,54 @@ func _build_model() -> void:
 		w.use_as_steering = key.begins_with("f")
 		w.use_as_traction = key.begins_with("r") or info.get("drive", "rwd") == "4wd"
 		_mounts[key] = w.position
+		_hubs[key] = c
 		add_child(w)
 		mi.reparent(w, true)
 		# The wheel spins about its node's origin: centre the tyre on it (the node sits
 		# above the model's hub by the spring travel), or it wobbles round an off-centre axle.
 		mi.position -= mi.transform * mi.get_aabb().get_center()
 		_wheels[key] = w
+		_tyres[key] = mi
+		_tyre_at[key] = mi.position
 	if meshes.has("steer"):
 		var sm: MeshInstance3D = meshes["steer"]
 		_steer_pivot = Node3D.new()
 		_steer_pivot.name = "SteeringPivot"
 		add_child(_steer_pivot)
 		_steer_pivot.position = to_local(_center_of(sm))
+		var hint := sm.get_parent()
 		sm.reparent(_steer_pivot, true)
+		# The wheel node the importer made of it (see _is_steering_wheel) is left empty.
+		if hint is VehicleWheel3D and hint.get_child_count() == 0:
+			hint.queue_free()
 		# Column tilts forward and down.
 		_steer_axis = (info.get("steer_axis", Vector3(0, -0.36, 1)) as Vector3).normalized()
+
+
+## Whether `mi` is the entry's "steering_wheel" mesh. The scene importer takes a node
+## called "..._Wheel" for a wheel hint: it makes a VehicleWheel3D of it and drops the
+## "_Wheel" from its name and from its mesh's, so the Blender-built models'
+## "Steering_Wheel" arrives as a mesh "Steering" under a wheel node "Steering" (and was
+## never found: their steering wheels stood still).
+func _is_steering_wheel(mi: MeshInstance3D) -> bool:
+	var want := String(info.get("steering_wheel", "~"))
+	if want in String(mi.name):
+		return true
+	return mi.get_parent() is VehicleWheel3D and String(mi.name) == want.trim_suffix("_Wheel")
 
 
 static func gravity_sag(stiffness: float) -> float:
 	var g := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 	return g / (4.0 * maxf(stiffness, 1.0))
+
+
+## The share of a spring's compression the engine sees. VehicleBody3D (4.7) casts each
+## wheel's ray from a wheel radius above its mount, down to rest + radius below it, but
+## scales where it hit by the ray's length without that radius: of a spring really pushed
+## in by c it sees c (rest + r) / (rest + 2 r), a softer spring, and stands the wheel
+## node the rest of c too low, into the ground (see _seat_tyres).
+static func spring_seen(rest: float, radius: float) -> float:
+	return (rest + radius) / maxf(rest + 2.0 * radius, 0.001)
 
 
 func _center_of(mi: MeshInstance3D) -> Vector3:
@@ -626,7 +673,7 @@ func _burial(xf: Transform3D) -> Vector2:
 
 func _wheel_depth(xf: Transform3D, key: String) -> float:
 	var w := _wheels[key] as VehicleWheel3D
-	var hub: Vector3 = _mounts[key] - Vector3(0, w.wheel_rest_length - gravity_sag(w.suspension_stiffness), 0)
+	var hub: Vector3 = _hubs[key]
 	var p := xf * hub - xf.basis.y.normalized() * w.wheel_radius
 	return TerrainData.height(p.x, p.z) - p.y
 
@@ -675,6 +722,8 @@ func turn_on_display(angle: float, pivot: Vector3) -> void:
 	global_transform = turn * global_transform
 	for key: String in _display_pose:
 		(_wheels[key] as VehicleWheel3D).transform = _display_pose[key]
+	# The tyres go with the wheels as they were just put (see _seat_tyres).
+	_seat_tyres()
 
 
 ## Lets a vehicle held on display go: a free body again, whose wheels the physics step
@@ -792,7 +841,9 @@ func _physics_process(delta: float) -> void:
 	_steer = move_toward(_steer, steer_in * steer_max, delta * steer_rate)
 	steering = _steer
 	if _steer_pivot:
-		_steer_pivot.basis = Basis(_steer_axis, _steer * 7.5)
+		# The column's axis points away from the driver: seen from the seat a turn about
+		# it runs clockwise, to the right, and `_steer` is positive to the left.
+		_steer_pivot.basis = Basis(_steer_axis, -steering_wheel_turn())
 	# Air drag.
 	var v := linear_velocity
 	apply_central_force(-v * v.length() * 0.9)
@@ -836,6 +887,7 @@ func _compression(key: String) -> float:
 
 
 func _process(delta: float) -> void:
+	_seat_tyres()
 	if not driver:
 		return
 	if lights_on != (DayNightCycle.night_factor > 0.5) and not _manual_lights:
@@ -846,6 +898,46 @@ func _process(delta: float) -> void:
 		# Mouse look applies at once; the body is interpolated between physics ticks.
 		var eye := Transform3D(Basis.from_euler(Vector3(_look.y, _look.x + PI, 0.0)), _eye_rig.position)
 		_cam.global_transform = get_global_transform_interpolated() * eye
+
+
+## Stands every tyre on the ground it rolls on. The engine puts a wheel node where it
+## takes the spring to be, short of where it is (spring_seen): pushed in by c as the engine
+## sees it, the tyre really is c r / (rest + r) higher under the body (3-5 cm at rest, more
+## on a bump), and without this it is drawn that deep in the road. The tyre is lifted by
+## that much along the body's up on its spinning wheel node, every frame, right after the
+## engine has placed the wheels for it (the body's internal process runs before this one).
+func _seat_tyres() -> void:
+	for key: String in _tyres:
+		var w := _wheels[key] as VehicleWheel3D
+		var seen := clampf(w.wheel_rest_length - ((_mounts[key] as Vector3).y - w.position.y), 0.0, w.wheel_rest_length)
+		var lift := seen * w.wheel_radius / (w.wheel_rest_length + w.wheel_radius)
+		(_tyres[key] as Node3D).position = (_tyre_at[key] as Vector3) + w.basis.inverse() * Vector3(0, lift, 0)
+
+
+## Where wheel `key`'s tyre is drawn: its centre (world), its radius above the ground.
+func tyre_center(key: String) -> Vector3:
+	var tyre := _tyres[key] as MeshInstance3D
+	return tyre.global_transform * tyre.get_aabb().get_center()
+
+
+## How far the steering wheel is turned (radians; positive to the left, as `steering`).
+func steering_wheel_turn() -> float:
+	return _steer * float(info.get("steer_ratio", STEER_RATIO))
+
+
+## Where the driver looks: x round about (radians from straight ahead, positive to the
+## left, -PI..PI), y up.
+func look() -> Vector2:
+	return _look
+
+
+## Turns the driver's head by a mouse movement (pixels), in the cab or round the chase
+## camera: all the way round, over either shoulder and on (the angle wraps, the view does
+## not jump), up and down as far as a neck goes. The body and the steering do not follow.
+func turn_look(relative: Vector2) -> void:
+	var sens := Settings.mouse_sensitivity
+	_look.x = wrapf(_look.x - relative.x * sens, -PI, PI)
+	_look.y = clampf(_look.y - relative.y * sens * (-1.0 if Settings.invert_y else 1.0), -LOOK_DOWN, LOOK_UP)
 
 
 func _snap_chase() -> void:
@@ -867,10 +959,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not driver or Game.is_ui_open():
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		var m := event as InputEventMouseMotion
-		var sens := Settings.mouse_sensitivity
-		_look.x = clampf(_look.x - m.relative.x * sens, -deg_to_rad(120.0), deg_to_rad(120.0))
-		_look.y = clampf(_look.y - m.relative.y * sens * (-1.0 if Settings.invert_y else 1.0), -deg_to_rad(55.0), deg_to_rad(40.0))
+		turn_look((event as InputEventMouseMotion).relative)
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact"):
 		get_viewport().set_input_as_handled()
@@ -1308,6 +1397,7 @@ func load_data(d: Dictionary) -> void:
 	restored = true
 	if d.get("xform") is Transform3D:
 		teleport(d["xform"])
+		_leave_warehouse()
 		_make_room()
 		# Saved sunk in the ground (shoved in by a wolf before that was stopped): out of it.
 		_unsink()
@@ -1330,6 +1420,19 @@ func _make_room() -> void:
 ## The first spot 7-13 m around `xf` where this vehicle fits without touching a
 ## building, tree or another vehicle (`xf` itself when none is found).
 func clear_spot_near(xf: Transform3D) -> Transform3D:
+	for dist: float in [7.0, 10.0, 13.0]:
+		for k in 8:
+			# South (+Z) first: on the farm that is the open yard.
+			var a := k * TAU / 8.0
+			var p := xf.origin + Vector3(sin(a), 0.0, cos(a)) * dist
+			p.y = TerrainData.height(p.x, p.z) + 0.25
+			if is_clear_at(Transform3D(xf.basis, p)):
+				return Transform3D(xf.basis, p)
+	return xf
+
+
+## Whether this vehicle fits at `xf` without touching a building, tree or another vehicle.
+func is_clear_at(xf: Transform3D) -> bool:
 	var q := PhysicsShapeQueryParameters3D.new()
 	var box := BoxShape3D.new()
 	# Body frame: width across X, length along Z; kept clear of the ground.
@@ -1337,17 +1440,20 @@ func clear_spot_near(xf: Transform3D) -> Transform3D:
 	q.shape = box
 	q.collision_mask = 1
 	q.exclude = [get_rid()]
-	var space := get_world_3d().direct_space_state
-	for dist: float in [7.0, 10.0, 13.0]:
-		for k in 8:
-			# South (+Z) first: on the farm that is the open yard.
-			var a := k * TAU / 8.0
-			var p := xf.origin + Vector3(sin(a), 0.0, cos(a)) * dist
-			p.y = TerrainData.height(p.x, p.z) + 0.25
-			q.transform = Transform3D(xf.basis, p + xf.basis.y * 1.1)
-			if space.intersect_shape(q, 1).is_empty():
-				return Transform3D(xf.basis, p)
-	return xf
+	q.transform = Transform3D(xf.basis, xf.origin + xf.basis.y * 1.1)
+	return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
+
+
+## No vehicle goes into the warehouse (Warehouse's barrier in its doorway): one a save
+## left in there, or with its nose through the door, from when it could be driven in, is
+## put out on the apron in front of the big door, or on the nearest clear spot to that.
+## Whether it was moved.
+func _leave_warehouse() -> bool:
+	if not is_inside_tree() or not Warehouse.holds_vehicle(global_transform, _footprint):
+		return false
+	var spot := Warehouse.apron_spot(-_footprint.position.y)
+	teleport(spot if is_clear_at(spot) else clear_spot_near(spot))
+	return true
 
 
 func display_name() -> String:

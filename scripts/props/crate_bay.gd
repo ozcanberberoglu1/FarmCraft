@@ -3,11 +3,13 @@ extends StaticBody3D
 ## The crate corner in the farm warehouse: crated animals kept in the warehouse stock
 ## stand in a row on the floor in front of the back pallets (a second row stacked on
 ## the first), a live hen in each of the first LIVE_MAX and a still one in the rest.
-## E sets the crates in hand down, or lifts one up into the hands. Crates moved in
-## through the ledger show up here too, and every crate that arrives is announced
-## (Events.crate_stored, "warehouse"). Local frame: the row runs along +X from the
-## origin on the floor; this node's box (layer 4) only stops the interaction ray, a
-## child body (layer 1) keeps the farmer out of the crates on show.
+## E sets the crates in hand down (with none in hand, the first crates carried in the
+## bag), or lifts one up into the hands. Standing beside the crates on show and turned
+## their way is enough for the prompt (beside: the warehouse's own "open" gives way to
+## it). Crates moved in through the ledger show up here too, and every crate that
+## arrives is announced (Events.crate_stored, "warehouse"). Local frame: the row runs
+## along +X from the origin on the floor; this node's box (layer 4) only stops the
+## interaction ray, a child body (layer 1) keeps the farmer out of the crates on show.
 
 const PER_ROW := 8
 const ROWS := 2
@@ -206,8 +208,38 @@ func interact_prompt(_player: Node) -> String:
 	if next.is_empty():
 		if s and LiveCrates.is_live(s.item.id):
 			return tr("ACTION_SET_DOWN_CRATES") % s.count
+		# Crates carried in the bag, none in hand and none here to lift: they go down too.
+		var slot := _bag_crates()
+		if slot >= 0:
+			return tr("ACTION_SET_DOWN_CRATES") % PlayerState.inventory.get_stack(slot).count
 		return ""
 	return tr("ACTION_TAKE_CRATE") % [ItemDB.get_item(next["id"]).display_name(), LiveCrates.count_at(&"warehouse")]
+
+
+## Whether `player` stands beside the crates on show and is turned their way with
+## something to do here (a crate to lift): the crate corner then takes E even when the
+## crosshair is a little off the crates (Warehouse.target_for).
+func beside(player: Player) -> bool:
+	var n := mini(LiveCrates.count_at(&"warehouse"), PER_ROW)
+	if n <= 0 or interact_prompt(player) == "":
+		return false
+	var l := to_local(player.global_position)
+	var near := Vector3(clampf(l.x, -STEP * 0.5, (n - 0.5) * STEP), 0.0, 0.0)
+	var d := Vector3(near.x - l.x, 0.0, -l.z)
+	if d.length() > 1.6:
+		return false
+	var fwd := global_basis.inverse() * (-player.global_basis.z)
+	return d.length() < 0.4 or Vector3(fwd.x, 0.0, fwd.z).normalized().dot(d.normalized()) > 0.45
+
+
+## The first slot of the bag with crated animals in it (-1 for none).
+func _bag_crates() -> int:
+	var inv := PlayerState.inventory
+	for i in inv.size():
+		var b := inv.get_stack(i)
+		if b and LiveCrates.is_live(b.item.id):
+			return i
+	return -1
 
 
 ## With crates in hand and more to pick up, E stacks the next one on them: Q sets them down.
@@ -233,6 +265,8 @@ func interact(_player: Node) -> void:
 	if next.is_empty():
 		if s and LiveCrates.is_live(s.item.id):
 			_set_down()
+		elif _bag_crates() >= 0:
+			_set_down(_bag_crates())
 		return
 	var id: StringName = next["id"]
 	var q := int(next["quality"])
@@ -257,8 +291,9 @@ func _next_crate(held: ItemStack) -> Dictionary:
 	return {} if live.is_empty() else live[0]
 
 
-func _set_down() -> void:
-	if FarmState.warehouse.store_stack(PlayerState.inventory, PlayerState.selected) <= 0:
+## Sets the crates in bag slot `slot` down here (the ones in hand by default).
+func _set_down(slot := -1) -> void:
+	if FarmState.warehouse.store_stack(PlayerState.inventory, PlayerState.selected if slot < 0 else slot) <= 0:
 		Game.notify(tr("MSG_NO_ROOM"), UiTheme.RED)
 	else:
 		Audio.play("plank", _marker.global_position - Vector3(0, 0.8, 0), -10.0)

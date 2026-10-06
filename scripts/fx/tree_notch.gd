@@ -11,8 +11,9 @@ extends MeshInstance3D
 const MAX_DEPTH := 0.62
 ## Height of the mouth per metre of depth (a roof sloping at about 50 degrees).
 const MOUTH_SLOPE := 1.15
-## How far past the mean bark radius the faces reach (rough bark stands out of it).
-const REACH := 1.4
+## How far past the mean bark radius the faces reach (rough bark stands out of it, the
+## lumpy broadleaf trunks' most: bark beyond the reach is left standing in the notch).
+const REACH := 1.6
 const SEGMENTS := 16
 
 static var _mats: Dictionary = {}
@@ -71,7 +72,9 @@ static func _build(r: float, d: float, mouth: float) -> ArrayMesh:
 	var k := mouth / maxf(d, 0.001)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var roof_n := Vector3(k, -1.0, 0.0).normalized()
+	# The roof is lit from the open side: facing the ground as it really does, all it
+	# would catch is the grass's green bounce (fresh wood gone yellow-green).
+	var roof_n := Vector3(k, -0.3, 0.0).normalized()
 	for i in SEGMENTS:
 		var z0 := lerpf(-c, c, float(i) / SEGMENTS)
 		var z1 := lerpf(-c, c, float(i + 1) / SEGMENTS)
@@ -128,14 +131,21 @@ static func trunk_at(tree_mesh: Mesh, y: float, fallback: float) -> Vector3:
 	if _trunks.has(key):
 		return _trunks[key]
 	var pts := PackedVector2Array()
-	for s in tree_mesh.get_surface_count():
-		# Leaves and needles are most of a tree's vertices and none of its trunk.
-		var mat := tree_mesh.surface_get_material(s) as ShaderMaterial
-		if mat and mat.shader and mat.shader.resource_path.contains("foliage"):
+	# The photo trees keep their trunk's vertices (no limbs, no leaves, and nothing read
+	# back from the graphics card while the axe is swinging); any other mesh is read.
+	var surfaces: Array = []
+	var kept := NatureModels.trunk_points(tree_mesh)
+	if not kept.is_empty():
+		surfaces.append(kept)
+	else:
+		for s in tree_mesh.get_surface_count():
+			var arrays := tree_mesh.surface_get_arrays(s)
+			surfaces.append([arrays[Mesh.ARRAY_VERTEX], arrays[Mesh.ARRAY_NORMAL]])
+	for surface: Array in surfaces:
+		if surface[0] == null or surface[1] == null:
 			continue
-		var arrays := tree_mesh.surface_get_arrays(s)
-		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var verts: PackedVector3Array = surface[0]
+		var normals: PackedVector3Array = surface[1]
 		if normals.size() != verts.size():
 			continue
 		for i in verts.size():

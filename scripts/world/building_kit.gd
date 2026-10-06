@@ -305,6 +305,11 @@ static func roof_courses(mb: MeshBuilder, key: StringName, frame: Transform3D, l
 	var s_low := s_eave
 	while s_low > s_top + 0.02:
 		var s_up := maxf(s_low - row - 0.05, s_top)
+		# A last sliver of a course goes into this one (its upper end would lie a few
+		# millimetres off this one's, in almost the same plane).
+		var last := s_low - row < s_top + 0.09
+		if last:
+			s_up = s_top
 		var depth := s_low - s_up
 		var v_low := seam + rng.randi_range(0, 12) * row
 		var u0 := rng.randf() * 2.5
@@ -316,6 +321,8 @@ static func roof_courses(mb: MeshBuilder, key: StringName, frame: Transform3D, l
 		var top: Array[Vector2] = [Vector2(u0, v_low), Vector2(u0 + length, v_low), Vector2(u0 + length, v_low - depth),
 			Vector2(u0, v_low - depth)]
 		panel(mb, key, p, Color(color.r * v, color.g * v, color.b * v), top)
+		if last:
+			break
 		s_low -= row
 
 
@@ -334,8 +341,9 @@ static func roof_trim(mb: MeshBuilder, frame: Transform3D, length: float, s_top:
 	var b := frame.basis
 	var hx := length * 0.5
 	if deck > 0.0:
+		# Between the barge boards (its ends against their inner faces, not in their outer ones).
 		mb.box(deck_key, Transform3D(b, frame * Vector3(0, -deck * 0.5, (s_top + s_eave) * 0.5)),
-				Vector3(length, deck, s_eave - s_top), deck_color, true)
+				Vector3(length - 0.064, deck, s_eave - s_top), deck_color, true)
 	# Rafter tails every 0.6 m under the overhang, out of the wall's outer face.
 	var n := maxi(2, roundi(length / 0.6))
 	var r0 := s_wall + 0.005
@@ -356,7 +364,8 @@ static func roof_trim(mb: MeshBuilder, frame: Transform3D, length: float, s_top:
 	for sx: float in [-1.0, 1.0]:
 		var x := sx * (hx - 0.016)
 		var lo := frame * Vector3(x, -fh * 0.5 + 0.005, s_eave + 0.03)
-		var hi := frame * Vector3(x, -fh * 0.5 + 0.005, s_top)
+		# Just short of the ridge line, where the deck and the first course end.
+		var hi := frame * Vector3(x, -fh * 0.5 + 0.005, s_top + 0.012)
 		beam(mb, trim_key, lo, hi, Vector2(fh, 0.032), trim_color, true, 0.0, Vector2(0.4 + sx * 0.3, 0.0))
 	return eave + out * 0.032
 
@@ -679,10 +688,11 @@ static func opening_trim(mb: MeshBuilder, a: Vector2, b: Vector2, y0: float, t: 
 ## (`uv_rotate`, the planks photo on its faces): on the face whose outward normal is
 ## `face` (+X, -X, +Z or -Z of the box `xf`, `size`), one every `every` boards, so
 ## they cover the photo's joints: board-and-batten siding. None within the ranges
-## `skips` (along the face, in the box's own X or Z), where windows are. `key` is a
-## rough_wood key: the grain runs up each batten, cut from another part of the photo.
+## `skips` (along the face, in the box's own X or Z), where windows are; `top_cut` ends
+## them that far under the wall's top (under rafter tails). `key` is a rough_wood key:
+## the grain runs up each batten, cut from another part of the photo.
 static func battens(mb: MeshBuilder, key: StringName, xf: Transform3D, size: Vector3, face: Vector3, color: Color,
-		every := 2, skips: Array[Vector2] = []) -> void:
+		every := 2, skips: Array[Vector2] = [], top_cut := 0.0) -> void:
 	var h := size * 0.5
 	var along := size.x if absf(face.z) > 0.5 else size.z
 	# The face's UVs start at the corner box() puts first: -X on +Z, +X on -Z, +Z on +X, -Z on -X.
@@ -701,8 +711,8 @@ static func battens(mb: MeshBuilder, key: StringName, xf: Transform3D, size: Vec
 			skipped = skipped or (c > r.x and c < r.y)
 		if skipped:
 			continue
-		var p := Vector3(c, 0, face.z * (depth + 0.011)) if absf(face.z) > 0.5 else Vector3(face.x * (depth + 0.011), 0, c)
-		var s := Vector3(0.055, size.y, 0.022) if absf(face.z) > 0.5 else Vector3(0.022, size.y, 0.055)
+		var p := Vector3(c, -top_cut * 0.5, face.z * (depth + 0.011)) if absf(face.z) > 0.5 else Vector3(face.x * (depth + 0.011), -top_cut * 0.5, c)
+		var s := Vector3(0.055, size.y - top_cut, 0.022) if absf(face.z) > 0.5 else Vector3(0.022, size.y - top_cut, 0.055)
 		plank(mb, key, xf * Transform3D(Basis(), p), s, color, Vector2(fposmod(k * 0.53, 1.3), fposmod(k * 0.91, 1.3)))
 
 

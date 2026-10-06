@@ -7,10 +7,19 @@ extends ModalScreen
 ## The coop expansion is made on one of the farm's kit-built coops: with one coop it is
 ## that one; with more, the detail lists them (birds, size, how far from the house, a
 ## "Show" that puts the dot over it) and the player picks one first.
+## Opened while a story goal needs a project (Quests.board_project: the coop kit of the
+## first day, the workbench kit of the second...), the board opens on that card: picked,
+## scrolled into view and tagged "Goal". While the first day's coop is still to be made
+## (Quests.coop_comes_first) everything else that costs money is locked ("the coop
+## first"), and a farmer whose money is gone gets that first coop kit for its wood alone
+## (Grandpa paid for it: Quests.coop_kit_is_gift), so the story never dead-ends here.
 
 const GROUP_ICONS := {"field": "wheat", "animals": "paw", "house": "home", "storage": "warehouse", "workshop": "hammer"}
 
 var _list: VBoxContainer
+var _scroll: ScrollContainer
+## Project id -> its card in the list.
+var _cards := {}
 var _detail: VBoxContainer
 var _selected: StringName = &""
 ## The coop picked for the expansion (its uid; "" for the first that can be made longer).
@@ -25,14 +34,14 @@ func _ready() -> void:
 	body.add_theme_constant_override("separation", 26)
 	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	window.body.add_child(body)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(440, 600)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	body.add_child(scroll)
+	_scroll = ScrollContainer.new()
+	_scroll.custom_minimum_size = Vector2(440, 600)
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(_scroll)
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 8)
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_list)
+	_scroll.add_child(_list)
 	var detail_card := PanelContainer.new()
 	var sb := UiTheme.box(Color(0, 0, 0, 0.22), 14, 1, UiTheme.LINE)
 	sb.set_content_margin_all(24)
@@ -46,10 +55,52 @@ func _ready() -> void:
 	Events.money_changed.connect(func(_m: int, _d: int) -> void: if visible: _show_detail(_selected))
 
 
+## Opens the board on `focus`; without one, on the project the story's goal needs
+## (goal_project), else on the first that can be built. The card picked is scrolled
+## into view.
 func open(focus: StringName = &"") -> void:
-	_selected = focus if focus != &"" and on_board(focus) else _first_open()
+	var goal := goal_project()
+	if focus != &"" and on_board(focus):
+		_selected = focus
+	else:
+		_selected = goal if goal != &"" else _first_open()
 	_refresh()
 	show_screen()
+	_reveal_selected()
+
+
+## The project the story's current goal needs from the board (&"" for none, or when the
+## board doesn't show it).
+static func goal_project() -> StringName:
+	var id := Quests.board_project()
+	return id if id != &"" and on_board(id) else &""
+
+
+## Why the story keeps `id` from being made now ("" when it doesn't): while the first
+## day's coop is to be made, every other project that costs money waits for it.
+static func story_lock(id: StringName) -> String:
+	if id == &"coop_kit" or not Quests.coop_comes_first():
+		return ""
+	var cost := int(ProjectTable.get_project(id).get("cost", 0))
+	if ProjectTable.is_per_coop(id):
+		cost = int(ProjectTable.coop_step(0).get("cost", 0))
+	return "BUILD_COOP_FIRST" if cost > 0 else ""
+
+
+## Whether `id` is made for its materials alone now (the story's first coop kit with the
+## money gone: Grandpa paid for it).
+static func is_gift(id: StringName) -> bool:
+	return id == &"coop_kit" and Quests.coop_kit_is_gift()
+
+
+## The picked card in the middle of the list's view, once the list is laid out.
+func _reveal_selected() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var card := _cards.get(_selected) as Control
+	if not visible or card == null or not is_instance_valid(card):
+		return
+	_scroll.scroll_vertical = maxi(int(card.position.y - (_scroll.size.y - card.size.y) * 0.5), 0)
 
 
 ## Whether the board shows `id`: listed for this farm and not built by hand (the
@@ -82,8 +133,11 @@ func close_screen() -> void:
 
 
 func _refresh() -> void:
+	# The list is rebuilt: it stays where it was scrolled to (_keep_scroll).
+	var scrolled := _scroll.scroll_vertical
 	for c in _list.get_children():
 		c.queue_free()
+	_cards.clear()
 	var group := ""
 	for id: StringName in ProjectTable.ORDER:
 		if not on_board(id):
@@ -94,16 +148,29 @@ func _refresh() -> void:
 			if _list.get_child_count() > 0:
 				_list.add_child(UiTheme.spacer(6))
 			_list.add_child(UiTheme.section(tr("BUILD_GROUP_" + group.to_upper()), GROUP_ICONS.get(group, "")))
-		_list.add_child(_make_card(id))
+		var card := _make_card(id)
+		_cards[id] = card
+		_list.add_child(card)
 	_show_detail(_selected)
+	if scrolled > 0:
+		_keep_scroll(scrolled)
+
+
+## Puts the list back where it was scrolled to once its rebuilt rows are laid out (the
+## old rows leaving would otherwise jump it back to the top).
+func _keep_scroll(to: int) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if visible:
+		_scroll.scroll_vertical = to
 
 
 func _status(id: StringName) -> String:
 	if ProjectTable.is_per_coop(id):
-		return "locked" if Progress.level < UnlockTable.project_level(id) else "available"
+		return "locked" if Progress.level < UnlockTable.project_level(id) or story_lock(id) != "" else "available"
 	if FarmState.is_built(id):
 		return "built"
-	if not FarmState.can_build(id):
+	if not FarmState.can_build(id) or story_lock(id) != "":
 		return "locked"
 	return "available"
 
@@ -139,13 +206,23 @@ func _make_card(id: StringName) -> Button:
 	name_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	name_label.clip_text = true
 	row.add_child(name_label)
+	if id == goal_project() and status != "built":
+		# What the story's goal asks for.
+		var tag := UiTheme.chip(tr("BUILD_GOAL_TAG"), UiTheme.GOLD, "star", 13)
+		# Marked for the scripted checks (rows rebuilt in one frame can't share a name).
+		tag.set_meta(&"mark", "GoalTag")
+		tag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(tag)
 	var chip: Control
 	match status:
 		"built":
 			chip = UiTheme.chip(tr("BUILD_DONE"), UiTheme.GREEN, "check", 15)
 		"locked":
 			var need := UnlockTable.project_level(id)
-			chip = UiTheme.chip(tr("UI_LEVEL_SHORT") % need if Progress.level < need else tr("BUILD_LOCKED"), UiTheme.TEXT_DIM, "lock", 15)
+			var why := tr("UI_LEVEL_SHORT") % need if Progress.level < need else tr("BUILD_LOCKED")
+			if Progress.level >= need and story_lock(id) != "":
+				why = tr(story_lock(id))
+			chip = UiTheme.chip(why, UiTheme.TEXT_DIM, "lock", 15 if why.length() < 12 else 13)
 		_:
 			var kit := ProjectTable.kit_of(id)
 			if ProjectTable.is_per_coop(id):
@@ -153,7 +230,7 @@ func _make_card(id: StringName) -> Button:
 			elif kit != &"" and PlayerState.inventory.count_item(kit) > 0:
 				chip = UiTheme.chip(tr("BUILD_IN_BAG"), UiTheme.GOLD, "backpack", 15)
 			else:
-				chip = UiTheme.price(int(ProjectTable.get_project(id)["cost"]), 21)
+				chip = UiTheme.price(0 if is_gift(id) else int(ProjectTable.get_project(id)["cost"]), 21)
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(chip)
 	b.pressed.connect(func() -> void:
@@ -177,6 +254,12 @@ func _show_detail(id: StringName) -> void:
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
 	_detail.add_child(UiTheme.paragraph(tr("PROJECT_%s_DESC" % String(id).to_upper()), 19, UiTheme.TEXT_MUTED, 510))
+	var story := story_lock(id)
+	if story != "":
+		# The first day's money is kept for the coop: say so instead of a bare padlock.
+		var wait := UiTheme.paragraph(tr("BUILD_COOP_FIRST_LINE"), 17, UiTheme.GOLD_SOFT, 510)
+		wait.set_meta(&"mark", "StoryLock")
+		_detail.add_child(wait)
 	if ProjectTable.is_per_coop(id):
 		_show_expand_detail(id, status)
 		return
@@ -216,18 +299,26 @@ func _show_detail(id: StringName) -> void:
 		if have > 0:
 			_detail.add_child(UiTheme.icon_row(UiTheme.glyph("backpack"), "%s ×%d" % [tr("BUILD_IN_BAG"), have], UiTheme.GOLD, 20, 20))
 	_detail.add_child(UiTheme.section(tr("BUILD_COST"), "tag"))
-	var cost := int(p["cost"])
-	_detail.add_child(_cost_row(null, tr("UI_GOLD").capitalize(), Economy.money, cost, true))
+	var gift := is_gift(id)
+	var cost := 0 if gift else int(p["cost"])
+	if gift:
+		# The money went at the market: Grandpa paid for this one, only its wood is asked.
+		var paid := UiTheme.paragraph(tr("BUILD_GRANDPA_PAID"), 17, UiTheme.GOLD_SOFT, 510)
+		paid.set_meta(&"mark", "GrandpaPaid")
+		_detail.add_child(paid)
+	else:
+		_detail.add_child(_cost_row(null, tr("UI_GOLD").capitalize(), Economy.money, cost, true))
 	for item_id: StringName in p["items"]:
 		var item := ItemDB.get_item(item_id)
 		_detail.add_child(_cost_row(item.icon, item.display_name(), PlayerState.inventory.count_item(item_id), int(p["items"][item_id])))
 	_detail.add_child(UiTheme.expand())
-	var missing := FarmState.missing_for(id)
+	var missing := FarmState.missing_cost(cost, p["items"])
 	if missing != "" and status == "available":
 		var ml := UiTheme.paragraph(tr("BUILD_MISSING") % missing, 16, UiTheme.RED, 510)
 		_detail.add_child(ml)
 	var button := UiTheme.button(tr("BUILD_MAKE_KIT" if kit != &"" else "BUILD_BUTTON"), "primary", Vector2(510, 60),
 			"box" if kit != &"" else "hammer", 24)
+	button.set_meta(&"mark", "BuildButton")
 	button.disabled = status != "available" or missing != ""
 	button.pressed.connect(_build.bind(id))
 	_detail.add_child(button)
@@ -265,11 +356,16 @@ func _cost_row(tex: Texture2D, label: String, have: int, need: int, dollars := f
 
 
 func _build(id: StringName) -> void:
+	if story_lock(id) != "":
+		return
 	if ProjectTable.is_per_coop(id):
 		_expand()
 		return
-	if not FarmState.build(id):
+	var gift := is_gift(id)
+	if not FarmState.build(id, gift):
 		return
+	if gift:
+		Game.notify(tr("BUILD_GRANDPA_PAID"), UiTheme.GOLD_SOFT)
 	var kit := ProjectTable.kit_of(id)
 	if kit != &"":
 		# In hand at once: closing the board shows where it would go up (brought down

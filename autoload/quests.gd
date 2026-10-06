@@ -607,8 +607,55 @@ func _on_picked_up(id: StringName, n: int) -> void:
 func _on_crafted(id: StringName, n: int) -> void:
 	if PlaceableTable.is_building(id):
 		_count("kit", String(id), n)
+		# The kit goals are checks: they look now, and the dot moves on to the kit's spot.
+		_nudge()
 	else:
 		_count("crafted", String(id), n)
+
+
+# --- The construction board ---------------------------------------------------------------
+
+## The project the construction board opens on for the current goal (&"" for none): the
+## coop kit while the coop is to be made (its wood being cut, the kit itself, a kit lost
+## before it was put down), the workbench kit for the second day's, and any project a
+## goal asks to be built ("built:<project>": the barn, the bigger house).
+func board_project() -> StringName:
+	if tutorial_done():
+		return &""
+	var g := current()
+	match String(g["id"]):
+		"coop_wood", "coop_kit":
+			return &"coop_kit"
+		"coop_place":
+			return &"coop_kit" if not has_coop_kit() and not FarmState.coop_started() else &""
+		"bench_kit":
+			return &"workbench"
+		"bench_place":
+			return &"workbench" if PlayerState.inventory.count_item(&"workbench") == 0 and _placed_count(&"workbench") == 0 else &""
+	var arg := String(g["arg"])
+	if String(g["kind"]) == "check" and arg.begins_with("built:"):
+		return StringName(arg.get_slice(":", 1))
+	return &""
+
+
+## The first day's money is kept for the coop: from the start of the story until the
+## first coop kit is made (or a coop stands), the board sells nothing else that costs
+## money (BuildScreen locks it, "the coop first"), so the kit's price can't be spent on a
+## workbench by mistake. Should the money be gone all the same (spent at the market), the
+## board makes that first kit for its wood alone (coop_kit_is_gift): never a dead end.
+func coop_comes_first() -> bool:
+	return first_day() and step <= index_of("coop_kit") and _check_progress("kit") == 0
+
+
+## Grandpa paid for the first coop kit: true while the coop comes first and the farmer
+## can't pay the kit's price (BuildScreen then asks for the wood only).
+func coop_kit_is_gift() -> bool:
+	return coop_comes_first() and Economy.money < int(ProjectTable.get_project(&"coop_kit").get("cost", 0))
+
+
+## A coop kit at hand: in the bag (the hotbar and the hand included).
+func has_coop_kit() -> bool:
+	return PlayerState.inventory.count_item(&"coop_kit") > 0
 
 
 ## Straw laid in a coop's nests: counted as the most nests one coop has had filled, so
@@ -1375,19 +1422,36 @@ func _target(at: String) -> Variant:
 				return _anchor(&"truck_bed", _truck_roof_point())
 			return _anchor(&"warehouse", _warehouse_door())
 		"trees":
+			# The coop's wood is for its kit: with a kit made already (or a coop going up)
+			# no tree is asked for; on to where the kit goes.
+			if String(current().get("id", "")) == "coop_wood" and (has_coop_kit() or FarmState.coop_started()):
+				return _target("coop_spot")
 			var logs: Variant = _nearest_pickup(&"wood", from, 30.0)
 			return logs if logs != null else _nearest_tree(from)
 		"rocks":
 			var chips: Variant = _nearest_pickup(&"stone", from, 30.0)
 			return chips if chips != null else _nearest_rock(from)
 		"board":
-			# The kit takes wood from the bag: short of it, the trees first.
+			# A kit in the bag (or a coop going up) is past the board and its wood: the dot
+			# never goes back to the trees, it shows where the kit goes.
+			if has_coop_kit() or FarmState.coop_started():
+				return _target("coop_spot")
+			# The kit takes wood from the bag: short of it, the trees first, and the line
+			# under the goal says how much is missing.
 			var need := int((ProjectTable.get_project(&"coop_kit").get("items", {}) as Dictionary).get(&"wood", 0))
-			if PlayerState.inventory.count_item(&"wood") < need and not FarmState.coop_started() \
-					and PlayerState.inventory.count_item(&"coop_kit") == 0:
+			if PlayerState.inventory.count_item(&"wood") < need:
+				_hint = tr("HINT_NEED_ITEM") % _short_of(&"wood", need)
 				return _target("trees")
 			return _ground(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z, 1.9)
 		"coop_spot":
+			# The kit is on the ground (dropped, or the bag was full when it was made): pick
+			# it up; gone altogether with no coop going up: the board makes another.
+			if not has_coop_kit() and not FarmState.coop_started():
+				var kit: Variant = _nearest_pickup(&"coop_kit", from, 400.0)
+				if kit != null:
+					return kit
+				if String(current().get("id", "")) == "coop_place":
+					return _ground(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z, 1.9)
 			if not _coop_spot_searched:
 				_coop_spot_searched = true
 				_coop_spot = _find_coop_spot()
@@ -1435,9 +1499,12 @@ func _target(at: String) -> Variant:
 				return null
 			return town.market_counter.global_position + Vector3(0, 1.5, 0)
 		"feeder":
-			# The feed sack waits in the warehouse: fetch it first.
+			# The feed sack waits in the warehouse: fetch it first. The dot floats inside
+			# the shed (E opens its storage from anywhere in there), and the line under the
+			# goal says what to do.
 			if PlayerState.inventory.count_item(&"feed") == 0:
-				return _anchor(&"warehouse", _warehouse_door())
+				_hint = tr("HINT_FEED_WAREHOUSE")
+				return _anchor(Warehouse.ANCHOR_INSIDE, _anchor(&"warehouse", _warehouse_door()))
 			return _anchor(&"coop_feeder", _target("coop"))
 		"coop_water":
 			# An empty can goes to the well first.

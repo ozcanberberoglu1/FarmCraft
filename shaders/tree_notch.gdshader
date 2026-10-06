@@ -78,7 +78,7 @@ void fragment() {
 	vec3 wood = mix(sapwood, heartwood, heart * 0.85);
 	wood = mix(wood, wood * vec3(0.72, 0.6, 0.5), late * 0.6);
 	float h = wood_height(lp, x0);
-	wood *= 0.76 + 0.42 * h;
+	wood *= 0.88 + 0.2 * h;
 	// Where one blow's facet meets the next the fibres are crushed a little darker.
 	float st = fract((lp.x - x0) / max(notch_depth, 0.001) * notch_blows);
 	wood *= 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.1, st));
@@ -110,4 +110,8 @@ void fragment() {
 	AO = mix(0.55, 1.0, inside);
 	AO_LIGHT_AFFECT = 0.2;
 	SPECULAR = 0.35;
+	// Lit and shadowed as the bark that was cut away here (a little in front of it): the
+	// faces lie inside the trunk's uncut mesh, whose own shadow would fall on them in
+	// stripes, sun and shade side by side.
+	LIGHT_VERTEX = view.xyz * (1.0 - 0.04 / max(length(view.xyz), 0.04));
 }

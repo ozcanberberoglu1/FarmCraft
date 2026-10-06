@@ -68,7 +68,29 @@ static func warm_up(at: Vector3) -> void:
 					"life": Vector2(0.15, 0.15)})
 		TreeNotch.warm_up(Game.world, at)
 		ChoppableTree.warm_up(Game.world, at)
+		# What a felled tree drops when its trunk lands: the logs and, now and then, a
+		# sapling. (The first ones took over a second to build and draw.)
+		for id: StringName in [&"wood", SaplingGrove.ITEM]:
+			if ItemDB.has_item(id):
+				warm_pickup(id, at)
 	_warming = false
+
+
+## Builds an item's pickup model and draws it for a moment, tiny and moving as a thrown
+## pickup does, so that its mesh, materials and pipelines are ready before the first one
+## drops in the middle of the game.
+static func warm_pickup(id: StringName, at: Vector3) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = ItemModels.mesh(id)
+	# As Pickup draws it.
+	mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	mi.layers = 2
+	Game.world.add_child(mi)
+	mi.global_position = at
+	mi.scale = Vector3.ONE * 0.01
+	var tw := mi.create_tween()
+	tw.tween_property(mi, "position:y", mi.position.y + 0.05, 0.5)
+	tw.tween_callback(mi.queue_free)
 
 
 # --- Axe, pick, hoe, scythe ----------------------------------------------------------

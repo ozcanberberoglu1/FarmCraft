@@ -13,6 +13,16 @@ const CUT_MIN := 0.35
 const CUT_MAX := 1.6
 ## The cut of a stump saved before cuts were kept.
 const CUT_DEFAULT := 0.6
+## The stump is the trunk under the cut within this far of its bark (m), and that much
+## wider per metre down toward the roots; low limbs and whatever else hangs under the cut
+## further out go over with the trunk above (shaders/include/tree_cut.gdshaderinc
+## cut_column).
+const STUMP_COLUMN := 0.25
+const STUMP_FLARE := 0.5
+## How far over the cut the stump's torn hinge wood can stand (m).
+const STUMP_TEAR := 0.1
+## Logs a landed trunk drops per frame (the rest in the frames after).
+const LOGS_PER_FRAME := 2
 
 var kind := 0
 var variant := 1
@@ -26,7 +36,8 @@ var cut_height := CUT_DEFAULT
 var cut_yaw := 0.0
 
 var _pivot: Node3D
-## The whole tree, and once felled the stump: the tree drawn up to the cut.
+## The whole tree, and once felled the stump: its trunk alone (NatureModels.trunk: no
+## limbs, no leaves), drawn up to the cut.
 var _mesh: MeshInstance3D
 ## The felled trunk above the cut, turning on its hinge while it falls.
 var _top: Node3D
@@ -37,7 +48,7 @@ var _shake_tween: Tween
 ## The axe's notch, cut deeper with every blow (made by the first one).
 var _notch: TreeNotch
 
-## Each tree mesh's materials with the cut shaders (tree_bark_cut, tree_leaves_cut).
+## Each tree mesh's trunk bark with the cut shader (tree_bark_cut).
 static var _cut_mats: Dictionary = {}
 
 
@@ -51,7 +62,7 @@ func _ready() -> void:
 	_pivot.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(_pivot)
 	_mesh = MeshInstance3D.new()
-	_mesh.mesh = NatureModels.pine(variant) if kind == 0 else NatureModels.oak(variant)
+	_mesh.mesh = tree_mesh()
 	_mesh.scale = Vector3.ONE * tree_scale
 	_pivot.add_child(_mesh)
 	_trunk_shape = CollisionShape3D.new()
@@ -84,36 +95,67 @@ func max_hp() -> int:
 	return roundi((4.0 if kind == 0 else 5.0) * tree_scale)
 
 
+## The whole tree's mesh (trunk, limbs and leaf cards with their levels of detail).
+func tree_mesh() -> ArrayMesh:
+	return NatureModels.pine(variant) if kind == 0 else NatureModels.oak(variant)
+
+
 ## The trunk's centre (x, z) and mean bark radius (y) at the cut, in metres.
 func _trunk() -> Vector3:
 	var fallback := 0.3 if kind == 0 else 0.34
-	var t := Vector3(0.0, fallback, 0.0)
-	if _mesh.mesh:
-		t = TreeNotch.trunk_at(_mesh.mesh, cut_height / tree_scale, fallback)
-	return t * tree_scale
+	return TreeNotch.trunk_at(tree_mesh(), cut_height / tree_scale, fallback) * tree_scale
 
 
 func _height() -> float:
-	return (_mesh.mesh.get_aabb().end.y if _mesh.mesh else 8.0) * tree_scale
+	return tree_mesh().get_aabb().end.y * tree_scale
 
 
-## Draws `mi` (a copy of the tree's mesh) as the stump (`side` 1: what lies under the
-## cut), the falling trunk (-1: what lies over it) or whole (0).
-func _show_cut(mi: MeshInstance3D, side: float) -> void:
-	if mi.mesh == null:
+## Draws the standing tree whole, or (felled) as its stump: the trunk alone, under the
+## cut. No limb and no leaf card is part of a stump, so none can be left over it.
+func _show_stump(stump: bool) -> void:
+	var whole := tree_mesh()
+	if not stump:
+		_mesh.mesh = whole
+		_mesh.set_surface_override_material(0, null)
+		_mesh.custom_aabb = AABB()
 		return
-	if side == 0.0:
-		for s in mi.mesh.get_surface_count():
-			mi.set_surface_override_material(s, null)
-		return
-	var mats := _cut_materials(mi.mesh, kind == 0)
-	for s in mi.mesh.get_surface_count():
-		mi.set_surface_override_material(s, mats[s])
+	_mesh.mesh = NatureModels.trunk(whole)
+	_mesh.set_surface_override_material(0, _cut_material(whole, kind == 0))
+	_set_cut(_mesh, 1.0)
+	# Culled and shadowed as what is drawn of it: the trunk's foot up to the cut.
+	var box := _mesh.mesh.get_aabb()
+	box.size.y = (cut_height + STUMP_TEAR) / tree_scale - box.position.y
+	_mesh.custom_aabb = box
+
+
+## Tells a cut trunk (`mi`: the stump or the falling trunk, drawn with _cut_material)
+## where the cut is and which side of it to draw: 1 the stump, -1 the trunk above.
+func _set_cut(mi: MeshInstance3D, side: float) -> void:
 	var t := _trunk()
 	mi.set_instance_shader_parameter(&"cut_origin", Vector4(t.x / tree_scale, cut_height / tree_scale, t.z / tree_scale, side))
 	mi.set_instance_shader_parameter(&"cut_frame", Vector4(cos(cut_yaw), -sin(cut_yaw), t.y * (1.0 - TreeNotch.MAX_DEPTH),
 			TreeNotch.MOUTH_SLOPE))
 	mi.set_instance_shader_parameter(&"cut_wood", Vector4(t.y, tree_scale, float(absi(hash(resource_id)) % 997) * 0.1, 0.0))
+
+
+## Whether the stump keeps a point of the tree (metres from its origin, in its own
+## frame), as the cut shader has it (tree_cut.gdshaderinc cut_keeps, without the torn
+## hinge's few centimetres): under the cut, in the trunk's column.
+func in_stump(p: Vector3) -> bool:
+	var t := _trunk()
+	var out := Vector2(p.x - t.x, p.z - t.z).length()
+	return p.y < cut_height and out < t.y * 1.6 + STUMP_COLUMN + (cut_height - p.y) * STUMP_FLARE
+
+
+## Everything still drawn of this tree: its mesh instances (the standing tree or the
+## stump, the falling trunk, the notch), for the checks.
+func drawn() -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	for n in find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.is_visible_in_tree() and mi.mesh != null:
+			out.append(mi)
+	return out
 
 
 ## The stump's collision: as tall as the cut.
@@ -122,41 +164,43 @@ func _size_stump() -> void:
 	_stump_shape.position.y = cut_height * 0.5
 
 
-## A tree mesh's materials with the cut shaders (the same looks), and the fresh wood of
-## the notch for the cut face.
-static func _cut_materials(m: Mesh, pine: bool) -> Array[Material]:
+## A tree mesh's trunk bark with the cut shader (the same look), and the fresh wood of
+## the notch for the cut face. One per tree model, shared by its stumps and falling
+## trunks (which side they draw is theirs: _set_cut).
+static func _cut_material(m: Mesh, pine: bool) -> ShaderMaterial:
 	if _cut_mats.has(m):
 		return _cut_mats[m]
-	var out: Array[Material] = []
 	var wood := TreeNotch._material(pine)
-	for s in m.get_surface_count():
-		var src := m.surface_get_material(s) as ShaderMaterial
-		var leaves := src.shader.resource_path.contains("leaves")
-		var mat := ShaderMaterial.new()
-		mat.shader = load("res://shaders/tree_leaves_cut.gdshader" if leaves else "res://shaders/tree_bark_cut.gdshader")
-		for u: Dictionary in src.shader.get_shader_uniform_list():
-			mat.set_shader_parameter(u["name"], src.get_shader_parameter(u["name"]))
-		for k: String in ["sapwood", "heartwood", "bark_color"]:
-			mat.set_shader_parameter(k, wood.get_shader_parameter(k))
-		out.append(mat)
-	_cut_mats[m] = out
-	return out
+	var src := m.surface_get_material(0) as ShaderMaterial
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/tree_bark_cut.gdshader")
+	for u: Dictionary in src.shader.get_shader_uniform_list():
+		mat.set_shader_parameter(u["name"], src.get_shader_parameter(u["name"]))
+	for k: String in ["sapwood", "heartwood", "bark_color"]:
+		mat.set_shader_parameter(k, wood.get_shader_parameter(k))
+	_cut_mats[m] = mat
+	return mat
 
 
-## Draws both sides of a cut for a moment, so their shaders are ready before the first
-## tree falls.
+## Draws every tree model's stump and falling trunk for a moment (the trunk moving, as
+## it does when it goes over), so their meshes, materials and pipelines are ready before
+## the first tree falls.
 static func warm_up(parent: Node, at: Vector3) -> void:
 	for pine: bool in [true, false]:
-		var m := NatureModels.pine(1) if pine else NatureModels.oak(1)
-		var mats := _cut_materials(m, pine)
-		var mi := MeshInstance3D.new()
-		mi.mesh = m
-		for s in m.get_surface_count():
-			mi.set_surface_override_material(s, mats[s])
-		parent.add_child(mi)
-		mi.global_position = at
-		mi.scale = Vector3.ONE * 0.01
-		mi.get_tree().create_timer(0.5).timeout.connect(mi.queue_free)
+		for v in range(1, 4):
+			var whole := NatureModels.pine(v) if pine else NatureModels.oak(v)
+			var mat := _cut_material(whole, pine)
+			for side: float in [1.0, -1.0]:
+				var mi := MeshInstance3D.new()
+				mi.mesh = NatureModels.trunk(whole) if side > 0.0 else whole
+				mi.set_surface_override_material(0, mat)
+				mi.set_instance_shader_parameter(&"cut_origin", Vector4(0.0, 1.0, 0.0, side))
+				parent.add_child(mi)
+				mi.global_position = at
+				mi.scale = Vector3.ONE * 0.01
+				var tw := mi.create_tween()
+				tw.tween_property(mi, "rotation:x", 0.6 if side < 0.0 else 0.0, 0.5)
+				tw.tween_callback(mi.queue_free)
 
 
 # --- Chopping ------------------------------------------------------------------------
@@ -186,9 +230,8 @@ func use_impact(player: Node, _stack: ItemStack, _action: Dictionary, hit: Dicti
 	# The blow that fells the tree cuts it to its full depth.
 	_notch.cut_to(float(max_hp() - hp + 1) / float(max_hp()))
 	Fx.wood_chips(_notch.mouth_point(), toward, kind == 0)
-	if hp > 1 and _mesh.mesh:
-		var crown := _mesh.mesh.get_aabb().end.y * tree_scale * 0.72
-		Fx.leaves(global_position + Vector3(0, crown, 0), Vector2(1.2, 1.2) * tree_scale, kind == 0)
+	if hp > 1:
+		Fx.leaves(global_position + Vector3(0, _height() * 0.72, 0), Vector2(1.2, 1.2) * tree_scale, kind == 0)
 
 
 ## The notch goes in where the first blow lands (from about the shin to the chest: a
@@ -257,9 +300,10 @@ func _fall(player: Node) -> void:
 	_trunk_shape.set_deferred("disabled", true)
 	_stump_shape.set_deferred("disabled", false)
 	_size_stump()
-	_show_cut(_mesh, 1.0)
+	_show_stump(true)
 	# The trunk above goes over on its hinge: the wood left behind the notch, on the side
-	# it falls to.
+	# it falls to. All of the crown goes with it: the limbs and the leaves are drawn whole,
+	# the trunk cut (everything the stump does not keep).
 	var trunk := _trunk()
 	var hinge := Vector3(trunk.x, cut_height, trunk.z) + local_dir * trunk.y
 	_top = Node3D.new()
@@ -267,12 +311,13 @@ func _fall(player: Node) -> void:
 	_top.position = hinge
 	add_child(_top)
 	var above := MeshInstance3D.new()
-	above.mesh = _mesh.mesh
+	above.mesh = tree_mesh()
 	above.scale = _mesh.scale
 	above.lod_bias = _mesh.lod_bias
 	above.position = -hinge
+	above.set_surface_override_material(0, _cut_material(above.mesh, kind == 0))
+	_set_cut(above, -1.0)
 	_top.add_child(above)
-	_show_cut(above, -1.0)
 	var axis := Vector3.UP.cross(local_dir).normalized()
 	# The trunk gives with a crack, then goes over. From a tall stump the crown reaches
 	# the ground past level, the butt still on the stump; the hinge tears and the butt
@@ -304,24 +349,44 @@ func _drop_top() -> void:
 func _on_landed(dir: Vector3) -> void:
 	var at := global_position + dir * 3.0 + Vector3(0, 0.3, 0)
 	Fx.dust_cloud(at, Vector2(1.5, 1.5))
-	if _mesh.mesh:
-		# The crown lashes the ground: leaves or needles and snapped twigs fly up.
-		var reach := _height() - cut_height
-		Fx.crown_crash(global_position + dir * (reach * 0.65 + 0.3) + Vector3(0, 0.6, 0), Vector2(1.6, 1.6) * tree_scale, kind == 0)
+	# The crown lashes the ground: leaves or needles and snapped twigs fly up.
+	var reach := _height() - cut_height
+	Fx.crown_crash(global_position + dir * (reach * 0.65 + 0.3) + Vector3(0, 0.6, 0), Vector2(1.6, 1.6) * tree_scale, kind == 0)
 	# A crash and a heavy thud, and the ground shaking under the player when it is close.
 	Audio.tree_landed(at)
 	var player := Game.player as Player
 	if player and is_instance_valid(player):
 		player.add_trauma(0.35 * clampf(1.0 - player.global_position.distance_to(at) / 14.0, 0.0, 1.0))
+	_drop_wood(global_position, dir, tree_scale, kind == 0)
+
+
+## A landed trunk's wood: logs along it from the butt to the crown, a couple per frame
+## (LOGS_PER_FRAME), so no single frame has them all to make; then, now and then, a
+## sapling that came away with the crown (SaplingGrove.DROP_CHANCE). (Static: it goes on
+## whatever becomes of the tree meanwhile.)
+static func _drop_wood(from: Vector3, dir: Vector3, size: float, pine: bool) -> void:
+	var world := Game.world
+	# The main loop's own frame signal: the world may be taken out of the tree meanwhile
+	# (a load, a new game), and then there is nowhere left to drop anything.
+	var frames := Engine.get_main_loop() as SceneTree
+	if world == null or frames == null:
+		return
 	var rng := RandomNumberGenerator.new()
-	var count := roundi(rng.randf_range(6, 9) * tree_scale) if kind == 0 else roundi(rng.randf_range(8, 12) * tree_scale)
+	var count := roundi(rng.randf_range(6, 9) * size) if pine else roundi(rng.randf_range(8, 12) * size)
+	var spots := PackedFloat32Array()
 	for i in count:
-		var along := rng.randf_range(0.8, 5.5) * tree_scale
-		var p := global_position + dir * along + Vector3(rng.randf_range(-0.4, 0.4), 0.6, rng.randf_range(-0.4, 0.4))
-		var s := ItemStack.create(&"wood", 1)
-		Pickup.spawn(s, p, Vector3(rng.randf_range(-1, 1), 2.0, rng.randf_range(-1, 1)), true)
-	# Now and then a sapling comes away with the crown (SaplingGrove.DROP_CHANCE).
-	SaplingGrove.drop_sapling(global_position + dir * rng.randf_range(1.5, 3.0) * tree_scale + Vector3(0, 0.6, 0))
+		spots.append(rng.randf_range(0.8, 5.5) * size)
+	spots.sort()
+	for i in count + 1:
+		if i > 0 and i % LOGS_PER_FRAME == 0:
+			await frames.process_frame
+			if not is_instance_valid(world) or Game.world != world or not world.is_inside_tree():
+				return
+		if i == count:
+			SaplingGrove.drop_sapling(from + dir * rng.randf_range(1.5, 3.0) * size + Vector3(0, 0.6, 0))
+			return
+		var p := from + dir * spots[i] + Vector3(rng.randf_range(-0.4, 0.4), 0.6, rng.randf_range(-0.4, 0.4))
+		Pickup.spawn(ItemStack.create(&"wood", 1), p, Vector3(rng.randf_range(-1, 1), 2.0, rng.randf_range(-1, 1)), true)
 
 
 ## A tree just grown from a sapling (SaplingGrove) rises from the young tree's size
@@ -336,7 +401,7 @@ func _set_felled(value: bool) -> void:
 	_trunk_shape.disabled = value
 	_stump_shape.disabled = not value
 	_size_stump()
-	_show_cut(_mesh, 1.0 if value else 0.0)
+	_show_stump(value)
 	if value:
 		remove_from_group(&"interactable")
 	else:

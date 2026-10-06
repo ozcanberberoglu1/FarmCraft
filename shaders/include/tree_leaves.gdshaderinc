@@ -5,13 +5,10 @@
 // with the crown's rounded one (UV2, octahedral), so the crown shades as one volume
 // with leaf detail in it; light shines through the leaves from behind.
 // Vertex COLOR: r = openness (share of the sky seen there), g/b/a = wind (tree_wind).
-// Body of tree_leaves.gdshader and, with TREE_CUT defined, of tree_leaves_cut.gdshader:
-// one side of a felled tree's cut (tree_cut.gdshaderinc).
+// Body of tree_leaves.gdshader. (A felled tree's crown is never cut: all of it goes
+// over with the trunk, see tree_cut.gdshaderinc.)
 #include "res://shaders/include/nature.gdshaderinc"
 #include "res://shaders/include/tree_wind.gdshaderinc"
-#ifdef TREE_CUT
-#include "res://shaders/include/tree_cut.gdshaderinc"
-#endif
 
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_disable;
@@ -43,10 +40,6 @@ uniform float roughness : hint_range(0.0, 1.0) = 0.75;
 varying vec3 v_crown;
 varying vec4 v_col;
 varying float v_up;
-#ifdef TREE_CUT
-// The vertex in the mesh's space, before the wind.
-varying vec3 v_lp;
-#endif
 
 vec3 octa_decode(vec2 e) {
 	e = e * 2.0 - 1.0;
@@ -58,9 +51,6 @@ vec3 octa_decode(vec2 e) {
 }
 
 void vertex() {
-#ifdef TREE_CUT
-	v_lp = VERTEX;
-#endif
 	vec3 crown = octa_decode(UV2);
 	v_col = COLOR;
 	VERTEX += tree_wind(VERTEX, COLOR, MODEL_MATRIX, TIME);
@@ -69,11 +59,6 @@ void vertex() {
 }
 
 void fragment() {
-#ifdef TREE_CUT
-	if (!cut_keeps(cut_space(v_lp))) {
-		discard;
-	}
-#endif
 	if (deciduous > 0.5 && v_col.b < leaf_drop) {
 		discard;
 	}

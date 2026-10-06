@@ -18,6 +18,9 @@ const STONE := Color(0.52, 0.51, 0.5)
 const ROOF := Color(0.46, 0.45, 0.45)
 const TRIM := Color(0.88, 0.86, 0.8)
 const BATTEN := Color(0.5, 0.38, 0.34)
+## No batten this near a coop wall's end: the corner boards (12.4 cm) and the door's trim
+## (9 cm) lie there, 2 mm thicker than a batten.
+const TRIM_CLEAR := 0.155
 
 
 static func barn(size: Vector2) -> Dictionary:
@@ -242,37 +245,41 @@ static func coop(size: Vector2, with_door := true, door_x := 0.0, ext := 0.0) ->
 		# under it).
 		var old_w := w - ext
 		_wall(mb, cols, Vector3(-w * 0.5 + old_w * 0.5, floor_y + back_h * 0.5, -d * 0.5 + t * 0.5), Vector3(old_w, back_h, t),
-				PLANK.lightened(0.05), Vector3.FORWARD, detail, [Vector2(old_w * 0.5 - 0.14, old_w)])
+				PLANK.lightened(0.05), Vector3.FORWARD, detail, [Vector2(old_w * 0.5 - 0.14, old_w)], TRIM_CLEAR, 0.1)
 		_wall(mb, cols, Vector3(joint + ext * 0.5, floor_y + back_h * 0.5, -d * 0.5 + t * 0.5), Vector3(ext, back_h, t),
-				fresh, Vector3.FORWARD, detail, [Vector2(-ext, -ext * 0.5 + 0.14)])
+				fresh, Vector3.FORWARD, detail, [Vector2(-ext, -ext * 0.5 + 0.14)], TRIM_CLEAR, 0.1)
 		BuildingKit.plank(mb, &"paint_ext", Transform3D(Basis(), Vector3(joint, floor_y + back_h * 0.5, -d * 0.5 - 0.012)),
-				Vector3(0.14, back_h, 0.024), TRIM, Vector2(0.7, 0.2))
+				Vector3(0.15, back_h, 0.024), TRIM, Vector2(0.7, 0.2))
 	else:
 		var back_c := Vector3(0, floor_y + back_h * 0.5, -d * 0.5 + t * 0.5)
-		_wall(mb, cols, back_c, Vector3(w, back_h, t), PLANK.lightened(0.05), Vector3.FORWARD, detail)
+		_wall(mb, cols, back_c, Vector3(w, back_h, t), PLANK.lightened(0.05), Vector3.FORWARD, detail, [], TRIM_CLEAR, 0.1)
 	for sx: float in [-1.0, 1.0]:
 		var sc := Vector3(sx * (w * 0.5 - t * 0.5), floor_y + back_h * 0.5, 0)
 		var ss := Vector3(t, back_h, d - t * 2.0)
 		_wall(mb, cols, sc, ss, PLANK.lightened(0.05))
-		var skip: Array[Vector2] = []
+		# No batten under the corner boards' edges (they lap 1 cm onto this wall).
+		var skip: Array[Vector2] = [Vector2(-INF, -ss.z * 0.5 + 0.05), Vector2(ss.z * 0.5 - 0.05, INF)]
 		if sx > 0.0:
 			skip.append(Vector2(-0.62, 0.62))
 		BuildingKit.battens(detail, &"paint_ext", Transform3D(Basis(), sc), ss, Vector3(sx, 0, 0), BATTEN, 2, skip)
 		# Triangular top of the side walls (the roof rises toward the front), its boards
 		# upright like the wall's below (the planks photo turned as box() uv_rotate does).
+		# It stops at the front wall's inner face: that wall's end closes the corner above
+		# it (a triangle run on to the corner would lie in the same plane as that end).
 		var origin := Vector3(sx * (w * 0.5 - t * 0.5), floor_y + back_h, 0)
+		var top_h := back_h + (front_h - back_h) * (d - t) / d
 		var a := origin + Vector3(0, 0, -d * 0.5)
-		var b := origin + Vector3(0, 0, d * 0.5)
-		var c := origin + Vector3(0, front_h - back_h, d * 0.5)
+		var b := origin + Vector3(0, 0, d * 0.5 - t)
+		var c := origin + Vector3(0, top_h - back_h, d * 0.5 - t)
 		var col := PLANK.lightened(0.05)
 		for face: float in [1.0, -1.0]:
 			var off := Vector3(face * t * 0.5, 0, 0)
 			# U up from the wall's foot, V along it as on that face of the box below.
 			var v_a := d - t if face > 0.0 else -t
-			var v_b := -t if face > 0.0 else d - t
+			var v_b := 0.0 if face > 0.0 else d - t * 2.0
 			var uv_a := Vector2(back_h, v_a)
 			var uv_b := Vector2(back_h, v_b)
-			var uv_c := Vector2(front_h, v_b)
+			var uv_c := Vector2(top_h, v_b)
 			if face > 0.0:
 				mb.tri(&"planks_ext", a + off, c + off, b + off, col, uv_a, uv_c, uv_b)
 			else:
@@ -288,11 +295,11 @@ static func coop(size: Vector2, with_door := true, door_x := 0.0, ext := 0.0) ->
 		if piece.y == joint:
 			skips.append(Vector2(pw * 0.5 - 0.14, pw))
 		_wall(mb, cols, Vector3((piece.x + piece.y) * 0.5, floor_y + front_h * 0.5, d * 0.5 - t * 0.5), Vector3(pw, front_h, t),
-				PLANK.lightened(0.05), Vector3.BACK, detail, skips)
+				PLANK.lightened(0.05), Vector3.BACK, detail, skips, TRIM_CLEAR)
 	if ext > 0.0:
 		var win := Vector3(joint + ext * 0.5, floor_y + 1.45, d * 0.5)
 		_wall(mb, cols, Vector3(win.x, floor_y + front_h * 0.5, d * 0.5 - t * 0.5), Vector3(ext, front_h, t), fresh, Vector3.BACK, detail,
-				[Vector2(-ext, -ext * 0.5 + 0.14), Vector2(-0.5, 0.5)])
+				[Vector2(-ext, -ext * 0.5 + 0.14), Vector2(-0.5, 0.5)], TRIM_CLEAR)
 		BuildingKit.plank(mb, &"paint_ext", Transform3D(Basis(), Vector3(joint, floor_y + front_h * 0.5, d * 0.5 + 0.012)),
 				Vector3(0.14, front_h, 0.024), TRIM, Vector2(0.2, 0.6))
 		_window(mb, detail, win, Vector3.BACK, 0.8, 0.6)
@@ -361,7 +368,8 @@ static func coop(size: Vector2, with_door := true, door_x := 0.0, ext := 0.0) ->
 			var a := Vector3(rx - 0.6, floor_y + py, -d * 0.5 + 0.4)
 			var b := Vector3(rx - 0.6 - (py - 0.5), floor_y + py, d * 0.5 - 0.6)
 			mb.cylinder_between(&"wood_in", a, b, 0.03, 0.03, 6, PLANK_DARK)
-			for e: Vector3 in [a, b]:
+			# Both bars' back ends rest on one leg (the taller bar's).
+			for e: Vector3 in ([b] if py < 1.0 else [a, b]):
 				mb.cylinder_between(&"wood_in", Vector3(e.x, floor_y, e.z), e + Vector3(0, -0.03, 0), 0.022, 0.022, 6, PLANK_DARK.darkened(0.08))
 	return {"mesh": mb.build(), "straw_mesh": detail.build(), "colliders": cols, "door_width": door_w, "door_height": door_h,
 		"floor_y": floor_y}
@@ -369,14 +377,17 @@ static func coop(size: Vector2, with_door := true, door_x := 0.0, ext := 0.0) ->
 
 ## A glazed four-pane window on a solid wall's outer face at `c`, facing `out`: a dark
 ## board behind the glass (the dim inside), a frame with its cross bars (those into
-## `detail`), a sill.
+## `detail`), a sill. No two of its faces share a plane: the stiles stand between the
+## rails, the dark board's back is sunk into the wall, the glass lies 2 cm over it and
+## ends inside the frame short of the bars' ends, and the upright bar stands 6 mm proud
+## of the lying one.
 static func _window(mb: MeshBuilder, detail: MeshBuilder, c: Vector3, out: Vector3, w: float, h: float) -> void:
 	var xf := Transform3D(Basis(Vector3.UP.cross(out), Vector3.UP, out), c)
-	mb.box(&"paint_in", xf * Transform3D(Basis(), Vector3(0, 0, 0.006)), Vector3(w - 0.08, h - 0.08, 0.01), Color(0.04, 0.035, 0.03))
-	mb.box(&"window_glass", xf * Transform3D(Basis(), Vector3(0, 0, 0.028)), Vector3(w - 0.1, h - 0.1, 0.006), Color.WHITE)
-	for piece: Array in [[Vector3(-w * 0.5 + 0.04, 0, 0.03), Vector3(0.08, h, 0.06), mb], [Vector3(w * 0.5 - 0.04, 0, 0.03), Vector3(0.08, h, 0.06), mb],
+	mb.box(&"paint_in", xf * Transform3D(Basis(), Vector3(0, 0, -0.002)), Vector3(w - 0.08, h - 0.08, 0.024), Color(0.04, 0.035, 0.03))
+	mb.box(&"window_glass", xf * Transform3D(Basis(), Vector3(0, 0, 0.03)), Vector3(w - 0.12, h - 0.12, 0.006), Color.WHITE)
+	for piece: Array in [[Vector3(-w * 0.5 + 0.04, 0, 0.03), Vector3(0.08, h - 0.16, 0.06), mb], [Vector3(w * 0.5 - 0.04, 0, 0.03), Vector3(0.08, h - 0.16, 0.06), mb],
 			[Vector3(0, h * 0.5 - 0.04, 0.03), Vector3(w, 0.08, 0.06), mb], [Vector3(0, -h * 0.5 + 0.04, 0.03), Vector3(w, 0.08, 0.06), mb],
-			[Vector3(0, 0, 0.032), Vector3(0.03, h - 0.1, 0.03), detail], [Vector3(0, 0, 0.032), Vector3(w - 0.1, 0.03, 0.03), detail]]:
+			[Vector3(0, 0, 0.035), Vector3(0.03, h - 0.1, 0.036), detail], [Vector3(0, 0, 0.032), Vector3(w - 0.1, 0.03, 0.03), detail]]:
 		var size: Vector3 = piece[1]
 		(piece[2] as MeshBuilder).box(&"paint_ext", xf * Transform3D(Basis(), piece[0]), size, TRIM, size.x > size.y)
 	mb.box(&"paint_ext", xf * Transform3D(Basis(), Vector3(0, -h * 0.5 - 0.02, 0.05)), Vector3(w + 0.14, 0.04, 0.1), TRIM, true)
@@ -384,11 +395,18 @@ static func _window(mb: MeshBuilder, detail: MeshBuilder, c: Vector3, out: Vecto
 
 ## A wall of vertical boards and its collider; battens (into `detail`) on the face out
 ## toward `face` (none when it is zero). The battens share the trim's key (the same
-## rough_wood photo), so the small trim is one surface fewer to draw.
+## rough_wood photo), so the small trim is one surface fewer to draw. None within
+## `clear` of the wall's ends, where a corner board or a door's trim lies on it (a batten
+## under one would lie 2 mm behind its face); `top_cut` ends them under the rafter tails.
 static func _wall(mb: MeshBuilder, cols: Array, center: Vector3, size: Vector3, col := PLANK, face := Vector3.ZERO,
-		detail: MeshBuilder = null, skips: Array[Vector2] = []) -> void:
+		detail: MeshBuilder = null, skips: Array[Vector2] = [], clear := 0.0, top_cut := 0.0) -> void:
 	mb.box_at(&"planks_ext", center, size, col, Vector3.ZERO, true)
 	cols.append([center, size])
 	if face != Vector3.ZERO:
+		var all: Array[Vector2] = skips.duplicate()
+		if clear > 0.0:
+			var half := (size.x if absf(face.z) > 0.5 else size.z) * 0.5
+			all.append(Vector2(-INF, -half + clear))
+			all.append(Vector2(half - clear, INF))
 		BuildingKit.battens(detail if detail else mb, &"paint_ext", Transform3D(Basis(), center), size, face,
-				Color(col.r * 0.85, col.g * 0.86, col.b * 0.86), 2, skips)
+				Color(col.r * 0.85, col.g * 0.86, col.b * 0.86), 2, all, top_cut)

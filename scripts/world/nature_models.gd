@@ -129,8 +129,23 @@ const BROADLEAF_LOOK := {"translucency": 0.55, "crown_blend": 0.5, "brightness":
 	"alpha_cut": 0.42, "mip_alpha": 0.35, "specular": 0.25, "roughness": 0.72,
 	"sway": 0.22, "branch_sway": 0.12, "flutter": 0.03, "deciduous": 1.0}
 
+## These trees' trunks have a photo-scanned foot with a texture atlas of its own and, in
+## the source model, a second material from about chest height up: the tree's plain
+## tiling bark (the limbs' maps), on UVs past UPPER_BARK_V in V. The built
+## trunk is one surface with the foot's material, so that part showed the atlas on
+## tiling UVs: stripes of its padding and leaf litter, right where the axe goes in. Its
+## UVs are moved UPPER_BARK_SHIFT up in V (whole tiles: the same bark), where
+## shaders/tree_bark.gdshader draws the plain bark (upper_from, half way).
+const UPPER_BARK_TREES: Array[String] = ["fir_b", "pine_b"]
+const UPPER_BARK_V := 1.0
+const UPPER_BARK_SHIFT := 8.0
+
 ## Tree name of each built tree mesh.
 static var _tree_names: Dictionary = {}
+## The trunk alone of each built tree mesh (see trunk()), and its vertices and normals
+## (see trunk_points()).
+static var _tree_trunks: Dictionary = {}
+static var _trunk_points: Dictionary = {}
 ## Leaf materials of the trees (NatureSpawner sets how far the sun's shadows reach).
 static var _leaf_mats: Array[ShaderMaterial] = []
 
@@ -171,11 +186,27 @@ static func _make_tree(tree_name: String) -> ArrayMesh:
 	for part: String in ["trunk", "branches", "cards"]:
 		if not parts.has(part + "_lod0"):
 			continue
-		var levels: Array[Mesh] = []
+		var levels: Array = []
 		for level in 3:
-			levels.append(parts.get("%s_lod%d" % [part, level]))
-		_add_levels(m, levels)
-		m.surface_set_material(m.get_surface_count() - 1, _tree_material(tree_name, part, info))
+			var lm: Mesh = parts.get("%s_lod%d" % [part, level])
+			var arrays: Variant = lm.surface_get_arrays(0) if lm else null
+			if arrays != null and part == "trunk":
+				if _has_upper_bark(info):
+					_shift_upper_bark(arrays)
+					_mend_bark_uvs(arrays, UPPER_BARK_V + UPPER_BARK_SHIFT * 0.5)
+				else:
+					_mend_bark_uvs(arrays)
+			levels.append(arrays)
+		var joined := _add_levels(m, levels)
+		var mat := _tree_material(tree_name, part, info)
+		m.surface_set_material(m.get_surface_count() - 1, mat)
+		if part == "trunk":
+			# The same trunk on its own: what a felled tree's stump is drawn from.
+			var alone := ArrayMesh.new()
+			alone.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, joined[0], [], joined[1])
+			alone.surface_set_material(0, mat)
+			_tree_trunks[m] = alone
+			_trunk_points[m] = [joined[0][Mesh.ARRAY_VERTEX], joined[0][Mesh.ARRAY_NORMAL]]
 	var c: Array = info["crown"]["center"]
 	var r: Array = info["crown"]["radius"]
 	_crowns[m] = [float(c[1]) - float(r[1]), float(c[1]) + float(r[1]), maxf(float(r[0]), float(r[2])), bool(info["broad"])]
@@ -183,15 +214,221 @@ static func _make_tree(tree_name: String) -> ArrayMesh:
 	return m
 
 
-## One surface from a part's levels of detail: all their vertices, level 0's triangles,
-## the others as LOD index arrays.
-static func _add_levels(m: ArrayMesh, levels: Array[Mesh]) -> void:
-	var base: Array = levels[0].surface_get_arrays(0)
+## The trunk of a tree mesh alone (no limbs, no leaf cards; the same vertices, levels of
+## detail and bark): a felled tree's stump is drawn from it (ChoppableTree), so nothing
+## of the crown can be left hanging over it.
+static func trunk(tree_mesh: Mesh) -> ArrayMesh:
+	return _tree_trunks.get(tree_mesh)
+
+
+## The vertices and normals of a tree mesh's trunk ([PackedVector3Array, the same]; empty
+## for any other mesh), kept from building it: measuring the trunk (TreeNotch.trunk_at)
+## never has to read a mesh back from the graphics card in the middle of the game.
+static func trunk_points(tree_mesh: Mesh) -> Array:
+	return _trunk_points.get(tree_mesh, [])
+
+
+## Whether a tree's trunk is a scanned foot under plain bark (see UPPER_BARK_V).
+static func _has_upper_bark(info: Dictionary) -> bool:
+	return String(info["tree"]) in UPPER_BARK_TREES and (info["bark"] as Dictionary).has("branches")
+
+
+## Moves the plain-bark part of a trunk's UVs (past UPPER_BARK_V) UPPER_BARK_SHIFT up.
+static func _shift_upper_bark(arrays: Array) -> void:
+	if arrays[Mesh.ARRAY_TEX_UV] == null:
+		return
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	for i in uvs.size():
+		if uvs[i].y > UPPER_BARK_V:
+			uvs[i].y += UPPER_BARK_SHIFT
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+
+
+## Share of a trunk's bark the mending below may touch before the UVs are taken to be
+## laid out some other way and left alone.
+const BARK_MEND_LIMIT := 0.2
+
+
+## Mends a trunk's bark where its levels of detail were simplified across the seams of
+## the model's UV islands: the triangles left bridging two islands show everything the
+## texture has between them squeezed into stripes and chevrons (on the conifers at chest
+## height, right where the axe goes in: there the scanned foot of the trunk meets the
+## plain bark of the rest). Each such triangle gets corners of its own and carries on the
+## bark of a sound triangle beside it (the one above for choice), so it shows bark again;
+## mended ones pass it on to those beyond them. On a trunk with plain bark over a scanned
+## foot (UVs past `plain_from` in V) the plain bark is carried on first, as far as it
+## reaches: it tiles, where the foot's atlas has other things beside each island.
+static func _mend_bark_uvs(arrays: Array, plain_from := INF) -> void:
+	if arrays[Mesh.ARRAY_TEX_UV] == null or arrays[Mesh.ARRAY_INDEX] == null:
+		return
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var tris := idx.size() / 3
+	if tris < 8:
+		return
+	# UV length per metre along each triangle's edges: the most and the least.
+	var most := PackedFloat32Array()
+	var least := PackedFloat32Array()
+	most.resize(tris)
+	least.resize(tris)
+	for t in tris:
+		var a := idx[t * 3]
+		var b := idx[t * 3 + 1]
+		var c := idx[t * 3 + 2]
+		var r0 := uvs[a].distance_to(uvs[b]) / maxf(verts[a].distance_to(verts[b]), 1e-5)
+		var r1 := uvs[b].distance_to(uvs[c]) / maxf(verts[b].distance_to(verts[c]), 1e-5)
+		var r2 := uvs[c].distance_to(uvs[a]) / maxf(verts[c].distance_to(verts[a]), 1e-5)
+		most[t] = maxf(r0, maxf(r1, r2))
+		least[t] = minf(r0, minf(r1, r2))
+	var sorted := most.duplicate()
+	sorted.sort()
+	var density := sorted[tris / 2]
+	if density <= 0.0:
+		return
+	# 1: smeared, to mend.
+	var state := PackedByteArray()
+	state.resize(tris)
+	var bad := PackedInt32Array()
+	for t in tris:
+		if most[t] > density * 2.5 or least[t] < density / 4.0:
+			state[t] = 1
+			bad.append(t)
+	if bad.is_empty() or bad.size() > tris * BARK_MEND_LIMIT:
+		return
+	# The triangles on each edge; corners at the same place count as one (the islands'
+	# seams split them).
+	var places := {}
+	var place := PackedInt32Array()
+	place.resize(verts.size())
+	for i in verts.size():
+		var key := Vector3i((verts[i] * 2000.0).round())
+		if not places.has(key):
+			places[key] = places.size()
+		place[i] = places[key]
+	var count := places.size()
+	var edges := {}
+	for t in tris:
+		for k in 3:
+			var p := place[idx[t * 3 + k]]
+			var q := place[idx[t * 3 + (k + 1) % 3]]
+			var e := mini(p, q) * count + maxi(p, q)
+			if edges.has(e):
+				(edges[e] as Array).append(t)
+			else:
+				edges[e] = [t]
+	var normals: Variant = arrays[Mesh.ARRAY_NORMAL]
+	var tangents: Variant = arrays[Mesh.ARRAY_TANGENT]
+	var colors: Variant = arrays[Mesh.ARRAY_COLOR]
+	var uv2: Variant = arrays[Mesh.ARRAY_TEX_UV2]
+	# First from the plain bark alone (where the trunk has it), then from any; last, what
+	# is left takes its neighbour's bark even where that comes out stretched.
+	var plain_only := plain_from < INF
+	var strict := true
+	var going := true
+	while going or plain_only or strict:
+		if not going:
+			if plain_only:
+				plain_only = false
+			else:
+				strict = false
+		going = false
+		for t in bad:
+			if state[t] != 1:
+				continue
+			# The sound (or mended) triangle beside it that lies highest, of those whose
+			# bark, carried on over this one, is not smeared here either (a sliver's is).
+			var from := -1
+			var from_y := -INF
+			var fresh := PackedVector2Array()
+			for k in 3:
+				var p := place[idx[t * 3 + k]]
+				var q := place[idx[t * 3 + (k + 1) % 3]]
+				for u: int in edges[mini(p, q) * count + maxi(p, q)]:
+					if u == t or state[u] == 1:
+						continue
+					if plain_only and minf(uvs[idx[u * 3]].y, minf(uvs[idx[u * 3 + 1]].y, uvs[idx[u * 3 + 2]].y)) < plain_from:
+						continue
+					var y := verts[idx[u * 3]].y + verts[idx[u * 3 + 1]].y + verts[idx[u * 3 + 2]].y
+					if y <= from_y:
+						continue
+					var carried := _carry_uvs(verts, uvs, idx, u, t)
+					if carried.is_empty():
+						continue
+					var sound := true
+					for c in 3:
+						var a := idx[t * 3 + c]
+						var b := idx[t * 3 + (c + 1) % 3]
+						var r := carried[c].distance_to(carried[(c + 1) % 3]) / maxf(verts[a].distance_to(verts[b]), 1e-5)
+						if strict and (r > density * 2.5 or r < density / 4.0):
+							sound = false
+					if sound:
+						from_y = y
+						from = u
+						fresh = carried
+			if from < 0:
+				continue
+			var i0 := idx[from * 3]
+			for k in 3:
+				var i := idx[t * 3 + k]
+				idx[t * 3 + k] = verts.size()
+				verts.append(verts[i])
+				place.append(place[i])
+				uvs.append(fresh[k])
+				if normals != null:
+					normals.append(normals[i])
+				if tangents != null:
+					for c in 4:
+						tangents.append(tangents[i0 * 4 + c])
+				if colors != null:
+					colors.append(colors[i])
+				if uv2 != null:
+					uv2.append(uv2[i])
+			state[t] = 2
+			going = true
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = idx
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TANGENT] = tangents
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2
+
+
+## The UVs triangle `t`'s corners get when triangle `from`'s bark is carried on over
+## them: its UVs as a flat sheet through it (empty when `from` has no area).
+static func _carry_uvs(verts: PackedVector3Array, uvs: PackedVector2Array, idx: PackedInt32Array, from: int,
+		t: int) -> PackedVector2Array:
+	var i0 := idx[from * 3]
+	var e1 := verts[idx[from * 3 + 1]] - verts[i0]
+	var e2 := verts[idx[from * 3 + 2]] - verts[i0]
+	var d11 := e1.dot(e1)
+	var d12 := e1.dot(e2)
+	var d22 := e2.dot(e2)
+	var det := d11 * d22 - d12 * d12
+	var out := PackedVector2Array()
+	if det < 1e-12:
+		return out
+	var u1 := uvs[idx[from * 3 + 1]] - uvs[i0]
+	var u2 := uvs[idx[from * 3 + 2]] - uvs[i0]
+	for k in 3:
+		var d := verts[idx[t * 3 + k]] - verts[i0]
+		var s := (d.dot(e1) * d22 - d.dot(e2) * d12) / det
+		var w := (d.dot(e2) * d11 - d.dot(e1) * d12) / det
+		out.append(uvs[i0] + u1 * s + u2 * w)
+	return out
+
+
+## One surface from a part's levels of detail (their surface arrays, null where a level
+## is missing): all their vertices, level 0's triangles, the others as LOD index arrays.
+## Returns what the surface was made from: [arrays, LODs].
+static func _add_levels(m: ArrayMesh, levels: Array) -> Array:
+	var base: Array = levels[0]
 	var lods := {}
 	for level in range(1, levels.size()):
 		if levels[level] == null:
 			continue
-		var a: Array = levels[level].surface_get_arrays(0)
+		var a: Array = levels[level]
 		var offset := (base[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
 		for ch in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_TANGENT, Mesh.ARRAY_TEX_UV, Mesh.ARRAY_TEX_UV2,
 				Mesh.ARRAY_COLOR]:
@@ -206,6 +443,7 @@ static func _add_levels(m: ArrayMesh, levels: Array[Mesh]) -> void:
 			idx[i] += offset
 		lods[LOD_KEYS[level - 1]] = idx
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, base, [], lods)
+	return [base, lods]
 
 
 static func _tree_material(tree_name: String, part: String, info: Dictionary) -> ShaderMaterial:
@@ -228,6 +466,13 @@ static func _tree_material(tree_name: String, part: String, info: Dictionary) ->
 		mat.set_shader_parameter("normal_tex", load(tex + String(bark["nor"])))
 		if bark.has("arm"):
 			mat.set_shader_parameter("arm_tex", load(tex + String(bark["arm"])))
+		if part == "trunk" and _has_upper_bark(info):
+			var plain: Dictionary = info["bark"]["branches"]
+			mat.set_shader_parameter("upper_albedo_tex", load(tex + String(plain["diff"])))
+			mat.set_shader_parameter("upper_normal_tex", load(tex + String(plain["nor"])))
+			if plain.has("arm"):
+				mat.set_shader_parameter("upper_arm_tex", load(tex + String(plain["arm"])))
+			mat.set_shader_parameter("upper_from", UPPER_BARK_V + UPPER_BARK_SHIFT * 0.5)
 		for k: String in ["sway", "branch_sway"]:
 			mat.set_shader_parameter(k, look[k])
 		mat.set_shader_parameter("flutter", 0.0)

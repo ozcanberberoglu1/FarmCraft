@@ -68,7 +68,8 @@ static func leaf_mesh(w: float, h: float) -> ArrayMesh:
 		mb.box_at(&"wood", Vector3(0.02 + lw * 0.5, y, 0.04), Vector3(lw - 0.06, 0.12, 0.035), col)
 	var brace_len := Vector2(lw - 0.16, lh - 0.62).length()
 	var brace_ang := rad_to_deg(atan2(lh - 0.62, lw - 0.16))
-	mb.box_at(&"wood", Vector3(0.02 + lw * 0.5, lh * 0.5 + 0.03, 0.04), Vector3(brace_len, 0.1, 0.03), col, Vector3(0, 0, brace_ang))
+	# The brace is thinner than the ledges it runs between: its face 13 mm behind theirs.
+	mb.box_at(&"wood", Vector3(0.02 + lw * 0.5, lh * 0.5 + 0.03, 0.0335), Vector3(brace_len, 0.1, 0.022), col, Vector3(0, 0, brace_ang))
 	# Black iron: two strap hinges from the hinge side and a thumb latch.
 	var iron := Color(0.14, 0.13, 0.12)
 	for y: float in [0.28, lh - 0.22]:

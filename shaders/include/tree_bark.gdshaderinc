@@ -2,8 +2,8 @@
 // (colour, OpenGL normal, ARM = occlusion / roughness / metal) on its own UVs, moving in
 // the wind with the crown (tree_wind). Vertex COLOR r = openness: limbs deep in the
 // crown get less sky light. Body of tree_bark.gdshader and, with TREE_CUT defined, of
-// tree_bark_cut.gdshader: one side of a felled tree's cut (tree_cut.gdshaderinc), drawn
-// two-sided so that inside the bark, seen through the opening, the cut face shows.
+// tree_bark_cut.gdshader: one side of a felled tree's cut trunk (tree_cut.gdshaderinc),
+// drawn two-sided so that inside the bark, seen through the opening, the cut face shows.
 
 #include "res://shaders/include/nature.gdshaderinc"
 #include "res://shaders/include/tree_wind.gdshaderinc"
@@ -14,6 +14,14 @@
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D arm_tex : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+// A trunk whose foot is a photo-scan (its own texture atlas, the maps above) wears the
+// tree's plain, tiling bark higher up, as the model has it: these maps, wherever the
+// UVs lie past upper_from in V (NatureModels moves that part of the trunk there). The
+// atlas shown on those UVs instead is stripes and leaf litter from chest height up.
+uniform sampler2D upper_albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D upper_normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D upper_arm_tex : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float upper_from = 1000000.0;
 uniform vec3 tint : source_color = vec3(1.0);
 uniform float normal_strength = 1.2;
 // Share of the openness (vertex colour) used as ambient occlusion.
@@ -42,12 +50,17 @@ void fragment() {
 		discard;
 	}
 #endif
-	vec3 col = texture(albedo_tex, UV).rgb * tint;
-	vec3 arm = texture(arm_tex, UV).rgb;
+	// (Gradients taken before the branch: which bark it is changes from one triangle to
+	// the next.)
+	vec2 uv_dx = dFdx(UV);
+	vec2 uv_dy = dFdy(UV);
+	bool upper = UV.y > upper_from;
+	vec3 col = (upper ? textureGrad(upper_albedo_tex, UV, uv_dx, uv_dy).rgb : textureGrad(albedo_tex, UV, uv_dx, uv_dy).rgb) * tint;
+	vec3 arm = upper ? textureGrad(upper_arm_tex, UV, uv_dx, uv_dy).rgb : textureGrad(arm_tex, UV, uv_dx, uv_dy).rgb;
 	float snow = smoothstep(0.35, 0.8, v_wnormal.y) * snow_amount;
 	col = mix(col * (1.0 - wetness * 0.35), snow_color(), snow);
 	ALBEDO = col;
-	NORMAL_MAP = texture(normal_tex, UV).rgb;
+	NORMAL_MAP = upper ? textureGrad(upper_normal_tex, UV, uv_dx, uv_dy).rgb : textureGrad(normal_tex, UV, uv_dx, uv_dy).rgb;
 	NORMAL_MAP_DEPTH = normal_strength * (1.0 - snow * 0.7);
 	ROUGHNESS = mix(clamp(arm.g, 0.4, 1.0), 0.35, wetness);
 	SPECULAR = 0.35;

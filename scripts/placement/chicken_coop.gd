@@ -1236,7 +1236,8 @@ static func _build_bench(boxes: int) -> ArrayMesh:
 	var length := NEST_PITCH * boxes
 	var zc := z0 + length * 0.5
 	var floor_top := NEST_SEAT - 0.03
-	mb.box_at(&"planks", Vector3(xc, floor_top * 0.5, zc), Vector3(NEST_DEPTH, floor_top, length), dark, Vector3.ZERO, true)
+	# The body stops under the boxes' floor board (not in its top face).
+	mb.box_at(&"planks", Vector3(xc, (floor_top - 0.03) * 0.5, zc), Vector3(NEST_DEPTH, floor_top - 0.03, length), dark, Vector3.ZERO, true)
 	mb.box_at(&"wood_in", Vector3(xc + 0.01, floor_top - 0.015, zc), Vector3(NEST_DEPTH + 0.02, 0.03, length + 0.02), dark.lightened(0.05))
 	# A kick board along the foot, scuffed darker.
 	mb.box_at(&"wood_in", Vector3(x1 + 0.012, 0.06, zc), Vector3(0.025, 0.12, length), dark.darkened(0.15))
@@ -1244,7 +1245,8 @@ static func _build_bench(boxes: int) -> ArrayMesh:
 	for i in boxes + 1:
 		var z := z0 + i * NEST_PITCH
 		mb.box_at(&"wood_in", Vector3(xc, floor_top + h * 0.5, z), Vector3(NEST_DEPTH, h, 0.025), dark.lightened(0.03 * (i % 2)))
-	mb.box_at(&"wood_in", Vector3(x1 - 0.015, NEST_SEAT + 0.04, zc), Vector3(0.03, 0.12, length), dark.darkened(0.06))
+	# The lip board, 8 mm proud of the partitions' ends.
+	mb.box_at(&"wood_in", Vector3(x1 - 0.007, NEST_SEAT + 0.04, zc), Vector3(0.03, 0.12, length), dark.darkened(0.06))
 	var rise := 0.22
 	var run := NEST_DEPTH + 0.06
 	mb.box_at(&"wood_in", Vector3(NEST_BACK + 0.015, NEST_LID + rise * 0.5, zc), Vector3(0.03, rise, length), dark)

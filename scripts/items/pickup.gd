@@ -4,7 +4,11 @@ extends RigidBody3D
 ## player and collected (partially, if the inventory is nearly full): it hops up in an
 ## arc toward the player's pocket, shrinking as it goes.
 ## Eggs (HAND_ONLY) are never pulled in: the farmer looks at one and takes it with E, one
-## egg at a time (it flies into the hand or down into its hotbar slot).
+## egg at a time (it flies into the hand or down into its hotbar slot). They are small
+## and the colour of straw, so they are shown: within EGG_SHIMMER_RANGE a soft halo of
+## light and a passing glint (egg_shimmer.gdshader), and the egg the farmer looks at
+## (the interaction ray: set_highlight, the "look_highlight" group) a thin warm outline
+## and a brighter rim.
 
 const MAGNET_RANGE := 2.4
 const ARM_DELAY := 0.6
@@ -14,6 +18,10 @@ const POCKET := Vector3(0.22, -0.55, -0.35)
 ## the interaction layer only: a little more than the egg itself, easier to aim at).
 const HAND_ONLY: Array[StringName] = [&"egg"]
 const GRAB_RADIUS := 0.09
+## Metres from the eye within which an egg shimmers (none beyond), and where the shimmer
+## is at its full (it fades in between the two).
+const EGG_SHIMMER_RANGE := 4.0
+const EGG_SHIMMER_FULL := 2.8
 
 var stack: ItemStack
 ## Harvest pops seek the player from further away.
@@ -27,6 +35,12 @@ var _mi_scale := 1.0
 ## Where the flight toward the player started, and how far along it is (0..1).
 var _fly_from := Vector3.ZERO
 var _fly_t := 0.0
+## An egg's shimmer shell and the outline shown while it is looked at (eggs only).
+var _shimmer: MeshInstance3D
+var _outline: MeshInstance3D
+
+static var _shimmer_mat: ShaderMaterial
+static var _outline_mat: ShaderMaterial
 
 
 static func spawn(item_stack: ItemStack, at: Vector3, impulse := Vector3.ZERO, seek_player := false) -> Pickup:
@@ -73,6 +87,14 @@ func _ready() -> void:
 	by_hand = stack.item.id in HAND_ONLY
 	if by_hand:
 		add_to_group(&"interactable")
+		# Highlighted whenever it is looked at (Player), and shimmering near by.
+		add_to_group(&"look_highlight")
+		_shimmer = egg_shimmer(mesh)
+		_mi.add_child(_shimmer)
+		_outline = _shell(mesh, _outline_material())
+		_outline.name = "Outline"
+		_outline.visible = false
+		_mi.add_child(_outline)
 		var grab := StaticBody3D.new()
 		grab.name = "Grab"
 		grab.collision_layer = 4
@@ -139,6 +161,64 @@ func _collect() -> void:
 
 
 # --- Taken by hand (eggs) -----------------------------------------------------------------
+
+## The shimmer shell for an egg's `mesh` (a child of the egg's MeshInstance3D: the
+## Pickup's, the HatchingEgg's): drawn only within EGG_SHIMMER_RANGE of the eye.
+static func egg_shimmer(mesh: Mesh) -> MeshInstance3D:
+	if _shimmer_mat == null:
+		_shimmer_mat = ShaderMaterial.new()
+		_shimmer_mat.shader = load("res://shaders/egg_shimmer.gdshader")
+		_shimmer_mat.set_shader_parameter(&"fade_end", EGG_SHIMMER_RANGE)
+		_shimmer_mat.set_shader_parameter(&"fade_full", EGG_SHIMMER_FULL)
+	var shell := _shell(mesh, _shimmer_mat)
+	shell.name = "Shimmer"
+	shell.visibility_range_end = EGG_SHIMMER_RANGE + 0.4
+	shell.set_instance_shader_parameter(&"phase", randf())
+	return shell
+
+
+## How strongly an egg shimmers `distance` metres from the eye (0..1, as the shader fades it).
+static func shimmer_at(distance: float) -> float:
+	return 1.0 - smoothstep(EGG_SHIMMER_FULL, EGG_SHIMMER_RANGE, distance)
+
+
+static func _outline_material() -> ShaderMaterial:
+	if _outline_mat == null:
+		_outline_mat = ShaderMaterial.new()
+		_outline_mat.shader = load("res://shaders/egg_outline.gdshader")
+	return _outline_mat
+
+
+## `mesh` again as a shell with `material` over every surface: no shadow, no GI, off the
+## rain map's layer (as the pickup's own mesh).
+static func _shell(mesh: Mesh, material: Material) -> MeshInstance3D:
+	var shell := MeshInstance3D.new()
+	shell.mesh = mesh
+	shell.material_override = material
+	shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	shell.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	shell.layers = 2
+	return shell
+
+
+## The egg the farmer looks at: its outline shows and its rim lights up (Player calls
+## this for the "look_highlight" group while it is the interaction ray's target).
+func set_highlight(on: bool) -> void:
+	if _outline == null or _outline.visible == on:
+		return
+	_outline.visible = on
+	_shimmer.set_instance_shader_parameter(&"aimed", 1.0 if on else 0.0)
+
+
+## Whether it is shown as looked at (its outline is up).
+func is_highlighted() -> bool:
+	return _outline != null and _outline.visible
+
+
+## Its shimmer shell (eggs only; null for anything else).
+func shimmer() -> MeshInstance3D:
+	return _shimmer
+
 
 func interact_prompt(_player: Node) -> String:
 	return tr("ACTION_TAKE_EGG") if by_hand and not _flying and not is_queued_for_deletion() else ""

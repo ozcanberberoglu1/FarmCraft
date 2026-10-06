@@ -6,9 +6,11 @@ extends ModalScreen
 ## the chosen kind on the right: what it gives and eats, what the market wants to see
 ## on the farm first (the farm level, the building: LiveCrates.market_lock) and where it
 ## will live, then the purchase. Crated kinds (hens) come in transport crates, as many as
-## the order says, set down in front of the seller at the market's pickup spot by the gate
-## (LiveCrates, MarketCrates) for the farmer to carry to the pickup: no coop needed yet.
-## The others are young or grown, brought straight into their housing by the dealer.
+## the order says, straight into the farmer's hands and bag; only what doesn't fit is set
+## down in front of the seller at the market's pickup spot by the gate (LiveCrates,
+## MarketCrates): no coop needed yet. The others are young or grown, brought straight
+## into their housing by the dealer. While the story's first days run the market sells
+## hens only (LiveCrates.story_lock): every other kind shows locked, with the reason.
 ## Opened at a pen's gate or the hen stall, the market shows that kind first (open_market).
 
 const PORTRAIT_DIR := "res://art/icons/animals/"
@@ -232,6 +234,9 @@ func _species_card(species: StringName) -> Button:
 	var project := AnimalTable.market_needs(species)
 	if Progress.level < need:
 		chip = UiTheme.chip(tr("UI_LEVEL_SHORT") % need, UiTheme.TEXT_DIM, "lock", 15)
+	elif LiveCrates.story_lock(species) != "":
+		# The story's first days: hens only.
+		chip = UiTheme.chip(tr("BUILD_LOCKED"), UiTheme.TEXT_DIM, "lock", 15)
 	elif lock != "":
 		chip = UiTheme.chip(tr("PROJECT_" + String(project).to_upper()), UiTheme.RED, "lock", 14)
 	else:
@@ -315,6 +320,10 @@ func _fill_detail(box: VBoxContainer, species: StringName) -> void:
 	box.add_child(UiTheme.section(tr("MARKET_REQUIREMENTS"), "barn"))
 	var need := UnlockTable.animal_level(species)
 	box.add_child(_requirement(Progress.level >= need, tr("MARKET_REQ_LEVEL") % need, tr("UI_LEVEL_SHORT") % Progress.level))
+	var story := LiveCrates.story_lock(species)
+	if story != "" and Progress.level >= need:
+		# Not sold yet: the reason, in the list of what the market wants first.
+		box.add_child(_info("lock", story, UiTheme.RED))
 	var project := AnimalTable.market_needs(species)
 	if project != &"":
 		var built := FarmState.is_built(project)
@@ -338,10 +347,11 @@ func _fill_detail(box: VBoxContainer, species: StringName) -> void:
 		_fill_young_or_grown(box, species, info)
 
 
-## A crated kind: how many (no more than the pickup spot still takes), the total, where
-## the crates will wait, the buy button.
+## A crated kind: how many (no more than the farmer carries and the pickup spot still
+## takes), the total, where the crates go (the bag; the seller's spot for the rest), the
+## buy button.
 func _fill_crate_order(box: VBoxContainer, species: StringName) -> void:
-	var most := clampi(mini(LiveCrates.market_room(), LiveCrates.MAX_ORDER), 1, LiveCrates.MAX_ORDER)
+	var most := clampi(mini(LiveCrates.buy_room(AnimalTable.crate_item(species)), LiveCrates.MAX_ORDER), 1, LiveCrates.MAX_ORDER)
 	_order = clampi(_order, 1, most)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
@@ -381,15 +391,21 @@ func _fill_crate_order(box: VBoxContainer, species: StringName) -> void:
 	total.add_child(UiTheme.make_label(UiTheme.caps(tr("UI_TOTAL")), UiTheme.heading(18, UiTheme.TEXT_MUTED, 700, 2)))
 	total.add_child(UiTheme.price(each * _order, 32))
 	sums.add_child(total)
-	box.add_child(_info("box", tr("RANCHER_CRATES_WAIT"), UiTheme.TEXT))
+	# Straight into the bag; an order bigger than the bag says what will wait at the seller's.
+	var over := _order - LiveCrates.carry_room(AnimalTable.crate_item(species))
+	box.add_child(_info("box", tr("RANCHER_CRATES_TO_BAG") if over <= 0 else tr("RANCHER_CRATES_OVERFLOW") % over,
+			UiTheme.TEXT if over <= 0 else UiTheme.GOLD_SOFT))
 	var waiting := LiveCrates.count_at(&"market")
 	if waiting > 0:
 		box.add_child(_info("clock", tr("RANCHER_CRATES_WAITING") % [waiting, LiveCrates.MAX_WAITING], UiTheme.GOLD_SOFT))
 	var why := why_not(species, true, _order)
-	if why != "":
+	# (The story's lock is said above, among what the market wants first.)
+	if why != "" and why != LiveCrates.story_lock(species):
 		box.add_child(UiTheme.paragraph(why, 16, UiTheme.RED, 700))
 	var buy := UiTheme.button(tr("RANCHER_BUY_CRATES") % [_order, Animals.species_name(species), UiTheme.money(each * _order)],
 			"success", Vector2(712, 58), "check", 22)
+	# Marked for the scripted checks (rows rebuilt in one frame can't share a name).
+	buy.set_meta(&"mark", "BuyCrates")
 	buy.disabled = why != ""
 	buy.pressed.connect(func() -> void:
 		var got := LiveCrates.buy(species, _order, _stall_at)
@@ -405,7 +421,7 @@ func _fill_young_or_grown(box: VBoxContainer, species: StringName, info: Diction
 	var why := why_not(species, false)
 	var why_grown := why_not(species, true)
 	var shown := why_grown if why_grown != "" else why
-	if shown != "":
+	if shown != "" and shown != LiveCrates.story_lock(species):
 		box.add_child(UiTheme.paragraph(shown, 16, UiTheme.RED, 700))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
