@@ -40,6 +40,8 @@ workbench ready bundled for $55 (no wood). Grandpa's pickup comes with the farm 
 | Fish (sell; trophy 10x) | bleak, gudgeon 2; rudd, crucian, roach 3; perch 4; bream 6; crayfish 6; chub 7; carp 9; tench 10; barbel, silver carp 12; grass carp 15; rainbow trout 16; eel 16; brown trout 20; zander 22; pike 30; wels catfish 55; sturgeon 95 |
 | Tools | hoe, scythe, pickaxe, axe, brush 40; watering can, pitchfork 50; milk pail 75; shears 90; repair 0.25 a point of wear; upgrades 60 / 180 (and ore) |
 | Animals (grown / young) | hen 50 / 20, sheep 225 / 90, cow 375 / 150, horse 600 / 225 |
+| Males (grown; Breeding.MALE_PRICE) | ram 250, bull 420, stallion 650: a little over the female (25 to 50 more), bought once for the herd. A ram still gives wool, a bull no milk, a stallion is ridden like a mare |
+| Young born on the farm (Breeding) | a female kept healthy (60+), fed (35+ at dawn) and content (55+) in the same barn as a grown male conceives each dawn with a chance of 0.6 (sheep), 0.5 (cow), 0.45 (horse); she carries 3 / 4 / 5 mornings and rests 3 / 4 / 5 days after the birth, so a pair gives a young one about every 8 / 10 / 12 days. One young at a time, 40% of them male; a place free in the barn is needed (she waits otherwise). It grows up in its kind's grow_days (5 / 6 / 6 fed days) and sells like a bought animal: a lamb about 75, grown about 180; a calf about 125, grown 300; a foal about 200, grown 475 (AnimalData.sale_value: condition and hearts move it). A ram pays for himself with the second lamb sold grown; the barn's places (4, closed barn 8) and the hay (1 a day a sheep, 2 a cow or a horse) are what holds a herd back |
 | Buildings | coop kit 25, workbench kit 40 (market: 55 bundled), coop expansion I 100 (+20 wood, 10 nails), II 200 (+35 wood, 20 nails, 10 stone), open barn 200, field expansion I 250, II 900, III 2,400, bigger warehouse 900, closed barn 1,350, house extension I 1,500, II 4,500 |
 | Other | the dealership's pickup 550; the vet 10 plus 30% of the animal's value |
 
@@ -133,6 +135,9 @@ $18 of ore against $40), so a worn-out tool is replaced cheaply once there is a 
 | Pitchfork (level 2) | 4 wood, 3 iron ore, 2 nails | 1 |
 | Shears (level 3) | 4 iron ore, 1 wood | 1 |
 | Milk pail (level 4) | 6 wood, 4 nails | 1 |
+| Fence panel | 3 wood, 2 nails | 2 (2 m each) |
+| Fence gate | 4 wood, 6 nails | 1 |
+| Lantern post | 3 wood, 1 iron ore, 1 rope | 1 |
 
 ## Giant fish on the grill
 
@@ -140,3 +145,41 @@ A giant (trophy) fish doesn't fit over the campfire; on a grill it takes two pla
 by side and cooks in the usual 10 seconds into "<id>_trophy_cooked": it fills three times
 what the whole grilled fish does (at least 60, at most 100 of 100 hunger) and sells for
 1.3x the raw giant (a carp: raw $90, grilled $117, 96 hunger).
+
+
+## Pastures (Pastures, FencePiece, LanternPost)
+
+The farmer fences his own grazing: a closed loop of panels with at least one gate is a
+pasture ("mera"). A first one of 8 panels and a gate (the side goal's) costs 12 wood, 8
+nails for the panels and 4 wood, 6 nails for the gate: 16 wood and $14 of nails for about
+16 m²; the barn pen's own fence can be one side of the loop, which saves panels. A
+pasture of 48 m² (8 x 6 m) takes 13 panels and a gate: 24 wood, $20 of nails.
+
+A sheep, cow or horse let go of the halter inside a pasture stays there and grazes; one
+in a pasture that takes in the ground in front of the barn pen's gateway walks out by
+itself after 06:30 and home at 18:30 (or when it rains). Grazing there by day (06:00 to
+20:00, not in winter or under snow):
+
+| | In the pen | At pasture |
+|---|---|---|
+| Contentment an hour (fed, watered, dry) | +2 | +4 (PASTURE_HAPPY 2 on top) |
+| Water | its trough | the grass and its dew: +6 an hour up to 75 of 100, no trough needed by day |
+| Feed | grazes (+9 an hour for a sheep) and eats from its trough under 75 | grazes the same and eats nothing from the trough |
+| After 3 hours of it that day | | "well grazed": hunger 50% slower until the next morning (PASTURE_SAVING) |
+
+So a sheep that spent the day at pasture and is led home at dusk loses about 21 fullness
+over a ten-hour night instead of 42: starting the night full (110) it wakes at 89 and
+takes nothing from the trough, where a sheep kept in the pen is down at 75 before
+morning and eats a ration of hay. A cow (2 rations a day) saves the same share. A day at
+pasture is also worth +28 contentment over fourteen hours, which is what the second egg,
+breeding (60) and the quality of milk and wool look at.
+
+Left at pasture overnight the animals are out in the night: rain and the cold hurt them
+as any animal left outside, and the wolves can get to them (a fence stops no wolf: it
+leaps anything up to 1.3 m; the panels are 1.2 m). A lit lantern post (lit 18:30 to
+06:15) keeps wolves 8 m off, as a burning campfire does 6 m. A night slept through counts
+the animals of a pasture whose whole ground is within 8 m of a lantern post as protected
+and the others as out in the open; one lantern in the middle covers a pasture up to about
+11 x 11 m, a 48 m² one easily. The dusk note (18:00) says how many animals are still out
+and whether the lanterns cover them. They are still there the next morning; winter and
+snow bring them home with the morning (nothing to graze).

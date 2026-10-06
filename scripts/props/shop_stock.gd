@@ -43,5 +43,7 @@ static func town_market() -> Dictionary:
 	for id: StringName in MARKET_EXTRAS:
 		if ItemDB.has_item(id) and id not in shop["stock"]:
 			(shop["stock"] as Array).append(id)
+	# Cans of paint and decorations for the farm (FarmIdentity).
+	FarmIdentity.add_market_stock(shop["stock"])
 	shop["cargo"] = true
 	return shop

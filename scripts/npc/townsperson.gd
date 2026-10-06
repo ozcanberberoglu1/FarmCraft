@@ -365,6 +365,8 @@ func interact_prompt(player: Node) -> String:
 
 func interact(player: Node) -> void:
 	greet()
+	# A warm word the first time after the farm got its name or its colours (FarmIdentity).
+	FarmIdentity.greeted(self)
 	befriend()
 	var s := service_now()
 	if s != null:

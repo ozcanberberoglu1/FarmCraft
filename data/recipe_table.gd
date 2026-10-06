@@ -43,6 +43,11 @@ const CRAFTING := {
 	&"sprinkler": {"items": {&"iron_ore": 5, &"stone": 3}, "count": 1, "level": 3, "group": "farm"},
 	# The mailbox by the house (Mail): a little wood and a few nails.
 	&"mailbox": {"items": {&"wood": 4, &"nails": 4}, "count": 1, "level": 1, "group": "farm"},
+	# The farmer's own fencing (Pastures): two panels from three logs and a couple of nails,
+	# a gate, and a lantern post that takes a little iron and a rope to hang the lantern by.
+	&"fence_panel": {"items": {&"wood": 3, &"nails": 2}, "count": 2, "level": 1, "group": "farm"},
+	&"fence_gate": {"items": {&"wood": 4, &"nails": 6}, "count": 1, "level": 1, "group": "farm"},
+	&"lantern_post": {"items": {&"wood": 3, &"iron_ore": 1, &"rope": 1}, "count": 1, "level": 1, "group": "farm"},
 	# Machines.
 	&"quern": {"items": {&"stone": 20, &"wood": 10}, "count": 1, "level": 1, "group": "machines"},
 	&"pickle_barrel": {"items": {&"wood": 35, &"iron_ore": 3}, "count": 1, "level": 3, "group": "machines"},
@@ -53,7 +58,7 @@ const CRAFTING := {
 ## The workbench's list, heading by heading (GROUPS).
 const CRAFT_ORDER: Array[StringName] = [&"knife", &"cane_rod", &"fishing_rod", &"carbon_rod", &"carp_rod", &"bow", &"arrow", &"axe", &"pickaxe", &"hoe",
 	&"scythe", &"watering_can", &"pitchfork", &"shears", &"milk_pail", &"campfire", &"food_table", &"dough", &"feed",
-	&"fertilizer", &"sprinkler", &"mailbox", &"quern", &"pickle_barrel", &"spinning_wheel", &"cheese_press", &"jam_kettle"]
+	&"fertilizer", &"sprinkler", &"mailbox", &"fence_panel", &"fence_gate", &"lantern_post", &"quern", &"pickle_barrel", &"spinning_wheel", &"cheese_press", &"jam_kettle"]
 ## Headings of the workbench's list: group -> [translation key, icon].
 const GROUPS := {
 	"tools": ["CRAFT_GROUP_TOOLS", "hammer"], "camp": ["CRAFT_GROUP_CAMP", "campfire"],

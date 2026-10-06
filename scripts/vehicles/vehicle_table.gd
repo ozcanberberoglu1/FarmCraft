@@ -471,7 +471,100 @@ const VEHICLES := {
 		"bed_zone": AABB(Vector3(-2.05, 0.9, -1.1), Vector3(4.2, 0.85, 2.2)),
 		"engine_pitch": 0.5,
 	},
+	## Grandpa's stock trailer (Trailer, tools/blender/build_trailer.py): a single-axle
+	## steel tub under galvanised slats with a rear gate that drops into a ramp. Towed, not
+	## driven: "hitch" is its coupling head (model frame, the axle at x = 0), "box" the
+	## floor's front and rear edge and half its inner width, "floor" its height, "ramp" the
+	## gate's length, "room" how many sheep it takes (a cow or a horse counts two). A row of
+	## crates rides against the headboard. He left it at the dealership for new tyres: the
+	## price is what is still owed for them.
+	&"trailer_stock": {
+		"trailer": true,
+		"name_key": "VEHICLE_TRAILER_STOCK",
+		"desc_key": "VEHICLE_TRAILER_STOCK_DESC",
+		"model": "res://art/models/vehicles/trailer/livestock.glb",
+		"price": 40,
+		## Once petrol blue: chalky on top, rust creeping up from the sills and the ribs.
+		"paint": {"paint": Color(0.17, 0.3, 0.33), "fade": 0.55, "rust": 0.5, "streaks": 0.6, "wear": 0.85,
+			"roughness": 0.55, "metallic": 0.06, "clearcoat": 0.15, "clearcoat_roughness": 0.3,
+			"dirt_color": Color(0.45, 0.38, 0.29)},
+		"trim": {"wear": 0.85, "rust": 0.4, "chrome_dull": 0.4},
+		"trims": {"Wood": {"tex": "weathered_brown_planks", "wear": 0.7}, "Galv": {"wear": 0.8, "rust": 0.3},
+			"Steel": {"wear": 0.8, "rust": 0.5}},
+		## New tyres on the old cream rims.
+		"wheel": {"wear": 0.25, "rim_paint": 1.0, "rim_color": Color(0.58, 0.56, 0.5), "rust": 0.45,
+			"rubber": Color(0.13, 0.13, 0.13)},
+		"glass": {"panes": [], "covers": []},
+		"plate": "res://art/models/vehicles/plates/trailer_stock.png",
+		"body_shape": {"cab": Vector4(99, 0, 0, 0), "cab_width": 0.0, "mirrors": Vector4(99, 99, 99, 99), "gap_x": 99.0,
+			"bed_box": Vector4(0, 0, 0, 0)},
+		"brakelights": "Lamp_Brake",
+		"mass": 420.0,
+		"fuel_capacity": 0.0,
+		"cargo_units": 24,
+		"hitch": Vector3(3.0, 0.47, 0.0),
+		"track": 0.93,
+		"wheel_radius": 0.33,
+		"jockey_x": 2.45,
+		"floor": 0.52,
+		"box": Vector3(1.5, -1.35, 0.72),
+		"ramp": 1.34,
+		"room": 2,
+		"boxes": [[Vector3(0.1, 1.15, 0.0), Vector3(2.9, 1.5, 1.56)], [Vector3(0.0, 0.42, 0.0), Vector3(0.95, 0.8, 2.16)],
+			[Vector3(2.3, 0.5, 0.0), Vector3(1.5, 0.3, 0.5)]],
+		"bed_rows": [1.5, 0.95],
+		"bed_cols": [-0.72, -0.36, 0.0, 0.36, 0.72],
+		"bed_floor": 0.53,
+		"bed_top": 1.1,
+		"bed_center": Vector3(1.2, 0.8, 0.0),
+		"wheel_wells": [],
+		"bed_zone": AABB(Vector3(0.85, 0.42, -0.83), Vector3(0.78, 1.5, 1.66)),
+		"tail_pos": Vector3(-1.45, 0.45, 0.0),
+		"roof_height": 2.35,
+	},
+	## The dealership's cargo trailer (Trailer): a plank deck behind low galvanised drop
+	## sides and a headboard rack, twice a pickup's bed.
+	&"trailer_flat": {
+		"trailer": true,
+		"name_key": "VEHICLE_TRAILER_FLAT",
+		"desc_key": "VEHICLE_TRAILER_FLAT_DESC",
+		"model": "res://art/models/vehicles/trailer/flatbed.glb",
+		"price": 650,
+		"paint": {"paint": Color(0.42, 0.09, 0.06), "fade": 0.2, "rust": 0.12, "streaks": 0.25, "wear": 0.4,
+			"roughness": 0.45, "metallic": 0.08, "clearcoat": 0.35, "clearcoat_roughness": 0.2},
+		"trim": {"wear": 0.45, "rust": 0.12, "chrome_dull": 0.2},
+		"trims": {"Wood": {"tex": "weathered_brown_planks", "wear": 0.45}, "BedSide": {"wear": 0.45, "rust": 0.1}},
+		"wheel": {"wear": 0.3, "rim_paint": 1.0, "rim_color": Color(0.55, 0.56, 0.58), "rust": 0.1,
+			"rubber": Color(0.14, 0.14, 0.14)},
+		"glass": {"panes": [], "covers": []},
+		"plate": "res://art/models/vehicles/plates/trailer_flat.png",
+		"body_shape": {"cab": Vector4(99, 0, 0, 0), "cab_width": 0.0, "mirrors": Vector4(99, 99, 99, 99), "gap_x": 99.0,
+			"bed_box": Vector4(0, 0, 0, 0)},
+		"brakelights": "Lamp_Brake",
+		"mass": 380.0,
+		"fuel_capacity": 0.0,
+		"cargo_units": 320,
+		"hitch": Vector3(3.0, 0.47, 0.0),
+		"track": 0.93,
+		"wheel_radius": 0.33,
+		"jockey_x": 2.45,
+		"boxes": [[Vector3(0.2, 0.72, 0.0), Vector3(3.5, 0.5, 1.66)], [Vector3(0.0, 0.42, 0.0), Vector3(0.95, 0.8, 2.16)],
+			[Vector3(2.45, 0.5, 0.0), Vector3(1.1, 0.3, 0.5)]],
+		"bed_rows": [1.9, 1.33, 0.76, 0.19, -0.38, -0.95, -1.52],
+		"bed_cols": [-0.76, -0.38, 0.0, 0.38, 0.76],
+		"bed_floor": 0.64,
+		"bed_top": 1.2,
+		"bed_center": Vector3(0.2, 0.9, 0.0),
+		"wheel_wells": [],
+		"bed_zone": AABB(Vector3(-1.62, 0.45, -0.88), Vector3(3.64, 1.1, 1.76)),
+		"tail_pos": Vector3(-1.65, 0.5, 0.0),
+		"roof_height": 1.9,
+	},
 }
+
+## The trailers (Trailer): Grandpa's stock trailer waits at the dealership for its tyre
+## bill, the cargo trailer is for sale beside it.
+const TRAILERS: Array[StringName] = [&"trailer_stock", &"trailer_flat"]
 
 ## Vehicles the dealership sells, in the order its list shows them.
 const FOR_SALE: Array[StringName] = [&"pickup_90", &"pickup_canopy", &"pickup_stake", &"pickup_box", &"wagon", &"offroad",

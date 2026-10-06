@@ -273,7 +273,8 @@ func rank_of(who: String) -> int:
 
 
 func entrant_name(who: String) -> String:
-	return tr("CONTEST_YOU") if who == "player" else tr("PERSON_" + who.to_upper())
+	# The farmer stands on the board with his farm's name once it has one (FarmIdentity).
+	return FarmIdentity.contest_entrant(tr("CONTEST_YOU")) if who == "player" else tr("PERSON_" + who.to_upper())
 
 
 func _fish_name(id: StringName) -> String:

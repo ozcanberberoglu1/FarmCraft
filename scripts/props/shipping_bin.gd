@@ -50,6 +50,14 @@ func _ready() -> void:
 	label.outline_size = 0
 	label.position = Vector3(0, h * 0.55, d * 0.5 + 0.012)
 	add_child(label)
+	# Whose goods they are: the farm's name under it (FarmIdentity).
+	var farm_line := FarmNameLabel.new()
+	farm_line.pixel_size = 0.0022
+	farm_line.max_size = 13
+	farm_line.fit_width = 0.62
+	farm_line.modulate = Color(0.32, 0.2, 0.12)
+	farm_line.position = Vector3(0, h * 0.55 - 0.085, d * 0.5 + 0.012)
+	add_child(farm_line)
 	_lid = Node3D.new()
 	_lid.position = Vector3(0, h, -d * 0.5)
 	# A tween swings it every frame, not in physics steps.

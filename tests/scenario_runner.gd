@@ -9,6 +9,11 @@ const PET20_ROAD := Vector3(120.0, 0.0, 30.9)
 const PET20_PLOTS: Array[Vector2] = [Vector2(-6.0, -4.0), Vector2(-9.0, -3.0), Vector2(-12.0, 2.0), Vector2(-4.0, 2.0),
 	Vector2(-9.0, 9.0), Vector2(4.0, -6.0), Vector2(-16.0, 4.0), Vector2(-2.0, -10.0)]
 
+## breed21: where the farmer stands while the lamb is born (the house's yard, far from the
+## barn), and the most dawns the seeded dice may take to get the ewe with lamb.
+const BREED21_AWAY := Vector3(-16.0, 0.3, -9.5)
+const BREED21_DAWNS := 12
+
 var tree: SceneTree
 var failures := 0
 var _last_prompt := ""
@@ -196,6 +201,8 @@ func run(scenario: String) -> void:
 			await _scenario_trees19_shots()
 		"vehicle19":
 			await _scenario_vehicle19()
+		"trailer21":
+			await _scenario_trailer21()
 		"cab_interior":
 			await _scenario_cab_interior()
 		"radio20":
@@ -218,6 +225,14 @@ func run(scenario: String) -> void:
 			await _scenario_ui20()
 		"farm20":
 			await _scenario_farm20()
+		"breed21":
+			await _scenario_breed21()
+		"fence21":
+			await _scenario_fence21()
+		"ident21":
+			await _scenario_ident21()
+		"catalog21":
+			await _scenario_catalog21()
 		"all":
 			await _ruins()
 			await _first_day_house()
@@ -2123,6 +2138,8 @@ func _workshop() -> void:
 		cow.health = 100.0
 		cow.affection = 600.0
 		parents.append(cow)
+	# A bull and a cow (Breeding): she conceives one of these dawns, carries and calves.
+	parents[0].male = true
 	var before := Animals.animals.size()
 	var born := false
 	for i in 80:
@@ -2133,7 +2150,7 @@ func _workshop() -> void:
 			born = true
 			break
 	var baby: AnimalData = Animals.animals.back()
-	_check(born and baby.species == &"cow" and not baby.adult, "two contented cows had a calf")
+	_check(born and baby.species == &"cow" and not baby.adult, "a contented cow living with a bull had a calf")
 	for a in Animals.animals.duplicate():
 		Animals.sell(a)
 	Animals.animals.assign(others)
@@ -3060,7 +3077,7 @@ func _quests() -> void:
 
 	# The chain: the first day by hand, in the user's order, each goal with a place for the dot;
 	# then the player is free until the next morning's market.
-	var day_one := ["door", "tools", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens",
+	var day_one := ["door", "tools", "farm_name", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens",
 			"drive_home", "crates_in", "coop_wood", "coop_kit", "coop_place", "coop_built", "hens_in",
 			"harvest", "ship", "feed", "coop_water", "straw", "egg", "ship_egg", "wood", "patch", "wh_patch",
 			"explore", "stones", "berries", "snack"]
@@ -3128,8 +3145,13 @@ func _quests() -> void:
 	FarmState.flags[FarmHouse.TABLE_FLAG] = all_taken
 	Quests._poll = 0.0
 	await _idle_frames(3)
+	_check(Quests.current()["id"] == "farm_name", "a bare worktable completes it: the farm's name is next")
+	# The name on Grandpa's board (kept as it is: a skipped prompt) completes that one.
+	FarmIdentity.set_farm_name("")
+	Quests._poll = 0.0
+	await _idle_frames(3)
 	_check(Quests.current()["id"] == "till" and begun[0] == int(Quests.TUTORIAL[Quests.index_of("till")]["chapter"]),
-			"a bare worktable completes it: the soil chapter begins")
+			"the name on the board completes it: the soil chapter begins")
 	_check(Game.hud._quest_chapter.text == UiTheme.caps("%s · %s" % [tr("HUD_CHAPTER") % 2, Quests.chapter_title(1)]),
 			"the goal card names the chapter (%s)" % Game.hud._quest_chapter.text)
 	# A goal the player is past already completes by itself: the door, once something inside was taken.
@@ -3875,12 +3897,13 @@ func _tutorial14() -> void:
 	var chapter_of := func(id: String) -> int: return int(Quests.TUTORIAL[Quests.index_of(id)]["chapter"])
 
 	# (1) The order, the chapters and the days' gates.
-	var order := ["door", "tools", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens", "drive_home",
+	var order := ["door", "tools", "farm_name", "till", "plant", "water", "drawer", "key", "truck", "buy_chickens", "drive_home",
 			"crates_in", "coop_wood", "coop_kit", "coop_place", "coop_built", "hens_in", "harvest", "ship", "feed",
 			"coop_water", "straw", "egg", "ship_egg", "wood", "patch", "wh_patch", "explore", "stones", "berries", "snack",
 			"free", "harvest2", "load_crops", "sell_market", "seeds", "till2", "sow", "water2", "sapling",
 			"bench_kit", "bench_place", "bench_built", "knife", "rooster_wait", "rooster_buy", "rooster_in", "water3",
-			"fishing_wait", "rope", "bait", "rod", "fish", "campfire", "cook", "eat", "level_3", "barn", "sheep", "shear"]
+			"fishing_wait", "rope", "bait", "rod", "fish", "campfire", "cook", "eat", "level_3", "barn", "trailer_get",
+			"trailer_hitch", "sheep_buy", "sheep_load", "sheep_ride", "sheep", "shear"]
 	var in_order := true
 	for i in order.size():
 		in_order = in_order and Quests.index_of(order[i]) == i
@@ -7230,7 +7253,7 @@ func _market() -> void:
 	var got := market.buy_animal(&"horse", true)
 	var horse: AnimalData = Animals.animals.back() if not Animals.animals.is_empty() else null
 	_check(got and horse != null and horse.species == &"horse" and Animals.animals.size() == count + 1
-			and Economy.money == 5000 - int(AnimalTable.get_species(&"horse")["adult_price"]) and Animals.housing_of(horse) == barn,
+			and Economy.money == 5000 - int(AnimalTable.get_species(&"horse")["adult_price"]) - TrailerYard.fee_now() and Animals.housing_of(horse) == barn,
 			"bought a grown horse for %s: it lives in the barn" % UiTheme.money(int(AnimalTable.get_species(&"horse")["adult_price"])))
 	if got and horse:
 		Animals.sell(horse)
@@ -24079,19 +24102,20 @@ func _scenario_goals20() -> void:
 	var wp: Variant = Quests.waypoint()
 	_check(Quests.goal_hint() == "" and wp is Vector3 and Vector2((wp as Vector3).x, (wp as Vector3).z).distance_to(board_at) < 0.5,
 			"with the money (and the wood) the lines go and the dot is on the construction board")
-	# The same for the other goals that cost money: the rooster, a sheep, rope.
+	# The same for the other goals that cost money: the rooster, Grandpa's trailer (its tyre
+	# bill comes before the sheep it fetches), rope.
 	Economy.money = 0
 	inv.remove_item(&"wood", inv.count_item(&"wood"))
 	inv.add_item(&"egg", 2)
 	var others: Array[String] = []
-	for pair: Array in [["rooster_buy", LiveCrates.price(&"rooster")], ["sheep", LiveCrates.price(&"sheep")], ["rope", 2 * Economy.buy_price(&"rope")]]:
+	for pair: Array in [["rooster_buy", LiveCrates.price(&"rooster")], ["trailer_get", int(VehicleTable.get_info(&"trailer_stock")["price"])], ["rope", 2 * Economy.buy_price(&"rope")]]:
 		await _tut20_goal(String(pair[0]))
 		Quests._wp_left = 0.0
 		await _idle_frames(4)
 		var want := "%s\n%s" % [tr("HINT_NEED_MONEY") % UiTheme.money(int(pair[1])), tr("HINT_SELL_GOODS_HOME") % egg_name]
 		if Quests.goal_hint() != want or truck == null or _tut20_flat_distance(Quests.waypoint(), truck.global_position) > 3.0:
 			others.append("%s: '%s'" % [pair[0], Quests.goal_hint()])
-	_check(others.is_empty(), "the rooster, a sheep and the rope say the same when broke: how much more, and to sell the eggs (%s)" % str(others))
+	_check(others.is_empty(), "the rooster, the trailer's tyre bill and the rope say the same when broke: how much more, and to sell the eggs (%s)" % str(others))
 	inv.remove_item(&"egg", inv.count_item(&"egg"))
 
 	# (B) The barn goal: wood and money, what he has over what it takes, kept up to date.
@@ -24919,4 +24943,2451 @@ func _scenario_tut20() -> void:
 	coop.queue_free()
 	Events.notification_requested.disconnect(on_note)
 	await _frames(3)
+
+
+
+# --- Round 21: the market's catalogue by post --------------------------------------------------
+
+## Every label's text under `node` (the catalogue's slip).
+func _cat21_texts(node: Node) -> Array[String]:
+	var out: Array[String] = []
+	for c: Node in node.get_children():
+		if c.is_queued_for_deletion():
+			continue
+		if c is Label:
+			out.append((c as Label).text)
+		elif c is Button:
+			out.append((c as Button).text)
+		out.append_array(_cat21_texts(c))
+	return out
+
+
+## Round 21's catalogue (Catalog, Mail.catalog): nothing before a mailbox stands; the morning
+## after it does (at the post's hour) Hasan's letter with the catalogue, the side goal to
+## place an order, and the mailbox screen's Catalogue page listing the market's everyday
+## goods at its prices (no animals, kits or one-off things); an order written (counts, the
+## limits, the running total with the fee), refused short of money, paid, called off for
+## the money back before midnight and not after; one open order at a time; the crate by the
+## mailbox the next morning at the post's hour (the flag up, the note, the side goal), its
+## goods taken with E, only what fits when the bag is full, and the crate gone once empty;
+## an order written past midnight coming the morning after, under a tarp in the rain; saved
+## and loaded with an open order and with a crate waiting.
+## With -- --catalog-shots=/abs/dir it saves the catalogue page and the crate's pictures.
+func _scenario_catalog21() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var cat := Mail.catalog
+	var goals := cat.goals
+	var inv := PlayerState.inventory
+	var hud: HUD = Game.hud
+	var kept_day := GameClock.day
+	var kept_minute := GameClock.minute
+	var kept_pos := player.global_position
+	var kept_mail := Mail.save_data()
+	var kept_placed := FarmState.placed.duplicate()
+	var kept_money := Economy.money
+	var kept_bag := PlayerState.save_data()
+	var kept_progress := Progress.save_data()
+	var shots := String(DebugTools.args.get("catalog-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	for id: StringName in [&"feed", &"nails", &"rope", &"wood", Mail.ITEM]:
+		inv.remove_item(id, inv.count_item(id))
+	for b: Node in tree.get_nodes_in_group(Mailbox.GROUP):
+		b.queue_free()
+	FarmState.placed.assign(FarmState.placed.filter(func(e: Dictionary) -> bool: return StringName(e.get("id", "")) != Mail.ITEM))
+	GameClock.running = false
+	Mail.load_data({"goal_done": true})
+	cat.testing = true
+	Economy.money = 500
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var bought := {}
+	var on_bought := func(id: StringName, n: int) -> void: bought[id] = int(bought.get(id, 0)) + n
+	Events.item_bought.connect(on_bought)
+
+	# --- No catalogue before a mailbox stands ---
+	GameClock.day = 7
+	GameClock.set_time_of_day(12.0)
+	await _seconds(1.3)
+	GameClock.day = 8
+	await _seconds(1.3)
+	_check(not cat.arrived and cat.mailbox_day == 0 and Mail.letters.is_empty() and not cat.available() and not goals.is_up(&"order"),
+			"catalog21: no mailbox, no catalogue (days pass, nothing comes)")
+
+	# --- The mailbox goes up: the catalogue the next morning, at the post's hour ---
+	var house := tree.get_first_node_in_group(&"farm_house") as FarmHouse
+	var dp := house.door_point() if house else Vector3(WorldLayout.HOUSE_DOOR_X, 0.0, WorldLayout.HOUSE_FRONT_Z)
+	var at := Vector3(dp.x + 2.5, 0.0, dp.z + 3.0)
+	at.y = TerrainData.height(at.x, at.z)
+	var box := Game.world.farm.spawn_placed(FarmState.add_placed(Mail.ITEM, at, 0.0)) as Mailbox
+	Events.placed.emit(Mail.ITEM)
+	player.global_position = Vector3(at.x, at.y + 0.1, at.z + 1.6)
+	player.velocity = Vector3.ZERO
+	await _seconds(1.3)
+	hud.letter_screen.open_mail()
+	await _idle_frames(3)
+	var ls: LetterScreen = hud.letter_screen
+	_check(box != null and cat.mailbox_day == 8 and not cat.arrived and ls.is_open() and ls.catalog_page == null,
+			"catalog21: the mailbox stands (day 8): no catalogue yet, the mailbox screen has only the letters")
+	await _close_screens()
+	GameClock.day = 9
+	GameClock.minute = float(GameClock.DAY_START_MINUTE)
+	await _seconds(1.3)
+	var early := cat.arrived
+	GameClock.minute = float(Catalog.POST_MINUTE + 1)
+	notes.clear()
+	await _seconds(2.2)
+	var letter: Dictionary = Mail.letters[0] if Mail.letters.size() == 1 else {}
+	var body := tr(String(letter.get("body", ""))).format(letter.get("args", {}))
+	_check(not early and cat.arrived and cat.available() and String(letter.get("title", "")) == "CATALOG_TITLE" and String(letter.get("from", "")) == Catalog.SENDER
+			and Mail.unread_count() == 1 and box.flag_up() and notes.has(tr("MSG_MAIL_NEW")),
+			"catalog21: the next morning at %s (not at 06:00) Hasan's letter with the catalogue: the flag is up, a note says so" % Catalog.post_time())
+	_check(body.contains(UiTheme.money(Catalog.FEE)) and body.contains(Catalog.post_time()) and not body.contains("{") and Catalog.FEE == 3,
+			"catalog21: his letter tells the fee (%s) and the hour (%s)" % [UiTheme.money(Catalog.FEE), Catalog.post_time()])
+	var card := goals.goal()
+	_check(goals.is_up(&"order") and card.quiet and card.text == tr("SIDE_GOAL_CATALOG_ORDER") and card.hint == tr("SIDE_HINT_CATALOG_ORDER")
+			and card.point is Vector3 and (card.point as Vector3).distance_to(box.global_position) < 2.0 and notes.has(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CATALOG_ORDER")),
+			"catalog21: a quiet side goal comes up: place an order from the mailbox (the dot on the mailbox, the hint: E, then Catalogue)")
+
+	# --- E on the mailbox: the letter first, the Catalogue tab beside it ---
+	_look_at(player, at + Vector3(0, 1.1, 0))
+	await _frames(8)
+	await _press_key(KEY_E)
+	await _idle_frames(3)
+	_check(ls.is_open() and ls.mail_index == 0 and ls.catalog_page != null and ls._mail_tabs.current == "letters" and not ls.catalog_page.visible,
+			"catalog21: E opens the mailbox on Hasan's letter; the screen now has a Catalogue tab")
+	ls.show_mail_tab("catalog")
+	await _idle_frames(2)
+	var page := ls.catalog_page
+	var goods := cat.goods()
+	var market: Array = ShopStock.town_market()["stock"]
+	var listed := true
+	var priced := true
+	for id: StringName in goods:
+		listed = listed and id in market and page._rows.has(id)
+		priced = priced and Catalog.price(id) == Economy.buy_price(id) and Catalog.price(id) > 0
+	var seeds_ok := false
+	for id: StringName in ShopStock.general_store()["stock"]:
+		if String(id).ends_with("_seed") and UnlockTable.item_level(id) <= Progress.level:
+			seeds_ok = id in goods
+			break
+	var everyday := true
+	for id: StringName in [&"feed", &"feed_big", &"hay", &"hay_big", &"fertilizer", &"nails", &"rope", &"worm", &"dough", &"dog_food", &"wood"]:
+		everyday = everyday and id in goods
+	var special := false
+	for id: StringName in [&"workbench", &"grill", &"big_grill", &"dog_ball", &"milk", &"flower_bouquet", &"chicken_crate", &"hoe", &"coop_kit"]:
+		special = special or id in goods
+	_check(page.visible and not ls._mail_row.visible and listed and priced and page._rows.size() == goods.size() and goods.size() >= 12,
+			"catalog21: the Catalogue page lists what the market stocks today (%d goods) at the market's prices" % goods.size())
+	_check(everyday and seeds_ok and not special, "catalog21: feed, hay, seeds in season, nails, rope, bait, dog food, fertilizer; no animals, tools, kits or one-off things")
+
+	# --- Writing an order: counts, limits, the running total with the fee ---
+	page.set_count(&"feed", 500)
+	var capped := int(page.draft.get(&"feed", 0)) == Catalog.max_count(&"feed") and Catalog.max_count(&"feed_big") == ItemDB.get_item(&"feed_big").max_stack
+	page.set_count(&"feed", 20)
+	page.add(&"nails", 10)
+	page.add(&"nails", 1)
+	page.add(&"rope", 1)
+	page.add(&"hay", 1)
+	page.add(&"hay", -1)
+	var want := 20 * Economy.buy_price(&"feed") + 11 * Economy.buy_price(&"nails") + Economy.buy_price(&"rope") + Catalog.FEE
+	await _idle_frames(2)
+	var slip := _cat21_texts(page._slip)
+	_check(capped and page.draft == {&"feed": 20, &"nails": 11, &"rope": 1} and Catalog.total(page.draft) == want and slip.has(UiTheme.money(want))
+			and slip.has(tr("CATALOG_FEE")) and slip.has(UiTheme.money(Catalog.FEE)) and slip.has(tr("CATALOG_DUE_1") % Catalog.post_time()),
+			"catalog21: an order of 20 feed, 11 nails and a rope: the slip adds them up with the %s fee (%s), due tomorrow morning; a stack of each at most"
+			% [UiTheme.money(Catalog.FEE), UiTheme.money(want)])
+	var kinds := page.draft.duplicate()
+	for id: StringName in goods:
+		page.add(id, 1)
+	var most := page.draft.size()
+	page.draft = kinds
+	page.refresh()
+	_check(most == Catalog.MAX_KINDS and Catalog.MAX_KINDS == 8, "catalog21: one crate takes %d kinds of goods, no more" % Catalog.MAX_KINDS)
+	if shots != "":
+		await _zy_shot(shots, "catalog_page")
+	Economy.money = want - 1
+	await _idle_frames(2)
+	var short := cat.order_error(page.draft) == "money" and not page.confirm() and Economy.money == want - 1 and cat.order.is_empty()
+	Economy.money = 500
+	var xp := Progress.xp
+	notes.clear()
+	var paid := page.confirm()
+	await _idle_frames(2)
+	_check(short and paid and Economy.money == 500 - want and int(cat.order.get("paid", 0)) == want and int(cat.order.get("due", 0)) == 10 and page.draft.is_empty()
+			and inv.count_item(&"feed") == 0, "catalog21: short of money it is refused; paid on ordering (%s with the fee), nothing in the bag yet" % UiTheme.money(want))
+	_check(goals.done.has(&"order") and not SideStory.goals.has(card) and notes.has(tr("MSG_SIDE_DONE") % tr("MSG_CATALOG_ORDERED")) and Progress.xp == xp + int(CatalogGoals.XP[&"order"]),
+			"catalog21: the side goal is done: 'your order will be at your door tomorrow morning' (+%d XP)" % int(CatalogGoals.XP[&"order"]))
+	page.set_count(&"hay", 2)
+	slip = _cat21_texts(page._slip)
+	_check(page.draft.is_empty() and not cat.place_order({&"hay": 2}) and cat.order_error({&"hay": 2}) == "open" and slip.has(UiTheme.caps(tr("CATALOG_OPEN_ORDER")))
+			and slip.has(tr("CATALOG_CUTOFF")), "catalog21: one open order at a time: the slip shows it, with a way out until midnight")
+
+	# --- Called off before midnight: the money back; past midnight it is on its way ---
+	notes.clear()
+	_check(cat.can_cancel() and page.cancel() and Economy.money == 500 and cat.order.is_empty() and notes.has(tr("MSG_CATALOG_CANCELLED") % UiTheme.money(want)),
+			"catalog21: called off before midnight: all %s back" % UiTheme.money(want))
+	GameClock.set_time_of_day(23.0)
+	_check(cat.place_order({&"feed": 20, &"nails": 11, &"rope": 1}) and int(cat.order["due"]) == 10 and Economy.money == 500 - want and notes.has(tr("MSG_CATALOG_ORDERED")),
+			"catalog21: written again at 23:00: still for tomorrow morning")
+	GameClock.minute = 24.5 * 60.0
+	page.refresh()
+	await _idle_frames(2)
+	slip = _cat21_texts(page._slip)
+	_check(not cat.can_cancel() and not page.cancel() and Economy.money == 500 - want and not cat.order.is_empty() and slip.has(tr("CATALOG_ON_THE_WAY"))
+			and Catalog.due_day() == 11, "catalog21: at 00:30 it can't be called off any more; an order written now would come the morning after")
+	await _close_screens()
+
+	# --- Saved and loaded with the order open ---
+	var slot := "catalog21_test"
+	_check(SaveGame.save(slot), "catalog21: saved with an order open")
+	cat.load_data({})
+	_check(SaveGame.load_game(slot), "catalog21: loading the save started")
+	await _until_loaded()
+	player = Game.player
+	hud = Game.hud
+	inv = PlayerState.inventory
+	cat = Mail.catalog
+	goals = cat.goals
+	cat.testing = true
+	await _seconds(1.3)
+	box = tree.get_first_node_in_group(Mailbox.GROUP) as Mailbox
+	_check(cat.arrived and cat.mailbox_day == 8 and int(cat.order.get("due", 0)) == 10 and int(cat.order.get("paid", 0)) == want
+			and (cat.order["items"] as Dictionary).size() == 3 and goals.done.has(&"order") and not cat.has_crate() and box != null,
+			"catalog21: after the load: the catalogue, the open order (due day 10), the goal done")
+
+	# --- The next morning: the crate by the mailbox ---
+	GameClock.day = 10
+	GameClock.minute = float(GameClock.DAY_START_MINUTE)
+	await _seconds(1.3)
+	var before_post := cat.has_crate()
+	GameClock.minute = float(Catalog.POST_MINUTE + 1)
+	notes.clear()
+	await _seconds(2.2)
+	var crate := cat.crate_node()
+	_check(not before_post and cat.has_crate() and cat.order.is_empty() and cat.crate_items() == {&"feed": 20, &"nails": 11, &"rope": 1} and crate != null
+			and crate.global_position.distance_to(box.global_position) < 1.4 and absf(crate.global_position.y - box.global_position.y) < 0.3,
+			"catalog21: at %s the next morning (not at 06:00) the goods stand in a crate beside the mailbox" % Catalog.post_time())
+	await _seconds(0.8)
+	card = goals.goal()
+	_check(box.flag_up() and notes.has(tr("MSG_CATALOG_DELIVERED")) and goals.is_up(&"collect") and card.text == tr("SIDE_GOAL_CATALOG_COLLECT")
+			and card.point is Vector3 and (card.point as Vector3).distance_to(crate.global_position) < 1.2,
+			"catalog21: the mailbox's flag is up, a note says the order has come, and the side goal points at the crate")
+	var crate_at := crate.global_position
+	var stand := crate_at + (crate_at - box.global_position).normalized() * 0.3 + Vector3(0.0, 0.1, 1.5)
+	if shots != "":
+		GameClock.set_time_of_day(7.4)
+		player.global_position = box.global_position + Vector3(-0.6, 0.1, 2.5)
+		player.velocity = Vector3.ZERO
+		_look_at(player, (crate_at + box.global_position) * 0.5 + Vector3(0, 0.55, 0))
+		await _zy_shot(shots, "delivery_crate")
+		player.global_position = crate_at + Vector3(0.5, 0.1, 1.25)
+		_look_at(player, crate_at + Vector3(0, 0.3, 0))
+		await _zy_shot(shots, "delivery_crate_close")
+	player.global_position = stand
+	player.velocity = Vector3.ZERO
+	_look_at(player, crate_at + Vector3(0, 0.3, 0))
+	await _frames(10)
+	_check(_last_prompt.contains(tr("UI_DELIVERY_CRATE")) and _last_prompt.contains(tr("ACTION_OPEN_DELIVERY")) and _last_prompt.contains(ItemDB.get_item(&"nails").display_name()),
+			"catalog21: looking at the crate: '%s'" % _last_prompt.replace("\n", " | "))
+
+	# --- Saved and loaded with the crate waiting ---
+	_check(SaveGame.save(slot), "catalog21: saved with the crate waiting")
+	cat.load_data({})
+	await _frames(3)
+	var cleared := tree.get_nodes_in_group(DeliveryCrate.GROUP).is_empty()
+	_check(SaveGame.load_game(slot), "catalog21: loading the save started")
+	await _until_loaded()
+	player = Game.player
+	hud = Game.hud
+	inv = PlayerState.inventory
+	cat = Mail.catalog
+	goals = cat.goals
+	cat.testing = true
+	await _seconds(1.6)
+	box = tree.get_first_node_in_group(Mailbox.GROUP) as Mailbox
+	crate = cat.crate_node()
+	_check(cleared and cat.has_crate() and cat.crate_items() == {&"feed": 20, &"nails": 11, &"rope": 1} and crate != null and crate.global_position.distance_to(crate_at) < 0.05
+			and tree.get_nodes_in_group(DeliveryCrate.GROUP).size() == 1 and box.flag_up() and cat.crate_waiting() and goals.is_up(&"collect"),
+			"catalog21: after the load: the crate where it stood with its goods, the flag up, the goal up")
+
+	# --- E takes what fits; the rest waits; the empty crate goes ---
+	var free_slot := -1
+	for i in inv.size():
+		if inv.slots[i] == null:
+			if free_slot < 0:
+				free_slot = i
+			else:
+				inv.slots[i] = ItemStack.create(&"stone", ItemDB.get_item(&"stone").max_stack)
+	inv.changed.emit()
+	player.global_position = stand
+	player.velocity = Vector3.ZERO
+	_look_at(player, crate_at + Vector3(0, 0.3, 0))
+	await _frames(10)
+	xp = Progress.xp
+	notes.clear()
+	bought.clear()
+	await _press_key(KEY_E)
+	await _seconds(1.2)
+	_check(free_slot >= 0 and inv.count_item(&"feed") == 20 and inv.count_item(&"nails") == 0 and inv.count_item(&"rope") == 0
+			and cat.crate_items() == {&"nails": 11, &"rope": 1} and is_instance_valid(crate) and crate.is_open() and notes.has(tr("MSG_CATALOG_CRATE_LEFT"))
+			and notes.has("+20x %s" % ItemDB.get_item(&"feed").display_name()),
+			"catalog21: E with one free slot in the bag: the feed is taken, the nails and the rope wait in the opened crate")
+	_check(not box.flag_up() and not cat.crate_waiting() and goals.done.has(&"collect") and Progress.xp == xp + int(CatalogGoals.XP[&"collect"])
+			and notes.has(tr("MSG_SIDE_DONE") % tr("SIDE_DONE_CATALOG_COLLECT")) and int(bought.get(&"feed", 0)) == 20,
+			"catalog21: looked into: the flag is down, the side goal is done (+%d XP), the feed counts as bought" % int(CatalogGoals.XP[&"collect"]))
+	for i in inv.size():
+		if inv.slots[i] != null and inv.slots[i].item.id == &"stone" and inv.slots[i].count == ItemDB.get_item(&"stone").max_stack:
+			inv.slots[i] = null
+	inv.changed.emit()
+	await _frames(6)
+	await _press_key(KEY_E)
+	await _seconds(1.6)
+	_check(inv.count_item(&"nails") == 11 and inv.count_item(&"rope") == 1 and not cat.has_crate() and cat.crate.is_empty() and cat.crate_node() == null
+			and tree.get_nodes_in_group(DeliveryCrate.GROUP).is_empty() and not is_instance_valid(crate),
+			"catalog21: with room in the bag the rest is taken and the empty crate is gone")
+	_check(cat.placed == 2 and cat.delivered == 1 and cat.collected == 2 and not SideStory.goals.has(card), "catalog21: both lessons done, no card left")
+
+	# --- Past midnight: the morning after; in the rain under a tarp; a waiting crate takes the next order too ---
+	GameClock.minute = 24.5 * 60.0
+	notes.clear()
+	var late := cat.place_order({&"feed": 5}) and int(cat.order["due"]) == 12 and notes.has(tr("MSG_CATALOG_ORDERED_LATE")) and cat.mornings_left() == 2
+	GameClock.day = 11
+	GameClock.set_time_of_day(12.0)
+	await _seconds(1.3)
+	var not_yet := not cat.has_crate() and cat.can_cancel() and cat.mornings_left() == 1
+	Weather.force(Weather.Kind.RAIN)
+	GameClock.day = 12
+	GameClock.minute = float(Catalog.POST_MINUTE + 1)
+	await _seconds(2.2)
+	crate = cat.crate_node()
+	_check(late and not_yet and cat.has_crate() and cat.crate_items() == {&"feed": 5} and crate != null and crate.has_tarp() and bool(cat.crate.get("tarp", false)),
+			"catalog21: written at 00:30 it comes the morning after (day 12), not the next one; in the rain the crate stands under a tarp")
+	if shots != "" and crate != null:
+		GameClock.set_time_of_day(7.4)
+		player.global_position = crate.global_position + Vector3(0.7, 0.1, 1.9)
+		player.velocity = Vector3.ZERO
+		_look_at(player, crate.global_position + Vector3(0, 0.35, 0))
+		await _zy_shot(shots, "delivery_crate_rain")
+	Weather.force(-1)
+	_check(cat.place_order({&"rope": 2}) and int(cat.order["due"]) == 13, "catalog21: another order while the crate waits")
+	GameClock.day = 13
+	GameClock.minute = float(Catalog.POST_MINUTE + 1)
+	await _seconds(2.2)
+	_check(cat.crate_items() == {&"feed": 5, &"rope": 2} and tree.get_nodes_in_group(DeliveryCrate.GROUP).size() == 1 and cat.crate_waiting(),
+			"catalog21: the next delivery goes into the crate still waiting there")
+	SaveGame.delete(slot)
+
+	# Put everything back.
+	Events.notification_requested.disconnect(on_note)
+	Events.item_bought.disconnect(on_bought)
+	await _close_screens()
+	cat.testing = false
+	for b: Node in tree.get_nodes_in_group(Mailbox.GROUP):
+		b.queue_free()
+	FarmState.placed.assign(kept_placed)
+	Mail.load_data(kept_mail)
+	PlayerState.load_data(kept_bag)
+	Progress.load_data(kept_progress)
+	Economy.money = kept_money
+	Events.money_changed.emit(Economy.money, 0)
+	GameClock.day = kept_day
+	GameClock.minute = kept_minute
+	Game.player.global_position = kept_pos
+	await _seconds(1.0)
+
+
+
+# --- The farm's name, its colours and its decorations (FarmIdentity) ----------------------------
+
+## ident21: the story's name goal comes right after Grandpa's tools (its dot on the board
+## at the entrance), the prompt opens with Grandpa's name and a few ideas, a typed name
+## goes on the board, a skipped prompt keeps the default, E renames; the name shows in the
+## save's header and slot card, the morning report, a letter, the shipping bin and the
+## contest board; an old save's farm has the default name. Paint: the market sells seven
+## colours, the run-down house takes none, the repaired one's walls (LMB) and trim (E), a
+## kit coop, the doghouse and the mailbox are painted (a can each), the quiet side goal
+## leads to the market, then the house, and is done by the first coat; the colours stay
+## through a coop's expansion, a house level and a save. Decorations: put down and picked
+## up, the bench gives a little energy (not twice in a row), the pennant flies the last
+## colour, the planter blooms for the season.
+func _scenario_ident21() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var farm: Farm = Game.world.farm
+	var board := FarmIdentity.board()
+	var works := FarmIdentity.works()
+	_check(board != null and works != null and board.is_inside_tree(), "Grandpa's name board stands at the farm's entrance")
+	var lane := Vector2(WorldLayout.HOUSE_DOOR_X, WorldLayout.HOUSE_FRONT_Z).distance_to(Vector2(board.global_position.x, board.global_position.z))
+	_check(lane < Quests.EXPLORE_NEAR and TerrainData.path_at(board.global_position.x, board.global_position.z) < 0.3
+			and WorldLayout.distance_to_road(board.global_position.x, board.global_position.z) > 20.0,
+			"a short walk from the house door (%.0f m), beside the track, not on it" % lane)
+
+	# (1) An old save: no name of its own, a bare board, and the story past the name goal.
+	for flag: String in [FarmIdentity.NAME_FLAG, FarmIdentity.NAMED_FLAG, FarmIdentity.PAINT_FLAG, FarmIdentity.LAST_PAINT_FLAG,
+			FarmIdentity.PRAISED_FLAG, FarmIdentity.PAINT_GOAL_FLAG, FarmIdentity.DECOR_HINT_FLAG]:
+		FarmState.flags.erase(flag)
+	FarmIdentity.notify_changed(&"name")
+	_check(FarmIdentity.farm_name() == tr("FARM_NAME_DEFAULT") and not FarmIdentity.is_named() and board.shown_name() == "",
+			"an old save's farm is called '%s' and its board is bare" % FarmIdentity.farm_name())
+	var story: Dictionary = Quests.save_data()
+	_check(Quests.index_of("farm_name") == Quests.index_of("tools") + 1 and Quests.CHAIN == 8
+			and int(Quests.TUTORIAL[Quests.index_of("farm_name")]["chapter"]) == int(Quests.TUTORIAL[Quests.index_of("tools")]["chapter"]),
+			"the name goal follows Grandpa's tools in the same chapter, the chain's format unchanged")
+	Quests.load_data({"chain": Quests.CHAIN, "id": "till", "count": 1, "orders": story["orders"], "next": story["next"]})
+	_check(Quests.current()["id"] == "till" and Quests.passed("farm_name"), "a save on the tilling is simply past it")
+
+	# (2) The goal: up when the worktable is bare, its dot over the board, a line saying where.
+	var all_taken: Array = []
+	for e: Array in ItemTable.STARTING_ITEMS:
+		all_taken.append(String(e[0]))
+	var table_was: Variant = FarmState.flags.get(FarmHouse.TABLE_FLAG)
+	Quests.step = Quests.index_of("tools")
+	Quests.step_count = 0
+	Quests.tally = {}
+	FarmState.flags[FarmHouse.TABLE_FLAG] = all_taken
+	Quests.tutorial_changed.emit()
+	Quests._poll = 0.0
+	await _idle_frames(3)
+	_check(Quests.current()["id"] == "farm_name", "Grandpa's tools taken: the farm's name is the next goal (%s)" % Quests.current().get("id", "-"))
+	Quests._wp_left = 0.0
+	await _idle_frames(3)
+	var dot: Variant = Quests.waypoint()
+	var dot_at: Vector3 = (dot as Node3D).global_position if dot is Node3D else (dot if dot is Vector3 else Vector3.INF)
+	_check(dot_at.distance_to(board.guide_point()) < 0.5 and Quests.goal_hint() == tr("HINT_NAME_BOARD")
+			and Quests.goal_text().begins_with(tr("QUEST_FARM_NAME")), "its dot floats over the board, the line under it says where it stands")
+	var stand := board.global_transform * Vector3(0.0, 0.0, 2.3)
+	player.global_position = Vector3(stand.x, TerrainData.height(stand.x, stand.z) + 0.2, stand.z)
+	await _frames(20)
+	_look_at(player, board.global_transform * Vector3(0.0, NameBoard.FACE_Y, 0.0))
+	await _seconds(0.3)
+	_check(_last_prompt.contains(tr("ACTION_NAME_FARM")) and _last_prompt.contains(tr("NAME_BOARD_TITLE")),
+			"looked at, the old board offers to write a name ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _seconds(0.4)
+	var naming := board.naming_screen()
+	_check(naming != null and naming.edit.text == tr("FARM_NAME_DEFAULT") and naming.edit.max_length == FarmIdentity.MAX_NAME
+			and FarmIdentity.name_ideas().size() >= 3, "E opens the naming prompt: Grandpa's name in the field, ideas under it, %d letters at most ('%s', %d ideas)"
+			% [FarmIdentity.MAX_NAME, naming.edit.text if naming else "-", FarmIdentity.name_ideas().size()])
+	var typed := "Gül Bahçesi Çiftliği"
+	if naming:
+		naming.edit.text = typed
+		naming.confirm()
+	Quests._poll = 0.0
+	await _idle_frames(4)
+	_check(FarmIdentity.farm_name() == typed and FarmIdentity.is_named() and board.shown_name() == UiTheme.caps(typed),
+			"the typed name is the farm's and stands on the board in capitals ('%s')" % board.shown_name())
+	_check(Quests.current()["id"] == "till", "the name on the board completes the goal: the soil is next (%s)" % Quests.current().get("id", "-"))
+	await _seconds(0.3)
+	_check(_last_prompt.contains(tr("ACTION_RENAME_FARM")) and _last_prompt.contains(typed), "the board now carries the name and offers to change it")
+	# A skipped prompt keeps Grandpa's name (and still counts as named).
+	FarmState.flags.erase(FarmIdentity.NAME_FLAG)
+	FarmState.flags.erase(FarmIdentity.NAMED_FLAG)
+	board.open_prompt()
+	await _idle_frames(3)
+	naming = board.naming_screen()
+	if naming:
+		naming.edit.text = ""
+		naming.hide_screen()
+	await _idle_frames(2)
+	_check(FarmIdentity.farm_name() == tr("FARM_NAME_DEFAULT") and FarmIdentity.is_named() and board.shown_name() == UiTheme.caps(tr("FARM_NAME_DEFAULT")),
+			"a skipped prompt keeps '%s' on the board" % tr("FARM_NAME_DEFAULT"))
+	# Renaming at the board, and a name too long for it.
+	board.open_prompt()
+	await _idle_frames(3)
+	naming = board.naming_screen()
+	var farm_name := "Yeşil Vadi Çiftliği"
+	if naming:
+		naming.edit.text = farm_name
+		naming.confirm()
+	await _idle_frames(2)
+	_check(FarmIdentity.farm_name() == farm_name and board.shown_name() == UiTheme.caps(farm_name), "E on the board renames the farm")
+	FarmIdentity.set_farm_name("A Very Long Name For A Farm Indeed It Is")
+	_check(FarmIdentity.farm_name().length() == FarmIdentity.MAX_NAME, "a name is cut to the board's %d letters" % FarmIdentity.MAX_NAME)
+	FarmIdentity.set_farm_name(farm_name)
+	await _close_screens()
+	Quests.load_data(story)
+	if table_was == null:
+		FarmState.flags.erase(FarmHouse.TABLE_FLAG)
+	else:
+		FarmState.flags[FarmHouse.TABLE_FLAG] = table_was
+
+	# (3) The name around the game.
+	var bin_line: FarmNameLabel = null
+	for c: Node in farm.get_node("ShippingBin").get_children():
+		if c is FarmNameLabel:
+			bin_line = c
+	_check(bin_line != null and bin_line.text == UiTheme.caps(farm_name), "the shipping bin's label carries the farm's name")
+	_check(FishingContest.entrant_name("player").contains(farm_name), "the contest board lists him with his farm (%s)" % FishingContest.entrant_name("player"))
+	Game.hud.sleep_screen._show_report({}, 0)
+	var report_has := false
+	for l: Node in Game.hud.sleep_screen.find_children("*", "Label", true, false):
+		report_has = report_has or (l as Label).text.contains(UiTheme.caps(farm_name))
+	_check(report_has, "the morning report is headed by the farm's name")
+	Mail.send("PERSON_GROCER", "MAIL_THANKS_1_TITLE", "MAIL_THANKS_1_BODY")
+	Game.hud.letter_screen.open_mail()
+	await _idle_frames(3)
+	var letter_has := false
+	for l: Node in Game.hud.letter_screen.find_children("*", "Label", true, false):
+		letter_has = letter_has or (l as Label).text == tr("MAIL_TO") % farm_name
+	_check(letter_has, "a letter is addressed to the farm by its name")
+	await _close_screens()
+	Game.hud.letter_screen.hide_screen()
+	var praised := [""]
+	var grocer: Townsperson = null
+	for n: Node in tree.get_nodes_in_group(&"interactable"):
+		if n is Townsperson and grocer == null:
+			grocer = n
+	if grocer:
+		FarmIdentity.greeted(grocer)
+		praised[0] = grocer._bubble.text
+		_check(praised[0] == tr("SAY_FARM_NAME") % farm_name, "the first townsperson greeted has a warm word for the name ('%s')" % praised[0])
+		grocer._bubble.text = ""
+		FarmIdentity.greeted(grocer)
+		_check(grocer._bubble.text == "", "only once")
+
+	# (4) Paint. The market sells the seven colours (and the decorations); a can is bought.
+	var stock: Array = ShopStock.town_market()["stock"]
+	var sold := 0
+	for c: StringName in FarmIdentity.COLOR_ORDER:
+		if FarmIdentity.paint_item(c) in stock and ResourceLoader.exists(ItemDB.ICON_DIR + String(FarmIdentity.paint_item(c)) + ".png"):
+			sold += 1
+	var decor_sold := 0
+	for id: StringName in FarmIdentity.DECOR:
+		if id in stock and ResourceLoader.exists(ItemDB.ICON_DIR + String(id) + ".png") and PlaceableTable.is_placeable(id):
+			decor_sold += 1
+	_check(sold == 7 and decor_sold == FarmIdentity.DECOR.size(), "the town market sells seven paints and %d decorations, each with its icon (%d, %d)" % [FarmIdentity.DECOR.size(), sold, decor_sold])
+	Economy.money = 500
+	var shop: ShopScreen = Game.hud.shop_screen
+	Game.hud.open_shop(ShopStock.town_market())
+	await _idle_frames(3)
+	for e: Dictionary in shop._entries():
+		if e["id"] == &"paint_brick":
+			shop._sel = e
+	shop._qty = 2
+	shop._confirm()
+	await _idle_frames(2)
+	shop.hide_screen()
+	await _close_screens()
+	_check(inv.count_item(&"paint_brick") == 2 and Economy.money == 500 - 2 * Economy.buy_price(&"paint_brick"),
+			"two cans of brick red bought at the counter ($%d each)" % Economy.buy_price(&"paint_brick"))
+	# The run-down house takes no paint; the quiet goal waits for its repair.
+	Quests.step = Quests.TUTORIAL.size()
+	works.testing = true
+	works._poll = 0.0
+	await _idle_frames(3)
+	_check(FarmState.house_level() == 0 and Painter.house_spec("house_walls").is_empty() and not works.goal_up(),
+			"a run-down house takes no paint, and the side goal is not up yet")
+	inv.remove_item(&"paint_brick", 2)
+	FarmState.built[&"house_1"] = true
+	FarmState.project_built.emit(&"house_1")
+	await _frames(6)
+	works._poll = 0.0
+	await _idle_frames(3)
+	var goal := works.goal()
+	var town := tree.get_first_node_in_group(&"town") as Town
+	_check(works.goal_up() and goal.text == tr("SIDE_GOAL_PAINT") and goal.quiet and goal.label == tr("UI_TOWN_MARKET")
+			and goal.point is Vector3 and (goal.point as Vector3).distance_to(town.market_counter.global_position) < 3.0,
+			"the house repaired: the quiet goal comes up, its dot on the town market ('%s')" % goal.text)
+	inv.set_stack(0, ItemStack.create(&"paint_brick", 2))
+	inv.set_stack(1, ItemStack.create(&"paint_cream", 1))
+	PlayerState.select(0)
+	works._poll = 0.0
+	await _idle_frames(3)
+	_check(goal.label == tr("SIDE_LABEL_HOUSE") and goal.hint == tr("SIDE_HINT_PAINT_HOUSE"), "a can in the bag: the dot moves to the house, the hint says how")
+	# The walls with LMB, from the yard.
+	var house: FarmHouse = Game.world.get_node("FarmHouse")
+	player.global_position = Vector3(-12.15, TerrainData.height(-12.15, -12.3) + 0.2, -12.3)
+	await _frames(20)
+	_look_at(player, Vector3(-12.15, 1.2, -14.5))
+	await _seconds(0.3)
+	_check(_last_prompt.contains(tr("ACTION_PAINT_WALLS")) and _last_prompt.contains(tr("ACTION_PAINT_TRIM")),
+			"a can in hand, the house wall offers its walls (LMB) and its trim (E) ('%s')" % _last_prompt.replace("\n", " | "))
+	var xp_had := Progress.xp
+	var level_had := Progress.level
+	await _hold_use(Painter.SECONDS + 0.5)
+	var wall_mesh := house.get_node("Mesh") as MeshInstance3D
+	_check(FarmIdentity.part_color("house_walls") == &"brick" and inv.count_item(&"paint_brick") == 1
+			and _ident21_wears(wall_mesh, &"planks_ext", &"brick") and not _ident21_wears(wall_mesh, &"paint_ext", &"brick"),
+			"brushed on: the walls are brick red, the trim as it was, one can used")
+	await _seconds(0.3)
+	_check(not _last_prompt.contains(tr("ACTION_PAINT_WALLS")), "the same colour again is not offered")
+	works._poll = 0.0
+	await _idle_frames(3)
+	_check(works.goal_done() and not works.goal_up() and (Progress.xp != xp_had or Progress.level != level_had),
+			"the first coat on the house completes the side goal (a little experience)")
+	# The trim with E.
+	PlayerState.select(1)
+	await _seconds(0.3)
+	_check(_last_prompt.contains(tr("ACTION_PAINT_TRIM")), "cream in hand: the trim is offered on E ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _seconds(0.3)
+	_check(FarmIdentity.part_color("house_trim") == &"cream" and FarmIdentity.part_color("house_walls") == &"brick"
+			and inv.count_item(&"paint_cream") == 0 and _ident21_wears(wall_mesh, &"paint_ext", &"cream")
+			and FarmIdentity.last_color() == &"cream", "E paints the trim cream: two colours on the house")
+	# A kit coop, the doghouse and the mailbox.
+	var ce := FarmState.add_placed(&"coop_kit", Vector3(35.0, TerrainData.height(35.0, -17.5), -17.5), 0.0)
+	var coop := farm.spawn_placed(ce) as ChickenCoop
+	var de := FarmState.add_placed(&"doghouse", Vector3(30.0, TerrainData.height(30.0, -6.0), -6.0), 0.0)
+	var kennel := farm.spawn_placed(de) as Doghouse
+	var me := FarmState.add_placed(&"mailbox", Vector3(27.0, TerrainData.height(27.0, -6.0), -6.0), 0.0)
+	var mailbox := farm.spawn_placed(me) as Mailbox
+	await _frames(6)
+	inv.set_stack(0, ItemStack.create(&"paint_sage", 1))
+	inv.set_stack(1, ItemStack.create(&"paint_sky", 1))
+	inv.set_stack(2, ItemStack.create(&"paint_mustard", 1))
+	PlayerState.select(0)
+	_check(Painter.complete_use(coop, PlayerState.selected_stack(), Painter.coop_spec(coop)) and FarmIdentity.entry_color(ce) == &"sage"
+			and inv.count_item(&"paint_sage") == 0 and _ident21_wears(_ident21_coop_mesh(coop), &"planks_ext", &"sage"),
+			"a kit coop's walls take a can of almond green (kept in its entry)")
+	# The doghouse by hand.
+	PlayerState.select(1)
+	var front := kennel.global_transform * Vector3(0.9, 0.0, 2.0)
+	player.global_position = Vector3(front.x, TerrainData.height(front.x, front.z) + 0.2, front.z)
+	await _frames(20)
+	_look_at(player, kennel.global_transform * Vector3(0.4, 0.45, PlaceableModels.DOGHOUSE_D * 0.5))
+	await _seconds(0.3)
+	_check(_last_prompt.contains(tr("ACTION_PAINT")), "the doghouse offers to be painted ('%s')" % _last_prompt.replace("\n", " | "))
+	await _hold_use(Painter.SECONDS + 0.5)
+	_check(FarmIdentity.entry_color(de) == &"sky" and inv.count_item(&"paint_sky") == 0
+			and _ident21_wears(kennel.get_node("Body") as MeshInstance3D, &"planks", &"sky"), "LMB paints the doghouse sky blue")
+	PlayerState.select(2)
+	_check(Painter.complete_use(mailbox, PlayerState.selected_stack()) and FarmIdentity.entry_color(me) == &"mustard"
+			and _ident21_wears(mailbox.get_node("Body") as MeshInstance3D, &"paint", &"mustard"), "the mailbox takes mustard")
+	inv.set_stack(0, ItemStack.create(&"paint_forest", 1))
+	PlayerState.select(0)
+	_check(Painter.complete_use(board, PlayerState.selected_stack()) and FarmIdentity.part_color("board_frame") == &"forest"
+			and _ident21_wears(board.get_node("Frame") as MeshInstance3D, &"paint", &"forest"), "the name board's frame takes deep green")
+	if grocer:
+		grocer._bubble.text = ""
+		FarmIdentity.greeted(grocer)
+		_check(grocer._bubble.text == tr("SAY_FARM_PAINT"), "a townsperson has a word for the fresh paint too")
+	# The colours stay through a coop's expansion and a house level.
+	Economy.money = 5000
+	var grew := coop.start_expansion()
+	coop.finish_expansion()
+	await _seconds(0.8)
+	_check(grew and coop.expansion() == 1 and _ident21_wears(_ident21_coop_mesh(coop), &"planks_ext", &"sage"),
+			"the coop made longer is still almond green")
+	FarmState.built[&"house_2"] = true
+	FarmState.project_built.emit(&"house_2")
+	await _seconds(0.8)
+	wall_mesh = house.get_node("Mesh") as MeshInstance3D
+	_check(house.level == 2 and _ident21_wears(wall_mesh, &"planks_ext", &"brick") and _ident21_wears(wall_mesh, &"paint_ext", &"cream"),
+			"the bigger house keeps its brick red walls and cream trim")
+
+	# (5) Decorations: put down by hand, picked back up; the bench, the pennant, the planter.
+	inv.set_stack(0, ItemStack.create(&"garden_bench", 1))
+	PlayerState.select(0)
+	works._poll = 0.0
+	await _idle_frames(3)
+	_check(bool(FarmState.flags.get(FarmIdentity.DECOR_HINT_FLAG, false)), "the first decoration in hand brings its one-line hint")
+	var spot := Vector3(20.0, 0.0, -8.0)
+	player.global_position = Vector3(spot.x, TerrainData.height(spot.x, spot.z) + 0.3, spot.z + 3.2)
+	player.look_at_yaw_pitch(0.0, deg_to_rad(-38.0))
+	await _frames(8)
+	_check(player.placer.active and player.placer.valid, "the bench in hand shows a valid preview (%s)" % player.placer.reason)
+	var placed_before := FarmState.placed.size()
+	_check(player.placer.place() and FarmState.placed.size() == placed_before + 1 and inv.count_item(&"garden_bench") == 0, "the bench is put down")
+	await _frames(3)
+	var bench: Decor = null
+	for n: Node in tree.get_nodes_in_group(&"placed"):
+		if n is Decor and (n as Decor).item_id == &"garden_bench":
+			bench = n
+	_check(bench != null and bench.interact_prompt(player) == tr("ACTION_SIT"), "it is a bench to sit on (E)")
+	PlayerState.needs.energy = 50.0
+	bench.sit(player)
+	await _idle_frames(2)
+	_check(bench.is_resting() and Game.is_ui_open() and not Game.is_paused(), "E sits the farmer down (the game goes on)")
+	await _seconds(Decor.REST_SECONDS + 0.6)
+	_check(not bench.is_resting() and not Game.is_ui_open() and is_equal_approx(PlayerState.needs.energy, 50.0 + Decor.REST_ENERGY),
+			"a moment's rest gives a little energy (%.0f)" % PlayerState.needs.energy)
+	bench.sit(player)
+	await _seconds(Decor.REST_SECONDS + 0.6)
+	_check(is_equal_approx(PlayerState.needs.energy, 50.0 + Decor.REST_ENERGY) and not bench.rest_ready(), "but not twice in a row")
+	bench.info_interact(player)
+	await _frames(3)
+	_check(inv.count_item(&"garden_bench") == 1 and FarmState.placed.size() == placed_before, "F takes the bench back into the bag")
+	var pole := farm.spawn_placed(FarmState.add_placed(&"flag_pole", Vector3(22.0, TerrainData.height(22.0, -9.0), -9.0), 0.0)) as Decor
+	var pot := farm.spawn_placed(FarmState.add_placed(&"flower_pot", Vector3(23.5, TerrainData.height(23.5, -9.0), -9.0), 0.0)) as Decor
+	var crow := farm.spawn_placed(FarmState.add_placed(&"scarecrow", Vector3(25.0, TerrainData.height(25.0, -9.0), -9.0), 0.0))
+	var bath := farm.spawn_placed(FarmState.add_placed(&"bird_bath", Vector3(26.5, TerrainData.height(26.5, -9.0), -9.0), 0.0))
+	await _frames(4)
+	_check(pole != null and pole.pennant_color() == &"forest" and pot != null and pot.flower_season() == GameClock.get_season()
+			and crow is Decor and bath is Decor, "the pennant flies the last colour used (deep green), the planter blooms for the season")
+
+	# (6) Saved and loaded: the name, every colour and the decorations.
+	var slot := "slot_2"
+	var clock_ran := GameClock.running
+	GameClock.running = false
+	_check(SaveGame.save(slot) and String(SaveGame.info(slot).get("farm_name", "")) == farm_name, "the save's header carries the farm's name")
+	Game.hud.open_saves("load")
+	await _idle_frames(3)
+	var card_has := false
+	for l: Node in Game.hud.save_screen.find_children("*", "Label", true, false):
+		card_has = card_has or (l as Label).text == farm_name
+	_check(card_has, "the slot's card shows it")
+	Game.hud.save_screen.hide_screen()
+	await _close_screens()
+	FarmIdentity.set_farm_name("Something Else")
+	FarmState.flags.erase(FarmIdentity.PAINT_FLAG)
+	ce.erase("paint")
+	_check(SaveGame.load_game(slot), "loading %s started" % slot)
+	await _until_loaded()
+	await _seconds(0.8)
+	GameClock.running = clock_ran
+	farm = Game.world.farm
+	board = FarmIdentity.board()
+	house = Game.world.get_node("FarmHouse")
+	wall_mesh = house.get_node("Mesh") as MeshInstance3D
+	var coops: Array[ChickenCoop] = farm.kit_coops()
+	var kennel_ok := false
+	var decor_back := 0
+	for n: Node in tree.get_nodes_in_group(&"placed"):
+		if n is Doghouse:
+			kennel_ok = _ident21_wears((n as Doghouse).get_node("Body") as MeshInstance3D, &"planks", &"sky")
+		if n is Decor:
+			decor_back += 1
+	_check(FarmIdentity.farm_name() == farm_name and board.shown_name() == UiTheme.caps(farm_name), "loaded: the board carries the name again")
+	_check(_ident21_wears(wall_mesh, &"planks_ext", &"brick") and _ident21_wears(wall_mesh, &"paint_ext", &"cream")
+			and coops.size() == 1 and _ident21_wears(_ident21_coop_mesh(coops[0]), &"planks_ext", &"sage") and kennel_ok
+			and _ident21_wears(board.get_node("Frame") as MeshInstance3D, &"paint", &"forest"),
+			"the house, the longer coop, the doghouse and the board's frame wear their colours")
+	_check(decor_back == 4 and FarmIdentity.works().goal_done(), "the decorations stand where they were; the side goal stays done")
+	SaveGame.delete(slot)
+
+
+## Whether the surface of `mi` made of material `key` wears a coat of `color` (Painter).
+func _ident21_wears(mi: MeshInstance3D, key: StringName, color: StringName) -> bool:
+	if mi == null or mi.mesh == null:
+		return false
+	for i in mi.mesh.get_surface_count():
+		if mi.mesh.surface_get_material(i) == Mats.get_mat(key):
+			return mi.get_surface_override_material(i) == Painter.painted(key, color)
+	return false
+
+
+## A finished kit coop's house mesh.
+func _ident21_coop_mesh(coop: ChickenCoop) -> MeshInstance3D:
+	var s := Painter.coop_spec(coop)
+	return s["meshes"][0] as MeshInstance3D if not s.is_empty() and not (s["meshes"] as Array).is_empty() else null
+
+
+
+
+# --- The farmer's own fences, pastures and lantern posts (round 21) -----------------------------
+
+## fence21: the spot dict FencePlacing works with for a piece from `a` to `b`.
+func _fence21_spot(a: Vector3, b: Vector3) -> Dictionary:
+	a.y = TerrainData.height(a.x, a.z)
+	b.y = TerrainData.height(b.x, b.z)
+	return {"a": a, "b": b, "len": _flat_dist(a, b), "yaw": atan2(-(b.z - a.z), b.x - a.x), "pos": (a + b) * 0.5,
+		"from": Vector3.INF, "closed": false}
+
+
+## fence21: a piece `id` standing from `a` to `b` (put down as FencePlacing.place does).
+func _fence21_put(id: StringName, a: Vector3, b: Vector3) -> FencePiece:
+	var at := _fence21_spot(a, b)
+	var e := FarmState.add_placed(id, at["pos"], float(at["yaw"]))
+	e["len"] = float(at["len"])
+	return Game.world.farm.spawn_placed(e) as FencePiece
+
+
+## fence21: the pieces round the rectangle `r` (x, z), 2 m each, the one at index `gate`
+## a gate, those in `skip` left out. Returns them in order.
+func _fence21_ring(r: Rect2, gate: int, skip: Array = []) -> Array[FencePiece]:
+	var out: Array[FencePiece] = []
+	var corners: Array[Vector2] = [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]
+	var k := 0
+	for s in 4:
+		var a := corners[s]
+		var b := corners[(s + 1) % 4]
+		var n := roundi(a.distance_to(b) / 2.0)
+		for i in n:
+			var p := a.lerp(b, float(i) / n)
+			var q := a.lerp(b, float(i + 1) / n)
+			if k not in skip:
+				out.append(_fence21_put(&"fence_gate" if k == gate else &"fence_panel", Vector3(p.x, 0, p.y), Vector3(q.x, 0, q.y)))
+			k += 1
+	return out
+
+
+## fence21: whether every piece round `r` would fit (FencePlacing.check).
+func _fence21_fits(player: Player, r: Rect2) -> bool:
+	var corners: Array[Vector2] = [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]
+	for s in 4:
+		var a := corners[s]
+		var b := corners[(s + 1) % 4]
+		var n := roundi(a.distance_to(b) / 2.0)
+		for i in n:
+			var p := a.lerp(b, float(i) / n)
+			var q := a.lerp(b, float(i + 1) / n)
+			if FencePlacing.check(player, &"fence_panel", _fence21_spot(Vector3(p.x, 0, p.y), Vector3(q.x, 0, q.y))) != "":
+				return false
+	return true
+
+
+## fence21: nothing that is put down in hand (the placing preview off): an empty slot of
+## the hotbar when there is one.
+func _fence21_free_hand() -> void:
+	var pick := -1
+	for i in PlayerState.HOTBAR_SIZE:
+		var st := PlayerState.inventory.get_stack(i)
+		if st == null:
+			pick = i
+			break
+		if pick < 0 and not PlaceableTable.is_placeable(st.item.id):
+			pick = i
+	if pick >= 0:
+		PlayerState.select(pick)
+
+
+## fence21: the pasture's side goals looked at again now (a goal done makes room for the
+## next one a moment later: twice).
+func _fence21_goals() -> void:
+	for i in 2:
+		Pastures.goals._poll = 0.0
+		await _idle_frames(3)
+
+
+## fence21: E held on what the farmer looks at for `seconds`.
+func _fence21_hold_e(seconds: float) -> void:
+	var down := InputEventKey.new()
+	down.physical_keycode = KEY_E
+	down.pressed = true
+	Input.parse_input_event(down)
+	await _seconds(seconds)
+	var up := down.duplicate() as InputEventKey
+	up.pressed = false
+	Input.parse_input_event(up)
+	await _frames(3)
+
+
+## Round 21, the farmer's own fences: panels, a gate and a lantern post made at the
+## workbench; a panel put down free, the next snapped to its post, a run laid with LMB
+## held, a run up a slope; spots that are refused; a loop recognised as a pasture only
+## once it is closed and has a gate; an animal let go inside stays, grazes (happier, well
+## grazed: hungry slower) and leaves only on the halter; the barn's animals walk out into a
+## pasture at their gateway and home at dusk; pieces taken up again; the lantern lit at
+## dusk, a wolf kept off it, a night slept through counting only a fully lit pasture as
+## safe; the side goals; the save. -- --fence-shots=/abs/dir saves three pictures.
+func _scenario_fence21() -> void:
+	await _close_screens()
+	var farm: Farm = Game.world.farm
+	var player: Player = Game.player
+	var inv := PlayerState.inventory
+	var hand := player.handler
+	if player.driving:
+		player.exit_vehicle()
+	if player.riding:
+		player.dismount()
+	var shots := String(DebugTools.args.get("fence-shots", ""))
+	Economy.add_money(5000, "test")
+	GameClock.set_time_of_day(10.0)
+	GameClock.running = false
+	Weather.force(Weather.Kind.SUNNY)
+	if not FarmState.is_built(&"barn_1"):
+		FarmState.built[&"barn_1"] = true
+		FarmState.project_built.emit(&"barn_1")
+	await _frames(5)
+	var barn := farm.barn
+	barn.set_level(1)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var ground := func(p: Vector3) -> Vector3: return Vector3(p.x, TerrainData.height(p.x, p.z), p.z)
+	var goals := Pastures.goals
+	goals.testing = true
+	FarmState.flags.erase(PastureGoals.FLAG)
+
+	# (1) The side goals wait for an animal that grazes; with a sheep, Grandpa's note.
+	goals._poll = 0.0
+	await _idle_frames(3)
+	_check(goals.goal() == null or not SideStory.goals.has(goals.goal()), "no pasture goal before he has an animal that grazes")
+	var sheep := Animals._add(&"sheep", true, "Pamuk", barn)
+	var other := Animals._add(&"sheep", true, "Bulut", barn)
+	await _frames(10)
+	var sheep_n := Animals.node_of(sheep)
+	var other_n := Animals.node_of(other)
+	goals._poll = 0.0
+	await _idle_frames(3)
+	_check(goals.is_up(&"craft") and notes.has(tr("MSG_PASTURE_NOTE")) and goals.goal().needs.contains("0/%d" % PastureGoals.PANELS)
+			and goals.goal().quiet, "with a sheep: Grandpa's note and the goal to make %d panels and a gate (%s)" % [PastureGoals.PANELS, goals.goal().needs if goals.goal() else "-"])
+
+	# (2) Made at the workbench.
+	var screen: CraftingScreen = Game.hud.crafting_screen
+	for id: StringName in [&"fence_panel", &"fence_gate", &"lantern_post"]:
+		var item := ItemDB.get_item(id)
+		_check(item != null and item.icon != null and item.display_name() != "ITEM_%s" % String(id).to_upper() and item.description() != ""
+				and id in RecipeTable.CRAFT_ORDER and ItemModels.mesh(id) != null and ItemModels.mesh(id).get_surface_count() > 0,
+				"%s: an item with its icon, name, description, recipe and model" % id)
+	for i in 5:
+		inv.remove_item(&"fence_panel", 99)
+	inv.add_item(&"wood", 60)
+	inv.add_item(&"nails", 40)
+	inv.add_item(&"iron_ore", 3)
+	inv.add_item(&"rope", 3)
+	var wood := inv.count_item(&"wood")
+	_check(screen.craft(&"fence_panel") and inv.count_item(&"fence_panel") == 2 and inv.count_item(&"wood") == wood - 3,
+			"a batch of panels: two from three wood and two nails")
+	for i in 3:
+		screen.craft(&"fence_panel")
+	_check(screen.craft(&"fence_gate") and inv.count_item(&"fence_gate") == 1, "a gate from wood and nails")
+	_check(screen.craft(&"lantern_post") and screen.craft(&"lantern_post") and inv.count_item(&"lantern_post") == 2,
+			"lantern posts from wood, a little iron and a rope")
+	await _fence21_goals()
+	_check(goals.is_done(&"craft") and goals.is_up(&"fence") and goals.goal().point is Vector3
+			and _flat_dist(goals.goal().point, WorldLayout.gate_point(WorldLayout.BARN_PEN, WorldLayout.BARN_GATE, PastureGoals.SPOT_OUT)) < 0.1,
+			"eight panels and a gate made: the next goal is to set them out, its dot by the barn pen's gateway")
+
+	# (3) A place for the test pasture: a clear 8 x 6 m of open ground.
+	var plot := Rect2()
+	for c: Vector2 in [Vector2(40, -21), Vector2(44, -21), Vector2(48, -21), Vector2(64, 0), Vector2(64, -16), Vector2(30, -18), Vector2(-28, 4),
+			Vector2(14, -40), Vector2(40, -32), Vector2(20, -36), Vector2(-20, -40), Vector2(48, -34), Vector2(66, -24), Vector2(-40, 30)]:
+		if _fence21_fits(player, Rect2(c, Vector2(8, 6))):
+			plot = Rect2(c, Vector2(8, 6))
+			break
+	_check(plot.size.x > 0.0, "found open ground for a pasture (%s)" % plot)
+	if plot.size.x <= 0.0:
+		Events.notification_requested.disconnect(on_note)
+		return
+	var nw := ground.call(Vector3(plot.position.x, 0, plot.position.y)) as Vector3
+
+	# (4) The first panel lies free where he looks; the next snaps to its post.
+	_select(&"fence_panel")
+	FencePlacing.last_end = Vector3.INF
+	player.placer._yaw = 0.0
+	player.global_position = ground.call(nw + Vector3(1.0, 0, 3.2)) + Vector3(0, 0.1, 0)
+	_look_at(player, nw + Vector3(1.0, 0.0, 0.0))
+	await _frames(8)
+	var free_spot: Dictionary = FencePlacing.spot.duplicate()
+	_check(player.placer.active and player.placer.valid and (free_spot["from"] as Vector3) == Vector3.INF
+			and _flat_dist(free_spot["pos"], nw + Vector3(1.0, 0, 0)) < 0.3 and _last_prompt.contains(tr("HINT_FENCE_RUN")),
+			"a panel in hand: a green preview lying free where he looks, the prompt says how a run is laid (%s)" % player.placer.reason)
+	var placed_before := FarmState.placed.size()
+	await _press_mouse_use()
+	await _frames(3)
+	var first: FencePiece = null
+	for fp in Pastures.pieces():
+		first = fp
+	_check(FarmState.placed.size() == placed_before + 1 and first != null and inv.count_item(&"fence_panel") == 7
+			and absf(first.span() - 2.0) < 0.01, "LMB puts it down: on the farm, saved, one fewer in the bag")
+	var end_b := first.ends()[1]
+	_look_at(player, end_b + Vector3(1.4, 0.0, -0.5))
+	await _frames(8)
+	var snap: Dictionary = FencePlacing.spot.duplicate()
+	_check(player.placer.valid and _flat_dist(snap["a"], end_b) < 0.01 and absf(float(snap["len"]) - 2.0) < 0.01,
+			"the next one's preview starts exactly at the last post (%.2f m off)" % _flat_dist(snap["a"], end_b))
+	if shots != "":
+		player.global_position = ground.call(nw + Vector3(2.4, 0, 3.6)) + Vector3(0, 0.1, 0)
+		_look_at(player, end_b + Vector3(1.4, 0.0, 0.0))
+		await _frames(6)
+		await _shot(shots.path_join("fence_ghost_snap.png"))
+	_look_at(player, end_b + Vector3(1.5, 0.0, 0.0))
+	await _frames(6)
+	await _press_mouse_use()
+	await _frames(4)
+	var second: FencePiece = null
+	for fp in Pastures.pieces():
+		if fp != first:
+			second = fp
+	await _idle_frames(3)
+	_check(second != null and _flat_dist(second.ends()[0], end_b) < 0.01 and absf(second.rotation.y) < 0.01
+			and int(first._posts[1]) + int(second._posts[0]) == 1,
+			"put down end to end along the first, the post they share drawn once")
+
+	# (5) LMB held while walking lays a run.
+	var run_before := Pastures.pieces().size()
+	inv.add_item(&"fence_panel", 6)
+	_select(&"fence_panel")
+	# He walks on ahead along the line looking down at it, LMB held: the fence follows him.
+	var tip := FencePlacing.last_end
+	player.global_position = ground.call(Vector3(tip.x + 2.8, 0, tip.z)) + Vector3(0, 0.1, 0)
+	player.look_at_yaw_pitch(-PI * 0.5, -PI * 0.25)
+	await _frames(6)
+	await _idle_frames(2)
+	await _frames(4)
+	Input.action_press("use")
+	await _frames(2)
+	var clicked := Pastures.pieces().size() - run_before
+	Input.action_press("move_forward")
+	for i in 60:
+		await _frames(3)
+		if Pastures.pieces().size() >= run_before + 2:
+			break
+	Input.action_release("move_forward")
+	Input.action_release("use")
+	await _frames(3)
+	var run_now := Pastures.pieces().size()
+	var straight := true
+	var laid := ""
+	var line := first.ends()[0]
+	for fp in Pastures.pieces():
+		straight = straight and absf(fp.ends()[0].z - line.z) < 0.05 and absf(fp.ends()[1].z - line.z) < 0.05
+		laid += " [%.2f,%.2f > %.2f,%.2f]" % [fp.ends()[0].x, fp.ends()[0].z, fp.ends()[1].x, fp.ends()[1].z]
+	_check(clicked == 1 and run_now >= run_before + 2 and straight and _flat_dist(FencePlacing.last_end, line + Vector3(2.0 * run_now, 0, 0)) < 0.05,
+			"LMB held as he walks on: the run follows him post to post in a line (%d by the click, %d more by holding, straight %s, its end %s:%s)" % [
+			clicked, run_now - run_before - clicked, straight, FencePlacing.last_end, laid])
+	# The test's own ring replaces what was laid by hand.
+	for fp in Pastures.pieces():
+		FarmState.remove_placed(fp.entry)
+		fp.queue_free()
+	FencePlacing.last_end = Vector3.INF
+	await _frames(3)
+
+	# (6) Refused: the water, the road, a field, a building, inside the pen, on another piece.
+	var pond := WorldLayout.POND_CENTER
+	var road: Vector2 = WorldLayout.ROAD_POINTS[2]
+	var lot: Rect2 = WorldLayout.FIELD_LOTS[&"field_0"]["rect"]
+	var house := WorldLayout.house_rect(FarmState.house_level()).get_center()
+	var bp := WorldLayout.BARN_PEN.get_center()
+	var why_pond := FencePlacing.check(player, &"fence_panel", _fence21_spot(Vector3(pond.x - 1, 0, pond.y), Vector3(pond.x + 1, 0, pond.y)))
+	var why_road := FencePlacing.check(player, &"fence_panel", _fence21_spot(Vector3(road.x - 1, 0, road.y), Vector3(road.x + 1, 0, road.y)))
+	var why_field := FencePlacing.check(player, &"fence_panel", _fence21_spot(Vector3(lot.get_center().x - 1, 0, lot.get_center().y), Vector3(lot.get_center().x + 1, 0, lot.get_center().y)))
+	var why_house := FencePlacing.check(player, &"fence_panel", _fence21_spot(Vector3(house.x - 1, 0, house.y), Vector3(house.x + 1, 0, house.y)))
+	var why_pen := FencePlacing.check(player, &"fence_panel", _fence21_spot(Vector3(bp.x - 1, 0, bp.y + 6), Vector3(bp.x + 1, 0, bp.y + 6)))
+	_check(why_pond == "MSG_PLACE_WATER" and why_road == "MSG_FENCE_FARM_ONLY" and why_field != "" and why_house != "" and why_pen != "",
+			"refused in the pond, on the road, in a field, through the house and inside the barn's pen (%s / %s / %s / %s / %s)" % [why_pond, why_road, why_field, why_house, why_pen])
+	var solid := _fence21_put(&"fence_panel", nw, nw + Vector3(2, 0, 0))
+	await _frames(3)
+	var why_same := FencePlacing.check(player, &"fence_panel", _fence21_spot(nw, nw + Vector3(2, 0, 0)))
+	var why_cross := FencePlacing.check(player, &"fence_panel", _fence21_spot(nw + Vector3(1, 0, -1), nw + Vector3(1, 0, 1)))
+	_check(why_same == "MSG_PLACE_BLOCKED" and why_cross == "MSG_PLACE_BLOCKED", "refused on top of a piece and across one")
+	_select(&"fence_panel")
+	player.global_position = ground.call(nw + Vector3(1.0, 0, 3.0)) + Vector3(0, 0.1, 0)
+	FencePlacing.last_end = Vector3.INF
+	player.placer._yaw = PI * 0.5
+	_look_at(player, nw + Vector3(1.0, 0.0, 0.0))
+	await _frames(8)
+	var n_before := Pastures.pieces().size()
+	var red := not player.placer.valid
+	await _press_mouse_use()
+	await _frames(3)
+	_check(Pastures.pieces().size() == n_before, "a red preview puts nothing down (%s, red %s)" % [player.placer.reason, red])
+	player.placer._yaw = 0.0
+	FarmState.remove_placed(solid.entry)
+	solid.queue_free()
+	await _frames(3)
+
+	# (7) Up a slope: the posts stand on the ground at both ends, the rails follow it.
+	var hill := Vector3.INF
+	for ring: float in [70.0, 78.0, 62.0, 84.0, 54.0]:
+		for i in 48:
+			var ang := TAU * i / 48.0
+			var c := Vector3(cos(ang) * ring, 0, sin(ang) * ring)
+			var fits := true
+			for k in 3:
+				var at := _fence21_spot(c + Vector3(2.0 * k, 0, 0), c + Vector3(2.0 * k + 2.0, 0, 0))
+				var rise := absf((at["b"] as Vector3).y - (at["a"] as Vector3).y)
+				fits = fits and rise > 0.18 and rise < 0.9 and FencePlacing.check(player, &"fence_panel", at) == ""
+			if fits:
+				hill = c
+				break
+		if hill != Vector3.INF:
+			break
+	_check(hill != Vector3.INF, "found a slope for a run of three panels (%s)" % hill)
+	if hill != Vector3.INF:
+		var slope_ok := true
+		var climb := 0.0
+		var run: Array[FencePiece] = []
+		for k in 3:
+			run.append(_fence21_put(&"fence_panel", hill + Vector3(2.0 * k, 0, 0), hill + Vector3(2.0 * k + 2.0, 0, 0)))
+		await _frames(4)
+		for fp in run:
+			var e := fp.ends()
+			var box := (fp._mesh.mesh as ArrayMesh).get_aabb()
+			climb += absf(fp.rise())
+			# (A post shared with the piece before stands in that one's mesh.)
+			slope_ok = slope_ok and absf(e[0].y - TerrainData.height(e[0].x, e[0].z)) < 0.001 and absf(fp.rise()) > 0.18 \
+					and box.size.y > FenceModels.POST + (absf(fp.rise()) * 0.8 if fp == run[0] else 0.0) \
+					and absf(fp._block.transform.basis.get_euler().z - atan2(fp.rise(), fp.span())) < 0.01 \
+					and absf(fp.global_position.y - (e[0].y + e[1].y) * 0.5) < 0.01
+		_check(slope_ok and _flat_dist(run[0].ends()[1], run[1].ends()[0]) < 0.01,
+				"a run up a slope: every post on the ground, the rails climbing with it (%.2f m over three panels; rise %.2f, mesh %.2f tall, y %.3f / %.3f)" % [
+				climb, run[0].rise(), (run[0]._mesh.mesh as ArrayMesh).get_aabb().size.y, run[0].global_position.y, (run[0].ends()[0].y + run[0].ends()[1].y) * 0.5])
+		var steep := _fence21_spot(hill, hill + Vector3(2, 0, 0))
+		steep["b"] = (steep["b"] as Vector3) + Vector3(0, 2.0, 0)
+		_check(FencePlacing.check(player, &"fence_panel", steep) == "MSG_PLACE_FLAT", "too steep a bank is refused")
+		for fp in run:
+			FarmState.remove_placed(fp.entry)
+			fp.queue_free()
+		await _frames(3)
+
+	# (8) A loop: open it is no pasture, closed without a gate neither, with a gate it is.
+	notes.clear()
+	var ring_pieces := _fence21_ring(plot, -1, [13])
+	await _frames(3)
+	await _idle_frames(3)
+	_check(Pastures.pieces().size() == 13 and Pastures.pastures.is_empty(), "thirteen panels round, one gap left: not a pasture yet")
+	var last := _fence21_put(&"fence_panel", nw + Vector3(0, 0, 2), nw)
+	await _frames(3)
+	await _idle_frames(3)
+	_check(Pastures.pastures.is_empty() and not notes.has(tr("MSG_PASTURE_RECOGNISED") % [tr("PASTURE_NAME"), 48]),
+			"closed with a panel: a ring with no gate is not a pasture either")
+	var bag := inv.count_item(&"fence_panel")
+	_check(last.pick_up() and inv.count_item(&"fence_panel") == bag + 1 and not FarmState.placed.has(last.entry), "the panel taken up again: back in the bag")
+	await _frames(3)
+	# The gate by hand: from the run's end toward the other post, it closes onto it.
+	_select(&"fence_gate")
+	FencePlacing.last_end = ground.call(nw + Vector3(0, 0, 2))
+	player.global_position = ground.call(nw + Vector3(3.0, 0, 1.2)) + Vector3(0, 0.1, 0)
+	_look_at(player, nw + Vector3(0.0, 0.0, 0.3))
+	await _frames(8)
+	var closing: Dictionary = FencePlacing.spot.duplicate()
+	_check(player.placer.valid and bool(closing.get("closed", false)) and _flat_dist(closing["b"], nw) < 0.01,
+			"the gate's preview from the run's end closes onto the first post (%s)" % player.placer.reason)
+	await _press_mouse_use()
+	await _frames(4)
+	await _idle_frames(3)
+	var gate: FencePiece = null
+	for fp in Pastures.pieces():
+		if fp.is_gate():
+			gate = fp
+	_check(gate != null and Pastures.pastures.size() == 1, "with the gate in, the loop is a pasture")
+	if Pastures.pastures.is_empty() or gate == null:
+		Events.notification_requested.disconnect(on_note)
+		return
+	var mera: Dictionary = Pastures.pastures[0]
+	var board: Node3D = null
+	for n in tree.get_nodes_in_group(&"pasture_signs"):
+		if not n.is_queued_for_deletion():
+			board = n
+	var board_text := (board.get_child(1) as Label3D).text if board and board.get_child_count() > 1 else ""
+	_check(absf(float(mera["area"]) - 48.0) < 0.5 and (mera["posts"] as Array).size() == 14 and (mera["gates"] as Array) == [gate]
+			and notes.has(tr("MSG_PASTURE_RECOGNISED") % [tr("PASTURE_NAME"), 48]) and board_text.contains("48 m²")
+			and Pastures._holder.get_node_or_null("PastureFlash") != null and not bool(mera["barn"]) and not bool(mera["covered"]),
+			"recognised: 48 m², a note, the posts flash green, a board on the gate post says its size ('%s')" % board_text.replace("\n", " / "))
+	await _fence21_goals()
+	_check(goals.is_done(&"fence") and goals.is_up(&"graze"), "the goal moves on: lead an animal in")
+
+	# (9) The gate: E swings it; shut, the way is barred; open, it is free.
+	var inside := ground.call(Vector3(plot.get_center().x, 0, plot.get_center().y)) as Vector3
+	var gate_mid := gate.global_position
+	var through := func() -> bool:
+		var q := PhysicsRayQueryParameters3D.create(gate_mid + Vector3(-1.2, 0.45, 0), gate_mid + Vector3(1.2, 0.45, 0), 1)
+		return player.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
+	_check(not gate.is_open() and not through.call(), "the gate shut: nobody walks through (nor an animal on the halter)")
+	player.global_position = ground.call(gate_mid + Vector3(1.6, 0, 0)) + Vector3(0, 0.1, 0)
+	_look_at(player, gate_mid + Vector3(0, 0.7, 0))
+	await _frames(8)
+	_check(player.target == gate and _last_prompt.contains("%s (%s)" % [tr("KEY_E"), tr("ACTION_OPEN")]) and _last_prompt.contains(tr("HINT_FENCE_HOLD")),
+			"aimed at the gate: E opens it, E held takes it up ('%s')" % _last_prompt.replace("\n", " | "))
+	await _press_key(KEY_E)
+	await _seconds(0.9)
+	_check(gate.is_open() and bool(gate.entry.get("open", false)) and through.call() and Pastures.pastures.size() == 1,
+			"E swings it open: the way is free, it is still a pasture")
+
+	# (10) An animal let go inside stays and grazes; it leaves only on the halter.
+	barn.feed.set_amount(0.0)
+	barn.water.set_amount(0.0)
+	for a: AnimalData in [sheep, other]:
+		a.fullness = 70.0
+		a.hydration = 60.0
+		a.happiness = 50.0
+	# (Brought in on the halter: set down there by the test, it is led from the first tick.)
+	player.global_position = inside + Vector3(1.6, 0.1, 0)
+	await _frames(3)
+	sheep_n.global_position = inside
+	sheep_n.reset_physics_interpolation()
+	hand.lead(sheep_n)
+	await _frames(3)
+	_check(hand.led == sheep_n and _flat_dist(sheep_n.global_position, inside) < 0.5, "the sheep on the halter, inside the pasture")
+	notes.clear()
+	hand.let_go()
+	await _frames(5)
+	_check(Pastures.is_grazing(sheep_n) and sheep.away and sheep_n.state != Animal.State.RETURN and not notes.is_empty(),
+			"let go inside: it stays (no walking home), with a word about it (grazing %s, away %s, %s, notes %s, in a pasture %s, at %s)" % [
+			Pastures.is_grazing(sheep_n), sheep.away, Animal.State.keys()[sheep_n.state], notes, not Pastures.pasture_at(sheep_n.global_position).is_empty(), sheep_n.global_position])
+	gate.set_open(false, true)
+	# (He steps away: an animal he aims at stands still for him.)
+	player.global_position = ground.call(inside + Vector3(0, 0, 7.0)) + Vector3(0, 0.1, 0)
+	player.look_at_yaw_pitch(PI, 0.0)
+	var escaped := false
+	var grazed := false
+	var moved := 0.0
+	var was := sheep_n.global_position
+	Engine.time_scale = 6.0
+	for i in 160:
+		await _seconds(0.25)
+		var at := sheep_n.global_position
+		escaped = escaped or Pastures.depth(mera, at) < 0.3
+		grazed = grazed or sheep_n.state == Animal.State.GRAZE
+		moved += _flat_dist(at, was)
+		was = at
+	Engine.time_scale = 1.0
+	_check(not escaped and grazed and moved > 2.0 and sheep.away, "it wanders and grazes within the fence (%.1f m walked, out %s, grazed %s)" % [moved, escaped, grazed])
+	if shots != "":
+		var extra := Animals._add(&"sheep", true, "Kuzucuk", barn)
+		await _frames(5)
+		var extra_n := Animals.node_of(extra)
+		for pair: Array in [[other_n, Vector3(-2.0, 0, 1.0)], [extra_n, Vector3(1.8, 0, -1.2)]]:
+			(pair[0] as Animal).global_position = ground.call(inside + (pair[1] as Vector3))
+			(pair[0] as Animal).reset_physics_interpolation()
+			(pair[0] as Animal).end_lead()
+		sheep_n._set_state(Animal.State.GRAZE, 60.0)
+		other_n._set_state(Animal.State.GRAZE, 60.0)
+		GameClock.set_time_of_day(15.5)
+		player.global_position = ground.call(inside + Vector3(6.2, 0, 5.4)) + Vector3(0, 0.1, 0)
+		_look_at(player, inside + Vector3(-0.6, 0.5, -0.4))
+		_fence21_free_hand()
+		await _seconds(1.5)
+		await _shot(shots.path_join("pasture_day.png"))
+		GameClock.set_time_of_day(10.0)
+		other.away = false
+		Pastures._grazers.erase(other.id)
+		other_n.teleport_home(false)
+		Animals.sell(extra)
+		await _frames(5)
+	# What grazing there does (three hours of it against the pen's sheep).
+	other.away = false
+	sheep.fullness = 70.0
+	other.fullness = 70.0
+	sheep.hydration = 60.0
+	other.hydration = 60.0
+	sheep.happiness = 50.0
+	other.happiness = 50.0
+	GameClock.advance(180.0)
+	await _idle_frames(2)
+	_check(absf((sheep.happiness - other.happiness) - Pastures.PASTURE_HAPPY * 3.0) < 0.6 and sheep.hydration > other.hydration + 10.0
+			and Pastures.well_grazed(sheep.id) and not Pastures.well_grazed(other.id),
+			"three hours at pasture: happier than the one in the pen (+%.1f), not thirsty (%.0f against %.0f), well grazed" % [
+			sheep.happiness - other.happiness, sheep.hydration, other.hydration])
+	sheep.fullness = 60.0
+	other.fullness = 60.0
+	GameClock.set_time_of_day(21.0)
+	GameClock.advance(120.0)
+	await _idle_frames(2)
+	_check(absf((sheep.fullness - other.fullness) - Animals.FULL_DECAY * Pastures.PASTURE_SAVING * 2.0) < 0.3,
+			"well grazed, it gets hungry slower that night (%.1f against %.1f after two hours)" % [sheep.fullness, other.fullness])
+	await _seconds(3.0)
+	_check(sheep_n.state == Animal.State.SLEEP and Pastures.is_grazing(sheep_n), "at night it lies down in the pasture (%s)" % Animal.State.keys()[sheep_n.state])
+	GameClock.set_time_of_day(10.0)
+	await _fence21_goals()
+	_check(goals.is_done(&"graze") and goals.is_up(&"lantern"), "the goal moves on: a lantern post")
+	# Out again on the halter only.
+	await _frames(20)
+	player.global_position = sheep_n.global_position + Vector3(1.4, 0.1, 0)
+	await _frames(3)
+	hand.lead(sheep_n)
+	await _frames(3)
+	_check(hand.led == sheep_n and not sheep.away and not Pastures.is_grazing(sheep_n), "on the halter it is his to lead out")
+	var outside := ground.call(inside + Vector3(0, 0, -9.0)) as Vector3
+	sheep_n.global_position = outside
+	sheep_n.reset_physics_interpolation()
+	hand.let_go()
+	await _frames(5)
+	_check(sheep_n.state == Animal.State.RETURN and not sheep.away, "let go outside the pasture it walks home as ever (%s, away %s, at %s)" % [
+			Animal.State.keys()[sheep_n.state], sheep.away, sheep_n.global_position])
+	sheep_n.global_position = inside
+	sheep_n.reset_physics_interpolation()
+	sheep_n.end_lead()
+	await _frames(5)
+	_check(Pastures.is_grazing(sheep_n), "back inside and let go: at pasture again")
+
+	# (11) A piece taken up: no pasture, the animal sets off home; put back: a pasture again.
+	player.global_position = ground.call(ring_pieces[1].global_position + Vector3(0, 0, -1.7)) + Vector3(0, 0.1, 0)
+	_fence21_free_hand()
+	_look_at(player, ring_pieces[1].global_position + Vector3(0, 0.6, 0))
+	await _frames(8)
+	await _idle_frames(2)
+	await _frames(4)
+	var aimed_panel := player.target == ring_pieces[1] and _last_prompt.contains(tr("ACTION_HOLD_PICK_UP"))
+	var held_before := inv.count_item(&"fence_panel")
+	var gone_ends := ring_pieces[1].ends()
+	await _fence21_hold_e(FencePiece.HOLD + 0.35)
+	await _frames(4)
+	await _idle_frames(3)
+	_check(aimed_panel and inv.count_item(&"fence_panel") == held_before + 1 and Pastures.pieces().size() == 13 and Pastures.pastures.is_empty(),
+			"E held on a panel takes it up: the loop is open, no pasture (aimed %s, '%s', %d pieces)" % [aimed_panel, _last_prompt.replace("\n", " | "), Pastures.pieces().size()])
+	await _seconds(2.5)
+	_check(not Pastures.is_grazing(sheep_n) and not sheep.away and sheep_n.state == Animal.State.RETURN,
+			"its fence open, the sheep sets off home (%s)" % Animal.State.keys()[sheep_n.state])
+	notes.clear()
+	_fence21_put(&"fence_panel", gone_ends[0], gone_ends[1])
+	await _frames(3)
+	await _idle_frames(3)
+	_check(Pastures.pastures.size() == 1 and notes.has(tr("MSG_PASTURE_RECOGNISED") % [tr("PASTURE_NAME"), 48]), "the panel back: recognised again")
+	mera = Pastures.pastures[0]
+	sheep_n.global_position = inside
+	sheep_n.reset_physics_interpolation()
+	sheep_n.end_lead()
+	await _frames(5)
+
+	# (12) A pasture in front of the barn pen's gateway: its animals walk out and home.
+	var gw := WorldLayout.gate_point(WorldLayout.BARN_PEN, WorldLayout.BARN_GATE, 0.0)
+	var west := WorldLayout.BARN_PEN.position.x
+	var yard: Array = [[Vector3(west, 0, gw.z - 4), Vector3(west - 2, 0, gw.z - 4)], [Vector3(west - 2, 0, gw.z - 4), Vector3(west - 4, 0, gw.z - 4)],
+		[Vector3(west - 4, 0, gw.z - 4), Vector3(west - 6, 0, gw.z - 4)], [Vector3(west - 6, 0, gw.z - 4), Vector3(west - 6, 0, gw.z - 2)],
+		[Vector3(west - 6, 0, gw.z - 2), Vector3(west - 6, 0, gw.z)], [Vector3(west - 6, 0, gw.z), Vector3(west - 6, 0, gw.z + 2)],
+		[Vector3(west - 6, 0, gw.z + 2), Vector3(west - 6, 0, gw.z + 4)], [Vector3(west - 6, 0, gw.z + 4), Vector3(west - 4, 0, gw.z + 4)],
+		[Vector3(west - 4, 0, gw.z + 4), Vector3(west - 2, 0, gw.z + 4)], [Vector3(west - 2, 0, gw.z + 4), Vector3(west, 0, gw.z + 4)]]
+	var yard_fits := 0
+	var yard_why := ""
+	for seg: Array in yard:
+		var why := FencePlacing.check(player, &"fence_panel", _fence21_spot(seg[0], seg[1]))
+		if why == "":
+			yard_fits += 1
+		else:
+			yard_why = why
+	_check(yard_fits == yard.size(), "the ground in front of the barn's gateway (the goal's dot) takes a fence (%d of %d fit %s)" % [yard_fits, yard.size(), yard_why])
+	_check(_flat_dist(FencePlacing._near(Pastures.snap_points(), Vector3(west + 0.2, 0, WorldLayout.BARN_PEN.position.y + 0.3), 1.0),
+			Vector3(west, 0, WorldLayout.BARN_PEN.position.y)) < 0.01, "the barn pen's corners are posts a run can start from")
+	notes.clear()
+	var yard_pieces: Array[FencePiece] = []
+	for i in yard.size():
+		yard_pieces.append(_fence21_put(&"fence_gate" if i == 4 else &"fence_panel", yard[i][0], yard[i][1]))
+	await _frames(3)
+	await _idle_frames(3)
+	var barn_mera := Pastures.barn_pasture()
+	_check(Pastures.pastures.size() == 2 and not barn_mera.is_empty() and absf(float(barn_mera["area"]) - 48.0) < 0.5
+			and notes.has(tr("MSG_PASTURE_RECOGNISED") % ["%s %d" % [tr("PASTURE_NAME"), int(barn_mera["number"])], 48]),
+			"a fence leaning on the barn pen's own closes a second pasture, numbered (%d pastures)" % Pastures.pastures.size())
+	other_n.global_position = ground.call(Vector3(west + 4.0, 0, gw.z + 1.0))
+	other_n.reset_physics_interpolation()
+	other_n.indoors = false
+	other.hydration = 90.0
+	other_n._set_state(Animal.State.IDLE, 0.1)
+	var walked_out := false
+	Engine.time_scale = 6.0
+	for i in 240:
+		await _seconds(0.25)
+		if Pastures.is_grazing(other_n):
+			walked_out = true
+			break
+	Engine.time_scale = 1.0
+	_check(walked_out and not Pastures.pasture_at(other_n.global_position).is_empty() and bool(Pastures.pasture_at(other_n.global_position)["barn"]),
+			"by day the barn's sheep walks out through its gateway into that pasture by itself")
+	GameClock.set_time_of_day(Pastures.HOME_HOUR + 0.2)
+	var home := false
+	Engine.time_scale = 6.0
+	for i in 240:
+		await _seconds(0.25)
+		if barn.in_pen(other_n.global_position, -0.5) and other_n.state != Animal.State.RETURN:
+			home = true
+			break
+	Engine.time_scale = 1.0
+	_check(home and not other.away and not Pastures.is_grazing(other_n), "at dusk it walks home into the pen again")
+	_check(Pastures.is_grazing(sheep_n), "the one in the other pasture stays where it is")
+	notes.clear()
+	FarmState.flags.erase(Pastures.FLAG_DUSK)
+	Pastures._poll = 0.0
+	await _idle_frames(3)
+	_check(notes.has(tr("MSG_PASTURE_DUSK") % 1), "at dusk a note: one animal is still out at pasture, unlit")
+	for fp in yard_pieces:
+		FarmState.remove_placed(fp.entry)
+		fp.queue_free()
+	await _frames(3)
+	await _idle_frames(3)
+
+	# (13) The lantern post: lit from dusk to dawn; no wolf comes within its reach.
+	GameClock.set_time_of_day(12.0)
+	_select(&"lantern_post")
+	var lamp_at := ground.call(Vector3(plot.end.x + 5.0, 0, plot.get_center().y)) as Vector3
+	player.global_position = lamp_at + Vector3(0, 0.1, 2.6)
+	_look_at(player, lamp_at)
+	await _frames(8)
+	_check(player.placer.active and player.placer.valid, "a lantern post in hand: a green preview (%s)" % player.placer.reason)
+	await _press_mouse_use()
+	await _frames(4)
+	var lamps := Pastures.lantern_posts()
+	_check(lamps.size() == 1 and inv.count_item(&"lantern_post") == 1 and _flat_dist(lamps[0].global_position, lamp_at) < 0.3,
+			"LMB puts it up")
+	if lamps.is_empty():
+		Events.notification_requested.disconnect(on_note)
+		return
+	var lamp := lamps[0]
+	lamp_at = lamp.global_position
+	await _idle_frames(3)
+	_check(not lamp.is_lit() and not lamp._light.visible and not Pastures.lantern_near(lamp_at + Vector3(2, 0, 0)), "by day it is out")
+	await _fence21_goals()
+	_check(goals.is_done(&"lantern") and goals.current() == &"" and not SideStory.goals.has(goals.goal()) and notes.has(tr("MSG_PASTURE_GOALS_DONE")),
+			"a lantern post up: the pasture's goals are all done, with Grandpa's last word")
+	GameClock.set_time_of_day(LanternPost.LIT_FROM + 0.1)
+	await _idle_frames(4)
+	_check(lamp.is_lit() and lamp._light.visible and lamp._flame.visible and lamp._light.light_energy > 1.0
+			and Pastures.lantern_near(lamp_at + Vector3(LanternPost.SAFE - 0.5, 0, 0)) and not Pastures.lantern_near(lamp_at + Vector3(LanternPost.SAFE + 0.5, 0, 0)),
+			"at dusk it lights itself: its light reaches %d m" % int(LanternPost.SAFE))
+	GameClock.set_time_of_day(22.5)
+	await _idle_frames(3)
+	var wolf := Wolf.spawn(Game.world, lamp_at + Vector3(18.0, 0, 3.0))
+	wolf.set_goal(&"approach", lamp_at)
+	var nearest := INF
+	var t := 0.0
+	while t < 10.0:
+		await _frames(6)
+		t += 0.1
+		nearest = minf(nearest, _flat_dist(wolf.global_position, lamp_at))
+	_check(nearest > LanternPost.SAFE - 0.6 and nearest < 15.0, "a wolf sent at it keeps out of its light (%.1f m at the nearest)" % nearest)
+	wolf.set_goal(&"prowl", lamp_at)
+	t = 0.0
+	while t < 6.0:
+		await _frames(6)
+		t += 0.1
+		nearest = minf(nearest, _flat_dist(wolf.global_position, lamp_at))
+	_check(nearest > LanternPost.SAFE - 0.6, "prowling round it too (%.1f m)" % nearest)
+	wolf.queue_free()
+	# A fence alone stops no wolf: it is low enough to leap.
+	var over := PhysicsRayQueryParameters3D.create(gate_mid + Vector3(-1.2, Wolf.LEAP_HEIGHT + 0.1, 0), gate_mid + Vector3(1.2, Wolf.LEAP_HEIGHT + 0.1, 0), 1)
+	_check(player.get_world_3d().direct_space_state.intersect_ray(over).is_empty() and not through.call(),
+			"the fence is solid at a wolf's chest and clear at the height it leaps")
+
+	# (14) Tonight: awake, the light's reach counts; asleep, only a pasture lit all over.
+	sheep_n.global_position = ground.call(Vector3(plot.end.x - 1.2, 0, plot.get_center().y))
+	sheep_n.reset_physics_interpolation()
+	await _frames(20)
+	_check(not bool(Pastures.pastures[0]["covered"]) and _flat_dist(sheep_n.global_position, lamp_at) < LanternPost.SAFE
+			and not WolfRaids.can_reach(sheep), "awake: the sheep by the lit lantern is out of the wolves' reach")
+	sheep_n.global_position = ground.call(Vector3(plot.position.x + 1.2, 0, plot.get_center().y))
+	sheep_n.reset_physics_interpolation()
+	await _frames(20)
+	_check(WolfRaids.can_reach(sheep), "at the pasture's dark end they can get to it")
+	sheep_n.global_position = ground.call(Vector3(plot.end.x - 1.2, 0, plot.get_center().y))
+	sheep_n.reset_physics_interpolation()
+	await _frames(20)
+	var kept_tonight := WolfRaids.tonight.duplicate(true)
+	WolfRaids._set_tonight(false)
+	# Going to bed (Events.day_ending): Pastures hears of it before the wolves count their prey.
+	var order: Array[String] = []
+	for c: Dictionary in Events.day_ending.get_connections():
+		var who := (c["callable"] as Callable).get_object()
+		order.append("pastures" if who == Pastures else ("wolves" if who == WolfRaids else "-"))
+	_check(order.has("pastures") and order.find("pastures") < order.find("wolves"), "Pastures hears of bedtime before WolfRaids does")
+	Pastures._set_asleep(true)
+	WolfRaids._on_day_ending()
+	var slept: Array = (WolfRaids._sleep_targets as Array).duplicate() if WolfRaids._sleep_targets != null else []
+	_check(Pastures.asleep and slept.has(sheep.id), "going to bed with the pasture only half lit: its sheep counts as out in the open")
+	Pastures.asleep = false
+	var mid_lamp := FarmState.add_placed(&"lantern_post", inside, 0.0)
+	var lamp2 := Game.world.farm.spawn_placed(mid_lamp) as LanternPost
+	await _frames(3)
+	await _idle_frames(3)
+	_check(bool(Pastures.pastures[0]["covered"]), "a second lantern in the middle: the whole pasture is in the light")
+	WolfRaids._sleep_targets = null
+	Pastures._set_asleep(true)
+	WolfRaids._on_day_ending()
+	slept = (WolfRaids._sleep_targets as Array).duplicate() if WolfRaids._sleep_targets != null else []
+	_check(not slept.has(sheep.id), "going to bed now: the sheep in the lit pasture is protected")
+	notes.clear()
+	FarmState.flags.erase(Pastures.FLAG_DUSK)
+	GameClock.set_time_of_day(Pastures.DUSK_HOUR + 0.5)
+	Pastures._poll = 0.0
+	await _idle_frames(3)
+	_check(notes.has(tr("MSG_PASTURE_DUSK_SAFE") % 1), "and the dusk note says it spends the night in the lanterns' light")
+	WolfRaids._sleep_targets = null
+	WolfRaids.tonight = kept_tonight
+	Pastures.asleep = false
+	if shots != "":
+		var extra := Animals._add(&"sheep", true, "Kuzucuk", barn)
+		await _frames(5)
+		var extra_n := Animals.node_of(extra)
+		extra_n.global_position = ground.call(inside + Vector3(-2.2, 0, 1.4))
+		extra_n.reset_physics_interpolation()
+		extra_n.end_lead()
+		sheep_n.global_position = ground.call(inside + Vector3(2.0, 0, -1.0))
+		sheep_n.reset_physics_interpolation()
+		GameClock.set_time_of_day(21.5)
+		player.global_position = ground.call(inside + Vector3(6.2, 0, 5.4)) + Vector3(0, 0.1, 0)
+		_look_at(player, inside + Vector3(-0.6, 0.7, -0.4))
+		_fence21_free_hand()
+		await _seconds(2.0)
+		await _shot(shots.path_join("pasture_night.png"))
+		Animals.sell(extra)
+		await _frames(5)
+
+	# (15) The morning after a night at pasture: still there.
+	GameClock.set_time_of_day(10.0)
+	sheep_n.global_position = inside
+	sheep_n.reset_physics_interpolation()
+	await _seconds(2.5)
+	var stayed_at := sheep_n.global_position
+	Events.day_started.emit(GameClock.day)
+	await _frames(5)
+	_check(Pastures.is_grazing(sheep_n) and sheep.away and _flat_dist(sheep_n.global_position, stayed_at) < 0.5
+			and Pastures.depth(Pastures.pastures[0], sheep_n.global_position) > 0.0 and barn.in_pen(other_n.global_position),
+			"the new morning finds it in its pasture still (the pen's sheep in the pen)")
+
+	# (16) Saved and loaded: the fence, the gate as it stood, the pasture, the lanterns, the sheep.
+	gate.set_open(true, true)
+	var sheep_id := sheep.id
+	var pieces_n := Pastures.pieces().size()
+	GameClock.set_time_of_day(11.0)
+	_check(SaveGame.save("fence21"), "saved")
+	_check(SaveGame.load_game("fence21"), "loading it")
+	await _until_loaded()
+	notes.clear()
+	await _seconds(1.5)
+	player = Game.player
+	var loaded_gate: FencePiece = null
+	for fp in Pastures.pieces():
+		if fp.is_gate():
+			loaded_gate = fp
+	var s2 := Animals.by_id(sheep_id)
+	var s2n := Animals.node_of(s2) if s2 else null
+	_check(Pastures.pieces().size() == pieces_n and Pastures.lantern_posts().size() == 2 and loaded_gate != null and loaded_gate.is_open()
+			and Pastures.pastures.size() == 1 and absf(float(Pastures.pastures[0]["area"]) - 48.0) < 0.5 and bool(Pastures.pastures[0]["covered"])
+			and not notes.has(tr("MSG_PASTURE_RECOGNISED") % [tr("PASTURE_NAME"), 48]),
+			"loaded: every piece, the gate open as it was, the pasture known again without a fuss, the lanterns (%d pieces, %d pastures)" % [
+			Pastures.pieces().size(), Pastures.pastures.size()])
+	_check(s2n != null and s2.away and Pastures.is_grazing(s2n) and Pastures.depth(Pastures.pastures[0], s2n.global_position) > 0.0,
+			"loaded: the sheep is at pasture still")
+	_check(Pastures.goals.current() == &"" and Pastures.goals.is_done(&"fence") and tree.get_nodes_in_group(&"pasture_signs").size() >= 1,
+			"loaded: the goals stay done, the board stands")
+	SaveGame.delete("fence21")
+
+	# --- Tidy up ---
+	Events.notification_requested.disconnect(on_note)
+	Pastures.goals.testing = false
+	for n in Pastures.pieces():
+		FarmState.remove_placed(n.entry)
+		n.queue_free()
+	for n in Pastures.lantern_posts():
+		FarmState.remove_placed(n.entry)
+		n.queue_free()
+	for a in Animals.animals.duplicate():
+		if a.species == &"sheep":
+			a.away = false
+			Animals.sell(a)
+	await _frames(5)
+
+
+
+
+## breed21: sheep, cows and horses breed (Breeding, BreedingGoals). A ewe and a ram bought
+## (the ram at the market's own button: bigger, horned; a bull gives no milk), the lesson's
+## cards (buy a ram, keep her well, name the lamb), what keeps her from conceiving, the
+## seeded dawn she does, her days counting down across sleeps (her line, her belly, her
+## pace, wool all the while, hurt and still carrying), the full barn she waits for, the
+## save with her carrying and a newborn lying by her, the lamb getting up when the farmer
+## comes, keeping to its mother and nursing, its name asked once, growing up and sold, a
+## second lamb that asks for nothing. `--breed-shots=<dir>` saves pictures on the way.
+func _scenario_breed21() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	if player.driving:
+		player.exit_vehicle()
+		await _frames(5)
+	var farm: Farm = Game.world.farm
+	var shots := String(DebugTools.args.get("breed-shots", ""))
+	if shots != "":
+		DirAccess.make_dir_recursive_absolute(shots)
+	if not Quests.tutorial_done():
+		Quests.skip_tutorial()
+	var kept_money := Economy.money
+	var kept_level := Progress.level
+	var kept_met := SideStory.met
+	var kept_letters := Mail.letters.size()
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	Progress.level = Progress.MAX_LEVEL
+	Economy.money = 5000
+	Weather.force(Weather.Kind.SUNNY)
+	GameClock.set_time_of_day(9.0)
+	FarmState.built[&"barn_1"] = true
+	FarmState.project_built.emit(&"barn_1")
+	farm.barn.set_level(1)
+	for key: String in ["breed_step", "breed_done", "first_born_sheep", "first_born_cow", "first_born_horse", "pair_hint_cow", "pair_hint_horse"]:
+		FarmState.flags.erase(key)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	BreedingGoals.testing = true
+	var goals: BreedingGoals = Animals.breeding
+	goals.reset()
+	goals.update()
+	_check(goals.shown() == &"", "no ewe yet: the lesson of the young has not begun")
+
+	# --- A ewe, then the ram (the market's own button) ---
+	var ewe := Animals.buy(&"sheep", true)
+	_check(ewe != null and not ewe.male and Breeding.sex_name(ewe) == tr("ANIMAL_SHEEP_FEMALE"), "a grown sheep bought is a ewe")
+	goals.update()
+	var card := goals.goal()
+	_check(goals.shown() == &"ram" and card != null and card.text == tr("SIDE_GOAL_BREED_RAM") and card.hint == tr("SIDE_HINT_BREED_RAM")
+			and card.point is Vector3 and notes.has(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_BREED_RAM")),
+			"the first grown ewe: 'Grow the flock: buy a ram', Rıza's word, the dot on the Animal Market (%s)" % (card.needs if card else "-"))
+	Economy.money = Breeding.male_price(&"sheep") - 30
+	goals.update()
+	_check(Breeding.can_buy_male(&"sheep") == tr("MSG_NEED_GOLD") % UiTheme.money(30) and card.hint.contains(UiTheme.money(30)),
+			"short of the ram's price: the market says how much more, the card how to earn it")
+	Economy.money = 5000
+	var rancher: RancherScreen = Game.hud.rancher_screen
+	rancher.open_market(Vector3.ZERO, &"sheep")
+	await _frames(3)
+	var male_button: Button = null
+	for b in rancher.find_children("*", "Button", true, false):
+		if String(b.get_meta(&"mark", "")) == "BuyMale" and not b.is_queued_for_deletion():
+			male_button = b
+	_check(male_button != null and not male_button.disabled
+			and male_button.text == UiTheme.caps("%s  ·  %s" % [tr("ANIMAL_SHEEP_MALE"), UiTheme.money(Breeding.male_price(&"sheep"))]),
+			"the Animal Market sells the ram beside the lamb and the ewe ('%s')" % (male_button.text if male_button else "-"))
+	if shots != "":
+		await _shot(shots + "/breed_market.png")
+	var money := Economy.money
+	# With no trailer at the market the dealer brings him for the fee, like any animal that walks.
+	var ram_fee := TrailerYard.fee_now()
+	if male_button:
+		male_button.pressed.emit()
+	await _frames(3)
+	rancher.close_screen()
+	await _frames(3)
+	var ram: AnimalData = null
+	for a in Animals.animals:
+		if a.species == &"sheep" and a.male:
+			ram = a
+	_check(ram != null and ram.adult and Economy.money == money - Breeding.male_price(&"sheep") - ram_fee and ram.name in Breeding.MALE_NAMES[&"sheep"]
+			and Breeding.sex_name(ram) == tr("ANIMAL_SHEEP_MALE"), "bought: a grown ram with a ram's name, for his own price (and the delivery fee, $%d)" % ram_fee)
+	if ram == null:
+		return
+	var ram_node := Animals.node_of(ram)
+	var ewe_node := Animals.node_of(ewe)
+	_check(is_equal_approx(ram_node.rig.scale.x, ewe_node.rig.scale.x * float(Breeding.MALE_SCALE[&"sheep"]))
+			and ram_node.rig.skeleton.get_node_or_null(^"Horns") != null and ewe_node.rig.skeleton.get_node_or_null(^"Horns") == null
+			and ram_node.body_size().y > ewe_node.body_size().y, "the ram stands bigger than the ewe and wears horns; she has none")
+	goals.update()
+	_check(goals.shown() == &"wait" and card.text == tr("SIDE_GOAL_BREED_WAIT") and card.point == ewe_node and card.needs.begins_with(ewe.name)
+			and int(FarmState.flags.get("breed_step", 0)) == 2,
+			"with the ram home: 'Keep your ewe well fed and happy', the dot on her, her state under it ('%s')" % card.needs)
+	# A bull and a cow fill the open barn (four places): he gives no milk, and the pair gets one line.
+	var bull := Breeding.buy_male(&"cow")
+	var cow := Animals.buy(&"cow", true)
+	cow.last_birth_day = GameClock.day + 50
+	_check(bull != null and cow != null and bull.male and not bull.product_ready and cow.product_ready
+			and Animals.node_of(bull).use_action(player, ItemStack.create(&"milk_pail")).is_empty()
+			and is_equal_approx(Animals.node_of(bull).rig.scale.x, float(Breeding.MALE_SCALE[&"cow"])),
+			"a bull: bigger than the cow, no milk in him, the pail finds nothing to do")
+	notes.clear()
+	goals.update()
+	goals.update()
+	_check(notes.count(tr("MSG_PAIR_COW")) == 1 and FarmState.flags.has("pair_hint_cow") and goals.shown() == &"wait",
+			"a cow and a bull under one roof: one line about calves, once; no second lesson")
+	_check(farm.barn.free_space() == 0, "the open barn is full now (%d / %d)" % [Animals.count_at(farm.barn), farm.barn.capacity()])
+
+	# --- What keeps her from conceiving, and the dawn she does ---
+	ewe.fullness = 10.0
+	ewe.happiness = 90.0
+	ewe.health = 100.0
+	goals.update()
+	var hungry := Breeding.blocker(ewe) == "hungry" and card.hint == tr("SIDE_HINT_BREED_HUNGRY") and not card.needs.contains(tr("BREED_FED") + " " + Quests.NEED_MET)
+	ewe.fullness = 90.0
+	ewe.happiness = 20.0
+	goals.update()
+	var unhappy := Breeding.blocker(ewe) == "unhappy" and card.hint == tr("SIDE_HINT_BREED_UNHAPPY")
+	ewe.happiness = 90.0
+	ram.sick = true
+	goals.update()
+	var no_ram := Breeding.blocker(ewe) == "no_male" and card.hint == tr("SIDE_HINT_BREED_APART")
+	ram.sick = false
+	ewe.happiness = 20.0
+	Breeding.rng.seed = 21
+	for i in 6:
+		Breeding.daily()
+	_check(hungry and unhappy and no_ram and not ewe.pregnant(), "hungry, unhappy or without a sound ram she does not conceive (the card says which)")
+	ewe.happiness = 90.0
+	goals.update()
+	_check(Breeding.blocker(ewe) == "" and card.hint == tr("SIDE_HINT_BREED_SOON")
+			and card.needs == "%s: %s" % [ewe.name, " · ".join([tr("BREED_FED") + " " + Quests.NEED_MET, tr("BREED_CONTENT") + " " + Quests.NEED_MET, tr("BREED_HEALTHY") + " " + Quests.NEED_MET])],
+			"fed, content and healthy beside the ram: all ticked, 'one of these mornings' ('%s')" % card.needs)
+	Breeding.rng.seed = 21
+	var dawns := 0
+	notes.clear()
+	while not ewe.pregnant() and dawns < BREED21_DAWNS:
+		dawns += 1
+		Breeding.daily()
+	var days: int = Breeding.GESTATION[&"sheep"]
+	_check(ewe.pregnant() and ewe.due_in == days and notes.has(tr("MSG_ANIMAL_PREGNANT") % [ewe.name, days]) and not cow.pregnant() and not ram.pregnant(),
+			"the conditions held: with lamb after %d seeded dawn(s), %d days to go, a note" % [dawns, days])
+	goals.update()
+	_check(ewe_node.hint_prompt() == tr("STATUS_PREGNANT") % days and card.needs == "%s: %s" % [ewe.name, tr("STATUS_PREGNANT") % days]
+			and card.hint == tr("SIDE_HINT_BREED_CARRYING"), "her prompt and the card: 'Pregnant · %d days left', Grandpa's word" % days)
+	Breeding.daily()
+	_check(ewe.due_in == days - 1 and Breeding.blocker(ewe) == "carrying", "one young at a time: a dawn later she is a day nearer, nothing else")
+	ewe.due_in = days
+
+	# --- Her days count down across the sleeps ---
+	ewe.wool = 0.0
+	ewe.product_ready = false
+	player.global_position = BREED21_AWAY
+	_breed21_troughs(farm)
+	GameClock.sleep_to_next_morning()
+	await _frames(4)
+	var speed := float(ewe.info()["speed"])
+	_check(ewe.due_in == days - 1 and ewe.wool > 0.3 and not bull.product_ready and cow.product_ready and is_equal_approx(ewe_node._move_speed, speed),
+			"a sleep later: %d days left, her fleece growing as ever, the bull still dry" % ewe.due_in)
+	var belly_early: float = (ewe_node.rig as PhotoRig)._belly if ewe_node.rig is PhotoRig else 0.0
+	notes.clear()
+	_breed21_troughs(farm)
+	GameClock.sleep_to_next_morning()
+	await _frames(4)
+	var belly_late: float = (ewe_node.rig as PhotoRig)._belly if ewe_node.rig is PhotoRig else 1.0
+	_check(ewe.due_in == 1 and ewe_node.hint_prompt() == tr("STATUS_PREGNANT_TOMORROW") and is_equal_approx(ewe_node._move_speed, speed * Breeding.TERM_PACE)
+			and belly_late > belly_early and belly_early > 0.0, "the morning before: 'due tomorrow', rounder (%.3f -> %.3f m) and slower" % [belly_early, belly_late])
+	_check(notes.has(tr("MSG_BIRTH_NO_ROOM") % ewe.name) and Animals.report_notes.has(tr("MSG_BIRTH_NO_ROOM") % ewe.name),
+			"the barn is full: a note the day before says she will wait")
+	goals.update()
+	_check(card.hint == tr("SIDE_HINT_BREED_ROOM"), "and the card asks for room in the barn")
+	var herd := Animals.animals.size()
+	notes.clear()
+	_breed21_troughs(farm)
+	GameClock.sleep_to_next_morning()
+	await _frames(4)
+	_check(ewe.due_in == 0 and Animals.animals.size() == herd and Breeding.waiting_for_room(ewe) and notes.has(tr("MSG_BIRTH_WAITING") % ewe.name)
+			and ewe_node.hint_prompt() == tr("STATUS_PREGNANT_WAITING"), "due with no room: no birth, she waits for a free place")
+	Animals.injure(ewe.id)
+	await _frames(2)
+	_check(ewe.injured() and ewe.pregnant() and ewe.due_in == 0, "hurt by a wolf she still carries her lamb")
+	ewe.injured_at = -1.0
+	ewe.health = 95.0
+	ewe.happiness = 90.0
+	if shots != "":
+		# The ewe near her term beside the ram.
+		GameClock.set_time_of_day(10.0)
+		var mid := farm.barn.center() + Vector3(0.0, 0.0, 6.0)
+		# (A pale ewe and a dark ram for the picture: her belly and his horns show best.)
+		ewe.variant = 0
+		ram.variant = 2
+		ewe_node.refresh_body()
+		ram_node.refresh_body()
+		_breed21_stand(ewe_node, mid, PI * 0.5)
+		_breed21_stand(ram_node, mid + Vector3(1.45, 0.0, -0.8), 2.2)
+		for other in [Animals.node_of(bull), Animals.node_of(cow)]:
+			_breed21_stand(other, farm.barn.center() + Vector3(8.0, 0.0, -6.0 if other == Animals.node_of(bull) else -2.5), 0.0)
+		player.global_position = mid + Vector3(0.45, 0.2, 2.5)
+		_look_at(player, mid + Vector3(0.55, 0.6, -0.35))
+		await _seconds(1.5)
+		await _shot(shots + "/breed_pregnant.png")
+		player.global_position = BREED21_AWAY
+		GameClock.set_time_of_day(6.0)
+
+	# --- Room made: the lamb at dawn; saved and loaded with it lying by her ---
+	Animals.sell(cow)
+	notes.clear()
+	_breed21_troughs(farm)
+	var day_before := GameClock.day
+	GameClock.sleep_to_next_morning()
+	await _frames(6)
+	var lamb: AnimalData = Animals.animals.back()
+	var born := Animals.animals.size() == herd and lamb.species == &"sheep" and not lamb.adult and lamb.mother == ewe.id
+	_check(born and GameClock.day == day_before + 1 and lamb.born_day == GameClock.day and ewe.due_in == -1 and ewe.last_birth_day == GameClock.day,
+			"a place free: at dawn the ewe has her lamb (%s, %s)" % [lamb.name, "male" if lamb.male else "female"])
+	if not born:
+		return
+	var lamb_node := Animals.node_of(lamb)
+	_check(notes.has(tr("MSG_FIRST_BORN_SHEEP") % ewe.name) and Animals.report_notes.has(tr("MSG_FIRST_BORN_SHEEP") % ewe.name)
+			and int(FarmState.flags.get("first_born_sheep", 0)) == lamb.id, "the morning's note and the report tell of it: the first lamb waits for its name")
+	await _seconds(0.6)
+	_check(lamb_node != null and Breeding.lying(lamb) and lamb_node.state == Animal.State.SLEEP
+			and lamb_node.global_position.distance_to(ewe_node.global_position) < 2.5 and not Animals.wants_name(lamb),
+			"the newborn lies beside its mother while the farmer is far (%.1f m from her)" % lamb_node.global_position.distance_to(ewe_node.global_position))
+	goals.update()
+	_check(goals.shown() == &"name" and card.text == tr("SIDE_GOAL_BREED_NAME") and card.point == lamb_node and card.hint == tr("SIDE_HINT_BREED_NAME") % ewe.name,
+			"the card: 'Your lamb is born: go to it and give it a name', the dot on the lamb")
+	# With lamb again by hand (two days to go), so the save holds both a carrying ewe and a newborn.
+	Breeding.conceive(ewe)
+	ewe.due_in = 2
+	ewe_node.refresh_body()
+	var ids := [ewe.id, ram.id, lamb.id, bull.id]
+	var slot := "breed21_test"
+	_check(SaveGame.save(slot), "saved with the ewe carrying and her newborn by her")
+	ewe.due_in = -1
+	ram.male = false
+	lamb.mother = 0
+	lamb.born_day = -1
+	FarmState.flags.erase("first_born_sheep")
+	FarmState.flags.erase("breed_step")
+	_check(SaveGame.load_game(slot), "loading the save started")
+	await _until_loaded()
+	await _seconds(1.0)
+	player = Game.player
+	farm = Game.world.farm
+	goals = Animals.breeding
+	Weather.force(Weather.Kind.SUNNY)
+	player.global_position = BREED21_AWAY
+	ewe = Animals.by_id(ids[0])
+	ram = Animals.by_id(ids[1])
+	lamb = Animals.by_id(ids[2])
+	bull = Animals.by_id(ids[3])
+	_check(ewe != null and ram != null and lamb != null and bull != null, "after the load: the ewe, the ram, the lamb and the bull are there")
+	if ewe == null or ram == null or lamb == null or bull == null:
+		return
+	ewe_node = Animals.node_of(ewe)
+	ram_node = Animals.node_of(ram)
+	lamb_node = Animals.node_of(lamb)
+	await _seconds(0.6)
+	_check(ewe.due_in == 2 and not ewe.male and ram.male and bull.male and lamb.mother == ewe.id and lamb.born_day == GameClock.day and not lamb.adult
+			and int(FarmState.flags.get("first_born_sheep", 0)) == lamb.id and int(FarmState.flags.get("breed_step", 0)) == 3,
+			"after the load: her days left, the males, the lamb's mother and birthday, the lesson's place")
+	_check(ram_node.rig.skeleton.get_node_or_null(^"Horns") != null and (not ewe_node.rig is PhotoRig or (ewe_node.rig as PhotoRig)._belly > 0.0)
+			and Breeding.lying(lamb) and ewe_node.hint_prompt() == tr("STATUS_PREGNANT") % 2,
+			"after the load: the ram's horns, her belly and her line, the newborn lying again until seen")
+	goals.update()
+	card = goals.goal()
+	_check(goals.shown() == &"name" and card != null and card.point == lamb_node, "after the load: the lamb's card and its dot are back")
+	SaveGame.delete(slot)
+
+	# --- The farmer comes: up on wobbly legs, close to its mother, nursing ---
+	_breed21_stand(ewe_node, farm.barn.center() + Vector3(0.0, 0.0, 5.0), PI * 0.5)
+	lamb_node.global_position = ewe_node.global_position + Vector3(0.3, 0.0, 1.0)
+	lamb_node.reset_physics_interpolation()
+	await _frames(4)
+	player.global_position = lamb_node.global_position + Vector3(1.0, 0.2, 6.0)
+	_look_at(player, lamb_node.global_position + Vector3(0.0, 0.3, 0.0))
+	await _seconds(1.2)
+	var rising := not Breeding.lying(lamb) and not Breeding.is_up(lamb) and lamb_node.rig.tremble > 0.0
+	goals.update()
+	_check(rising and Animals.naming() == null and not Animals.wants_name(lamb), "the farmer near: the lamb struggles up, trembling (no name asked of it yet)")
+	await _seconds(Breeding.RISE_TIME)
+	_check(Breeding.is_up(lamb) and is_zero_approx(lamb_node.rig.tremble) and lamb_node.state != Animal.State.SLEEP and Animals.wants_name(lamb)
+			and lamb_node.interact_prompt(player) == tr("ACTION_NAME_ANIMAL"), "a few seconds later it stands on its own legs (E would name it)")
+	if shots != "":
+		GameClock.set_time_of_day(9.5)
+		_breed21_stand(lamb_node, ewe_node.global_position + Vector3(0.45, 0.0, 0.95), PI * 0.6)
+		# A little too far for the prompt (NAME_NEAR): only looking.
+		player.global_position = ewe_node.global_position + Vector3(0.4, 0.2, 4.5)
+		_look_at(player, ewe_node.global_position + Vector3(0.2, 0.4, 0.4))
+		await _seconds(1.0)
+		await _shot(shots + "/breed_newborn.png")
+		lamb_node._attention = 0.0
+	# Its mother moved to the far end of the pen: it runs after her.
+	_breed21_stand(ewe_node, farm.barn.center() + Vector3(7.0, 0.0, 7.0), 0.0)
+	lamb_node.global_position = farm.barn.constrain(farm.barn.center() + Vector3(-7.0, 0.0, 4.0), lamb_node.radius(), false)
+	lamb_node.reset_physics_interpolation()
+	lamb_node._attention = 0.0
+	lamb_node._think = 0.0
+	player.global_position = farm.barn.center() + Vector3(0.0, 0.3, 16.0)
+	Engine.time_scale = 4.0
+	var gap := 99.0
+	for i in 80:
+		await _seconds(0.5)
+		gap = lamb_node.global_position.distance_to(ewe_node.global_position)
+		if gap < Breeding.FOLLOW_FAR + 0.3 and lamb_node._path.is_empty():
+			break
+	_check(gap < Breeding.FOLLOW_FAR + 0.3, "its mother across the pen: the lamb goes after her and keeps close (%.1f m)" % gap)
+	lamb.fullness = 60.0
+	Breeding._young[lamb.id]["nurse"] = 0.0
+	ewe_node._set_state(Animal.State.IDLE, 600.0)
+	var nursed := false
+	for i in 120:
+		await _seconds(0.25)
+		if lamb_node.state == Animal.State.EAT and lamb.fullness > 60.0:
+			nursed = true
+			break
+	Engine.time_scale = 1.0
+	_check(nursed and lamb_node.global_position.distance_to(ewe_node.global_position) < ewe_node.radius() + lamb_node.radius() + 0.8,
+			"now and then it nurses at her flank (%.1f m, fullness %.0f)" % [lamb_node.global_position.distance_to(ewe_node.global_position), lamb.fullness])
+
+	# --- Its name: asked once, when the farmer walks up to it ---
+	SideStory.met = true
+	notes.clear()
+	_breed21_stand(lamb_node, lamb_node.global_position, lamb_node.rotation.y)
+	player.global_position = lamb_node.global_position + Vector3(0.6, 0.2, 2.2)
+	_look_at(player, lamb_node.global_position + Vector3(0.0, 0.3, 0.0))
+	goals.update()
+	await _frames(4)
+	var screen := Animals.naming_screen()
+	var ideas := Animals.name_ideas(&"sheep", lamb)
+	_check(Animals.naming() == lamb and screen != null and screen.visible and Game.is_ui_open() and screen.edit.text in ideas and ideas.size() >= 3
+			and ideas[0] in tr("ANIMAL_NAME_IDEAS_LAMB").split("|"),
+			"walking up to the first lamb opens its naming prompt, a lamb's name filled in ('%s' of %s)" % [screen.edit.text if screen else "-", ", ".join(ideas)])
+	if screen == null:
+		return
+	if shots != "":
+		await _shot(shots + "/breed_name.png")
+	screen.edit.text = "Lokum"
+	screen.confirm()
+	await _frames(4)
+	goals.update()
+	var letter: Dictionary = Mail.letters.back() if Mail.letters.size() > kept_letters else {}
+	_check(lamb.name == "Lokum" and int(FarmState.flags.get("first_born_sheep", -1)) == 0 and FarmState.flags.has("breed_done") and goals.shown() == &""
+			and notes.has(tr("MSG_BREED_DONE") % "Lokum") and not Game.is_ui_open(), "the typed name is its own: the lesson is done with a warm line")
+	_check(String(letter.get("title", "")) == "MAIL_ZEYNEP_LAMB_TITLE" and String((letter.get("args", {}) as Dictionary).get("name", "")) == "Lokum"
+			and tr("MAIL_ZEYNEP_LAMB_BODY").format(letter.get("args", {})).contains("Lokum"), "and Zeynep, who is known, writes a few lines about the lamb")
+	goals.update()
+	await _frames(3)
+	_check(Animals.naming() == null and not Animals.wants_name(lamb), "named once: standing by it asks nothing more")
+
+	# --- Growing up, a second lamb with no prompt, and the sale ---
+	player.global_position = BREED21_AWAY
+	_breed21_troughs(farm)
+	GameClock.sleep_to_next_morning()
+	await _frames(4)
+	_check(is_equal_approx(lamb.growth, 1.0) and not lamb.adult and ewe.due_in == 1, "a fed day: the lamb a day older (%.0f / %d), its mother a day from her next" % [lamb.growth, int(lamb.info()["grow_days"])])
+	var young_value := lamb.sale_value()
+	Animals.sell(bull)
+	lamb.growth = float(lamb.info()["grow_days"]) - 1.0
+	herd = Animals.animals.size()
+	notes.clear()
+	_breed21_troughs(farm)
+	GameClock.sleep_to_next_morning()
+	await _frames(6)
+	lamb_node = Animals.node_of(lamb)
+	_check(lamb.adult and not Breeding.decide(lamb_node) and (lamb_node.rig.skeleton.get_node_or_null(^"Horns") != null) == lamb.male,
+			"fed its days through, the lamb is grown (a %s) and goes its own way" % Breeding.sex_name(lamb))
+	var second: AnimalData = Animals.animals.back()
+	_check(Animals.animals.size() == herd + 1 and second.mother == ewe.id and not second.adult and second.name != ""
+			and int(FarmState.flags.get("first_born_sheep", -1)) == 0 and not Animals.wants_name(second)
+			and notes.has(tr("MSG_ANIMAL_BORN") % [Animals.species_name(&"sheep", false), ewe.name, second.name]),
+			"the ewe's second lamb comes with a name of its own ('%s') and asks for none" % second.name)
+	var second_node := Animals.node_of(second)
+	player.global_position = second_node.global_position + Vector3(0.6, 0.2, 2.0)
+	await _seconds(Breeding.RISE_TIME + 1.5)
+	goals.update()
+	await _frames(3)
+	_check(Breeding.is_up(second) and Animals.naming() == null and not Game.is_ui_open(), "standing by the second lamb opens no prompt")
+	var panel: AnimalPanel = Game.hud.animal_panel
+	panel.open(second)
+	await _frames(3)
+	var lines: Array = panel._breeding_lines().map(func(l: Array) -> String: return String(l[0]))
+	panel._name_edit.text = "Yumak"
+	panel.close_panel()
+	await _frames(3)
+	_check(lines.has(tr("STATUS_MOTHER") % ewe.name) and second.name == "Yumak", "its panel names its mother, and its name can be changed there ('%s')" % second.name)
+	var value := lamb.sale_value()
+	money = Economy.money
+	var got := Animals.sell(lamb)
+	_check(got == value and Economy.money == money + value and value > young_value and value >= 100 and not Animals.animals.has(lamb),
+			"the grown offspring sells at the market like a bought one (%s; as a lamb %s)" % [UiTheme.money(value), UiTheme.money(young_value)])
+
+	# Tidy up.
+	await _close_screens()
+	Events.notification_requested.disconnect(on_note)
+	BreedingGoals.testing = false
+	for a in Animals.animals.duplicate():
+		Animals.sell(a)
+	for key: String in ["breed_step", "breed_done", "first_born_sheep", "first_born_cow", "first_born_horse", "pair_hint_cow", "pair_hint_horse"]:
+		FarmState.flags.erase(key)
+	goals.reset()
+	Mail.letters.resize(mini(Mail.letters.size(), kept_letters))
+	SideStory.met = kept_met
+	Economy.money = kept_money
+	Progress.level = kept_level
+	Engine.time_scale = 1.0
+	await _frames(3)
+
+
+## breed21: the barn's feeder and water full for the night.
+func _breed21_troughs(farm: Farm) -> void:
+	farm.barn.feed.set_amount(farm.barn.feed.capacity)
+	farm.barn.water.set_amount(farm.barn.water.capacity)
+
+
+## breed21: `n` stood still at `at` (kept in its pen) facing `yaw`, for a good while.
+func _breed21_stand(n: Animal, at: Vector3, yaw: float) -> void:
+	var p := n.housing.constrain(at, n.radius(), false)
+	p.y = n.housing.ground_height(p)
+	n.global_position = p
+	n.rotation.y = yaw
+	n.indoors = false
+	n.reset_physics_interpolation()
+	n._path.clear()
+	n._path_inside.clear()
+	n._set_state(Animal.State.IDLE, 600.0)
+	n._attention = 600.0
+
+
+
+# --- Round 21: the trailers ------------------------------------------------------------------
+
+## Waits (at most `seconds`) for the story to be on goal `id`.
+func _t21_goal(id: String, seconds := 5.0) -> bool:
+	var t := 0.0
+	while t < seconds and String(Quests.current().get("id", "")) != id:
+		await _seconds(0.25)
+		t += 0.25
+	return String(Quests.current().get("id", "")) == id
+
+
+## How far the trailer's tyres stand off the ground under them (m; x the lowest, y the highest).
+func _t21_gaps(t: Trailer) -> Vector2:
+	var out := Vector2(INF, -INF)
+	for w in t._wheel_pivots:
+		var low := w.global_position - t.global_basis.y * t._radius
+		var gap := low.y - t._ground_under(Vector2(low.x, low.z), low.y)
+		out = Vector2(minf(out.x, gap), maxf(out.y, gap))
+	return out
+
+
+## A screenshot from a camera riding on `on` (at `eye`, looking at `at`, both in its frame).
+func _t21_shot(path: String, on: Node3D, eye: Vector3, at: Vector3, fov: float) -> void:
+	var was := tree.root.get_viewport().get_camera_3d()
+	var cam := Camera3D.new()
+	on.add_child(cam)
+	cam.fov = fov
+	cam.near = 0.05
+	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	cam.transform = Transform3D(Basis(), eye).looking_at(at, Vector3.UP)
+	cam.make_current()
+	Game.hud.visible = false
+	await _frames(4)
+	await _shot(path)
+	Game.hud.visible = true
+	cam.queue_free()
+	if was and is_instance_valid(was):
+		was.make_current()
+
+
+## The pickup put at `at` heading `yaw` with the trailer straight behind it.
+func _t21_rig(truck: Vehicle, t: Trailer, at: Vector2, yaw: float) -> void:
+	await _park(truck, Transform3D(Basis(Vector3.UP, yaw), Vector3(at.x, TerrainData.height(at.x, at.y) + 0.35, at.y)))
+	await _seconds(1.0)
+	t.straighten()
+	await _frames(10)
+
+
+## Grandpa's stock trailer and the dealership's cargo trailer (Trailer, TrailerYard,
+## TrailerGoals): the tyre bill and the purchase, hitching and unhitching, towing forward
+## and in reverse with the wheels on the ground, a sheep bought at the market waiting in
+## the loading pen, led up the ramp, riding, saved and loaded aboard, led out at the farm
+## into the barn's pen with the story's goals going on step by step; then room, the
+## delivery without a trailer and the price of one sold out of the trailer.
+func _scenario_trailer21() -> void:
+	await _close_screens()
+	var player: Player = Game.player
+	var town := tree.get_first_node_in_group(&"town") as Town
+	var farm: Farm = Game.world.farm
+	var shots := String(DebugTools.args.get("trailer-shots", ""))
+	if player.driving:
+		player.exit_vehicle()
+	GameClock.set_time_of_day(10.5)
+	Weather.force(Weather.Kind.SUNNY)
+	if not FarmState.is_built(&"barn_1"):
+		FarmState.built[&"barn_1"] = true
+		FarmState.project_built.emit(&"barn_1")
+	Progress.level = maxi(Progress.level, 3)
+	await _frames(20)
+	farm.barn.set_level(1)
+	var notes: Array[String] = []
+	var on_note := func(text: String, _c: Color) -> void: notes.append(text)
+	Events.notification_requested.connect(on_note)
+	var truck := town.farm_truck
+	var stock := Trailer.of_kind(&"trailer_stock")
+	var flat := Trailer.of_kind(&"trailer_flat")
+	_check(stock != null and flat != null and not stock.owned and not flat.owned and stock.tow == null,
+			"Grandpa's stock trailer and the cargo trailer stand at the dealership, not the farmer's yet")
+	if stock == null or flat == null:
+		return
+	await _seconds(0.5)
+	var gaps := _t21_gaps(stock)
+	var jockey_low := (stock.global_transform * Vector3(0.135, 0.0, stock._jockey_z)).y
+	var jockey_ground := stock._ground_under(Vector2((stock.global_transform * Vector3(0.135, 0.0, stock._jockey_z)).x,
+			(stock.global_transform * Vector3(0.135, 0.0, stock._jockey_z)).z), jockey_low)
+	_check(absf(gaps.x) < 0.03 and absf(gaps.y) < 0.03 and absf(jockey_low - jockey_ground) < 0.04 and stock.global_basis.y.y > 0.995,
+			"parked it stands level on its wheels and jockey wheel (tyres %.3f..%.3f m, jockey %.3f m off the ground)" % [gaps.x, gaps.y, jockey_low - jockey_ground])
+
+	# (1) The story's goal and the tyre bill. A save from before the trailer that stood on
+	# "sheep" with none bought takes the lesson from its start.
+	for a in Animals.animals.duplicate():
+		if a.species == &"sheep":
+			Animals.sell(a)
+	Quests.step = Quests.index_of("sheep")
+	Quests.step_count = 0
+	Quests._goal_started()
+	_check(await _t21_goal("trailer_get", 3.0), "an older save on the sheep goal with no sheep goes back to fetch the trailer (%s)" % Quests.current().get("id", ""))
+	Economy.money = 30
+	await _seconds(0.8)
+	_check(String(Quests.current().get("id", "")) == "trailer_get" and Quests.goal_hint().contains(tr("HINT_NEED_MONEY") % UiTheme.money(10)),
+			"the goal asks for the trailer; short of the bill it says how much more and how to earn it: '%s'" % Quests.goal_hint().replace("\n", " / "))
+	stock.interact(player)
+	_check(not stock.owned and Economy.money == 30, "with $30 the $40 tyre bill is refused")
+	Economy.money = 200
+	await _seconds(0.8)
+	_check(Quests.waypoint() == stock.waypoint_roof() and Quests.goal_hint().contains("Kemal"), "with the money in hand the dot is on the trailer and Kemal says what is owed")
+	player.global_position = stock.global_transform * Vector3(2.2, 0.15, 0.3)
+	_look_at(player, stock.global_transform * Vector3(0.9, 1.0, 0.3))
+	await _frames(8)
+	_check(player.target != null and _last_prompt.contains(tr("ACTION_TRAILER_FEE") % UiTheme.money(40)), "E on it offers to pay the tyre bill: '%s'" % _last_prompt.replace("\n", " / "))
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(stock.owned and Economy.money == 160, "paid: it is the farmer's ($160 left)")
+	_check(await _t21_goal("trailer_hitch"), "the story goes on: hitch it (%s)" % Quests.current().get("id", ""))
+	# The cargo trailer: a second E confirms, then it is his.
+	Economy.money = 1000
+	flat.interact(player)
+	_check(not flat.owned and Economy.money == 1000, "the cargo trailer asks for a second E")
+	flat.interact(player)
+	_check(flat.owned and Economy.money == 1000 - flat.price and flat.cargo.capacity > truck.cargo.capacity,
+			"bought for %s: its bed takes %d units (the pickup's %d)" % [UiTheme.money(flat.price), flat.cargo.capacity, truck.cargo.capacity])
+	flat.cargo.add(&"wood", 40)
+	await _frames(5)
+	_check(flat.load_view().package_count() > 0 and flat.find_child("BedPoint", true, false) != null, "wood loaded on it shows as packages on its deck")
+	flat.cargo.take(&"wood", 40)
+
+	# (2) Hitching: the pickup backed up to the tongue, E at the tongue, E again unhitches.
+	var ball_local := Trailer.hitch_of(truck)
+	var c := stock.coupling()
+	var fwd := stock.global_basis.z
+	var yaw := atan2(fwd.x, fwd.z)
+	var at := c + fwd * (0.35 - ball_local.z)
+	_check(stock.tow_in_reach() == null, "with no vehicle at its tongue there is nothing to hitch to")
+	await _park(truck, Transform3D(Basis(Vector3.UP, yaw), Vector3(at.x, TerrainData.height(at.x, at.z) + 0.35, at.z)))
+	await _seconds(2.0)
+	_check(stock.tow_in_reach() == truck, "the pickup backed up to the tongue is in reach (%.2f m)" % Vector2(stock.coupling().x - (truck.global_transform * ball_local).x,
+			stock.coupling().z - (truck.global_transform * ball_local).z).length())
+	player.global_position = stock.global_transform * Vector3(1.5, 0.15, 2.3)
+	_look_at(player, stock.global_transform * Vector3(0.0, 0.5, 2.3))
+	await _frames(8)
+	_check(player.target == stock and _last_prompt.contains(tr("ACTION_TRAILER_HITCH")), "at the tongue: E (%s): '%s'" % [tr("ACTION_TRAILER_HITCH"), _last_prompt.replace("\n", " / ")])
+	await _press_key(KEY_E)
+	await _seconds(1.5)
+	var off := stock.coupling().distance_to(truck.global_transform * ball_local)
+	_check(stock.tow == truck and off < 0.06 and Trailer.towed_by(truck) == stock and stock._jockey_up > 0.9,
+			"hitched: the coupling sits on the ball (%.3f m off), the jockey wheel wound up" % off)
+	_check(await _t21_goal("sheep_buy"), "the story goes on: buy a sheep (%s)" % Quests.current().get("id", ""))
+	_check(_last_prompt.contains(tr("ACTION_TRAILER_UNHITCH")), "E there now unhitches")
+	await _press_key(KEY_E)
+	await _seconds(1.2)
+	_check(stock.tow == null and stock._jockey_up < 0.1 and absf(_t21_gaps(stock).x) < 0.03, "unhitched it stands on its jockey wheel again")
+	stock.hitch(truck)
+	await _seconds(0.5)
+	if shots != "":
+		var eye := stock.global_transform * Vector3(-4.2, 1.6, 6.0)
+		await _v19_shot(shots.path_join("trailer_dealer.png"), eye, stock.global_transform * Vector3(1.2, 0.8, 0.5), 60.0)
+
+	# (3) Towing on the county road: 60 m forward, 10 m back.
+	await _t21_rig(truck, stock, Vector2(80.0, 25.7), atan2(22.0, 4.0))
+	player.enter_vehicle(truck)
+	await _frames(10)
+	var from := truck.global_position
+	var worst_swing := 0.0
+	var worst_off := 0.0
+	var tyre := Vector2(INF, -INF)
+	Input.action_press("move_forward")
+	for i in 300:
+		await _seconds(0.1)
+		if truck.speed_kmh() > 38.0:
+			Input.action_press("move_forward", 0.25)
+		worst_swing = maxf(worst_swing, absf(stock.swing()))
+		worst_off = maxf(worst_off, stock.coupling().distance_to(truck.global_transform * ball_local))
+		var g := _t21_gaps(stock)
+		tyre = Vector2(minf(tyre.x, g.x), maxf(tyre.y, g.y))
+		if shots != "" and i == 25:
+			await _t21_shot(shots.path_join("trailer_towing.png"), truck, Vector3(-4.4, 1.7, 6.2), Vector3(0.0, 0.9, -3.4), 55.0)
+		if truck.global_position.distance_to(from) >= 60.0:
+			break
+	Input.action_release("move_forward")
+	var went := truck.global_position.distance_to(from)
+	Input.action_press("move_back")
+	var braked := 0.0
+	while truck.forward_speed() > 0.3 and braked < 6.0:
+		await _seconds(0.1)
+		braked += 0.1
+	Input.action_release("move_back")
+	await _seconds(0.5)
+	_check(went >= 60.0 and worst_swing < deg_to_rad(12.0) and worst_off < 0.08 and tyre.x > -0.04 and tyre.y < 0.04 and stock.global_basis.y.y > 0.97,
+			"towed %.0f m up the county road: swing at most %.1f deg, coupling %.3f m off the ball, tyres %.3f..%.3f m off the ground" % [went, rad_to_deg(worst_swing),
+			worst_off, tyre.x, tyre.y])
+	from = truck.global_position
+	var rev_swing := 0.0
+	Input.action_press("move_back")
+	for i in 200:
+		await _seconds(0.1)
+		rev_swing = maxf(rev_swing, absf(stock.swing()))
+		var g := _t21_gaps(stock)
+		tyre = Vector2(minf(tyre.x, g.x), maxf(tyre.y, g.y))
+		if truck.global_position.distance_to(from) >= 10.0:
+			break
+	Input.action_release("move_back")
+	var backed := truck.global_position.distance_to(from)
+	Input.action_press("move_forward")
+	await _seconds(0.6)
+	Input.action_release("move_forward")
+	await _seconds(1.0)
+	_check(backed >= 10.0 and rev_swing < deg_to_rad(20.0) and tyre.x > -0.04 and tyre.y < 0.04 and is_finite(stock.global_position.x),
+			"reversed %.1f m: it goes where the truck points (swing at most %.1f deg), wheels on the ground" % [backed, rad_to_deg(rev_swing)])
+	# Reversing in a hard turn it never folds further than the limit.
+	Input.action_press("move_back")
+	Input.action_press("move_left")
+	var fold := 0.0
+	for i in 60:
+		await _seconds(0.1)
+		fold = maxf(fold, absf(stock.swing()))
+	Input.action_release("move_back")
+	Input.action_release("move_left")
+	await _seconds(1.0)
+	_check(fold <= Trailer.MAX_SWING + 0.02 and stock.coupling().distance_to(truck.global_transform * ball_local) < 0.1,
+			"backed round in a full-lock turn it swings %.0f deg at most and stays on the ball" % rad_to_deg(fold))
+	player.exit_vehicle()
+	await _frames(5)
+
+	# (4) The Animal Market with the trailer in the street: the sheep waits in the loading pen.
+	await _t21_rig(truck, stock, Vector2(247.0, 21.6), -PI * 0.5)
+	_check(TrailerYard.trailer_at_market() == stock and TrailerYard.fee_now() == 0, "parked in the street by the market the trailer counts as there: no delivery fee")
+	Economy.money = 1000
+	var market: RancherScreen = Game.hud.rancher_screen
+	market.open_market(TrailerYard.pen_center(), &"sheep")
+	await _idle_frames(2)
+	var line_shown := false
+	for l in market.find_children("*", "Label", true, false):
+		if (l as Label).text == tr("MARKET_PEN_WAITS") and (l as Label).is_visible_in_tree():
+			line_shown = true
+	var got := market.buy_animal(&"sheep", true)
+	market.close_screen()
+	await _frames(5)
+	var sheep: AnimalData = Animals.animals.back() if got else null
+	var sheep_n := Animals.node_of(sheep) if sheep else null
+	_check(got and line_shown and sheep_n != null and Economy.money == 1000 - 225 and sheep.away and TrailerYard.waiting().has(sheep_n)
+			and TrailerYard.PEN.has_point(Vector2(sheep_n.global_position.x, sheep_n.global_position.z)),
+			"bought with the trailer there: no fee, the market says so and the sheep waits in the loading pen")
+	if sheep_n == null:
+		return
+	_check(await _t21_goal("sheep_load"), "the story goes on: load it (%s)" % Quests.current().get("id", ""))
+	await _seconds(0.6)
+	_check(Quests.goal_hint() == tr("HINT_SHEEP_ROPE"), "the goal's line says G puts the rope on: '%s'" % Quests.goal_hint())
+	# The rope on in the pen, then to the ramp.
+	player.global_position = sheep_n.global_position + Vector3(0.0, 0.15, -1.6)
+	_look_at(player, sheep_n.global_position + Vector3(0, 0.6, 0))
+	await _frames(8)
+	_check(player.target == sheep_n and _last_prompt.contains("G (%s)" % tr("ACTION_HALTER")), "in the pen: G (%s)" % tr("ACTION_HALTER"))
+	await _press_key(KEY_G)
+	await _frames(5)
+	_check(player.handler.led == sheep_n, "G puts the rope on it")
+	player.handler.release()
+	sheep_n.global_position = stock.global_transform * Vector3(0.6, 0.0, -5.0)
+	sheep_n.global_position.y = TerrainData.height(sheep_n.global_position.x, sheep_n.global_position.z)
+	sheep_n.reset_physics_interpolation()
+	player.global_position = stock.global_transform * Vector3(1.5, 0.0, -3.3)
+	player.global_position.y = TerrainData.height(player.global_position.x, player.global_position.z) + 0.3
+	await _frames(5)
+	player.handler.lead(sheep_n)
+	_look_at(player, stock.global_transform * Vector3(0.0, 1.1, -1.4))
+	await _frames(10)
+	_check(player.handler.led == sheep_n and player.target == stock and _last_prompt.contains(tr("ACTION_TRAILER_GATE_DOWN")),
+			"with the sheep on the rope at the trailer's back: E (%s): '%s'" % [tr("ACTION_TRAILER_GATE_DOWN"), _last_prompt.replace("\n", " / ")])
+	_check(Quests.goal_hint() == tr("HINT_SHEEP_GATE_DOWN"), "the goal's line: E lowers the ramp")
+	await _press_key(KEY_E)
+	await _seconds(1.6)
+	_check(stock.gate_open and stock.ramp_down(), "E lowers the ramp")
+	_look_at(player, stock.global_transform * Vector3(0.0, 0.3, -2.0))
+	await _frames(10)
+	_check(_last_prompt.contains(tr("ACTION_TRAILER_LOAD") % sheep.name), "now E leads %s up: '%s'" % [sheep.name, _last_prompt.replace("\n", " / ")])
+	await _press_key(KEY_E)
+	await _frames(3)
+	_check(stock.aboard.has(sheep_n) and player.handler.led == sheep_n and player.handler.boarding and sheep_n.ridden, "E: it walks to the ramp, the rope still in his hand")
+	var on_ramp := false
+	var pictured := false
+	var clipped := 0.0
+	for i in 80:
+		await _seconds(0.1)
+		var l := stock.to_local(sheep_n.global_position)
+		if l.z < stock._box_rear and l.z > stock._box_rear - stock._ramp_run and l.y > 0.1:
+			if not pictured and l.y > 0.22 and shots != "":
+				# Held still for the picture.
+				pictured = true
+				stock.set_process(false)
+				var eye := stock.global_transform * Vector3(-3.3, 1.5, -4.9)
+				await _v19_shot(shots.path_join("trailer_ramp.png"), eye, stock.global_transform * Vector3(0.2, 0.75, -1.5), 50.0)
+				stock.set_process(true)
+			on_ramp = true
+		# Its feet on the ramp and the floor, never under them.
+		clipped = maxf(clipped, stock._deck(l.z) - l.y)
+		if not stock._walks.has(sheep_n):
+			break
+	var seat := stock.to_local(sheep_n.global_position)
+	_check(on_ramp and clipped < 0.02 and not stock._walks.has(sheep_n) and player.handler.led == null and not sheep_n.led and absf(seat.x) < stock._box_half and seat.z > stock._box_rear and seat.z < stock._box_front
+			and absf(seat.y - stock._floor) < 0.02, "it walked up the ramp and stands in its place on the floor (%.2f, %.2f, %.2f)" % [seat.x, seat.y, seat.z])
+	await _seconds(0.6)
+	_check(Quests.goal_hint() == tr("HINT_SHEEP_GATE_UP") and String(Quests.current().get("id", "")) == "sheep_load", "aboard with the ramp down the goal waits for the gate")
+	_look_at(player, stock.global_transform * Vector3(0.0, 0.3, -2.0))
+	await _frames(8)
+	_check(_last_prompt.contains(tr("ACTION_TRAILER_GATE_UP")), "E now raises the gate")
+	await _press_key(KEY_E)
+	await _seconds(1.5)
+	_check(not stock.gate_open and stock._gate < 0.01, "the gate is shut")
+	_check(await _t21_goal("sheep_ride"), "the story goes on: drive home (%s)" % Quests.current().get("id", ""))
+
+	# (5) Riding: it stays in its place as the trailer goes, and is saved and loaded aboard.
+	player.enter_vehicle(truck)
+	await _frames(5)
+	Input.action_press("move_forward")
+	var strayed := 0.0
+	for i in 40:
+		await _seconds(0.1)
+		var l := stock.to_local(sheep_n.global_position)
+		strayed = maxf(strayed, maxf(absf(l.x) - stock._box_half, maxf(stock._box_rear - l.z, l.z - stock._box_front)))
+		strayed = maxf(strayed, absf(l.y - stock._floor) - 0.03)
+	Input.action_release("move_forward")
+	Input.action_press("move_back")
+	await _seconds(1.5)
+	Input.action_release("move_back")
+	player.exit_vehicle()
+	await _seconds(1.0)
+	_check(strayed <= 0.0 and stock.aboard.has(sheep_n) and not sheep_n.is_in_group(&"interactable"), "driven down the street it rides in its place (never outside the box)")
+	var slot := "slot_4"
+	var sheep_id := sheep.id
+	var where := stock.global_position
+	_check(SaveGame.save(slot), "saved hitched, with the sheep aboard")
+	_check(SaveGame.load_game(slot), "loading the save started")
+	await _until_loaded()
+	await _seconds(1.0)
+	player = Game.player
+	town = tree.get_first_node_in_group(&"town") as Town
+	farm = Game.world.farm
+	truck = town.farm_truck
+	stock = Trailer.of_kind(&"trailer_stock")
+	flat = Trailer.of_kind(&"trailer_flat")
+	sheep = Animals.by_id(sheep_id)
+	sheep_n = Animals.node_of(sheep) if sheep else null
+	_check(stock != null and stock.owned and stock.tow == truck and flat.owned and stock.global_position.distance_to(where) < 0.5
+			and sheep_n != null and stock.aboard.has(sheep_n) and sheep_n.ridden and not stock.gate_open
+			and String(Quests.current().get("id", "")) == "sheep_ride",
+			"loaded: the trailer is his, hitched where it stood, the sheep aboard behind the shut gate, the story on the drive home")
+	if stock == null or sheep_n == null:
+		SaveGame.delete(slot)
+		return
+	seat = stock.to_local(sheep_n.global_position)
+	_check(absf(seat.x) < stock._box_half and seat.z > stock._box_rear and seat.z < stock._box_front and absf(seat.y - stock._floor) < 0.03,
+			"it stands in its place after the load (%.2f, %.2f, %.2f)" % [seat.x, seat.y, seat.z])
+	SaveGame.delete(slot)
+
+	# (6) Home: the ramp down, the rope on (G), out, into the barn's pen.
+	farm.barn.set_level(1)
+	await _t21_rig(truck, stock, Vector2(24.0, 3.0), -PI * 0.5)
+	if shots != "":
+		var eye := stock.global_transform * Vector3(-3.4, 1.75, -4.8)
+		await _v19_shot(shots.path_join("trailer_hitched.png"), eye, stock.global_transform * Vector3(0.2, 0.9, 2.4), 55.0)
+	_check(await _t21_goal("sheep"), "at the farm the story goes on: into the pen (%s)" % Quests.current().get("id", ""))
+	player.global_position = stock.global_transform * Vector3(1.5, 0.0, -3.3)
+	player.global_position.y = TerrainData.height(player.global_position.x, player.global_position.z) + 0.3
+	_look_at(player, stock.global_transform * Vector3(0.0, 1.1, -1.4))
+	await _frames(10)
+	await _seconds(0.6)
+	_check(Quests.goal_hint() == tr("HINT_SHEEP_GATE_DOWN"), "the goal's line: E lowers the ramp ('%s')" % Quests.goal_hint())
+	await _press_key(KEY_E)
+	await _seconds(1.6)
+	_look_at(player, stock.global_transform * Vector3(0.0, 0.3, -2.0))
+	await _frames(10)
+	_check(stock.ramp_down() and _last_prompt.contains("G (%s)" % (tr("ACTION_TRAILER_UNLOAD") % sheep.name)), "the ramp down: G leads %s out: '%s'" % [sheep.name,
+			_last_prompt.replace("\n", " / ")])
+	await _press_key(KEY_G)
+	for i in 80:
+		await _seconds(0.1)
+		if not stock.aboard.has(sheep_n):
+			break
+	await _frames(5)
+	var out_at := stock.to_local(sheep_n.global_position)
+	_check(stock.aboard.is_empty() and player.handler.led == sheep_n and not sheep_n.ridden and out_at.z < stock._box_rear - stock._ramp_run
+			and absf(sheep_n.global_position.y - TerrainData.height(sheep_n.global_position.x, sheep_n.global_position.z)) < 0.08,
+			"it walked down the ramp and is on the rope again, on the ground behind the trailer")
+	await _seconds(0.6)
+	_check(Quests.goal_hint() == tr("HINT_SHEEP_TO_BARN"), "the goal's line sends it to the barn's pen")
+	# Led in through the pen's gate.
+	var gate_out := WorldLayout.gate_point(farm.barn.pen, farm.barn.gate, 2.5)
+	var gate_in := WorldLayout.gate_point(farm.barn.pen, farm.barn.gate, -4.0)
+	player.handler.release()
+	sheep_n.global_position = Vector3(gate_out.x - 2.2, TerrainData.height(gate_out.x - 2.2, gate_out.z), gate_out.z)
+	sheep_n.reset_physics_interpolation()
+	player.global_position = Vector3(gate_out.x, TerrainData.height(gate_out.x, gate_out.z) + 0.2, gate_out.z)
+	await _frames(5)
+	player.handler.lead(sheep_n)
+	player.look_at_yaw_pitch(atan2(-(gate_in.x - gate_out.x), -(gate_in.z - gate_out.z)), 0.0)
+	Input.action_press("move_forward")
+	for i in 120:
+		await _seconds(0.1)
+		if farm.barn.in_pen(sheep_n.global_position, -0.6):
+			break
+	Input.action_release("move_forward")
+	await _press_key(KEY_E)
+	await _seconds(1.5)
+	_check(player.handler.led == null and farm.barn.in_pen(sheep_n.global_position, -0.3) and not sheep.away and TrailerGoals.progress("sheep_home") == 1,
+			"led through the gate and let go in the barn's pen")
+	_check(await _t21_goal("shear"), "the sheep is home: the story goes on to the shearing (%s)" % Quests.current().get("id", ""))
+	Quests.skip_tutorial()
+
+	# (7) Room: two sheep, or one cow or horse; more are refused with a line.
+	stock.set_gate(true)
+	await _seconds(1.5)
+	var cow_n := Animals.node_of(Animals._add(&"cow", true, "Sarıkız", farm.barn))
+	var sheep2_n := Animals.node_of(Animals._add(&"sheep", true, "Bulut", farm.barn))
+	await _frames(10)
+	for a: Animal in [sheep_n, sheep2_n, cow_n]:
+		a.global_position = stock.global_transform * Vector3(0.0, 0.0, -4.5)
+		a.global_position.y = TerrainData.height(a.global_position.x, a.global_position.z)
+	_check(stock.load_animal(sheep_n) and stock.load_animal(sheep2_n), "two sheep go aboard")
+	notes.clear()
+	_check(not stock.load_animal(cow_n) and notes.has(tr("MSG_TRAILER_FULL")) and not cow_n.ridden, "a cow on top is refused: '%s'" % tr("MSG_TRAILER_FULL"))
+	await _seconds(7.0)
+	var a_at := stock.to_local(sheep_n.global_position)
+	var b_at := stock.to_local(sheep2_n.global_position)
+	_check(stock._walks.is_empty() and stock.room_used() == 2 and absf(a_at.x - b_at.x) > 0.6 and absf(a_at.x) < stock._box_half and absf(b_at.x) < stock._box_half,
+			"they stand side by side (%.2f and %.2f across)" % [a_at.x, b_at.x])
+	# The day ends with them aboard: taken to their pen.
+	stock._on_day_ending()
+	await _frames(5)
+	_check(stock.aboard.is_empty() and not sheep_n.ridden and not sheep.away and farm.barn.in_pen(sheep_n.global_position), "at the day's end those aboard are taken home")
+	stock.set_gate(true)
+	await _seconds(1.5)
+	cow_n.global_position = stock.global_transform * Vector3(0.0, 0.0, -4.5)
+	_check(stock.load_animal(cow_n) and stock.room_used() == 2, "the cow alone fills it")
+	notes.clear()
+	_check(not stock.load_animal(sheep_n) and notes.has(tr("MSG_TRAILER_FULL")), "a sheep beside the cow is refused")
+	await _seconds(7.0)
+	var cow_at := stock.to_local(cow_n.global_position)
+	_check(absf(cow_at.x) < 0.05 and cow_at.z - 1.15 > stock._box_rear - 0.05 and cow_at.z + 1.15 < stock._box_front + 0.05, "she stands down the middle, inside the box")
+	stock.set_gate(false)
+	await _seconds(1.5)
+
+	# (8) Sold out of the trailer at the market: 15% more. Without a trailer: the fee, home in the morning.
+	await _t21_rig(truck, stock, Vector2(247.0, 21.6), -PI * 0.5)
+	var value := cow_n.data.sale_value()
+	var bonus := TrailerYard.sale_bonus(cow_n.data)
+	_check(bonus == roundi(value * 0.15) and TrailerYard.sale_bonus(sheep) == 0, "the cow in the trailer at the market fetches %s more; the sheep at home nothing extra" % UiTheme.money(bonus))
+	market = Game.hud.rancher_screen
+	market.open_market(TrailerYard.pen_center(), &"sheep")
+	market._set_tab("sell")
+	await _idle_frames(3)
+	Economy.money = 0
+	var sold := false
+	for bt in market.find_children("*", "UiButton", true, false):
+		var ub := bt as UiButton
+		if ub.is_visible_in_tree() and not ub.is_queued_for_deletion() and ub.text == tr("SHOP_SELL"):
+			# The cow's row is the last one bought.
+			sold = true
+	market._confirm_sell = cow_n.data.id
+	market._fill()
+	await _idle_frames(3)
+	for bt in market.find_children("*", "UiButton", true, false):
+		var ub := bt as UiButton
+		if ub.is_visible_in_tree() and not ub.is_queued_for_deletion() and ub.text == tr("RANCHER_CONFIRM"):
+			ub.pressed.emit()
+			break
+	await _frames(5)
+	_check(sold and Economy.money == value + bonus and stock.room_used() == 0, "sold from the trailer: %s (%s + %s)" % [UiTheme.money(Economy.money), UiTheme.money(value), UiTheme.money(bonus)])
+	market.close_screen()
+	await _t21_rig(truck, stock, Vector2(-21.0, 6.0), PI * 0.5)
+	_check(TrailerYard.trailer_at_market() == null and TrailerYard.fee_now() == TrailerYard.DELIVERY_FEE, "with the trailer at the farm the dealer's fee is due")
+	Economy.money = 225 + 10
+	market.open_market(TrailerYard.pen_center(), &"sheep")
+	await _idle_frames(2)
+	_check(market.why_not(&"sheep", true) == tr("MSG_NEED_GOLD") % UiTheme.money(5), "short of price and fee it says how much more: '%s'" % market.why_not(&"sheep", true))
+	Economy.money = 300
+	notes.clear()
+	got = market.buy_animal(&"sheep", true)
+	market.close_screen()
+	var third: AnimalData = Animals.animals.back()
+	var third_n := Animals.node_of(third)
+	var told := false
+	for n in notes:
+		told = told or n.contains("Rıza")
+	_check(got and Economy.money == 300 - 225 - TrailerYard.DELIVERY_FEE and third.away and TrailerYard.waiting().has(third_n) and told,
+			"bought without a trailer: $15 on top, Rıza says he brings it tomorrow, it waits in the pen")
+	Animals._on_day_started(GameClock.day + 1)
+	await _frames(5)
+	_check(not third.away and farm.barn.in_pen(third_n.global_position), "the next morning it is in the barn's pen")
+	# (9) Walkers keep off it and go round it (as a vehicle's body: Vehicle.keep_out, way_round).
+	stock.unhitch(true)
+	await _seconds(0.5)
+	var side_a := stock.global_transform * Vector3(3.0, 0.0, 0.2)
+	var side_b := stock.global_transform * Vector3(-3.0, 0.0, 0.2)
+	var kept := stock.to_local(Vehicle.keep_out(side_a, stock.global_transform * Vector3(0.3, 0.0, 0.2), 0.45))
+	var round := Vehicle.way_round(side_a, side_b, 0.45, 0.5)
+	var held := stock.global_position
+	_check(kept.x > stock._footprint.end.x + 0.4 and round != side_b and absf(stock.to_local(round).z) > 1.0 and stock.freeze
+			and stock.global_position.is_equal_approx(held),
+			"an animal walking into its side is stopped there (%.2f m out) and a wolf's way leads round its end; nothing shoves it" % kept.x)
+	Events.notification_requested.disconnect(on_note)
+	await _frames(5)
 

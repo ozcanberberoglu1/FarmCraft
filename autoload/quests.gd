@@ -71,7 +71,8 @@ const CHAIN := 8
 ## crated anywhere, or living on the farm), "kit" (a coop kit made), "coop:started" /
 ## "coop:built", "bin:<item or category>" (in the shipping bin, or shipped),
 ## "warehouse", "cargo", "near:town", "day:<n>", "level", "built:<project>",
-## "animals:<species>", "has:<item>" (in the bag or put down on the farm), "bench:kit" /
+## "animals:<species>", "trailer:<what>" (the stock trailer's lesson: TrailerGoals),
+## "has:<item>" (in the bag or put down on the farm), "bench:kit" /
 ## "bench:started" / "bench:built" (a workbench bought, put down, finished), "bait"
 ## (worms or dough in the bag), "caught" (a fish caught since the story began), "full"
 ## (the farmer too full to eat now); the counting ones report progress).
@@ -102,6 +103,11 @@ const TUTORIAL := [
 	# The count is FarmHouse.table_item_count() (ItemTable.STARTING_ITEMS); "table" copes
 	# with a different number all the same.
 	{"chapter": 0, "id": "tools", "kind": "check", "arg": "table", "count": 7, "at": "table"},
+	# The farm's own name: Grandpa's old name board at the entrance, its paint flaked off
+	# (NameBoard: E opens the naming prompt; a skipped one keeps Grandpa's name on it, and E
+	# on the board renames the farm at any time). Added without a new chain: a save further
+	# on is simply past it, its farm called by the default name until he writes another.
+	{"chapter": 0, "id": "farm_name", "kind": "check", "arg": "flag:farm_named", "count": 1, "xp": 2, "at": "name_board"},
 	# The soil: three beds of wheat, ripe by tomorrow morning.
 	{"chapter": 1, "id": "till", "kind": "action", "arg": "hoe", "count": 3, "xp": 4, "ever": true, "at": "plot:untilled"},
 	{"chapter": 1, "id": "plant", "kind": "action", "arg": "plant:wheat", "count": 3, "xp": 4, "ever": true, "at": "plot:empty"},
@@ -218,7 +224,17 @@ const TUTORIAL := [
 	# Animal Market's pen once their price is in hand.
 	{"chapter": 14, "id": "level_3", "kind": "check", "arg": "level", "count": 3},
 	{"chapter": 14, "id": "barn", "kind": "check", "arg": "built:barn_1", "count": 1, "xp": 10, "at": "project:barn_1"},
-	{"chapter": 14, "id": "sheep", "kind": "check", "arg": "animals:sheep", "count": 1, "xp": 10, "at": "animal:sheep"},
+	# Grandpa's stock trailer (Trailer, TrailerGoals): paid for at the dealership, hitched
+	# behind the pickup, the sheep bought at the Animal Market led up its ramp on the rope,
+	# driven home and led into the barn's pen ("sheep", the goal older saves know: it is
+	# done with a sheep in the pen, however it came). Each step passes once the farm is
+	# beyond it (a sheep at home passes them all).
+	{"chapter": 14, "id": "trailer_get", "kind": "check", "arg": "trailer:owned", "count": 1, "xp": 4, "at": "trailer:get", "past": "trailer:sheep_home"},
+	{"chapter": 14, "id": "trailer_hitch", "kind": "check", "arg": "trailer:hitched", "count": 1, "xp": 4, "at": "trailer:hitch", "past": "trailer:sheep_owned"},
+	{"chapter": 14, "id": "sheep_buy", "kind": "check", "arg": "trailer:sheep_owned", "count": 1, "xp": 4, "at": "animal:sheep"},
+	{"chapter": 14, "id": "sheep_load", "kind": "check", "arg": "trailer:sheep_loaded", "count": 1, "xp": 5, "at": "trailer:load", "past": "trailer:sheep_home"},
+	{"chapter": 14, "id": "sheep_ride", "kind": "check", "arg": "trailer:sheep_at_farm", "count": 1, "xp": 4, "at": "trailer:ride"},
+	{"chapter": 14, "id": "sheep", "kind": "check", "arg": "trailer:sheep_home", "count": 1, "xp": 10, "at": "trailer:unload"},
 	{"chapter": 14, "id": "shear", "kind": "action", "arg": "shear", "count": 1, "xp": 10},
 	{"chapter": 15, "id": "level_4", "kind": "check", "arg": "level", "count": 4},
 	{"chapter": 15, "id": "cow", "kind": "check", "arg": "animals:cow", "count": 1, "xp": 10, "at": "animal:cow"},
@@ -1024,6 +1040,9 @@ func _check_progress(arg: String, count := 1) -> int:
 			return 1 if FarmState.is_built(StringName(what)) else 0
 		"animals":
 			return _animal_count(StringName(what))
+		"trailer":
+			# The stock trailer's lesson in the barn chapter.
+			return TrailerGoals.progress(what)
 		"has":
 			return PlayerState.inventory.count_item(StringName(what)) + _placed_count(StringName(what))
 		"rods":
@@ -1509,6 +1528,11 @@ func _target(at: String) -> Variant:
 			if house == null:
 				return null
 			return house.drawer_point()
+		"name_board":
+			# Grandpa's name board at the farm's entrance; the line says where it stands.
+			_hint = tr("HINT_NAME_BOARD")
+			var name_board := FarmIdentity.board()
+			return _anchor(NameBoard.ANCHOR, name_board.guide_point() if name_board else null)
 		"key":
 			var house := _house()
 			if house == null:
@@ -1713,6 +1737,11 @@ func _target(at: String) -> Variant:
 			if pen is Node3D and (pen as Node3D).is_inside_tree():
 				return (pen as Node3D).global_position + Vector3(0, 1.2, 0)
 			return _target("stall")
+		"trailer":
+			# The stock trailer's lesson: its place and the line that names the key.
+			var lesson := TrailerGoals.place(at.get_slice(":", 1))
+			_hint = String(lesson.get("hint", ""))
+			return lesson.get("at")
 		"bench_spot":
 			if PlayerState.inventory.count_item(&"workbench") == 0 and _placed_count(&"workbench") == 0:
 				return _target("bench_board")

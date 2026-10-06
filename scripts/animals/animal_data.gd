@@ -44,6 +44,14 @@ var injured_at := -1.0
 var vet_until := -1.0
 ## The farmer was told its time is running out (Animals.INJURY_REMIND).
 var injury_warned := false
+## A ram, a bull or a stallion (Breeding): he sires the young, gives no milk. Animals from
+## saves made before there were males are all female.
+var male := false
+## Carrying young (Breeding): mornings left until she gives birth (-1: not carrying; 0:
+## due, waiting for room in her building).
+var due_in := -1
+## The day it was born on this farm (-1: bought).
+var born_day := -1
 
 
 ## Hurt and not yet treated (also while it is at the clinic).
@@ -69,6 +77,11 @@ func is_chick() -> bool:
 	return not adult and AnimalTable.is_poultry(species)
 
 
+## Carrying young (Breeding).
+func pregnant() -> bool:
+	return due_in >= 0
+
+
 ## 0 baby .. 1 adult (drives body size).
 func age_ratio() -> float:
 	if adult:
@@ -89,6 +102,8 @@ func to_dict() -> Dictionary:
 			"affection", "petted_today", "brushed_today", "hand_fed_today", "fed_hours", "product_ready",
 			"product_progress", "wool", "sick", "wet", "exposure", "away", "away_yaw", "last_birth_day", "mother",
 			"injured_at", "vet_until", "injury_warned"]:
+		d[p] = get(p)
+	for p in ["male", "due_in", "born_day"]:
 		d[p] = get(p)
 	d["species"] = String(species)
 	d["away_pos"] = [away_pos.x, away_pos.y, away_pos.z]

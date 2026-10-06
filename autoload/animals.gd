@@ -21,6 +21,9 @@ extends Node
 ## by itself when its time is up, across a sleep or a load too); the farmer is reminded in
 ## the morning and INJURY_REMIND before. A dead one leaves its remains where it fell
 ## (Remains: `remains`, saved), gone after a while or cleared away by hand.
+## Sheep, cows and horses are female or male and breed (Breeding: a female kept well with a
+## male of her kind carries young and gives birth at dawn; `breeding`, the BreedingGoals,
+## teaches it and has the first young of each kind named).
 
 signal changed
 signal notes_changed
@@ -85,6 +88,8 @@ const CHICK_GOAL_POLL := 0.5
 var chick_goal_in_tests := false
 var _chick_goal: SideGoal
 var _chick_poll := 0.0
+## The lesson of the young and the naming of each kind's first-born (BreedingGoals).
+var breeding: BreedingGoals
 
 
 func _ready() -> void:
@@ -92,6 +97,9 @@ func _ready() -> void:
 	Events.day_started.connect(_on_day_started)
 	Events.day_ending.connect(_on_day_ending)
 	Events.time_skipped.connect(_on_time_skipped)
+	breeding = BreedingGoals.new()
+	breeding.name = "BreedingGoals"
+	add_child(breeding)
 
 
 func _process(delta: float) -> void:
@@ -260,13 +268,15 @@ func can_buy(species: StringName, adult: bool) -> String:
 	return ""
 
 
-func buy(species: StringName, adult: bool, animal_name := "") -> AnimalData:
+func buy(species: StringName, adult: bool, animal_name := "", quiet := false) -> AnimalData:
 	if can_buy(species, adult) != "":
 		return null
 	var info := AnimalTable.get_species(species)
 	Economy.spend(info["adult_price"] if adult else info["baby_price"], "REPORT_ANIMALS")
 	var a := _add(species, adult, animal_name, home_for(species))
-	Game.notify(tr("MSG_ANIMAL_ARRIVED") % [a.name, species_name(species, adult)], Color(0.55, 1.0, 0.45))
+	# `quiet`: the Animal Market says itself where it waits (TrailerYard.bought).
+	if not quiet:
+		Game.notify(tr("MSG_ANIMAL_ARRIVED") % [a.name, species_name(species, adult)], Color(0.55, 1.0, 0.45))
 	changed.emit()
 	return a
 
@@ -342,6 +352,8 @@ func _next_name() -> void:
 		_naming.named.connect(_on_named)
 		Game.hud.add_child(_naming)
 	var kind := "CHICK" if _naming_now.is_chick() else ("ROOSTER" if _naming_now.species == &"rooster" else "HEN")
+	if BreedingGoals.name_kind(_naming_now) != "":
+		kind = BreedingGoals.name_kind(_naming_now)
 	var ideas := name_ideas(_naming_now.species, _naming_now)
 	var first: String = ideas[0] if not ideas.is_empty() else _naming_now.name
 	_naming.open(first, tr("ANIMAL_NAME_TITLE_" + kind), tr("ANIMAL_NAME_SUB_" + kind), "paw", ideas)
@@ -354,6 +366,8 @@ func name_ideas(species: StringName, own: AnimalData = null) -> PackedStringArra
 	var key := "ANIMAL_NAME_IDEAS_ROOSTER" if species == &"rooster" else "ANIMAL_NAME_IDEAS_HEN"
 	if own != null and own.is_chick():
 		key = "ANIMAL_NAME_IDEAS_CHICK"
+	if BreedingGoals.name_kind(own) != "":
+		key = "ANIMAL_NAME_IDEAS_" + BreedingGoals.name_kind(own)
 	var taken := animals.filter(func(x: AnimalData) -> bool: return x != own).map(func(x: AnimalData) -> String: return x.name)
 	var out := PackedStringArray()
 	for n: String in tr(key).split("|", false):
@@ -370,6 +384,8 @@ func _on_named(chosen: String) -> void:
 		a.name = chosen.strip_edges().left(18)
 		if a == chick_to_name():
 			_chick_named(a)
+		elif breeding.named(a):
+			pass
 		else:
 			Game.notify(tr("MSG_ANIMAL_NAMED") % a.name, Color(0.55, 1.0, 0.45))
 		changed.emit()
@@ -452,6 +468,8 @@ func chick_to_name() -> AnimalData:
 
 ## Whether E on `a` gives it its name (the first chick, out of its shell, not named yet).
 func wants_name(a: AnimalData) -> bool:
+	if a != _naming_now and BreedingGoals.wants_name(a):
+		return true
 	return a != null and a.is_chick() and a == chick_to_name() and a != _naming_now
 
 
@@ -903,7 +921,8 @@ func _simulate(hours: float, t0: float, t1: float) -> void:
 		var info := a.info()
 		var housing := housing_of(a)
 		var outdoors := _is_outdoors(a)
-		a.fullness -= FULL_DECAY * hours
+		# (One well grazed in a pasture today gets hungry slower: Pastures.hunger_rate.)
+		a.fullness -= FULL_DECAY * hours * Pastures.hunger_rate(a.id)
 		a.hydration -= WATER_DECAY * hours
 		# Grazing and foraging outdoors in daylight.
 		if outdoors and not night and not winter and Weather.snow_cover < 0.3:
@@ -1063,10 +1082,6 @@ func _on_day_started(_day: int) -> void:
 
 ## Units of manure each animal leaves in its bedding overnight.
 const MANURE := {&"cow": 3.0, &"horse": 3.0, &"sheep": 1.5, &"chicken": 0.5, &"rooster": 0.5}
-## Nightly chance of a birth, and days a mother rests afterwards (poultry hatch from
-## fertile eggs instead: ChickenCoop).
-const BREED_CHANCE := {&"sheep": 0.14, &"cow": 0.1, &"horse": 0.07}
-const BREED_REST := {&"sheep": 8, &"cow": 12, &"horse": 14}
 ## Laying: hours of a day a hen must have been fed for her egg (FED_EGG_HOURS), fewer
 ## (HALF_FED_HOURS) give one only now and then (HALF_FED_EGG); a second egg the same
 ## day comes to a content hen (happiness over CONTENT) with a chance growing with her
@@ -1091,32 +1106,11 @@ func _muck_out() -> void:
 		FarmState.add_manure(total)
 
 
-## Two well-kept adults of a kind (healthy, content, two hearts or more) and room in
-## their building: now and then a baby is born overnight.
+## Dawn for the sheep, the cows and the horses that breed (Breeding.daily): the ones
+## carrying come a morning nearer, the due ones give birth where there is room, and a
+## well-kept female living with a male of her kind may conceive.
 func _breed() -> void:
-	for species: StringName in BREED_CHANCE:
-		var parents := animals.filter(func(a: AnimalData) -> bool:
-			return a.species == species and a.adult and not a.sick and not a.injured() and not a.at_vet() \
-					and a.health >= 70.0 and a.happiness >= 60.0 and a.hearts() >= 2)
-		if parents.size() < 2:
-			continue
-		var mothers := parents.filter(func(a: AnimalData) -> bool:
-			return GameClock.day - a.last_birth_day >= int(BREED_REST[species]))
-		if mothers.is_empty() or randf() > float(BREED_CHANCE[species]):
-			continue
-		var mother: AnimalData = mothers.pick_random()
-		# The baby stays with its mother when there is room, else goes where there is.
-		var housing := housing_of(mother)
-		if housing == null or housing.free_space() <= 0:
-			housing = home_for(species)
-		if housing == null or housing.level <= 0 or housing.free_space() <= 0:
-			continue
-		mother.last_birth_day = GameClock.day
-		var baby := _add(species, false, "", housing)
-		Events.animal_born.emit(species)
-		var msg := tr("MSG_ANIMAL_BORN") % [species_name(species, false), mother.name, baby.name]
-		Game.notify(msg, Color(0.55, 1.0, 0.45))
-		report_notes.append(msg)
+	Breeding.daily()
 
 
 ## How many eggs hen `a` lays today (0-2), at dawn from the day that went: a hen fed
@@ -1163,7 +1157,8 @@ func _produce(a: AnimalData) -> void:
 		&"chicken":
 			_lay(a)
 		&"cow":
-			a.product_ready = true
+			# A bull gives none.
+			a.product_ready = not a.male
 		&"sheep":
 			a.wool = minf(a.wool + 1.0 / float(a.info()["product_days"]), 1.0)
 			if a.wool >= 0.999:
@@ -1189,6 +1184,9 @@ func new_game() -> void:
 	if _chick_goal != null:
 		SideStory.remove_goal(_chick_goal)
 	_chick_poll = 0.0
+	Breeding.reset()
+	if breeding != null:
+		breeding.reset()
 
 
 func save_data() -> Dictionary:

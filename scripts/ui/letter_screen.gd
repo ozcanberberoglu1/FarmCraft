@@ -6,7 +6,9 @@ extends ModalScreen
 ## Other letters come from the town: Beyza's on the morning of a carnival day
 ## ("carnival", Carnival), signed with its own LETTER_<KIND>_SIGN; and the mail in the
 ## mailbox by the house (open_mail: Mail's letters, the first unread one on the sheet and
-## all of them in a list beside it, a gift in the envelope taken out as it is opened).
+## all of them in a list beside it, a gift in the envelope taken out as it is opened; once
+## the market's catalogue has come, a tab strip over them and the catalogue as a second
+## page: CatalogPage).
 ## Putting the first letter down turns to his notebook: the first chapter's line shows
 ## under the first goal.
 
@@ -23,6 +25,11 @@ var mail_index := -1
 var _drop_at := Vector3.INF
 var _list: VBoxContainer
 var _page: VBoxContainer
+## Mail: the market catalogue's page (null before the catalogue has come), the tab strip
+## over the letters and the letters' own row.
+var catalog_page: CatalogPage
+var _mail_tabs: TabStrip
+var _mail_row: Control
 
 
 func _ready() -> void:
@@ -159,7 +166,47 @@ func open_mail(drop_at := Vector3.INF) -> void:
 			first = i
 			break
 	show_letter(first if first >= 0 else Mail.letters.size() - 1)
+	_add_catalog(center, row, first < 0)
 	show_screen()
+
+
+## The market catalogue beside the letters (Mail.catalog, once Hasan's catalogue has come):
+## a tab strip over the letters' `row` and the catalogue's page in their place when its tab
+## is picked; `open_on_it`: the screen opens on the catalogue (no letter waits unread).
+func _add_catalog(center: Control, row: Control, open_on_it: bool) -> void:
+	catalog_page = null
+	_mail_tabs = null
+	_mail_row = row
+	if not Mail.catalog.available():
+		return
+	center.remove_child(row)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	center.add_child(col)
+	panel = col
+	_mail_tabs = TabStrip.new()
+	_mail_tabs.setup([["letters", tr("MAIL_LIST_TITLE"), "letter"], ["catalog", tr("CATALOG_TAB"), "book"]])
+	_mail_tabs.selected.connect(show_mail_tab)
+	col.add_child(_mail_tabs)
+	col.add_child(row)
+	catalog_page = CatalogPage.new()
+	catalog_page.visible = false
+	col.add_child(catalog_page)
+	if open_on_it:
+		_mail_tabs.select("catalog")
+
+
+## The mailbox's page `id` on the screen: "letters" or "catalog" (the tab strip's pick).
+func show_mail_tab(id: String) -> void:
+	if catalog_page == null or _mail_tabs == null:
+		return
+	if _mail_tabs.current != id:
+		_mail_tabs.select(id)
+		return
+	catalog_page.visible = id == "catalog"
+	_mail_row.visible = id != "catalog"
+	if id == "catalog":
+		catalog_page.refresh()
 
 
 ## Letter `index` of Mail.letters on the sheet (opened: read, its gift taken out); -1:
@@ -189,6 +236,8 @@ func show_letter(index: int) -> void:
 		rule.color = Color(INK_SOFT, 0.35)
 		rule.custom_minimum_size = Vector2(0, 2)
 		_page.add_child(rule)
+		# Addressed to the farm by its name (FarmIdentity).
+		_page.add_child(UiTheme.make_label(tr("MAIL_TO") % FarmIdentity.farm_name(), UiTheme.text(17, INK_SOFT, 600)))
 		for para in tr(String(l["body"])).format(l.get("args", {})).split("|"):
 			var p := UiTheme.make_label(para.strip_edges(), UiTheme.text(20, INK, 500))
 			p.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

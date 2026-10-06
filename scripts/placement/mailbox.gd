@@ -3,6 +3,8 @@ extends PlacedObject
 ## The mailbox by the house (PlaceableTable "mailbox": made at the workbench): letters
 ## from the town arrive in it (Mail). Its little red flag stands up while a letter waits
 ## unread; E opens the letter screen (the new letters first, the read ones in a list).
+## The market's catalogue comes to it too (Mail.catalog): the flag is up as well while a
+## delivery crate beside it hasn't been looked into, and the screen has the catalogue's page.
 
 const GROUP := &"mailboxes"
 ## Seconds the flag takes to swing up or down.
@@ -31,7 +33,7 @@ func _setup() -> void:
 func _sync_flag(instant := false) -> void:
 	if not is_inside_tree():
 		return
-	var up := Mail.unread_count() > 0
+	var up := Mail.unread_count() > 0 or Mail.catalog.crate_waiting()
 	if up == _up and not instant:
 		return
 	_up = up
@@ -56,6 +58,8 @@ func interact_prompt(_player: Node) -> String:
 	var n := Mail.unread_count()
 	if n > 0:
 		return tr("ACTION_READ_MAIL") % n
+	if Mail.catalog.available():
+		return tr("ACTION_MAIL_CATALOG")
 	return tr("ACTION_CHECK_MAIL")
 
 

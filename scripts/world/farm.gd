@@ -76,6 +76,8 @@ func _place_props() -> void:
 	warehouse.name = "Warehouse"
 	add_child(warehouse)
 	Game.world.block_grass(Rect2(WorldLayout.SHIPPING_BIN_POS.x - 0.8, WorldLayout.SHIPPING_BIN_POS.z - 0.6, 1.6, 1.2))
+	# Grandpa's name board at the entrance, and the farmer's own colours (FarmIdentity).
+	FarmIdentity.setup(self)
 
 
 ## The node for something the player put down (FarmState.placed entry).

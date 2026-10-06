@@ -73,6 +73,9 @@ const DOG_HEAD_LOCAL := Vector3(0.0, 0.54, -0.16)
 
 var carried: Animal
 var led: Animal
+## The animal on the rope is walking up a trailer's ramp by itself (Trailer.load_animal):
+## the rope is still in hand and drawn, but it is not led along the farmer's way.
+var boarding := false
 ## His own dog in his arms, and on the seat beside him in the vehicle he drives.
 var carried_dog: PetDog
 var riding_dog: PetDog
@@ -137,6 +140,9 @@ func offer_line(target: Object) -> String:
 		return ""
 	if target is PetDog:
 		return "G (%s)" % tr("ACTION_HOLD_ANIMAL") if (target as PetDog).can_carry() else ""
+	if target is Trailer:
+		# The rope back on an animal riding in it (the stock trailer's open gate).
+		return (target as Trailer).handle_line(_player)
 	if not target is Animal:
 		return ""
 	var a := target as Animal
@@ -167,6 +173,9 @@ func handle_pressed(target: Object) -> void:
 		return
 	if target is PetDog:
 		pick_up_dog(target as PetDog)
+		return
+	if target is Trailer:
+		(target as Trailer).handle_pressed(_player)
 		return
 	if not target is Animal:
 		return
@@ -482,8 +491,13 @@ func release(slipped := false) -> void:
 	var a := led
 	if a == null:
 		return
+	var aboard := boarding
 	_clear_lead()
 	if not is_instance_valid(a) or not a.is_inside_tree():
+		return
+	if aboard:
+		# On the ramp: it goes on up to its place by itself.
+		a.led = false
 		return
 	a.end_lead()
 	if slipped:
@@ -492,6 +506,7 @@ func release(slipped := false) -> void:
 
 func _clear_lead() -> void:
 	led = null
+	boarding = false
 	_trail.clear()
 	_head_bone = -1
 	if is_instance_valid(_rope):
@@ -737,7 +752,8 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if led:
 		if is_instance_valid(led):
-			_lead_tick(delta)
+			if not boarding:
+				_lead_tick(delta)
 		else:
 			_clear_lead()
 

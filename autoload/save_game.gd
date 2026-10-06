@@ -337,7 +337,8 @@ func _header() -> Dictionary:
 	return {"version": VERSION, "saved_at": Time.get_unix_time_from_system(), "day": GameClock.day,
 		"season": GameClock.get_season(), "day_of_season": GameClock.get_day_of_season(),
 		"year": GameClock.get_year(), "minute": GameClock.minute, "money": Economy.money,
-		"play_seconds": play_seconds, "animals": Animals.animals.size(), "level": Progress.level}
+		"play_seconds": play_seconds, "animals": Animals.animals.size(), "level": Progress.level,
+		"farm_name": FarmIdentity.farm_name()}
 
 
 func _collect() -> Dictionary:

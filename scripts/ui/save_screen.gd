@@ -62,6 +62,8 @@ func _card(slot: String) -> Control:
 	if empty:
 		col.add_child(UiTheme.make_label(tr("UI_EMPTY"), UiTheme.text(16, UiTheme.TEXT_DIM, 600)))
 	else:
+		# The farm's name (saves from before it had one: Grandpa's).
+		col.add_child(UiTheme.icon_row(UiTheme.glyph("home"), String(h.get("farm_name", FarmIdentity.default_name())), UiTheme.GOLD_SOFT, 17, 18))
 		var when := UiTheme.caps("%s · %s %d" % [tr("HUD_DAY") % int(h.get("day", 1)), GameClock.season_name(int(h.get("season", 0))), int(h.get("day_of_season", 1))])
 		col.add_child(UiTheme.icon_row(UiTheme.glyph("calendar"), when, UiTheme.TEXT, 16, 18))
 		col.add_child(UiTheme.icon_row(null, UiTheme.money(int(h.get("money", 0))), UiTheme.TEXT, 16, 18))

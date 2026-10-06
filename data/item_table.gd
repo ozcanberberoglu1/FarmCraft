@@ -118,12 +118,38 @@ const ITEMS := {
 	## A wooden mailbox on a post, made at the workbench and put down by the house: letters
 	## from the town arrive in it (Mail).
 	&"mailbox": {"cat": "placeable", "stack": 1, "sell": 5, "buy": 0},
+	## The farmer's own fencing, made at the workbench (Pastures): post-and-rail panels put
+	## down end to end, a gate that swings with E, and a post with an oil lantern that keeps
+	## the wolves off at night.
+	&"fence_panel": {"cat": "placeable", "stack": 40, "sell": 1, "buy": 0},
+	&"fence_gate": {"cat": "placeable", "stack": 5, "sell": 3, "buy": 0},
+	&"lantern_post": {"cat": "placeable", "stack": 10, "sell": 4, "buy": 0},
 	## A rubber ball from the town market: thrown (LMB) for the farmer's own dog to fetch
 	## (Pet).
 	&"dog_ball": {"cat": "pet", "stack": 5, "sell": 2, "buy": 6},
 	## The dog's house as a kit (the construction board cuts one once he has a dog): put up
 	## near the house like the workbench; the dog sleeps in it (Doghouse, Pet).
 	&"doghouse": {"cat": "placeable", "stack": 1, "sell": 5, "buy": 0},
+	# --- IDENTITY: the farmer's own colours and decorations (FarmIdentity) ---
+	## Cans of paint from the town market: with one in hand, LMB brushes it onto the house
+	## (its walls; E its trim), a coop, the doghouse, the mailbox or the name board's frame
+	## (Painter), one can a building or part.
+	&"paint_brick": {"cat": "paint", "stack": 5, "sell": 4, "buy": 14},
+	&"paint_sage": {"cat": "paint", "stack": 5, "sell": 4, "buy": 14},
+	&"paint_sky": {"cat": "paint", "stack": 5, "sell": 4, "buy": 14},
+	&"paint_cream": {"cat": "paint", "stack": 5, "sell": 4, "buy": 14},
+	&"paint_mustard": {"cat": "paint", "stack": 5, "sell": 4, "buy": 14},
+	&"paint_forest": {"cat": "paint", "stack": 5, "sell": 4, "buy": 14},
+	&"paint_white": {"cat": "paint", "stack": 5, "sell": 4, "buy": 14},
+	## Decorations from the town market, put down like the other placeables (Decor): a
+	## planter of seasonal flowers, a garden bench to sit on a moment, a scarecrow, a flag
+	## pole flying the farm's last paint colour and a stone bird bath.
+	&"flower_pot": {"cat": "placeable", "stack": 5, "sell": 6, "buy": 18},
+	&"garden_bench": {"cat": "placeable", "stack": 2, "sell": 14, "buy": 40},
+	&"scarecrow": {"cat": "placeable", "stack": 2, "sell": 8, "buy": 25},
+	&"flag_pole": {"cat": "placeable", "stack": 2, "sell": 10, "buy": 30},
+	&"bird_bath": {"cat": "placeable", "stack": 2, "sell": 15, "buy": 45},
+	# --- end IDENTITY ---
 
 	# --- POULTRY agent: the rooster (eggs left under a rooster stay the plain "egg"; the
 	# coop keeps which ones are fertile) ---
@@ -308,6 +334,7 @@ const CATEGORY_KEYS := {
 	"feed": "CAT_FEED", "animal_product": "CAT_ANIMAL_PRODUCT", "artisan": "CAT_ARTISAN",
 	"placeable": "CAT_PLACEABLE", "supply": "CAT_SUPPLY", "key": "CAT_KEY", "animal": "CAT_ANIMAL",
 	"material": "CAT_MATERIAL", "bait": "CAT_BAIT", "sapling": "CAT_SAPLING",
+	"paint": "CAT_PAINT",
 	"fish": "CAT_FISH", "food": "CAT_FOOD", "junk": "CAT_JUNK", "meat": "CAT_MEAT",
 	"forage": "CAT_FORAGE", "game": "CAT_GAME", "pet": "CAT_PET", "ammo": "CAT_AMMO", "gift": "CAT_GIFT",
 }

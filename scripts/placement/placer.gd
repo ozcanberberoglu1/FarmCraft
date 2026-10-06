@@ -11,6 +11,9 @@ extends Node3D
 ## vehicles, water, fields, tracks, the yard's fixtures and other plots; where it isn't,
 ## a red "Can't build here" floats over it. Put down, a building starts as a
 ## construction site (Events.construction_started).
+## The farmer's own fence (PlaceableTable "fence": panels, gates, lantern posts) snaps
+## post to post, follows the slope and is laid in runs with LMB held: FencePlacing works
+## out where each piece goes and whether it fits.
 
 const REACH := 6.5
 const GRID := 0.25
@@ -35,6 +38,8 @@ var _bad_building: StandardMaterial3D
 var _warning: Label3D
 var _last_spot := Vector3.INF
 var _recheck := 0.0
+## Where the farmer looks on the ground (FencePlacing).
+var aim := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -127,6 +132,10 @@ func update(player: Player) -> void:
 		p = from + fwd * (minf(reach * 0.6, 8.0) if building else 3.0)
 	else:
 		p = hit["position"]
+	aim = p
+	if PlaceableTable.is_fence(id):
+		FencePlacing.update(self, player, p)
+		return
 	if building:
 		# The plot's near edge where the farmer looks.
 		var flat := Vector3(fwd.x, 0.0, fwd.z).normalized()
@@ -163,7 +172,42 @@ func update(player: Player) -> void:
 
 
 func rotate_step() -> void:
+	if PlaceableTable.is_fence(_id):
+		# By a post R lets go of the run; lying free the piece turns.
+		if not FencePlacing.let_go_run():
+			_yaw = wrapf(_yaw + FencePlacing.STEP, -PI, PI)
+		return
 	_yaw = wrapf(_yaw + (BUILDING_STEP if bool(_info.get("building", false)) else PI * 0.25), -PI, PI)
+
+
+## The placeable in hand and the turn R has given it (FencePlacing).
+func item_id() -> StringName:
+	return _id
+
+
+func yaw() -> float:
+	return _yaw
+
+
+## The fence pieces' own preview (FencePlacing): the mesh it shows, green or red.
+func show_piece(mesh: Mesh, ok: bool) -> void:
+	if _ghost.mesh != mesh:
+		_ghost.mesh = mesh
+	_ghost.material_override = _ok if ok else _bad
+	_warning.visible = false
+
+
+## LMB held: whether the next piece of a fence run goes down now (FencePlacing).
+func run_ready(down: bool) -> bool:
+	return down and active and PlaceableTable.is_fence(_id) and FencePlacing.run_ready(self)
+
+
+## Lines for the prompt under "LMB (Place)" (a fence: how a run is laid).
+func hint_lines() -> PackedStringArray:
+	var lines := PackedStringArray()
+	if active and PlaceableTable.is_fence(_id) and _id != &"lantern_post":
+		lines.append(tr("HINT_FENCE_RUN"))
+	return lines
 
 
 ## "" where it fits, else why not (a translation key).
@@ -328,6 +372,8 @@ static func reserved(x: float, z: float) -> bool:
 func place() -> bool:
 	if not active:
 		return false
+	if PlaceableTable.is_fence(_id):
+		return FencePlacing.place(self)
 	var building := bool(_info.get("building", false))
 	var player := get_parent() as Player
 	if building and player:

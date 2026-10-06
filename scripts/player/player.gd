@@ -388,6 +388,9 @@ func _update_target(delta: float) -> void:
 			if new_target == null:
 				# Open ground, with a sapling in hand: the spot to plant it.
 				new_target = SaplingGrove.ground_target(self, ray)
+			if new_target == null:
+				# A can of paint in hand: the wall of the house or of a coop it would go on.
+				new_target = Painter.wall_target(self, ray)
 		# Inside the farm warehouse with nothing else to use under the crosshair (a wall,
 		# the floor, the empty crate corner): its storage opens from anywhere in there.
 		if (new_target == null or _offers_nothing(new_target)) and driving == null and riding == null and not handler.busy():
@@ -446,6 +449,7 @@ func _update_prompt() -> void:
 		# A building kit (the coop) is built there, anything else is placed.
 		lines.append("%s (%s)" % [tr("KEY_LMB"), tr("ACTION_BUILD" if placer.is_building() else "ACTION_PLACE")])
 		lines.append("R (%s)" % tr("ACTION_ROTATE"))
+		lines.append_array(placer.hint_lines())
 		if not placer.valid:
 			lines.append(tr(placer.reason))
 		if lines != _last_prompt:
@@ -541,7 +545,8 @@ func _update_action(delta: float) -> void:
 	if placer.active:
 		if not _action.is_empty():
 			_end_action(_committed)
-		if pressed_now:
+		# (LMB held with a fence panel in hand lays a run: Placer.run_ready.)
+		if pressed_now or placer.run_ready(down):
 			placer.place()
 		return
 	var stack := PlayerState.selected_stack()

@@ -3,8 +3,12 @@ extends ModalScreen
 ## Details of one animal: portrait, editable name, age, hearts, needs, condition and
 ## what it needs from the player (a hurt one: "Injured" and the hours left to have it
 ## treated by the vet, or that it is at the clinic). Closes if the animal is gone.
+## Sheep, cows and horses show their sex ("Ram", "Ewe"), one born here "Born on the farm",
+## and the lines about young (_breeding_lines: "Pregnant · 2 days left", its mother).
 
 const STATS := [["fullness", "food"], ["hydration", "drop"], ["happiness", "smile"], ["health", "health"]]
+## The colour of the lines and chips about young (Breeding).
+const PREGNANT := Color("f59ac8")
 
 var _data: AnimalData
 var _portrait: TextureRect
@@ -53,6 +57,8 @@ func _ready() -> void:
 	_name_edit.text_submitted.connect(func(t: String) -> void:
 		_data.name = t.strip_edges().left(18)
 		_name_edit.release_focus())
+	# Any animal can be renamed here (the field is its name).
+	_name_edit.tooltip_text = tr("ANIMAL_RENAME_HINT")
 	titles.add_child(_name_edit)
 	_sub = HBoxContainer.new()
 	_sub.add_theme_constant_override("separation", 8)
@@ -84,13 +90,15 @@ func open(a: AnimalData) -> void:
 	_name_edit.text = a.name
 	for c in _sub.get_children():
 		c.queue_free()
-	_sub.add_child(UiTheme.chip(Animals.species_name(a.species, a.adult), UiTheme.GOLD_SOFT, "paw"))
+	_sub.add_child(UiTheme.chip(Breeding.sex_name(a), UiTheme.GOLD_SOFT, "paw"))
 	if a.adult:
 		_sub.add_child(UiTheme.chip(tr("ANIMAL_ADULT"), UiTheme.TEXT_MUTED))
 	else:
 		_sub.add_child(UiTheme.chip(tr("ANIMAL_GROWING") % [int(a.growth), int(a.info()["grow_days"])], UiTheme.BLUE))
 	if a.injured():
 		_sub.add_child(UiTheme.chip(tr("ANIMAL_INJURED"), UiTheme.RED, "health"))
+	if a.born_day >= 0:
+		_sub.add_child(UiTheme.chip(tr("ANIMAL_BORN_HERE"), PREGNANT, "heart"))
 	_refresh()
 	show_screen()
 
@@ -166,6 +174,26 @@ func _refresh() -> void:
 	(_value.get_child(0) as Label).text = UiTheme.money(_data.sale_value())
 
 
+## The lines about young (Breeding): hers on the way and the days left, a young one's
+## mother, what a male is for, and whether a female living with one is ready for young.
+func _breeding_lines() -> Array:
+	var out := []
+	if not Breeding.breeds(_data.species):
+		return out
+	if _data.pregnant():
+		out.append([Breeding.status_text(_data), PREGNANT])
+	elif not _data.adult:
+		var mother := Animals.by_id(_data.mother)
+		if mother != null:
+			out.append([tr("STATUS_MOTHER") % mother.name, UiTheme.TEXT_MUTED])
+	elif _data.male:
+		out.append([tr("STATUS_MALE"), UiTheme.TEXT_MUTED])
+	elif Breeding.sire_in(Animals.housing_of(_data), _data.species) != null:
+		var ready := Breeding.blocker(_data) in ["", "rest"]
+		out.append([tr("STATUS_BREED_READY") if ready else tr("STATUS_BREED_CARE"), PREGNANT if ready else UiTheme.TEXT_MUTED])
+	return out
+
+
 func _status_lines() -> Array:
 	var bad := UiTheme.RED
 	var good := UiTheme.GREEN
@@ -178,6 +206,7 @@ func _status_lines() -> Array:
 		out.append([tr("STATUS_INJURED") % maxi(1, ceili(Animals.hours_left(_data.id))), bad])
 	if _data.sick:
 		out.append([tr("STATUS_SICK"), bad])
+	out.append_array(_breeding_lines())
 	if _data.wet > 0.25:
 		if (node and node.indoors) or not Weather.is_precipitating():
 			out.append([tr("STATUS_DRYING"), info])
@@ -196,7 +225,7 @@ func _status_lines() -> Array:
 		out.append([tr("STATUS_INDOORS"), UiTheme.BLUE])
 	match _data.species:
 		&"cow":
-			if _data.adult:
+			if _data.adult and not _data.male:
 				out.append([tr("STATUS_MILK_READY") if _data.product_ready else tr("STATUS_MILK_TOMORROW"), good if _data.product_ready else info])
 		&"sheep":
 			if _data.adult:

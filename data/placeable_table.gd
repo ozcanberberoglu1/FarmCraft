@@ -41,12 +41,28 @@ const PLACEABLES := {
 	&"food_table": {"kind": "food_table", "size": Vector3(1.62, 0.96, 0.78)},
 	## The mailbox on its post (scripts/placement/mailbox.gd): letters from the town (Mail).
 	&"mailbox": {"kind": "mailbox", "size": Vector3(0.36, 1.25, 0.5)},
+	## Decorations (scripts/placement/decor.gd; models: IdentityModels): a planter box of
+	## seasonal flowers, a garden bench (E: sit a moment), a scarecrow, a flag pole whose
+	## pennant flies the farm's last paint colour, a stone bird bath.
+	&"flower_pot": {"kind": "decor", "size": Vector3(0.76, 0.34, 0.32)},
+	&"garden_bench": {"kind": "decor", "size": Vector3(1.56, 0.92, 0.6)},
+	&"scarecrow": {"kind": "decor", "size": Vector3(0.5, 1.9, 0.34)},
+	&"flag_pole": {"kind": "decor", "size": Vector3(0.4, 3.3, 0.4)},
+	&"bird_bath": {"kind": "decor", "size": Vector3(0.76, 0.7, 0.76)},
 	&"coop_kit": {"kind": "coop", "size": Vector3(11.0, 2.8, 10.0), "building": true, "reach": 12.0,
 		"build_seconds": BUILD_SECONDS, "build_id": &"coop", "name_key": "HOUSING_COOP"},
 	## The dog's house (scripts/placement/doghouse.gd): its plot is the house itself and a
 	## step of ground round it; the dog's doorstep is in front of its door (+Z).
 	&"doghouse": {"kind": "doghouse", "size": Vector3(1.6, 1.2, 1.8), "building": true, "reach": 5.5,
 		"build_seconds": 30.0, "build_id": &"doghouse", "name_key": "ITEM_DOGHOUSE"},
+	## The farmer's own fencing ("fence": FencePlacing puts them down snapped end to end and
+	## following the slope; "custom": they bring their own model and colliders): a post-and-rail
+	## panel and a gate (FencePiece: "size" is a panel as it comes, the last one of a run may
+	## be shorter or longer) and a post with an oil lantern (LanternPost). Loops of them with
+	## a gate are pastures (Pastures).
+	&"fence_panel": {"kind": "fence_piece", "size": Vector3(2.0, 1.2, 0.2), "custom": true, "fence": true},
+	&"fence_gate": {"kind": "fence_piece", "size": Vector3(2.0, 1.45, 0.2), "custom": true, "fence": true, "gate": true},
+	&"lantern_post": {"kind": "lantern_post", "size": Vector3(0.3, 2.4, 0.3), "custom": true, "fence": true},
 }
 
 
@@ -60,6 +76,11 @@ static func is_placeable(id: StringName) -> bool:
 
 static func is_building(id: StringName) -> bool:
 	return bool(get_info(id).get("building", false))
+
+
+## Whether `id` is one of the farmer's own fence pieces (a panel, a gate, a lantern post).
+static func is_fence(id: StringName) -> bool:
+	return bool(get_info(id).get("fence", false))
 
 
 ## Real seconds a building of `id` usually takes to go up (the one being put down now:

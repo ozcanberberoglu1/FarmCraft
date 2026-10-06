@@ -775,8 +775,10 @@ func can_reach(a: AnimalData) -> bool:
 	return not near_fire(n.global_position)
 
 
-## A burning campfire within FIRE_SAFE of `p`.
+## A burning campfire within FIRE_SAFE of `p` (or a lantern post's light: Pastures.guards).
 func near_fire(p: Vector3) -> bool:
+	if Pastures.guards(p):
+		return true
 	for f in get_tree().get_nodes_in_group(&"campfires"):
 		var fire := f as Node3D
 		if fire and fire.has_method("is_burning") and fire.is_burning() and _flat(fire.global_position, p) < FIRE_SAFE:

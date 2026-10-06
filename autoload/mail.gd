@@ -13,6 +13,10 @@ extends Node
 ## (Relations: at THANKS_LEVELS), Zeynep writes as hers does (SideStory), other systems
 ## post their own. Letters sent before there is a mailbox wait and are all delivered once
 ## it is up. Saved with the game (SaveGame).
+##
+## The market's catalogue comes by post too (Catalog, `catalog`: kept and saved here): the
+## morning after the mailbox goes up Hasan the grocer sends it, and from then on supplies
+## can be ordered at the mailbox and stand in a crate beside it the next morning.
 
 ## A letter was sent (the mailbox's flag and the note follow).
 signal letters_changed
@@ -38,12 +42,18 @@ var goal_done := false
 ## Set by tests: the mailbox goal comes up in this automated run.
 var testing := false
 
+## Yeşilova Market's mail-order catalogue (orders, the delivery crate, its side goals).
+var catalog: Catalog
+
 var _goal: SideGoal
 var _poll := 0.0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
+	catalog = Catalog.new()
+	catalog.name = "Catalog"
+	add_child(catalog)
 	_goal = SideGoal.new(&"mailbox", tr("SIDE_MAILBOX_TITLE"), "letter", COLOR)
 	_goal.quiet = true
 	Events.placed.connect(func(id: StringName) -> void:
@@ -190,7 +200,7 @@ func save_data() -> Dictionary:
 	var out := []
 	for l: Dictionary in letters:
 		out.append(l.duplicate(true))
-	return {"letters": out, "goal_done": goal_done}
+	return {"letters": out, "goal_done": goal_done, "catalog": catalog.save_data()}
 
 
 func load_data(data: Dictionary) -> void:
@@ -199,6 +209,7 @@ func load_data(data: Dictionary) -> void:
 		if l is Dictionary:
 			letters.append((l as Dictionary).duplicate(true))
 	goal_done = bool(data.get("goal_done", false))
+	catalog.load_data(data.get("catalog", {}))
 	if _goal and SideStory.goals.has(_goal):
 		SideStory.remove_goal(_goal)
 	_poll = 0.0

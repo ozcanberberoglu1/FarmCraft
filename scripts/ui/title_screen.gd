@@ -64,10 +64,13 @@ func _fill_buttons() -> void:
 	var specs: Array = []
 	# Back from the pause menu the game in progress comes first; on a fresh launch,
 	# the latest save.
+	# (Under either: whose farm it is, FarmIdentity.)
 	if SaveGame.started:
-		specs.append(["UI_BACK_TO_GAME", "primary", "play", _play])
+		specs.append(["UI_BACK_TO_GAME", "primary", "play", _play, FarmIdentity.farm_name()])
 	elif latest != "":
-		specs.append(["UI_CONTINUE", "primary", "play", SaveGame.load_game.bind(latest)])
+		var head := SaveGame.info(latest)
+		specs.append(["UI_CONTINUE", "primary", "play", SaveGame.load_game.bind(latest),
+			"%s · %s" % [String(head.get("farm_name", FarmIdentity.default_name())), tr("HUD_DAY") % int(head.get("day", 1))]])
 	specs.append(["UI_NEW_GAME", "primary" if specs.is_empty() else "secondary", "sparkles", _new_game])
 	if latest != "":
 		specs.append(["UI_LOAD_GAME", "secondary", "folder", func() -> void: Game.hud.open_saves("load")])
@@ -79,6 +82,9 @@ func _fill_buttons() -> void:
 		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		b.pressed.connect(spec[3])
 		_buttons.add_child(b)
+		if spec.size() > 4:
+			var whose := UiTheme.make_label(UiTheme.caps(String(spec[4])), UiTheme.heading(17, UiTheme.GOLD_SOFT, 700, 2))
+			_buttons.add_child(whose)
 
 
 ## A fresh launch already shows a new farm; later ones rebuild it (after asking).

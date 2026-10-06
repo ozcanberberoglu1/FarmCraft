@@ -16,7 +16,13 @@ extends AnimatableBody3D
 ## stumbling, with a badge over it; one a wolf comes at (scare) bolts away from it.
 ## The farmer's own birds can be picked up and carried in his arms (HELD), his sheep, cows
 ## and horses led on a halter (LED; AnimalHandler does both). Set down or let go outside its
-## pen, an animal walks back home round the fence and in at the gate (RETURN).
+## pen, an animal walks back home round the fence and in at the gate (RETURN); let go
+## inside a pasture the farmer fenced himself, a sheep, cow or horse stays and grazes there
+## (Pastures: its hooks in _decide, _move, scare and _settle_where_left).
+## Sheep, cows and horses breed (Breeding: its hooks here are dress, decide, tick and hint):
+## a grown male is bigger (the ram horned), a female carrying young rounder and near her
+## term slower, a young one born on the farm lies by its mother until the farmer comes,
+## gets up on wobbly legs, keeps close to her and nurses now and then.
 
 enum State { IDLE, WANDER, GRAZE, GO_EAT, EAT, GO_DRINK, DRINK, SHELTER, SLEEP, FOLLOW, AWAY, RIDDEN, GO_NEST, NEST, HATCH, BROOD,
 	HELD, LED, RETURN }
@@ -232,6 +238,7 @@ func refresh_body() -> void:
 	rig.set_variant(data.variant, not data.adult)
 	rig.set_age(t)
 	rig.set_wool(data.wool if data.species == &"sheep" else 1.0)
+	Breeding.dress(self)
 	var size: Vector3 = data.info().get("size", Vector3.ONE)
 	var s := rig.scale.x * (CHICK_BODY if _look == &"chick" else 1.0)
 	(_shape.shape as BoxShape3D).size = (size * s).max(Vector3(0.1, 0.1, 0.1))
@@ -705,6 +712,7 @@ func _physics_process(delta: float) -> void:
 	_scared = maxf(_scared - delta, 0.0)
 	_think -= delta
 	_update_limp(delta)
+	Breeding.tick(self, delta)
 	var chick := data.is_chick()
 	if _think <= 0.0:
 		# Chicks look up to their mother often: they keep close.
@@ -778,6 +786,9 @@ func _busy() -> bool:
 
 ## Picks what to do next from needs, weather and time of day.
 func _decide() -> void:
+	# Out at pasture (or on its way to one): Pastures says what it does.
+	if Pastures.decide(self):
+		return
 	if data.away:
 		if state != State.AWAY:
 			_set_state(State.AWAY, 1e9)
@@ -790,6 +801,8 @@ func _decide() -> void:
 	if state == State.LED or (state == State.RETURN and not _path.is_empty()):
 		return
 	if data.is_chick() and _decide_chick():
+		return
+	if Breeding.decide(self):
 		return
 	var night := GameClock.is_night()
 	var want_inside := housing.has_shelter() and (night or Weather.is_precipitating())
@@ -954,7 +967,8 @@ func _move(delta: float) -> void:
 	# Outside its pen on the way home it is not kept in the pen.
 	var transit := _path_inside[0] != indoors or state == State.RETURN
 	if not transit:
-		p = housing.constrain(p, radius(), indoors)
+		# (Within its pen; one at pasture within its own fence: Pastures.)
+		p = Pastures.keep(self, pos, p)
 	# Never into a vehicle (its body would shove it): along its side.
 	p = Vehicle.keep_out(pos, p, radius())
 	p.y = housing.ground_height(p)
@@ -1132,6 +1146,8 @@ func scare(from: Vector3) -> void:
 		return
 	_end_faint()
 	_scared = SCARE_TIME
+	if Pastures.scare(self, from):
+		return
 	var away := global_position - from
 	away.y = 0.0
 	if away.length() < 0.01:
@@ -1261,6 +1277,8 @@ func hint_prompt() -> String:
 	if data.injured():
 		# Hurt: how long it has left to be treated (the vet in town).
 		return tr("HINT_ANIMAL_INJURED") % maxi(1, ceili(Animals.hours_left(data.id)))
+	if data.pregnant():
+		return Breeding.hint(data)
 	if _faint_t >= 0.0 or data.product_ready:
 		return ""
 	var stack := PlayerState.selected_stack()
@@ -1294,7 +1312,7 @@ func use_action(_player: Node, stack: ItemStack) -> Dictionary:
 	# Hurt, it gives nothing until it has been treated.
 	if id == &"milk_pail" and data.species == &"cow" and data.product_ready and not data.injured():
 		return {"id": "milk", "verb": "ACTION_MILK", "label": "PROGRESS_MILKING", "duration": 2.0}
-	if id == &"milk_pail" and data.species == &"cow" and data.adult and not data.injured():
+	if id == &"milk_pail" and data.species == &"cow" and data.adult and not data.injured() and not data.male:
 		# Milked already (or not fed for the morning's milk): refused in can_start.
 		return {"id": "milk", "verb": "ACTION_MILK", "label": "PROGRESS_MILKING", "duration": 2.0, "dry": true}
 	if id == &"shears" and data.species == &"sheep" and data.product_ready and not data.injured():
@@ -1483,6 +1501,9 @@ func end_lead() -> void:
 func _settle_where_left() -> void:
 	_path.clear()
 	_path_inside.clear()
+	# Let go inside a pasture of the farmer's own fencing: it stays there (Pastures).
+	if Pastures.settle(self):
+		return
 	var p := global_position
 	if housing.in_pen(p, -radius() * 0.5):
 		data.away = false

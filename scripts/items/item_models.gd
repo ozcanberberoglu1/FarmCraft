@@ -46,6 +46,8 @@ const ICON_FRAME := {
 	&"fishing_rod": [Vector3(0, 0.3, 0.0), 0.42],
 	&"cane_rod": [Vector3(0, 0.25, 0.0), 0.42], &"carbon_rod": [Vector3(0, 0.3, 0.0), 0.45],
 	&"carp_rod": [Vector3(0, 0.3, 0.0), 0.48],
+	# The flag pole on its pennant, the scarecrow on its head and shoulders.
+	&"flag_pole": [Vector3(0.36, 2.86, 0.0), 0.72], &"scarecrow": [Vector3(0, 1.36, 0.0), 0.8],
 }
 
 static var _cache: Dictionary = {}
@@ -80,6 +82,9 @@ static func mesh(id: StringName) -> ArrayMesh:
 	elif id == &"wolf_pelt":
 		# A folded wolf pelt (tools/blender/build_wolf.py).
 		m = WolfRig.pelt_mesh()
+	elif IdentityModels.has(id):
+		# The cans of paint (FarmIdentity).
+		m = IdentityModels.mesh(id)
 	elif PlaceableTable.is_placeable(id):
 		m = PlaceableModels.mesh(id, "whole")
 	else:

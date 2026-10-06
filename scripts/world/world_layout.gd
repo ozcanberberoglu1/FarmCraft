@@ -60,6 +60,11 @@ const FARM_TRUCK_SPOT := Vector2(-21, -0.2)
 ## of its door).
 const HOUSE_REPAIR_SIGN := Vector3(-12.7, 0, -12.3)
 const WAREHOUSE_REPAIR_SIGN := Vector3(-22.3, 0, -4.9)
+## Grandpa's old name board (NameBoard): at the farm's entrance, across the track from
+## where the house lane meets it, its face (yaw, degrees) to the lane and to whoever
+## comes home along the track from the county road.
+const NAME_BOARD_POS := Vector3(-7.5, 0, 19.2)
+const NAME_BOARD_YAW := 160.0
 
 ## Garden lots: fence rect (x, z, w, d) and gates [side, offset from the side's
 ## center, width]. Sides: "n" (-Z), "s" (+Z), "w" (-X), "e" (+X).

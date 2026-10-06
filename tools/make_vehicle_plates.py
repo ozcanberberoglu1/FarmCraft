@@ -25,6 +25,8 @@ PLATES = {
     "tractor": ("15 TR", "045", True),
     "truck": ("15 LK", "550", False),
     "offroad": ("15 YA", "379", True),
+    "trailer_stock": ("15 AY", "173", True),
+    "trailer_flat": ("15 RK", "208", False),
 }
 # Kept at or below ~0.8 sRGB like every bright albedo in the game.
 WHITE = (206, 206, 200)

@@ -208,6 +208,8 @@ const ACTIONS := {
 	"refill": [&"can_dip", 1], "plant": [&"scatter", 1], "fertilize": [&"sack", 1], "fill_feed": [&"sack", 1],
 	"muck": [&"fork", 1], "brush": [&"brush", 0], "shear": [&"brush", 0], "douse": [&"can_pour", 1],
 	"plant_sapling": [&"set_down", 1],
+	# A coat of paint brushed on (Painter).
+	"paint": [&"brush", 0],
 }
 ## A tool's own stroke (clearing a bed, swinging at nothing).
 const TOOL_PROFILES := {&"axe": &"axe", &"pickaxe": &"pickaxe", &"hoe": &"hoe", &"scythe": &"scythe", &"pitchfork": &"fork"}

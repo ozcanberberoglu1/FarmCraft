@@ -37,6 +37,12 @@ uniform float ao_albedo : hint_range(0.0, 1.0) = 0.0;
 uniform float macro_variation : hint_range(0.0, 1.0) = 0.0;
 uniform float streaks : hint_range(0.0, 1.0) = 0.0;
 uniform float lichen_amount : hint_range(0.0, 1.0) = 0.0;
+// A coat of paint (Painter: the farmer's own colours on his house, coop, doghouse...): its
+// colour and how thickly it covers (alpha; 0 = none). The photo's grain shows through it
+// (its luminance against `paint_ref`, the photo's mean), and the age below (stains, grime,
+// moss, snow) lies over it as over the bare wood.
+uniform vec4 paint : source_color = vec4(0.0);
+uniform float paint_ref = 0.1;
 // Random texels (Mats.noise_texture(), NOISE_SIZE square, R8), filtered and repeated.
 uniform sampler2D noise_tex : hint_default_black, filter_linear, repeat_enable;
 
@@ -100,7 +106,11 @@ void fragment() {
 		NORMAL_MAP = texture(normal_tex, uv).rgb;
 		NORMAL_MAP_DEPTH = normal_strength;
 	}
+	float grain = dot(albedo, vec3(0.2126, 0.7152, 0.0722)) / paint_ref;
 	albedo *= tint_from_color(COLOR.rgb) * albedo_tint;
+	if (paint.a > 0.0) {
+		albedo = mix(albedo, paint.rgb * mix(1.0, clamp(grain, 0.55, 1.35), 0.75), paint.a);
+	}
 	if (ao_albedo > 0.0) {
 		albedo *= mix(1.0, arm.r, ao_albedo);
 	}

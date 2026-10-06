@@ -53,6 +53,8 @@ const RUN := 3.3
 ## further than CATCH_UP behind, out of sight, it catches up.
 const FOLLOW_NEAR := 2.2
 const FOLLOW_FAR := 5.5
+## How much wider than its body it goes round a vehicle's corner (m).
+const CAR_BERTH := 0.7
 const CATCH_UP := 28.0
 ## Whistled: it stops this far from him, and greets him this long.
 const COME_GAP := 1.1
@@ -902,8 +904,11 @@ func _mouth_reach() -> float:
 # --- Moving --------------------------------------------------------------------------------
 
 ## Heads for `goal` at `speed`, feeling ahead for walls and fences (every PROBE seconds)
-## and turning aside round them.
+## and turning aside round them; round a parked vehicle in its way by the nearer corner
+## (Vehicle.way_round: the guard in _move only stops it at the body, and straight behind
+## the pickup it stood there instead of coming after the farmer).
 func _steer(goal: Vector3, speed: float, delta: float) -> void:
+	goal = Vehicle.way_round(global_position, goal, CAR_KEEP * size, CAR_BERTH)
 	var to := _flat(goal - global_position)
 	if to.length() < 0.03:
 		_want_speed = 0.0

@@ -8,9 +8,13 @@ extends ModalScreen
 ## will live, then the purchase. Crated kinds (hens) come in transport crates, as many as
 ## the order says, straight into the farmer's hands and bag; only what doesn't fit is set
 ## down in front of the seller at the market's pickup spot by the gate (LiveCrates,
-## MarketCrates): no coop needed yet. The others are young or grown, brought straight
-## into their housing by the dealer. While the story's first days run the market sells
+## MarketCrates): no coop needed yet. The others are young or grown: they wait in the
+## loading pen by the gate for the farmer's stock trailer, or, with no trailer of his in
+## town, the dealer brings them over the next morning for a fee (TrailerYard). One brought
+## back to the market in the trailer sells for more. While the story's first days run the market sells
 ## hens only (LiveCrates.story_lock): every other kind shows locked, with the reason.
+## Sheep, cows and horses are sold female (young or grown) and, grown, male (_fill_male:
+## the ram, the bull, the stallion a herd needs to have young: Breeding).
 ## Opened at a pen's gate or the hen stall, the market shows that kind first (open_market).
 
 const PORTRAIT_DIR := "res://art/icons/animals/"
@@ -126,9 +130,11 @@ func buy_animal(species: StringName, adult: bool) -> bool:
 	if why_not(species, adult) != "":
 		Audio.ui("error", -6.0)
 		return false
-	var a := Animals.buy(species, adult)
+	var a := Animals.buy(species, adult, "", true)
 	if a == null:
 		return false
+	# Into the loading pen: the farmer's trailer fetches it, or the dealer brings it.
+	TrailerYard.bought(a)
 	_fill()
 	_bought(species, adult)
 	return true
@@ -142,7 +148,14 @@ func why_not(species: StringName, adult := true, count := 1) -> String:
 		return lock
 	if AnimalTable.crate_item(species) != &"":
 		return LiveCrates.can_buy(species, count, _stall_at)
-	return Animals.can_buy(species, adult)
+	var why := Animals.can_buy(species, adult)
+	if why == "":
+		# With no trailer of his in town the dealer's fee comes on top.
+		var info := AnimalTable.get_species(species)
+		var cost := int(info["adult_price"] if adult else info["baby_price"]) + TrailerYard.fee_now()
+		if Economy.money < cost:
+			return tr("MSG_NEED_GOLD") % UiTheme.money(cost - Economy.money)
+	return why
 
 
 func _bought(species: StringName, adult: bool) -> void:
@@ -417,7 +430,7 @@ func _fill_crate_order(box: VBoxContainer, species: StringName) -> void:
 
 ## A kind brought straight to the farm: the young one and the grown one, each with its price.
 func _fill_young_or_grown(box: VBoxContainer, species: StringName, info: Dictionary) -> void:
-	box.add_child(_info("barn", tr("MARKET_DELIVERY"), UiTheme.TEXT))
+	box.add_child(_info("barn", TrailerYard.delivery_line(), UiTheme.TEXT))
 	var why := why_not(species, false)
 	var why_grown := why_not(species, true)
 	var shown := why_grown if why_grown != "" else why
@@ -437,6 +450,43 @@ func _fill_young_or_grown(box: VBoxContainer, species: StringName, info: Diction
 			if not buy_animal(species, adult):
 				_fill())
 		row.add_child(b)
+	if Breeding.breeds(species):
+		_fill_male(box, species)
+
+
+## The kind's male (a ram, a bull, a stallion: Breeding), sold grown: what he is for, his
+## price, the purchase.
+func _fill_male(box: VBoxContainer, species: StringName) -> void:
+	var who := Breeding.male_name(species)
+	box.add_child(_info("heart", tr("RANCHER_MALE_HINT") % who, UiTheme.TEXT_MUTED))
+	var lock := LiveCrates.market_lock(species)
+	var why := lock if lock != "" else Breeding.can_buy_male(species)
+	var b := UiTheme.button("%s  ·  %s" % [who, UiTheme.money(Breeding.male_price(species))], "secondary", Vector2(712, 52), "heart", 20)
+	b.set_meta(&"mark", "BuyMale")
+	b.disabled = why != ""
+	b.tooltip_text = why
+	b.pressed.connect(func() -> void:
+		if buy_male(species):
+			return
+		_fill())
+	box.add_child(b)
+
+
+## Buys a grown male of `species`, if the market sells the kind to this farm
+## (Breeding.buy_male). Like any animal that walks he then waits in the loading pen for the
+## farmer's trailer, or the dealer brings him the next morning for the fee (TrailerYard).
+func buy_male(species: StringName) -> bool:
+	if LiveCrates.market_lock(species) != "" or Breeding.can_buy_male(species) != "" \
+			or Economy.money < Breeding.male_price(species) + TrailerYard.fee_now():
+		Audio.ui("error", -6.0)
+		return false
+	var a := Breeding.buy_male(species)
+	if a == null:
+		return false
+	TrailerYard.bought(a)
+	_fill()
+	_bought(species, true)
+	return true
 
 
 # --- Selling ------------------------------------------------------------------------------
@@ -482,7 +532,8 @@ func _fill_sell() -> void:
 		name_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		name_box.add_theme_constant_override("separation", 2)
 		name_box.add_child(UiTheme.make_label(UiTheme.caps(a.name), UiTheme.heading(26, UiTheme.TEXT, 700, 1)))
-		name_box.add_child(UiTheme.make_label(Animals.species_name(a.species, a.adult), UiTheme.text(16, UiTheme.TEXT_MUTED, 600)))
+		name_box.add_child(UiTheme.make_label(Breeding.sex_name(a) if not a.pregnant() else "%s  ·  %s" % [Breeding.sex_name(a), Breeding.status_text(a)],
+				UiTheme.text(16, UiTheme.TEXT_MUTED, 600)))
 		h.add_child(name_box)
 		var stats := VBoxContainer.new()
 		stats.add_theme_constant_override("separation", 6)
@@ -504,7 +555,13 @@ func _fill_sell() -> void:
 			bar.set_value(float(pair[1]), false)
 			r.add_child(bar)
 			stats.add_child(r)
-		var price_row := UiTheme.price(a.sale_value(), 28)
+		# Brought to the market in the trailer: it fetches more.
+		var bonus := TrailerYard.sale_bonus(a)
+		if bonus > 0:
+			var brought := UiTheme.chip(tr("MARKET_TRAILER_BONUS"), UiTheme.GREEN, "check", 15)
+			brought.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			h.add_child(brought)
+		var price_row := UiTheme.price(a.sale_value() + bonus, 28)
 		price_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		h.add_child(price_row)
 		if a.at_vet():
@@ -521,7 +578,10 @@ func _fill_sell() -> void:
 		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		b.pressed.connect(func() -> void:
 			if _confirm_sell == a.id:
-				var got := Animals.sell(a)
+				var extra := TrailerYard.sale_bonus(a)
+				var got := Animals.sell(a) + extra
+				if extra > 0:
+					Economy.add_money(extra, "REPORT_ANIMALS")
 				Game.notify("+" + UiTheme.money(got), UiTheme.GOLD_SOFT)
 				_confirm_sell = -1
 			else:

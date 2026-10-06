@@ -54,7 +54,7 @@ func _ready() -> void:
 	collision_mask = 0
 	add_to_group(&"interactable")
 	add_to_group(&"placed")
-	if PlaceableTable.is_building(item_id):
+	if PlaceableTable.is_building(item_id) or bool(PlaceableTable.get_info(item_id).get("custom", false)):
 		_setup()
 		return
 	var size: Vector3 = PlaceableTable.get_info(item_id).get("size", Vector3.ONE)
@@ -114,3 +114,21 @@ func info_interact(_player: Node) -> void:
 ## The item's name for prompts.
 func display_name() -> String:
 	return ItemDB.get_item(item_id).display_name()
+
+
+# --- Paint (Painter): a can of paint in hand, LMB on a placed thing that takes it ---------
+
+func use_prompt(_player: Node, stack: ItemStack) -> String:
+	return Painter.use_prompt(self, stack)
+
+
+func use_action(_player: Node, stack: ItemStack) -> Dictionary:
+	return Painter.use_action(self, stack)
+
+
+func use_impact(_player: Node, stack: ItemStack, _action: Dictionary, hit: Dictionary) -> void:
+	Painter.use_impact(self, stack, hit)
+
+
+func complete_use(_player: Node, stack: ItemStack, _action: Dictionary) -> void:
+	Painter.complete_use(self, stack)

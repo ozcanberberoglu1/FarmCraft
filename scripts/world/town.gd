@@ -255,6 +255,8 @@ func _ready() -> void:
 		Game.world.block_grass(r)
 	_spawn_dealer_stock()
 	_spawn_farm_truck()
+	# Grandpa's stock trailer and the cargo trailer for sale, beside the dealer's lot.
+	TrailerYard.spawn(self)
 	# The townspeople (scripts/npc): at the counters, the pumps, the dealer's, on the pavements.
 	add_child(TownPeople.new())
 	# The fishing contest's pond and board (FishingContest), and its crowd.
@@ -1669,7 +1671,8 @@ static func _nearest_owned_vehicle(p: Vector3, max_dist: float) -> Vehicle:
 	var best: Vehicle = null
 	var best_d := max_dist
 	for v: Vehicle in Game.world.get_tree().get_nodes_in_group(Vehicle.GROUP):
-		if not v.owned:
+		# A trailer takes no fuel (the pumps' reach is the short one).
+		if not v.owned or (v is Trailer and max_dist < 10.0):
 			continue
 		var d := v.global_position.distance_to(p)
 		if d < best_d:
@@ -1682,7 +1685,11 @@ static func _nearest_owned_vehicle(p: Vector3, max_dist: float) -> Vehicle:
 func vehicle_at_market() -> Vehicle:
 	if market_counter == null:
 		return null
-	return _nearest_owned_vehicle(market_counter.global_position, 30.0)
+	var v := _nearest_owned_vehicle(market_counter.global_position, 30.0)
+	# An empty trailer nearer the counter than the pickup that tows it: the pickup's bed is meant.
+	if v is Trailer and v.cargo.total() == 0 and (v as Trailer).tow != null:
+		return (v as Trailer).tow
+	return v
 
 
 ## The player's vehicle parked by the Animal Market's hen stall (in the street in front
@@ -1917,6 +1924,8 @@ func _animal_market(cols: Array) -> void:
 	mi.mesh = yard.build(_materials().merged({&"chicken_net": _net_material()}))
 	add_child(mi)
 	_market_animals()
+	# Where a sheep, cow or horse bought here waits for the farmer's trailer.
+	TrailerYard.build_pen(self)
 
 
 ## Where E opens the market on `species` (&"": the whole list); a pen's prompt names

@@ -1320,8 +1320,11 @@ func _forbidden(p: Vector3) -> bool:
 	return in_building(p, _inside_ok)
 
 
-## A burning campfire within FIRE_KEEP of `p`.
+## A burning campfire within FIRE_KEEP of `p` (or a lit lantern post within its reach:
+## Pastures.lantern_near).
 func _fire_near(p: Vector3) -> bool:
+	if Pastures.lantern_near(p):
+		return true
 	for n in get_tree().get_nodes_in_group(&"campfires"):
 		var f := n as Node3D
 		if f and f.has_method(&"is_burning") and f.call(&"is_burning") \
@@ -1366,7 +1369,7 @@ func _escape() -> Vector3:
 			var d := _flat(global_position - f.global_position)
 			if d.length() < FIRE_KEEP:
 				return d.normalized() if d.length() > 0.01 else Vector3.RIGHT
-	return Vector3.ZERO
+	return Pastures.lantern_escape(global_position)
 
 
 func _hit(a: Vector3, b: Vector3) -> bool:

@@ -40,6 +40,7 @@ FishingContest="*res://autoload/fishing_contest.gd"
 Relations="*res://autoload/relations.gd"
 Mail="*res://autoload/mail.gd"
 SideStory="*res://autoload/side_story.gd"
+Pastures="*res://autoload/pastures.gd"
 WolfRaids="*res://autoload/wolf_raids.gd"
 Pet="*res://autoload/pet.gd"
 

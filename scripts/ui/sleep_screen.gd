@@ -224,7 +224,8 @@ func _show_report(summary: Dictionary, fee: int, knocked_out := false, wolves :=
 	var title := UiTheme.make_label(UiTheme.caps(tr("HUD_DAY") % GameClock.day), UiTheme.heading(92, UiTheme.TEXT, 700, 4))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	head.add_child(title)
-	var sub := UiTheme.make_label(UiTheme.caps(tr("REPORT_SEASON_DAY") % [GameClock.season_name(), GameClock.get_day_of_season()]),
+	# The farm's own name heads the morning's report (FarmIdentity).
+	var sub := UiTheme.make_label(UiTheme.caps("%s · %s" % [FarmIdentity.farm_name(), tr("REPORT_SEASON_DAY") % [GameClock.season_name(), GameClock.get_day_of_season()]]),
 			UiTheme.heading(22, UiTheme.GOLD_SOFT, 700, 4))
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	head.add_child(sub)

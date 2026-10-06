@@ -277,6 +277,12 @@ func set_wool(amount: float) -> void:
 	mesh.set_instance_shader_parameter("wool_amount", clampf(amount, 0.0, 1.0))
 
 
+## Carrying young, 0..1 of the way to term: the photo models round their barrel out
+## (PhotoRig); the sculpted ones show nothing.
+func set_belly(_amount: float) -> void:
+	pass
+
+
 # --- Animation ------------------------------------------------------------------------------
 
 func animate(delta: float, speed: float, mode: int) -> void:

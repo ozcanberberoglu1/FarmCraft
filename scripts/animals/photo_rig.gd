@@ -11,6 +11,12 @@ extends AnimalRig
 
 const SOURCE_DIR := "res://art/models/animals/source/"
 const BLEND_TIME := 0.35
+## A female near her term (set_belly): how far her barrel rounds out, half the length of
+## the stretch that does and how far under the legs' top joints its middle lies, all as
+## shares of the distance between her fore and hind legs.
+const BELLY_DEPTH := 0.1
+const BELLY_HALF := 0.5
+const BELLY_DROP := 0.04
 
 ## Per species:
 ##   height     height of the `body` bone above the hooves, metres
@@ -214,6 +220,10 @@ var _baby := false
 ## The clip plays under legs placed by IK (a trot over the walk's body motion).
 var _clip_ik := false
 var _next_ik := false
+## Carrying young (set_belly): how far the barrel rounds out, metres (0: not at all), and
+## each mesh's frame against the rig's (the barrel's middle is followed every frame).
+var _belly := 0.0
+var _belly_frames := {}
 
 static var _stances := {}
 static var _moves := {}
@@ -597,6 +607,9 @@ func _convert(src: Material, split: Array, fleece: Dictionary, mi: MeshInstance3
 			m.set_shader_parameter("alpha_cut", 0.3)
 		for key: String in over:
 			m.set_shader_parameter(key, over[key])
+	var frame := _rel(mi, self).basis.inverse()
+	m.set_shader_parameter("belly_fwd", (frame * Vector3.FORWARD).normalized())
+	m.set_shader_parameter("belly_up", (frame * Vector3.UP).normalized())
 	m.set_shader_parameter("split_lo", split[0])
 	m.set_shader_parameter("split_hi", split[1])
 	m.set_shader_parameter("dark_mean", split[2])
@@ -655,6 +668,47 @@ func set_wet(amount: float) -> void:
 func set_wool(amount: float) -> void:
 	for mi in meshes:
 		mi.set_instance_shader_parameter(&"wool_amount", clampf(amount, 0.0, 1.0))
+
+
+## Carrying young (Breeding): `amount` 0..1 of the way to term rounds the barrel out.
+func set_belly(amount: float) -> void:
+	var was := _belly
+	_belly = clampf(amount, 0.0, 1.0) * BELLY_DEPTH * _leg_span()
+	if _belly <= 0.0 and was > 0.0:
+		for mi in meshes:
+			mi.set_instance_shader_parameter(&"belly", 0.0)
+	elif _belly > 0.0:
+		_update_belly()
+
+
+## Metres between the fore and the hind legs (their top joints, at rest).
+func _leg_span() -> float:
+	if not (_b.has("fl_up") and _b.has("rl_up")):
+		return 0.0
+	return ((_sk_xf * skeleton.get_bone_global_rest(_b["fl_up"]).origin) - (_sk_xf * skeleton.get_bone_global_rest(_b["rl_up"]).origin)).length()
+
+
+## The rounded belly follows the body as it is posed (lying down it is on the ground with
+## her): the barrel's middle, between the four legs' top joints and a little under them.
+func _update_belly() -> void:
+	var mid := Vector3.ZERO
+	var n := 0
+	for key: String in ["fl_up", "fr_up", "rl_up", "rr_up"]:
+		if _b.has(key):
+			mid += skeleton.get_bone_global_pose(_b[key]).origin
+			n += 1
+	if n == 0:
+		return
+	var span := _leg_span()
+	var at := _sk_xf * (mid / n) + Vector3(0.0, -BELLY_DROP * span, 0.0)
+	for mi in meshes:
+		if not _belly_frames.has(mi):
+			_belly_frames[mi] = _rel(mi, self).affine_inverse()
+		var to_mesh: Transform3D = _belly_frames[mi]
+		var k := to_mesh.basis.get_scale().x
+		var p := to_mesh * at
+		mi.set_instance_shader_parameter(&"belly_at", Vector4(p.x, p.y, p.z, BELLY_HALF * span * k))
+		mi.set_instance_shader_parameter(&"belly", _belly * k)
 
 
 # --- Animation ----------------------------------------------------------------------------
@@ -725,6 +779,8 @@ func animate(delta: float, speed: float, mode: int) -> void:
 		_cross_fade(delta)
 	for idx: int in _age_scales:
 		skeleton.set_bone_pose_scale(idx, _age_scales[idx])
+	if _belly > 0.0:
+		_update_belly()
 
 
 ## Whether a clip has a position track for a bone.

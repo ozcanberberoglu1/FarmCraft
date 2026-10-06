@@ -96,6 +96,12 @@ static func build(id: StringName) -> Dictionary:
 			_mailbox(body, moving)
 		&"doghouse":
 			_doghouse(body, DOGHOUSE_STAGES)
+		&"fence_panel", &"fence_gate", &"lantern_post":
+			# The farmer's own fencing (scripts/placement/fence_models.gd).
+			FenceModels.add_whole(body, id)
+		_:
+			# The decorations (IdentityModels: a planter, a bench, a scarecrow...).
+			IdentityModels.build_decor(id, body, moving)
 	var out := {"body": MeshMerge.build(body), "moving": null}
 	var whole := body.duplicate()
 	if not moving.is_empty():
