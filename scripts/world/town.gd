@@ -3127,7 +3127,8 @@ func _power_line(mb: MeshBuilder, cols: Array) -> void:
 func _lamps_and_signs(mb: MeshBuilder, cols: Array) -> void:
 	for x: float in [190.0, 204.0, 218.0, 232.0, 246.0, 260.0, 274.0]:
 		_lamps.append(BuildingKit.street_lamp(self, mb, cols, Vector3(x, _y(x, 14.0) + 0.15, 14.0), Vector2(0, 1)))
-	for x: float in [236.0, 250.0, 264.0, 278.0]:
+	# (None at x 250: it would stand in the mouth of the Animal Market's gate.)
+	for x: float in [236.0, 264.0, 278.0]:
 		_lamps.append(BuildingKit.street_lamp(self, mb, cols, Vector3(x, _y(x, 26.1) + 0.15, 26.1), Vector2(0, -1)))
 	# Town sign at the western entrance, facing incoming traffic.
 	var sp := Vector3(178.0, _y(178, 26.5), 26.5)

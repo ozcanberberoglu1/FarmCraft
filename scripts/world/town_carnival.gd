@@ -47,7 +47,7 @@ const ARCH_Z := 9.6
 ## Lamp posts along the north pavement (z 14) and the south one (z 26.1), and where the
 ## filling station's canopy fascia takes the strings in between.
 const LAMPS_N: Array[float] = [190.0, 204.0, 218.0, 232.0, 246.0, 260.0, 274.0]
-const LAMPS_S: Array[float] = [236.0, 250.0, 264.0, 278.0]
+const LAMPS_S: Array[float] = [236.0, 264.0, 278.0]
 const CANOPY_HOOKS: Array[float] = [201.0, 212.0, 222.0]
 ## Seconds the bulbs take to come on along the street.
 const SWEEP_SECONDS := 2.5
