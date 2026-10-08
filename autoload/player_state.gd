@@ -5,6 +5,11 @@ extends Node
 ## eating and sleeping fill them, and a need running low brings a message. Wounds (a
 ## wolf's bites: hurt) fill the injury meter, which heals slowly once nothing has hurt
 ## him for a while; a full meter knocks him out until the next morning.
+## While the story still holds his hand (story_holds_hand: until its knife is made) the
+## late hours are gentle: a word at LATE_HOURS that the work carries on in the morning,
+## and the 02:00 collapse is an ordinary night's sleep (no fee: SleepScreen; a rested
+## morning). Until the story has taught a meal (story_feeds) hunger stops at a floor
+## (Needs.STORY_HUNGER_FLOOR).
 
 signal selected_changed(slot: int)
 ## The first item came into the bag of a new farm: the hotbar and inventory open (the
@@ -22,9 +27,26 @@ const INJURY_MAX := 100.0
 ## (points per second: ten a minute).
 const INJURY_CALM := 10.0
 const INJURY_HEAL := 10.0 / 60.0
+## The story holds the farmer's hand until this goal is behind him (Quests.passed): the
+## knife, the last thing its second day teaches, and the step that lets the wolves come
+## (WolfRaids.LESSON_AFTER). The clock runs ahead of the story on the first days, so
+## until then the night costs him nothing: see story_holds_hand.
+const HAND_HELD_UNTIL := "knife"
+## The story has taught a meal once this goal is behind him: the cooked fish of the pond's
+## day (the first food that fills; the first day's berries are only a bite). Until then
+## hunger never falls under Needs.STORY_HUNGER_FLOOR: see story_feeds.
+const MEAL_TAUGHT_AT := "eat"
+## The hours (of the clock) at which a hand-held farmer is told it is late, and the text
+## of each.
+const LATE_HOURS := {22: "MSG_LATE_EVENING", 0: "MSG_LATE_MIDNIGHT"}
+## The first of them waits while the coop's door is being asked for (Quests.
+## door_lesson_pending): it comes once the door is shut, before midnight.
+const LATE_HOLD_HOUR := 22
 
 var inventory := Inventory.new(INVENTORY_SIZE)
 var selected := 0
+## The 22:00 word that it is late is held back for the coop's door (_on_hour_passed).
+var _late_held := false
 ## A new farm starts with an empty bag and no hotbar or inventory (Tab does nothing);
 ## both open for good with the first item that comes into the bag, however it comes
 ## (Grandpa's table, a pickup, a chest). Saved; saves from before the lock come open.
@@ -44,11 +66,17 @@ var _calm := 0.0
 
 func _ready() -> void:
 	inventory.changed.connect(_on_inventory_changed)
-	Events.clock_tick.connect(func(_total: float, minutes: float) -> void: needs.tick(minutes))
+	Events.clock_tick.connect(func(_total: float, minutes: float) -> void:
+		needs.hunger_floor = Needs.STORY_HUNGER_FLOOR if story_feeds() else 0.0
+		needs.tick(minutes))
 	Events.day_ending.connect(needs.fall_asleep)
-	Events.passed_out.connect(needs.pass_out)
+	Events.passed_out.connect(_on_passed_out)
+	Events.hour_passed.connect(_on_hour_passed)
+	# (Quests comes after this autoload: connected once every autoload is ready.)
+	(func() -> void: Quests.door_lesson_closed.connect(_on_door_shut)).call_deferred()
 	Events.time_skipped.connect(func(_minutes: float) -> void:
 		needs.wake()
+		_late_held = false
 		_heal_all())
 	Events.player_knocked_out.connect(needs.knock_out)
 	needs.warned.connect(_on_need_warned)
@@ -115,6 +143,67 @@ func select(slot: int) -> void:
 
 func selected_stack() -> ItemStack:
 	return inventory.get_stack(selected)
+
+
+# --- The story's gentle first days ----------------------------------------------------------
+
+## The story still holds the farmer's hand: its first two days' goals (up to the knife,
+## HAND_HELD_UNTIL) are not all behind him. False once the story is past it, finished or
+## skipped (so in automated runs too, unless a test puts the story on an earlier step).
+func story_holds_hand() -> bool:
+	return not Quests.passed(HAND_HELD_UNTIL)
+
+
+## The story has not taught a meal yet (MEAL_TAUGHT_AT): hunger keeps to its floor.
+func story_feeds() -> bool:
+	return not Quests.passed(MEAL_TAUGHT_AT)
+
+
+## 02:00 and still up (Events.passed_out; the HUD starts the night: SleepScreen). While
+## the story holds his hand it is a night's sleep like any other; later only part of the
+## energy comes back (Needs.pass_out).
+func _on_passed_out() -> void:
+	if story_holds_hand():
+		needs.fall_asleep()
+	else:
+		needs.pass_out()
+
+
+## A late hour struck (LATE_HOURS) while the story holds his hand: a word that it is
+## late and the work will wait (nothing else tells a new farmer that the day ends, and
+## the story's goals outlast its first days' daylight). Not on the title screen, nor
+## once the night is already being slept.
+func _on_hour_passed(hour: int) -> void:
+	if not LATE_HOURS.has(hour) or not story_holds_hand():
+		return
+	if not _can_tell_late():
+		return
+	# The coop's door first: with its lesson up and the coop not shut yet (Quests: the
+	# evening's card, or the story's own goal) the first word that it is late waits until
+	# the door is shut (_on_door_shut); he is not sent to bed over a chore just given.
+	# (Midnight's comes all the same.)
+	_late_held = hour == LATE_HOLD_HOUR and Quests.door_lesson_pending()
+	if _late_held:
+		return
+	Game.notify(tr(String(LATE_HOURS[hour])), UiTheme.GOLD_SOFT)
+
+
+## A word that it is late can be shown now: in the game, not on the title screen, not once
+## the night is already being slept.
+func _can_tell_late() -> bool:
+	var hud := Game.hud as HUD
+	return Game.player != null and is_instance_valid(Game.player) and hud != null and not hud.sleep_screen.is_busy() \
+			and not hud.title_screen.visible
+
+
+## The coop's door was shut for its lesson (Quests.door_lesson_closed): the word that it
+## is late, held back for it (_on_hour_passed), comes now if that hour has not gone by.
+func _on_door_shut() -> void:
+	if not _late_held:
+		return
+	_late_held = false
+	if story_holds_hand() and GameClock.get_hour() >= LATE_HOLD_HOUR and _can_tell_late():
+		Game.notify(tr(String(LATE_HOURS[LATE_HOLD_HOUR])), UiTheme.GOLD_SOFT)
 
 
 ## Adds items and shows a pickup notification. Returns the amount that didn't fit.
@@ -184,7 +273,11 @@ func _on_need_warned(kind: StringName) -> void:
 	if msg == "":
 		return
 	var urgent := kind == &"starving" or kind == &"exhausted"
-	Game.notify(tr(msg), UiTheme.RED if urgent else UiTheme.GOLD_SOFT)
+	# A hand-held farmer has just been told it is late (LATE_HOURS: the first of them is
+	# when a rested farmer tires): the yawn is enough, not a second note saying the same.
+	var told := kind == &"tired" and story_holds_hand() and GameClock.minute >= 22.0 * 60.0
+	if not told:
+		Game.notify(tr(msg), UiTheme.RED if urgent else UiTheme.GOLD_SOFT)
 	if kind == &"tired" or kind == &"exhausted":
 		CampSfx.play("yawn", null, -9.0, 0.04)
 

@@ -172,7 +172,8 @@ static func release_held(to: AnimalHousing, at := Vector3.INF) -> bool:
 		return false
 	# Out of the hand first: whoever listens to the release counts the crates left.
 	PlayerState.inventory.remove_item(crate, 1)
-	var a := Animals.release(species, to, at)
+	# (One of his own birds crated to be sold comes out first, the same bird as it was.)
+	var a := Animals.release(species, to, at, true)
 	if a == null:
 		PlayerState.inventory.add_item(crate, 1)
 		return false

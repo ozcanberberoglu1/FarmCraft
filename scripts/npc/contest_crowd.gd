@@ -31,7 +31,7 @@ extends EventCrowd
 ## The anglers stand at their places until the opening and cast one after another in the
 ## moments after it (cast_minute: FishingContest only has a rival land fish once his line
 ## is in the water). Whenever the leaderboard gets a new biggest fish the people watching
-## cheer (a few arms up, some clapping); at the horn the anglers put their rods down and
+## cheer (a few arms up, some clapping); at the whistle the anglers put their rods down and
 ## everyone claps; when the winner has been named they walk back to where they were and
 ## go on with their day (the visitors walk off out of town and are gone).
 

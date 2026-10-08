@@ -1,8 +1,12 @@
 extends Node
 ## The story's goals and the orders on the town board.
 ## Grandpa Osman has left the player his run-down farm in Yeşilova. The story is farm life
-## first, a day at a time; each day's goals wait for its morning ("day:<n>" goals between
-## them, the player free in between). Day one is walked through by hand: the stuck front
+## first, a day at a time; each day's goals wait for a morning ("day:<n>" goals between
+## them, the player free in between). The days are the story's own, not the calendar's:
+## the story follows the player. Its first two days slow the clock for ten real minutes
+## each (FIRST_DAY_RATE) and their goals are a good deal longer than that, so the calendar
+## runs ahead of the story; a wait is over on the first morning after it came up
+## (WAIT_MARK), whatever day that is. Day one is walked through by hand: the stuck front
 ## door, his tools on the worktable inside, three beds of wheat, the pickup's key in the
 ## desk drawer, two hens from the poultry stall in town (named by the farmer as they go
 ## into the coop: Animals), a coop put up from a kit, the ripe beds he left behind, the
@@ -10,12 +14,17 @@ extends Node
 ## in the nests), the first egg, then the farm tidied up (the broken boards of the house and
 ## the warehouse renewed by hand with wood from the trees) and a short walk with Grandpa
 ## (his two spots near the house: EXPLORE_SPOTS, a line from him at each), stone from the
-## rocks at the second one, wild berries there and a bite to eat; the evening is free (a
+## rocks at the second one, wild berries there and a bite to eat, then the coop shut for
+## the night (the hens in, its door shut: coop_shut); the evening is free (a
 ## goal that waits for the morning lets the farmer go to bed at any hour: day_work_done,
-## and brings a few quiet farm chores to pass the time: FarmChores). Day two is a farmer's day:
+## and brings a few quiet farm chores to pass the time: FarmChores). The coop's door is
+## taught when it matters, not where the chain happens to stand: on the first evening hens
+## live in his coop, as night falls and they go in, a side card beside the story's goal
+## asks for it (the evening's lesson: see door_day); the chain's own coop_shut is then
+## behind him when the story gets there. Day two is a farmer's day:
 ## the wheat sold at the town market and seeds bought there, three more beds sown, a
 ## sapling from the felled trees planted, a workbench put up near the house and a knife
-## made at it for the night (the wolves' lesson comes that night: WolfRaids.LESSON_NIGHT).
+## made at it for the nights (the wolves' lesson: WolfRaids).
 ## Day three brings a rooster for the hens (named like them; eggs left in the nests under
 ## him hatch into chicks) and the new beds watered; day four is a day at the pond (rope
 ## from the market for a rod, bait, a fish, a campfire to cook it on, a meal). Later only a
@@ -35,6 +44,12 @@ signal story_finished
 ## One of Grandpa's spots (EXPLORE_SPOTS) reached on the walk round the land: its id and
 ## his line about it (the HUD shows it under the goal).
 signal spot_visited(spot: String, line: String)
+## A line from Grandpa that belongs to the goal just come up (the coop's door at night:
+## COOP_NIGHT_LINE); the HUD shows it under the goal for a while, as a spot's line.
+signal grandpa_said(line: String)
+## The coop's door was shut for its lesson (the evening's side card, or the story's own
+## goal): PlayerState's word that it is late, held back for it, may come now.
+signal door_lesson_closed
 
 const CHAPTERS: Array[String] = ["arrival", "soil", "town", "coop", "harvest", "coop_care",
 	"repair", "explore", "free", "market", "fields", "workshop", "rooster", "fishing", "barn",
@@ -53,8 +68,9 @@ const DAY_TWO_CHAPTER := 8
 ## made for the night, the rooster on day three and the fishing on day four (MOVED_V7);
 ## 8: a full first day: the mending back on it, then the walk round the land, the stone,
 ## the berries and the bite to eat; the second day's seeds and new beds, the third's
-## watering (MOVED_V8).
-const CHAIN := 8
+## watering (MOVED_V8); 9: the coop's door shut for the night as the first day's last goal
+## (coop_shut, before the free evening: no goal moved, see MOVED_V9).
+const CHAIN := 9
 ## Story goals in order: chapter, id, what counts toward it, how many, and the farm
 ## experience it gives ("xp", none when left out). Goals pay no money: the farm earns
 ## only by selling (Economy.STARTING_MONEY).
@@ -70,7 +86,8 @@ const CHAIN := 8
 ## "crates:warehouse" (hen crates stored, or hens let out), "owned:<species>" (bought:
 ## crated anywhere, or living on the farm), "kit" (a coop kit made), "coop:started" /
 ## "coop:built", "bin:<item or category>" (in the shipping bin, or shipped),
-## "warehouse", "cargo", "near:town", "day:<n>", "level", "built:<project>",
+## "warehouse", "cargo", "near:town", "day:<n>" (the first morning after the goal came
+## up: WAIT_MARK), "level", "built:<project>",
 ## "animals:<species>", "trailer:<what>" (the stock trailer's lesson: TrailerGoals),
 ## "has:<item>" (in the bag or put down on the farm), "bench:kit" /
 ## "bench:started" / "bench:built" (a workbench bought, put down, finished), "bait"
@@ -84,7 +101,9 @@ const CHAIN := 8
 ## "seed"), "sapling" (saplings planted); and the checks "nobush" (no wild bush in the
 ## valley has berries on it now), "nosapling" (no sapling in the bag), "bedsready" (three
 ## tilled beds stand empty, or no untilled ground is left), "nofield" (no bed free to sow
-## and none left to till) and "nodry" (no sown bed is dry).
+## and none left to till), "nodry" (no sown bed is dry) "coopshut" (every coop with
+## birds in it has them all inside and its door shut; a farm with no such coop passes)
+## and "troughfull" (the newest coop's water trough is full: the can would be refused).
 ## "ever": the goal also counts what was done before it came up (see `tally`), so work
 ## done early is never asked for twice and the chain can't stall on it.
 ## "past": a check that shows the player is beyond this goal already (done out of order,
@@ -131,23 +150,25 @@ const TUTORIAL := [
 	{"chapter": 4, "id": "harvest", "kind": "action", "arg": "harvest", "count": 3, "xp": 5, "ever": true, "at": "plot:ripe", "past": "bin:crop"},
 	{"chapter": 4, "id": "ship", "kind": "check", "arg": "bin:crop", "count": 1, "xp": 3, "at": "bin"},
 	# The coop's care: the feed sack that waits in the warehouse into the feeder, the
-	# watering can from the well into the water trough, straw from the meadow in the nests
-	# (the hens lay there from then on); then the first egg (laid 25 minutes after the
-	# first hen went in: ChickenCoop) picked up and put in the bin.
+	# watering can from the well into the water trough (a trough that is full already, as a
+	# kit coop's is every morning, takes no water: the goal passes, "troughfull"), straw
+	# from the meadow in the nests
+	# (the hens lay there from then on); then the first egg (laid a few real seconds after
+	# the first hen went in: ChickenCoop.FIRST_EGG_SECONDS) picked up and put in the bin.
 	{"chapter": 5, "id": "feed", "kind": "fed", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "feeder"},
-	{"chapter": 5, "id": "coop_water", "kind": "watered", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "coop_water"},
+	{"chapter": 5, "id": "coop_water", "kind": "watered", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "coop_water", "past": "troughfull"},
 	{"chapter": 5, "id": "straw", "kind": "nests", "arg": "", "count": 3, "xp": 4, "ever": true, "at": "nests"},
 	{"chapter": 5, "id": "egg", "kind": "picked", "arg": "egg", "count": 1, "ever": true, "at": "egg", "past": "bin:egg"},
 	{"chapter": 5, "id": "ship_egg", "kind": "check", "arg": "bin:egg", "count": 1, "xp": 3, "at": "bin"},
-	# Tidying the farm up while it is light: wood for the house (counted from when the goal
-	# comes up), then every broken board of the house renewed by hand, a piece of wood each
+	# Tidying the farm up, at whatever hour the story gets here: wood for the house (counted
+	# from when the goal comes up), then every broken board of the house renewed by hand, a piece of wood each
 	# (its eight holes: the last one repairs it), then the warehouse's six the same way (no
 	# wood goal of its own: with none in hand the dot goes to the trees first). (A building
 	# repaired already passes its goals.)
 	{"chapter": 6, "id": "wood", "kind": "picked", "arg": "wood", "count": 8, "xp": 2, "at": "trees", "past": "built:house_1"},
 	{"chapter": 6, "id": "patch", "kind": "patched", "arg": "house", "count": 8, "xp": 8, "ever": true, "at": "house_repair", "past": "built:house_1"},
 	{"chapter": 6, "id": "wh_patch", "kind": "patched", "arg": "warehouse", "count": 6, "xp": 8, "ever": true, "at": "warehouse_repair", "past": "built:warehouse_1"},
-	# A short walk with Grandpa before dusk: his two spots near the house, one after the
+	# A short walk with Grandpa: his two spots near the house, one after the
 	# other (the dot goes to the next one; any reached counts, each with a line from him),
 	# ending at the forest's edge behind the house, where the rest is at hand: stone for the
 	# knife of tomorrow night from the rocks lying there (two give the four asked for), then
@@ -159,16 +180,34 @@ const TUTORIAL := [
 	{"chapter": 7, "id": "stones", "kind": "picked", "arg": "stone", "count": 4, "xp": 3, "ever": true, "at": "rocks"},
 	{"chapter": 7, "id": "berries", "kind": "forage", "arg": "", "count": 4, "xp": 3, "ever": true, "at": "berries", "past": "nobush"},
 	{"chapter": 7, "id": "snack", "kind": "eaten", "arg": "", "count": 1, "xp": 3, "ever": true, "at": "food", "past": "full"},
+	# The day's last chore: the coop shut for the night (every bird in, the door shut; the
+	# dot on the door, Grandpa's line says why: COOP_NIGHT_LINE). Almost nobody meets it
+	# here: the first day's goals outlast its daylight, so the door is taught on the first
+	# evening the hens go in, beside whatever goal is up then (the evening's lesson:
+	# door_day), and this step is behind him when the story gets to it (_door_step_behind:
+	# no reward or note a second time). Only a farmer who gets here before his hens' first
+	# night meets it as a goal: before nightfall the hens are still out, the line under the
+	# goal says when they go in and that he can carry them in (HINT_COOP_DUSK), and the
+	# clock runs as usual meanwhile (_paces_day). Nobody is held up by it: a farm with no
+	# birds in a coop passes it, and so does the next morning, with a gentle line in its
+	# report (_coop_morning).
+	{"chapter": 7, "id": "coop_shut", "kind": "check", "arg": "coopshut", "count": 1, "xp": 3, "at": "coop_shut"},
 	# The first day's story is done: the farm is the player's own until the next morning
-	# (no dot, no task; Grandpa's note says so).
+	# (no dot, no task; Grandpa's note says so). The wait is for the first morning after
+	# this goal came up, whatever the calendar day (WAIT_MARK; "day:2" is what a save from
+	# before that note still goes by).
 	{"chapter": 8, "id": "free", "kind": "check", "arg": "day:2", "count": 1},
-	# Day two, market day: yesterday's wheat reaped, loaded into the pickup's bed and sold
+	# Day two, market day: the ripe crops reaped, loaded into the pickup's bed and sold
 	# at the Yeşilova market (the money for the workbench later in the day; Grandpa's note
 	# and the line under the goal say what sells and where: HINT_WHAT_SELLS), and seeds
 	# bought on the same trip (any seed the market has: none is out of season). Short of
 	# money for them, the dot shows where his own goods sell and the line names them
 	# (_seeds_short); with nothing to sell either, the grocer gives the first three packets
-	# (seed_gift_due): the goal never dead-ends.
+	# (seed_gift_due): the goal never dead-ends. The farmer's own wheat is ripe from the
+	# second morning, days before the story gets here, and may be reaped and sold long
+	# since: the harvest and its loading have the first harvest's net (beds come ripe once
+	# when there is too little to reap: _keep_beds_for_market) and pass, without their
+	# experience, when there is truly nothing left to reap or load.
 	{"chapter": 9, "id": "harvest2", "kind": "check", "arg": "crops", "count": 3, "xp": 4, "at": "plot:ripe", "past": "bench:kit"},
 	{"chapter": 9, "id": "load_crops", "kind": "check", "arg": "cargo:crop", "count": 3, "xp": 3, "at": "truck_load", "past": "bench:kit"},
 	{"chapter": 9, "id": "sell_market", "kind": "sold", "arg": "", "count": 3, "xp": 4, "at": "sell_market", "past": "bench:kit"},
@@ -183,22 +222,22 @@ const TUTORIAL := [
 	{"chapter": 10, "id": "sow", "kind": "action", "arg": "plant", "count": 3, "xp": 3, "at": "plot:empty", "past": "nofield"},
 	{"chapter": 10, "id": "water2", "kind": "action", "arg": "water", "count": 3, "xp": 3, "at": "plot:dry", "past": "nodry"},
 	{"chapter": 10, "id": "sapling", "kind": "sapling", "arg": "", "count": 1, "xp": 4, "ever": true, "at": "sapling", "past": "nosapling"},
-	# The workshop before nightfall: the workbench kit from the construction board (bought,
-	# like everything), put up near the house in ten seconds like the coop, then a
-	# knife made at it: Grandpa's advice for the nights, when the wolves are about (the
-	# lesson comes tonight: WolfRaids.LESSON_NIGHT).
+	# The workshop: the workbench kit from the construction board (bought, like
+	# everything), put up near the house in ten seconds like the coop, then a knife made
+	# at it: Grandpa's advice for the nights, when the wolves are about (WolfRaids).
 	{"chapter": 11, "id": "bench_kit", "kind": "check", "arg": "bench:kit", "count": 1, "xp": 4, "at": "bench_board"},
 	{"chapter": 11, "id": "bench_place", "kind": "check", "arg": "bench:started", "count": 1, "xp": 4, "at": "bench_spot"},
 	{"chapter": 11, "id": "bench_built", "kind": "check", "arg": "bench:built", "count": 1, "xp": 6, "at": "bench"},
 	{"chapter": 11, "id": "knife", "kind": "crafted", "arg": "knife", "count": 1, "xp": 6, "ever": true, "at": "craft:knife"},
-	# The rest of the second day is the player's own (the night brings the wolves' lesson);
-	# the third morning brings the rooster.
+	# The rest of that day is the player's own; the next morning brings the rooster (the
+	# first morning after this goal came up: WAIT_MARK).
 	{"chapter": 11, "id": "rooster_wait", "kind": "check", "arg": "day:3", "count": 1},
 	# Day three, the flock grows: a rooster for the hens, bought at the animal market in town
 	# (in his crate, like the hens) and let out at the coop door, named by the farmer like
 	# the first hens; the eggs left in the nests under him hatch into chicks a day later
 	# (the chapter's note and the release say so). Then the new beds watered again (a crop
-	# wants water every day; counted from when the goal comes up).
+	# wants water every day; counted from when the goal comes up). The pond waits for the
+	# morning after (WAIT_MARK).
 	{"chapter": 12, "id": "rooster_buy", "kind": "check", "arg": "owned:rooster", "count": 1, "xp": 4, "at": "rooster_market", "past": "animals:rooster"},
 	{"chapter": 12, "id": "rooster_in", "kind": "check", "arg": "animals:rooster", "count": 1, "xp": 8, "at": "hens"},
 	{"chapter": 12, "id": "water3", "kind": "action", "arg": "water", "count": 3, "xp": 3, "at": "plot:dry", "past": "nodry"},
@@ -229,7 +268,16 @@ const TUTORIAL := [
 	# driven home and led into the barn's pen ("sheep", the goal older saves know: it is
 	# done with a sheep in the pen, however it came). Each step passes once the farm is
 	# beyond it (a sheep at home passes them all).
+	# The hitch is taught a step at a time (round 23): the tyre bill paid at Kemal's desk,
+	# over to the trailer in the bay where he sends the farmer, into the pickup, past the
+	# trailer and backed up to its tongue along the approach drawn on the ground until the
+	# marker is green, out and coupled at the tongue. Added without a new chain: the ids
+	# older saves stood on (trailer_get, trailer_hitch) are still here, and trailer_hitch's
+	# place says every step of it by itself.
 	{"chapter": 14, "id": "trailer_get", "kind": "check", "arg": "trailer:owned", "count": 1, "xp": 4, "at": "trailer:get", "past": "trailer:sheep_home"},
+	{"chapter": 14, "id": "trailer_see", "kind": "check", "arg": "trailer:seen", "count": 1, "at": "trailer:see", "past": "trailer:sheep_owned"},
+	{"chapter": 14, "id": "trailer_truck", "kind": "check", "arg": "trailer:aboard", "count": 1, "at": "trailer:truck", "past": "trailer:sheep_owned"},
+	{"chapter": 14, "id": "trailer_back", "kind": "check", "arg": "trailer:backed", "count": 1, "xp": 2, "at": "trailer:back", "past": "trailer:sheep_owned"},
 	{"chapter": 14, "id": "trailer_hitch", "kind": "check", "arg": "trailer:hitched", "count": 1, "xp": 4, "at": "trailer:hitch", "past": "trailer:sheep_owned"},
 	{"chapter": 14, "id": "sheep_buy", "kind": "check", "arg": "trailer:sheep_owned", "count": 1, "xp": 4, "at": "animal:sheep"},
 	{"chapter": 14, "id": "sheep_load", "kind": "check", "arg": "trailer:sheep_loaded", "count": 1, "xp": 5, "at": "trailer:load", "past": "trailer:sheep_home"},
@@ -333,17 +381,34 @@ const MOVED_V8 := {"free": "wood", "snack": "rooster_wait", "potatoes": "water3"
 ## passes when it comes up again: crops reaped or loaded count), and a save on the
 ## mending had sold already: the market's goals are marked done for it (DONE_MARK).
 const MOVED_V8_MARKET := {"harvest2": "wood", "load_crops": "wood", "sell_market": "wood"}
+## Chain 9 added the coop's door shut for the night (coop_shut) before the free evening
+## and moved nothing: a chain 8 save keeps its goal by its id. One standing before the
+## free evening meets the new goal in its turn; one on the free evening or past it is
+## beyond it and is never sent back (the first morning its hens wake behind a shut door
+## it is told to open it like everyone else: COOP_MORNING_FLAG). The door's lesson itself
+## has since moved out of the chain to the hens' first evening (door_day; no new chain:
+## its own record in the save tells a save from before it, _door_from_old_save).
+const MOVED_V9 := {}
 const V8_SOLD_FIRST: Array[String] = ["wood", "patch", "wh_patch"]
 const V8_MARKET: Array[String] = ["harvest2", "load_crops", "sell_market"]
 ## A goal a save did under an older chain (tally key "done:<id>"): it passes, without its
 ## experience again, when it comes up.
 const DONE_MARK := "done:%s"
+## A goal that waits for the morning ("day:<n>": free, rooster_wait, fishing_wait) waits
+## for the first morning after it came up, whatever the calendar says: the day it came up
+## on is kept in the tally under this key (saved with it: _note_wait), and the wait is over
+## once GameClock.day is past it. A save standing on a wait from before this note keeps
+## the calendar day its goal names (day 2, 3 or 4), as it always did.
+const WAIT_MARK := "wait:%s"
+## Set in the tally once the market's net has brought beds on (_keep_beds_for_market): it
+## does so once per story, so crops carried off to the bin can't be had from it again.
+const MARKET_NET := "net:market"
 ## Grandpa's spots on the first day's walk, in the order the dot takes them (any reached
 ## counts): where (world XZ), how near counts as there (m) and how high the dot floats
 ## over the ground (or the pond's water). Only two, both a short walk from the house
-## (EXPLORE_NEAR at most from its door): the pond he fished (the fourth day's), beside the
-## yard, and the edge of the old forest behind the house, where the wolves come down from
-## (the second night's) and where the walk's stone and berries are at hand (two field
+## (EXPLORE_NEAR at most from its door): the pond he fished (the story's pond day), beside
+## the yard, and the edge of the old forest behind the house, where the wolves come down
+## from (WolfRaids) and where the walk's stone and berries are at hand (two field
 ## rocks and two blueberry bushes stand within a few steps: NatureSpawner's fixed seeds).
 ## The far ones went (the old pasture across the farm, the quarry up the north path): the
 ## walk had become a hike. Each has a name (SPOT_<ID>) and a line from him
@@ -355,32 +420,33 @@ const EXPLORE_SPOTS := {
 ## No spot of the walk lies farther than this from the house door (m).
 const EXPLORE_NEAR := 40.0
 ## The first day keeps time for the story: the clock runs at FIRST_DAY_RATE game minutes
-## a real minute and from LINGER_HOUR the late afternoon lingers (LINGER_RATE: the
-## mending, the walk and the berries still come in daylight); once the day's story is
-## done the clock runs as usual, and the evening is the player's own. Set on
+## a real minute and from LINGER_HOUR the late afternoon lingers a little more
+## (LINGER_RATE); once the day's story is done, or its last goal waits for the hens to go
+## in (coop_shut), the clock runs as usual, and the evening is the player's own. Set on
 ## GameClock.time_scale, worked out against the day length setting (_pace_of), so the
 ## story's days take the same real time whether a day is 8, 10 or 12 minutes long
 ## (Settings.DAY_LENGTHS).
 ## The day starts at 13:00 (GameClock.FIRST_DAY_START_MINUTE): 13:00 to 17:00 (240 game
-## minutes at 11.2 a real minute) takes 21 real minutes and the linger to sundown (about
-## 19:15: 135 at 8.8) 15 more, about 37 in all, and to nightfall (20:00) 42: the first
-## day's story (about 25 minutes to the first egg, then the mending, the walk and the
-## berries) fits in daylight for a brisk player; what isn't done by night simply carries
-## on the next morning. The first egg (ChickenCoop FIRST_EGG_MINUTES, game time) comes
-## about half a real minute after the hens go in.
-const FIRST_DAY_RATE := 11.2
+## minutes at 48 a real minute) takes 5 real minutes and 17:00 to nightfall (20:00: 180
+## at 36) 5 more: 10 real minutes of slowed afternoon in all (sundown, about 19:15, after
+## 8.75), where an ordinary day's 13:00 to 20:00 takes 3.5. The first day's story is
+## longer than that (25 to 40 real minutes of play): what isn't done by night simply
+## carries on, that night and the next mornings, and the calendar runs ahead of the
+## story. The first egg does not wait on this clock: it is counted in real seconds
+## (ChickenCoop.FIRST_EGG_SECONDS).
+const FIRST_DAY_RATE := 48.0
 const LINGER_HOUR := 17.0
-const LINGER_RATE := 8.8
-## The second day's farm work (the market, the new beds, the workbench and the knife)
-## gets a gentler clock too while its goals are up: 06:00 to sundown (about 795 game
-## minutes at 32 a real minute) is about 25 real minutes instead of the 6.6 of a
-## 10-minute day, so the knife is made before the wolves' night. Once the day's goals
-## are done (rooster_wait) the clock runs as usual.
-const SECOND_DAY_RATE := 32.0
+const LINGER_RATE := 36.0
+## The second day gets a gentler clock too while the story's first two days are still
+## being played (the first day's goals carried over, or the second's: the market, the new
+## beds, the workbench and the knife): 06:00 to SECOND_DAY_UNTIL (19:30: 810 game minutes
+## at 81 a real minute) takes 10 real minutes instead of the 6.75 of a 10-minute day.
+## Once those goals are done (rooster_wait), and from 19:30, the clock runs as usual.
+const SECOND_DAY_RATE := 81.0
 const SECOND_DAY_UNTIL := 19.5
 ## The same as time scales at the default 10-minute day (Settings.DEFAULT_DAY_LENGTH: 120
-## game minutes a real minute): about 0.093, 0.073 and 0.267 (pace_for and
-## second_day_pace give the scale for the day length set).
+## game minutes a real minute): 0.4, 0.3 and 0.675 (pace_for and second_day_pace give the
+## scale for the day length set).
 const DEFAULT_RATE := 120.0
 const FIRST_DAY_PACE := FIRST_DAY_RATE / DEFAULT_RATE
 const LINGER_PACE := LINGER_RATE / DEFAULT_RATE
@@ -398,11 +464,11 @@ const GRANDPA_BEDS := 3
 const GRANDPA_CROP := &"carrot"
 const BEDS_FLAG := "grandpa_beds"
 ## The first day starts at 13:00, so wheat sown that afternoon or evening would not have
-## its 20 wet hours by the second morning, when the story asks for its harvest
-## (harvest2). The first night makes up for the morning the day didn't have: a crop sown
-## and watered on a new farm's first day wakes with at least this many hours of growth
-## (a whole day, as if it had gone in at dawn), so the wheat is ripe and slower crops
-## are a day along.
+## its 20 wet hours by the second morning. The first night makes up for the morning the
+## day didn't have: a crop sown and watered on a new farm's first day wakes with at least
+## this many hours of growth (a whole day, as if it had gone in at dawn), so the wheat is
+## ripe and slower crops are a day along. (The story asks for a harvest at the market's
+## morning, harvest2, which is usually days later: _keep_beds_for_market.)
 const FIRST_NIGHT_GROWTH := 24.0
 ## Back in the farmyard (the "home" check): this close to the warehouse door, on foot or
 ## at the wheel.
@@ -466,6 +532,8 @@ const BIN_BED_HOUR := 18.0
 const CRATES_TO_TRUCK := 80.0
 ## The first day's pace is set on GameClock.time_scale (given back when the day is over).
 var _paced := false
+## Automated runs leave the clock unpaced unless a test turns this on.
+var pace_in_tests := false
 ## A building just finished (see _guide_to): the dot floats over it first (a Vector3),
 ## with a line on its pill, until the player is within NEW_BUILDING_NEAR metres or its
 ## time is up (counted while no screen is open): NEW_BUILDING_TIME, only
@@ -481,6 +549,40 @@ var _new_building_shown := 0.0
 var guide_in_tests := false
 ## The quiet farm chores of the days the story leaves free (FarmChores; saved here).
 var chores: FarmChores
+## The coop's door in the morning: the game never opens it by itself, so the first morning
+## the birds wake behind a shut door (after the evening's lesson or the story's coop_shut,
+## or the wolves' lesson on an older save) the farmer is told once to open it: a line in the morning's
+## report and a side goal with the dot on the door, up that day until it is opened or
+## night falls. COOP_MORNING_FLAG (FarmState.flags, saved with the farm) keeps the day it
+## was told on. Automated runs skip it unless a test turns coop_lesson_in_tests on.
+const COOP_MORNING_FLAG := "coop_morning"
+var coop_lesson_in_tests := false
+var _door_goal: SideGoal
+var _door_goal_wait := 0.0
+## The coop's door in the evening: the lesson comes when the owner of the farm needs it,
+## whatever the story's goal is then. On the first night that falls with birds living in a
+## kit coop not yet shut (20:00, as they go in), while the story still holds his hand (up
+## to its knife: after that the wolves' lesson teaches the same, WolfRaids), Grandpa's
+## line (COOP_NIGHT_LINE) and a side card come up beside the story's goal, with the dot on
+## the coop's door and the story goal's own words (QUEST_COOP_SHUT, the hints by state:
+## _door_hint). The door shut on every bird does it, with the story goal's experience and
+## a note; bed or a faint with it still up lets it go in the morning, gently
+## (REPORT_COOP_LEFT_OPEN when a door did stand open: _coop_morning). Never beside the
+## wolves' own card that asks for the door, and never once they have taught it.
+## Saved under "door" (save_data): `door_day`, the day it came up on (0: not yet);
+## `door_over`, the lesson is behind him (done, let go in the morning, or given as the
+## story's own goal); `coop_nights`, a night has gone by with birds in a coop (so the
+## story's own step, met by daylight after that, never asks him to wait for nightfall:
+## _door_step_behind). Automated runs skip all of it unless a test turns
+## coop_lesson_in_tests on.
+const DOOR_SAVE := "door"
+var door_day := 0
+var door_over := false
+var coop_nights := false
+var _night_goal: SideGoal
+## Looks in a row (half a second apart) that found every coop shut while the lesson is up:
+## two make it done (a world just loaded is not read before its birds stand in it).
+var _night_shut := 0
 
 
 func _ready() -> void:
@@ -513,7 +615,10 @@ func _ready() -> void:
 		_count("stored", String(where), 1)
 		_nudge())
 	Events.shipped.connect(_on_shipped)
-	Events.door_toggled.connect(func(_id: StringName, _open: bool) -> void: _nudge())
+	Events.door_toggled.connect(func(_id: StringName, _open: bool) -> void:
+		_nudge()
+		# (The coop's side cards look at once too: _update_door_goal.)
+		_door_goal_wait = 0.0)
 	Events.drawer_opened.connect(func(_id: StringName) -> void: _nudge())
 	Events.world_item_taken.connect(func(_id: StringName) -> void: _nudge())
 	Events.vehicle_entered.connect(func(_v: Node) -> void: _nudge())
@@ -551,6 +656,8 @@ func _ready() -> void:
 	chores = FarmChores.new()
 	chores.name = "FarmChores"
 	add_child(chores)
+	_door_goal = SideGoal.new(&"coop_door", "", "sun", UiTheme.GOLD_SOFT)
+	_night_goal = SideGoal.new(&"coop_night", "", "moon", UiTheme.GOLD_SOFT)
 	_start.call_deferred()
 
 
@@ -606,9 +713,9 @@ func passed(id: String) -> bool:
 
 
 ## The day's story is done and its next goal waits for a morning to come ("day:<n>": the
-## free evening, the waits for the rooster's and the pond's day): the bed takes the
-## farmer at any hour (Bed), the goal's card says so (HINT_DAY_DONE), and the quiet farm
-## chores come up meanwhile (FarmChores).
+## free evening, the waits for the rooster's and the pond's day; the first morning after
+## the goal came up: WAIT_MARK): the bed takes the farmer at any hour (Bed), the goal's
+## card says so (HINT_DAY_DONE), and the quiet farm chores come up meanwhile (FarmChores).
 func day_work_done() -> bool:
 	if tutorial_done():
 		return false
@@ -876,21 +983,34 @@ func _catch_up() -> void:
 		tutorial_changed.emit()
 
 
-func _complete() -> void:
+## `quiet`: a goal that was behind him already goes by without a sound (the door's step
+## after its evening lesson).
+func _complete(quiet := false) -> void:
 	var g := current()
 	# A goal a save did under an older chain passes without its experience again.
 	var xp := 0 if tally.has(DONE_MARK % g["id"]) else int(g.get("xp", 0))
 	if xp > 0:
 		Progress.add(xp)
 		Game.notify(tr("MSG_QUEST_DONE") % goal_text(g), UiTheme.GOLD)
-	Audio.ui("confirm", -4.0)
+	if not quiet:
+		Audio.ui("confirm", -4.0)
+	if String(g["id"]) == "coop_shut" and not quiet:
+		_door_goal_done()
 	step += 1
 	step_count = 0
+	# The coop's door, taught on an evening before the story got here (or being taught
+	# beside it tonight), is no goal of the story's a second time: straight on to the free
+	# evening, its card never shown.
+	if not tutorial_done() and String(current()["id"]) == "coop_shut" and _door_step_behind():
+		step += 1
+	_note_wait()
 	if tutorial_done():
 		tally = {}
 		Game.notify(tr("MSG_TUTORIAL_DONE"), UiTheme.GREEN)
 		story_finished.emit()
-	elif int(current()["chapter"]) != int(g["chapter"]):
+	elif int(current()["chapter"]) != int(g["chapter"]) and not _wait_over():
+		# (A wait that is over as it comes up, the free evening after a night already slept:
+		# _coop_morning, opens no chapter of its own: the next one's note follows at once.)
 		chapter_started.emit(int(current()["chapter"]))
 	tutorial_changed.emit()
 	_goal_started()
@@ -899,16 +1019,61 @@ func _complete() -> void:
 	_catch_up.call_deferred()
 
 
-## A goal came up: the dot moves on at once, the drawer opens for its step, and a first
-## day's story done late in the afternoon says evening is coming.
+## A goal came up: the dot moves on at once, the drawer opens for its step, and the first
+## day's story done while the sun is going down says evening is coming.
 func _goal_started() -> void:
 	_wp_left = 0.0
 	_poll = minf(_poll, 0.25)
 	_sync_drawer_lock()
-	if tutorial_done() or DebugTools.is_automated():
+	if tutorial_done():
 		return
-	if String(current()["id"]) == "free" and GameClock.day == 1 and GameClock.minute / 60.0 >= LINGER_HOUR:
+	match String(current()["id"]):
+		"egg":
+			_hurry_story_egg()
+		"coop_shut":
+			# (Not when the step is behind him already: it goes by at the story's next look.)
+			if not _door_step_behind():
+				grandpa_said.emit(tr("COOP_NIGHT_LINE"))
+	if evening_note_due() and not DebugTools.is_automated():
 		Game.notify(tr("MSG_EVENING"), UiTheme.GOLD_SOFT)
+
+
+## The egg goal up with no egg anywhere to find and none picked up yet (a quick farmer, a
+## hen that came some other way, a save loaded on the goal after its egg was gone): one is
+## laid in a few real seconds (ChickenCoop.hurry_egg), never only the next morning. Looked
+## at when the goal comes up and once a second while it is up (_first_day_setup).
+func _hurry_story_egg() -> void:
+	if tutorial_done() or String(current()["id"]) != "egg":
+		return
+	var coop := _newest_coop()
+	if coop and int(tally.get("picked:egg", 0)) == 0 and _eggs_left() == 0:
+		coop.hurry_egg()
+
+
+## The free evening has just come up while the sun is in fact going down (from LINGER_HOUR
+## to nightfall, on whatever day the story got here; the coop shut at nightfall comes
+## before it, so most evenings it is night already and nothing is said): MSG_EVENING.
+func evening_note_due() -> bool:
+	if tutorial_done() or String(current()["id"]) != "free":
+		return false
+	var hour := GameClock.minute / 60.0
+	return hour >= LINGER_HOUR and hour < 20.0
+
+
+## A wait for the morning that has just come up (_complete) remembers the day it came up
+## on (once: WAIT_MARK), so it is over on the first morning after, whatever the calendar
+## says.
+func _note_wait() -> void:
+	if not day_work_done():
+		return
+	var key := WAIT_MARK % String(current()["id"])
+	if not tally.has(key):
+		tally[key] = GameClock.day
+
+
+## The goal up is a wait for the morning and that morning has come.
+func _wait_over() -> bool:
+	return day_work_done() and _check_progress(String(current()["arg"])) > 0
 
 
 ## Something the current goal may check just happened: look now, not in a second.
@@ -924,6 +1089,10 @@ func _nudge() -> void:
 func _process(delta: float) -> void:
 	_pace()
 	_tick_new_building(delta)
+	_door_goal_wait -= delta
+	if _door_goal_wait <= 0.0:
+		_door_goal_wait = 0.5
+		_update_door_goal()
 	if tutorial_done() or SaveGame.loading:
 		_waypoint = null
 		_needs = ""
@@ -952,6 +1121,13 @@ func _process(delta: float) -> void:
 	_first_day_setup()
 	var g := current()
 	var past := String(g.get("past", ""))
+	# The door's step stood on (a load, a night that has just ended) while its lesson is
+	# behind him: it goes by, without its experience, its note or a sound.
+	if String(g["id"]) == "coop_shut" and _door_step_behind():
+		tally[DONE_MARK % "coop_shut"] = 1
+		step_count = int(g["count"])
+		_complete(true)
+		return
 	if tally.has(DONE_MARK % g["id"]) or (past != "" and _check_progress(past) > 0):
 		step_count = int(g["count"])
 		_complete()
@@ -1033,6 +1209,11 @@ func _check_progress(arg: String, count := 1) -> int:
 		"near":
 			return 1 if _near(what) else 0
 		"day":
+			# The first morning after the wait came up (its day noted: WAIT_MARK); a save
+			# standing on one from before that note goes by the calendar day it names.
+			var since := int(tally.get(WAIT_MARK % String(current().get("id", "")), 0))
+			if since > 0:
+				return 1 if GameClock.day > since else 0
 			return 1 if GameClock.day >= int(what) else 0
 		"level":
 			return Progress.level
@@ -1092,6 +1273,18 @@ func _check_progress(arg: String, count := 1) -> int:
 					return 1 if ready == 0 and untilled == 0 else 0
 				_:
 					return 1 if dry == 0 else 0
+		"coopshut":
+			# Shut for the night: no coop with birds in it has its door open or a bird
+			# still out (a farm with no such coop has nothing to shut).
+			return 1 if _farm() != null and _open_coop() == null else 0
+		"troughfull":
+			# The water trough of the coop the goal's dot shows takes no more (Trough.can_start
+			# refuses the can: a kit coop's trough fills itself every morning).
+			var coop := _newest_coop()
+			if coop == null or not coop.is_built() or coop.housing == null or coop.housing.water == null:
+				return 0
+			var trough := coop.housing.water
+			return 1 if trough.amount >= trough.capacity - 0.01 else 0
 	return 0
 
 
@@ -1294,12 +1487,13 @@ func spot_point(id: String) -> Vector3:
 	return Vector3(xz.x, ground + float(spot["lift"]), xz.y)
 
 
-## Once a second while the story runs: Grandpa's ripe beds on a new farm, and the desk
-## drawer kept shut until its step.
+## Once a second while the story runs: Grandpa's ripe beds on a new farm, the desk drawer
+## kept shut until its step, and an egg on its way while the egg goal has none to find.
 func _first_day_setup() -> void:
 	_dress_grandpa_beds()
 	_keep_beds_for_harvest()
 	_sync_drawer_lock()
+	_hurry_story_egg()
 
 
 ## A new farm's first field has Grandpa's last crop ripe at its far end (the beds farthest
@@ -1323,7 +1517,10 @@ func _dress_grandpa_beds() -> void:
 ## The harvest step always has ripe beds to cut: any that went missing before it (a
 ## rebuilt field, an early swing of the scythe...) come back ripe at the field's far end.
 func _keep_beds_for_harvest() -> void:
-	if tutorial_done() or step != index_of("harvest"):
+	if tutorial_done():
+		return
+	if step != index_of("harvest"):
+		_keep_beds_for_market()
 		return
 	var field := _first_field()
 	if field == null or field.plots.is_empty():
@@ -1339,6 +1536,65 @@ func _keep_beds_for_harvest() -> void:
 		_ripen_beds(free, need)
 
 
+## The market's harvest (harvest2) and its loading (load_crops) never come up with nothing
+## to reap and no dot. The farmer's own wheat is ripe from the second morning and the
+## story gets here days later, so it may be cut, shipped and sold long since. While either
+## goal is short of its crops (in the bag and the pickup's bed) and the ripe beds can't
+## make them up (each counted for the least its crop gives: _least_yield), the missing
+## beds come ripe, once per story (MARKET_NET): his own growing beds first, the furthest
+## along, then wheat on free beds at the first field's far end, as the first harvest's
+## net. After that, with no ripe bed left anywhere (and, for the loading, no crop in the
+## bag), there is truly nothing to reap or load: the goal passes, without its experience
+## (DONE_MARK), and the market's sale takes anything the farm gives (HINT_WHAT_SELLS).
+func _keep_beds_for_market() -> void:
+	var id := String(current()["id"])
+	if id != "harvest2" and id != "load_crops":
+		return
+	# (A goal that passes anyway, done under an older chain or behind the farmer, needs none.)
+	if tally.has(DONE_MARK % id) or _check_progress(String(current().get("past", ""))) > 0:
+		return
+	var in_bag := _crop_units_in_bag()
+	var short := int(current()["count"]) - in_bag - _crop_units_in_cargo()
+	if short <= 0:
+		return
+	var ripe := 0
+	var growing: Array[FarmPlot] = []
+	for pl: FarmPlot in get_tree().get_nodes_in_group(&"farm_plots"):
+		if pl.is_ready():
+			ripe += 1
+			short -= _least_yield(pl.crop)
+		elif pl.crop != &"" and not pl.withered:
+			growing.append(pl)
+	if short <= 0:
+		return
+	if not tally.has(MARKET_NET):
+		tally[MARKET_NET] = 1
+		growing.sort_custom(func(a: FarmPlot, b: FarmPlot) -> bool:
+			return a.growth / maxf(a.target_hours(), 0.01) > b.growth / maxf(b.target_hours(), 0.01))
+		for pl: FarmPlot in growing:
+			if short <= 0:
+				break
+			pl.grow_to(pl.target_hours())
+			short -= _least_yield(pl.crop)
+		var field := _first_field()
+		if short > 0 and field != null:
+			var free: Array[FarmPlot] = []
+			for pl: FarmPlot in field.plots:
+				if pl.crop == &"" or pl.withered:
+					free.append(pl)
+			_ripen_beds(free, ceili(short / float(_least_yield(&"wheat"))), &"wheat")
+		return
+	if ripe == 0 and (id == "harvest2" or in_bag == 0):
+		tally[DONE_MARK % id] = 1
+		_nudge()
+
+
+## The least a ripe bed of `crop` gives when it is reaped (CropTable "yield": 2 for wheat).
+func _least_yield(crop: StringName) -> int:
+	var y: Array = CropTable.get_crop(crop).get("yield", [1, 1])
+	return maxi(int(y[0]), 1)
+
+
 ## Grandpa's beds wait for the harvest goal: until it comes up nothing shows over them
 ## and no tool works on them (FarmPlot.held_back), so the first day's steps before it
 ## aren't muddled by a harvest the story hasn't asked for yet.
@@ -1346,10 +1602,10 @@ func holds_grandpa_beds() -> bool:
 	return not tutorial_done() and step < index_of("harvest")
 
 
-## Grandpa's crop, ripe and watered, on the `count` beds of `beds` farthest from the house
-## (marked as his: FarmPlot.grandpa).
-func _ripen_beds(beds: Array[FarmPlot], count: int) -> void:
-	var crop: StringName = GRANDPA_CROP if CropTable.in_season(GRANDPA_CROP, GameClock.get_season()) else &"wheat"
+## Grandpa's crop (`want`, wheat out of its seasons), ripe and watered, on the `count` beds
+## of `beds` farthest from the house (marked as his: FarmPlot.grandpa).
+func _ripen_beds(beds: Array[FarmPlot], count: int, want: StringName = GRANDPA_CROP) -> void:
+	var crop: StringName = want if CropTable.in_season(want, GameClock.get_season()) else &"wheat"
 	var door := Vector3(WorldLayout.HOUSE_DOOR_X, 0.0, WorldLayout.HOUSE_FRONT_Z)
 	beds.sort_custom(func(a: FarmPlot, b: FarmPlot) -> bool:
 		return a.global_position.distance_squared_to(door) > b.global_position.distance_squared_to(door))
@@ -1394,14 +1650,19 @@ func _pace() -> void:
 
 
 func _paces_day() -> bool:
-	if SaveGame.loading or DebugTools.is_automated():
+	if SaveGame.loading or (DebugTools.is_automated() and not pace_in_tests):
+		return false
+	# Waiting for the hens to go in at nightfall (coop_shut) or for the morning (the free
+	# evening on whatever day it comes: day_work_done): nothing is left to fit into the
+	# daylight, so the clock runs as usual and the wait is short.
+	if tutorial_done() or String(current()["id"]) == "coop_shut" or day_work_done():
 		return false
 	if GameClock.day == 1:
-		return first_day() and FarmHouse.first_day()
-	# The second day's work, up to its own evening (rooster_wait), in daylight only (the
-	# wolves' night runs as usual).
-	return GameClock.day == 2 and GameClock.minute < SECOND_DAY_UNTIL * 60.0 and not tutorial_done() \
-			and int(current()["chapter"]) >= DAY_TWO_CHAPTER and step < index_of("rooster_wait")
+		return first_day() and (FarmHouse.first_day() or pace_in_tests)
+	# The second day, while the story's first two days are still being played (the first
+	# day's goals carried over, or the second's own, up to its evening: rooster_wait), in
+	# daylight only (the night runs as usual).
+	return GameClock.day == 2 and GameClock.minute < SECOND_DAY_UNTIL * 60.0 and step < index_of("rooster_wait")
 
 
 ## The first day's time scale at `hour` (from 13.0, past 24 after midnight) while its
@@ -1658,6 +1919,15 @@ func _target(at: String) -> Variant:
 		"egg":
 			var egg := WaypointMarker.anchor(ChickenCoop.ANCHOR_EGG)
 			return egg if egg else _target("coop")
+		"coop_shut":
+			# The door of the coop still to be shut; the line under the goal says what is
+			# in the way: birds shut out, birds on their way in, birds that stay out until
+			# nightfall (when they go in, and how to bring them in now), or only the door.
+			var open_coop := _open_coop()
+			if open_coop == null:
+				return _coop_door()
+			_hint = _door_hint(open_coop)
+			return _door_of(open_coop)
 		"well":
 			return _ground(WorldLayout.WELL_POS.x, WorldLayout.WELL_POS.z, 1.5)
 		"warehouse":
@@ -2237,6 +2507,274 @@ func _coop_door() -> Variant:
 	return _target("coop")
 
 
+## The dot over the door of `coop` itself (its own marker; the farm may have several coops).
+func _door_of(coop: ChickenCoop) -> Variant:
+	var marker: Variant = coop.get_node_or_null("Waypoint_%s" % ChickenCoop.ANCHOR_DOOR)
+	return marker if marker else coop.door_point() + Vector3(0, 1.4, 0)
+
+
+## A kit-built coop with birds in it that isn't shut for the night (its door open, or a
+## bird still outside), or null when every one is (the wolves' lesson asks the same). A
+## bird in the farmer's arms is not in yet: carried, she is out of the world's goings-on
+## (WolfRaids.birds_out leaves her out), so her coop counts as open until she is set down
+## inside it (else the door shut on the first hen would pass the goal the moment the second
+## is picked up).
+func _open_coop() -> ChickenCoop:
+	var farm := _farm()
+	if farm == null:
+		return null
+	var coop := WolfRaids.lesson_coop()
+	var held := _bird_in_arms()
+	if coop == null and held != null:
+		for c in farm.kit_coops():
+			if c.is_built() and c.housing != null and c.housing == held.housing:
+				return c
+	return coop
+
+
+## The bird the farmer is carrying (AnimalHandler: G), or null.
+func _bird_in_arms() -> Animal:
+	var p := _player()
+	var held: Animal = p.handler.carried if p != null and p.handler != null else null
+	return held if held != null and is_instance_valid(held) else null
+
+
+## Birds of `coop` that are not inside it: out in the yard, or in the farmer's arms.
+func _birds_not_in(coop: ChickenCoop) -> int:
+	var held := _bird_in_arms()
+	return WolfRaids.birds_out(coop) + (1 if held != null and held.housing == coop.housing else 0)
+
+
+## A kit-built coop whose door is shut on birds inside it, or null (hens shut out of
+## theirs are not behind its door: the morning's line and side goal are not for them).
+func _shut_coop() -> ChickenCoop:
+	var farm := _farm()
+	if farm == null:
+		return null
+	for coop in farm.kit_coops():
+		if not coop.is_built() or coop.housing == null or coop.housing.door_open:
+			continue
+		for a: Animal in coop.housing.animals:
+			if a.indoors and not a.data.away:
+				return coop
+	return null
+
+
+## A morning on the farm. The door goal still up (he went to bed or passed out before the
+## coop was shut: the story's own goal, or the evening's side card) is not asked for a
+## second evening: it passes, without its experience, and the morning's report says gently
+## what was forgotten (when it was: a coop still open); after the story's own goal the
+## free evening counts that night as its wait (WAIT_MARK). A night gone by with birds in a
+## coop is remembered (coop_nights). And the first morning the birds wake behind a shut
+## door he is told to open it (COOP_MORNING_FLAG: the report's line now, the side goal
+## while that day lasts).
+func _coop_morning(day: int) -> void:
+	if SaveGame.loading:
+		return
+	var lesson := _door_lesson_on()
+	if not tutorial_done() and String(current()["id"]) == "coop_shut":
+		# (Only a door that did stand open: one shut on hens left outside says nothing.)
+		var open_coop := _open_coop()
+		if open_coop != null and open_coop.housing.door_open:
+			Animals.report_note(tr("REPORT_COOP_LEFT_OPEN"))
+		tally[DONE_MARK % "coop_shut"] = 1
+		# The night just slept is the wait the free evening would ask for: the market's
+		# morning is this one (the wait comes up over: no second night, no evening's note).
+		tally[WAIT_MARK % "free"] = day - 1
+		if lesson and _coop_with_birds() != null:
+			door_over = true
+	elif lesson and door_lesson_up():
+		var left_open := _open_coop()
+		if left_open != null and left_open.housing.door_open:
+			Animals.report_note(tr("REPORT_COOP_LEFT_OPEN"))
+		door_over = true
+		SideStory.remove_goal(_night_goal)
+	if lesson and _coop_with_birds() != null:
+		coop_nights = true
+	if DebugTools.is_automated() and not coop_lesson_in_tests:
+		return
+	if not FarmState.flags.has(COOP_MORNING_FLAG) and _shut_coop() != null:
+		FarmState.flags[COOP_MORNING_FLAG] = day
+		Animals.report_note(tr("REPORT_COOP_OPEN_DOOR"))
+
+
+## The coop's two side cards, looked at twice a second: the evening's lesson
+## (_update_night_lesson), and the side goal of the morning the farmer was told to open
+## the coop (COOP_MORNING_FLAG's day): up, with the dot on the door, until the door is
+## open or night falls.
+func _update_door_goal() -> void:
+	_update_night_lesson()
+	var coop: ChickenCoop = null
+	if not SaveGame.loading and int(FarmState.flags.get(COOP_MORNING_FLAG, 0)) == GameClock.day and not GameClock.is_night():
+		coop = _shut_coop()
+	if coop == null:
+		SideStory.remove_goal(_door_goal)
+		return
+	_door_goal.title = tr("HOUSING_COOP")
+	_door_goal.set_goal(tr("SIDE_GOAL_COOP_OPEN"), tr("SIDE_HINT_COOP_OPEN"), _door_of(coop), tr("HOUSING_COOP"))
+	SideStory.add_goal(_door_goal)
+
+
+# --- The coop's door in the evening (see door_day) ------------------------------------------
+
+## The evening's lesson runs in this game (automated runs only when a test asks).
+func _door_lesson_on() -> bool:
+	return not DebugTools.is_automated() or coop_lesson_in_tests
+
+
+## The evening's lesson has come up and is not behind him yet (tonight's side card).
+func door_lesson_up() -> bool:
+	return door_day > 0 and not door_over
+
+
+## The coop's door is being asked for right now: the evening's side card is up, or the
+## story's own goal stands with a coop still to shut. (PlayerState holds its word that it
+## is late until it is done: he is not sent to bed over a chore he has just been given.)
+func door_lesson_pending() -> bool:
+	if SideStory.goals.has(_night_goal):
+		return true
+	return not tutorial_done() and String(current()["id"]) == "coop_shut" and _farm() != null and _open_coop() != null
+
+
+## What stands between `coop` and a shut night, as the line under the door's goal (the
+## story's own and the evening's card): birds shut out, birds on their way in, birds that
+## stay out until nightfall (when they go in, and how to bring them in now), or only the
+## door.
+func _door_hint(coop: ChickenCoop) -> String:
+	var out := _birds_not_in(coop)
+	if out > 0 and not coop.housing.door_open:
+		return tr("SIDE_HINT_WOLF_OPEN") % out
+	if out > 0 and (GameClock.is_night() or Weather.is_precipitating()):
+		return tr("SIDE_HINT_WOLF_WAIT") % out
+	if out > 0:
+		return tr("HINT_COOP_DUSK")
+	return tr("SIDE_HINT_WOLF_SHUT")
+
+
+## A finished kit coop with birds living in it (in or out, not at the clinic), or null.
+func _coop_with_birds() -> ChickenCoop:
+	var farm := _farm()
+	if farm == null:
+		return null
+	for coop in farm.kit_coops():
+		if coop.is_built() and coop.housing != null and Animals.count_at(coop.housing) > 0:
+			return coop
+	return null
+
+
+## The story's own door goal (coop_shut) is behind the farmer when the chain gets to it,
+## and goes by without a card, a reward or a note: its lesson was given on an evening (or
+## is up beside the story tonight), the wolves have taught it (or their card asks for the
+## door right now: never two cards for one door), or it is daylight on a farm whose birds
+## have had a night in their coop already (nobody is asked by day to wait for nightfall:
+## that evening's card will ask). It stands as a goal only for the farmer who gets to it
+## before his hens' first night, or at night with nothing said yet.
+func _door_step_behind() -> bool:
+	if not _door_lesson_on():
+		return false
+	if door_over or door_day > 0 or WolfRaids.lesson_done or WolfRaids.lesson_card_up():
+		return true
+	return coop_nights and not GameClock.is_night()
+
+
+## The evening's lesson is due now: night has fallen on a coop with birds that is not shut
+## yet, the story's hens are all in it (hens_in behind him: nothing is said while he is
+## still letting them in, a crate in his hands) and it still holds his hand
+## (PlayerState.HAND_HELD_UNTIL: past the knife the wolves' lesson is the teacher), the
+## story's own door goal is not the one up (then it is the lesson), and the wolves'
+## lesson is not set for tonight.
+func _dusk_lesson_due() -> bool:
+	if not GameClock.is_night() or passed(WolfRaids.LESSON_AFTER) or WolfRaids.lesson_tonight():
+		return false
+	if not passed("hens_in") or String(current()["id"]) == "coop_shut":
+		return false
+	return _farm() != null and _open_coop() != null
+
+
+## Twice a second: the evening's lesson comes up when it is due (Grandpa's line, once),
+## its card follows the coop (what is still in the way, the dot on its door), and the door
+## shut on every bird ends it. The wolves' lesson given ends it without a word; their card
+## asking for the door keeps this one down meanwhile.
+func _update_night_lesson() -> void:
+	if SaveGame.loading or Game.world == null or not _door_lesson_on():
+		SideStory.remove_goal(_night_goal)
+		return
+	if not door_over and WolfRaids.lesson_done:
+		door_over = true
+	# (A lesson of another day still up: a night that ended without its morning.)
+	if door_lesson_up() and door_day != GameClock.day:
+		door_over = true
+	if door_over:
+		SideStory.remove_goal(_night_goal)
+		return
+	if door_day == 0:
+		if not _dusk_lesson_due():
+			return
+		door_day = GameClock.day
+		_night_shut = 0
+		grandpa_said.emit(tr("COOP_NIGHT_LINE"))
+		Audio.ui("notify", -6.0)
+	if WolfRaids.lesson_card_up():
+		SideStory.remove_goal(_night_goal)
+		return
+	var coop := _open_coop()
+	if coop == null:
+		_night_shut += 1
+		if _night_shut >= 2:
+			_night_lesson_done()
+		return
+	_night_shut = 0
+	_night_goal.title = tr("HOUSING_COOP")
+	_night_goal.set_goal(tr("QUEST_COOP_SHUT"), _door_hint(coop), _door_of(coop), tr("HOUSING_COOP"))
+	SideStory.add_goal(_night_goal)
+
+
+## Every coop is shut on its birds with the evening's card up: the lesson is done, with
+## the experience the story's own goal gives and a note. (No bird left in any coop: it
+## only goes.)
+func _night_lesson_done() -> void:
+	door_over = true
+	SideStory.remove_goal(_night_goal)
+	if _coop_with_birds() == null:
+		return
+	var xp := int(TUTORIAL[index_of("coop_shut")].get("xp", 0))
+	if xp > 0:
+		Progress.add(xp)
+	Game.notify(tr("MSG_SIDE_DONE") % tr("QUEST_COOP_SHUT"), UiTheme.GOLD)
+	Audio.ui("confirm", -4.0)
+	door_lesson_closed.emit()
+
+
+## The story's own door goal is done (the quick farmer's): that was the lesson, when there
+## was a coop to shut (a farm with no birds in one passes the goal and is told on the
+## first evening it has some).
+func _door_goal_done() -> void:
+	if _door_lesson_on() and _coop_with_birds() != null:
+		door_over = true
+	door_lesson_closed.emit()
+
+
+## The evening's lesson as on a new farm: nothing said yet, no night gone by (a new game;
+## tests).
+func forget_door_lesson() -> void:
+	door_day = 0
+	door_over = false
+	coop_nights = false
+	_night_shut = 0
+	SideStory.remove_goal(_night_goal)
+
+
+## A save from before the evening's lesson (no "door" in it): told already when its story
+## is past the door goal of chain 9 (done there, or let go in the morning); else nothing
+## was said yet, and the lesson comes on its next evening with an open coop while the
+## story still holds his hand (_dusk_lesson_due). Past its first day it counts as having
+## had a night with its birds: the story's step, met by daylight, does not make it wait.
+func _door_from_old_save(chain: int) -> void:
+	door_day = 0
+	door_over = chain >= 9 and passed("coop_shut")
+	coop_nights = GameClock.day > 1
+
+
 ## The nearest bed in `state`: untilled, empty (tilled, unsown), dry (sown, not wet),
 ## waterable (tilled, the can takes it: FarmPlot's own rule), ripe. Grandpa's beds
 ## waiting for their goal are left out.
@@ -2542,11 +3080,13 @@ func deliver(o: Dictionary) -> bool:
 	return true
 
 
-## A night went by: the board is refilled, and a goal waiting for the morning looks now.
+## A night went by: the board is refilled, and a goal waiting for the morning looks now
+## (its wait is over: the day is past the one it came up on, WAIT_MARK).
 func _on_day_started(day: int) -> void:
 	if day == 2:
 		_grow_first_sowing()
 	refill_board()
+	_coop_morning(day)
 	_nudge()
 
 
@@ -2569,6 +3109,7 @@ func new_game() -> void:
 	orders = []
 	_next_order_id = 1
 	_reset_cache()
+	forget_door_lesson()
 	chores.load_data({})
 	_post_first_order()
 	refill_board()
@@ -2596,7 +3137,8 @@ func _reset_cache() -> void:
 func save_data() -> Dictionary:
 	return {"chain": CHAIN, "step": step, "id": String(current().get("id", "")), "count": step_count,
 		"tally": tally.duplicate(), "orders": orders.duplicate(true), "next": _next_order_id,
-		"chores": chores.save_data()}
+		"chores": chores.save_data(),
+		DOOR_SAVE: {"day": door_day, "over": door_over, "nights": coop_nights}}
 
 
 func load_data(d: Dictionary) -> void:
@@ -2653,6 +3195,15 @@ func load_data(d: Dictionary) -> void:
 			_mark_old_farm()
 	if not tutorial_done():
 		step_count = clampi(step_count, 0, int(current()["count"]))
+	# The coop's evening lesson: as saved, or worked out for a save from before it.
+	forget_door_lesson()
+	if d.get(DOOR_SAVE) is Dictionary:
+		var door: Dictionary = d[DOOR_SAVE]
+		door_day = int(door.get("day", 0))
+		door_over = bool(door.get("over", false))
+		coop_nights = bool(door.get("nights", false))
+	else:
+		_door_from_old_save(chain)
 	orders = (d.get("orders", []) as Array).duplicate(true)
 	_next_order_id = int(d.get("next", 1))
 	chores.load_data(d.get("chores", {}))

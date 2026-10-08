@@ -7,6 +7,10 @@ extends CanvasLayer
 ## Fainting from wounds (PlayerState.knock_out) runs the same night: the view sinks to
 ## the ground as the screen darkens, a line on the black tells how he got home, and the
 ## morning finds him in his bed, hungry and worn out.
+## Collapsing at 02:00 costs a fee, except while the story still holds the farmer's hand
+## (PlayerState.story_holds_hand): then it is a night's sleep like any other, and the
+## morning's report only says to be in bed by 02:00 (REPORT_DOZED_OFF); away from the
+## farm he wakes where he nodded off, not in his bed.
 
 signal _continue
 
@@ -66,12 +70,14 @@ func is_busy() -> bool:
 	return _busy
 
 
-## `passed_out`: collapsed at 02:00 (a fee is lost); `knocked_out`: fainted from wounds
-## (PlayerState.knock_out).
+## `passed_out`: collapsed at 02:00 (a fee is lost, but not while the story holds his
+## hand); `knocked_out`: fainted from wounds (PlayerState.knock_out).
 func start_sleep(passed_out := false, knocked_out := false) -> void:
 	if _busy:
 		return
 	_busy = true
+	# Asked now: the same moment PlayerState decides how rested he wakes.
+	var dozed := passed_out and PlayerState.story_holds_hand()
 	SaveGame.snapshot()
 	Game.push_ui(&"sleep")
 	Events.action_progress_finished.emit(false)
@@ -82,7 +88,7 @@ func start_sleep(passed_out := false, knocked_out := false) -> void:
 		await _fade(1.0, 0.9)
 	Events.day_ending.emit()
 	var fee := 0
-	if passed_out:
+	if passed_out and not dozed:
 		fee = mini(int(Economy.money * PASS_OUT_FEE_RATE), PASS_OUT_FEE_MAX)
 		if fee > 0:
 			Economy.spend(fee, "REPORT_PASS_OUT_FEE")
@@ -91,12 +97,16 @@ func start_sleep(passed_out := false, knocked_out := false) -> void:
 	GameClock.sleep_to_next_morning()
 	if passed_out:
 		GameClock.running = not DebugTools.args.has("freeze-time")
-	_wake_player()
+	# A hand-held farmer who nodded off away from the farm (in town, out on the road) wakes
+	# where he stood, his pickup beside him: a morning in his bed with the pickup left in
+	# town would be the night's fee after all. (At the wheel he wakes in the cab as ever.)
+	if not (dozed and WolfRaids.farmer_away()):
+		_wake_player()
 	# The night's wolf lines are taken before the morning's autosave, so a game loaded
 	# from it doesn't tell of them again the next morning.
 	var wolves := WolfRaids.take_report()
 	var autosaved := SaveGame.save(SaveGame.AUTO)
-	_show_report(summary, fee, knocked_out, wolves)
+	_show_report(summary, fee, knocked_out, wolves, dozed)
 	_waiting = true
 	await _continue
 	_waiting = false
@@ -211,9 +221,10 @@ func _card(min_size := Vector2(0, 0)) -> Array:
 
 
 ## The morning report: the day closed (`summary`, Economy.close_day), the fee for passing
-## out, a faint, the night's `wolves` lines (WolfRaids.take_report), the animals' notes,
-## the weather.
-func _show_report(summary: Dictionary, fee: int, knocked_out := false, wolves := PackedStringArray()) -> void:
+## out (`dozed`: the 02:00 collapse of a hand-held farmer, no fee, a friendly word), a
+## faint, the night's `wolves` lines (WolfRaids.take_report), the animals' notes, the
+## weather.
+func _show_report(summary: Dictionary, fee: int, knocked_out := false, wolves := PackedStringArray(), dozed := false) -> void:
 	for c in _report.get_children():
 		c.queue_free()
 	var head := VBoxContainer.new()
@@ -237,6 +248,10 @@ func _show_report(summary: Dictionary, fee: int, knocked_out := false, wolves :=
 		var po := UiTheme.chip(tr("MSG_PASSED_OUT") % UiTheme.money(fee), UiTheme.RED, "info", 17)
 		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_report.add_child(po)
+	if dozed:
+		var dz := UiTheme.chip(tr("REPORT_DOZED_OFF"), UiTheme.GOLD_SOFT, "moon", 17)
+		dz.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		_report.add_child(dz)
 	if knocked_out:
 		var ko := UiTheme.chip(tr("REPORT_KNOCKED_OUT"), UiTheme.RED, "info", 17)
 		ko.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

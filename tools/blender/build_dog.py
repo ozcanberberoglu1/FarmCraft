@@ -373,6 +373,26 @@ def skin_weights(co, part, specs, adjacency):
     return W
 
 
+def own_leg_only(W, names):
+    """Every vertex that is mostly on a paw or a pastern keeps only the weights of its
+    own leg's bones (renormalised). The pull of the spine reached a few percent of the
+    way to the inside of the hind paws: sitting (the hips a third of a metre down) dragged
+    those vertices up to 5 cm under the sole. (tools/fix_dog_paw_skin.py does the same to
+    a built model without Blender.)"""
+    W = W.copy()
+    top = W.argmax(axis=1)
+    for i in range(len(W)):
+        name = names[top[i]]
+        if not name.endswith(("_toe", "_ft")):
+            continue
+        leg = name.split("_")[0] + "_"
+        for k, other in enumerate(names):
+            if not other.startswith(leg):
+                W[i, k] = 0.0
+        W[i] /= W[i].sum()
+    return W
+
+
 def set_weights(obj, W, names):
     for name in names:
         if name not in obj.vertex_groups:
@@ -856,7 +876,7 @@ def main():
     specs = bone_specs(co, part)
     BONE_NAMES[:] = [s[0] for s in specs]
     adjacency = edges(body)
-    W = skin_weights(co, part, specs, adjacency)
+    W = own_leg_only(skin_weights(co, part, specs, adjacency), BONE_NAMES)
     maps = None
     if not a.get("shape"):
         # Textures from the source frame (the coat rules are in its units).

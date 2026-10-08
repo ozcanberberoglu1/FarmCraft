@@ -10,7 +10,7 @@ extends Node3D
 ## (Town builds the hallway) while it is open, with a soft fill toward the doorway. From
 ## dusk while she is up (not SideStory.asleep) the porch light under the canopy over the
 ## door is on and her windows glow warm through drawn curtains. Before she moves in
-## (SideStory.MOVE_DAY) a "for sale" sign stands in the garden; from then on Karamel's
+## (SideStory.move_in_day) a "for sale" sign stands in the garden; from then on Karamel's
 ## doghouse, his water and food bowls, and moving boxes by the door that get fewer each
 ## day for BOXES_DAYS days.
 ##
@@ -1443,8 +1443,9 @@ func _sync_boxes() -> void:
 	if GameClock.day == _boxes_day:
 		return
 	_boxes_day = GameClock.day
-	var keep := clampi(_boxes.size() - (GameClock.day - SideStory.MOVE_DAY), 0, _boxes.size())
-	if GameClock.day > SideStory.MOVE_DAY + BOXES_DAYS:
+	var moved := SideStory.move_in_day()
+	var keep := clampi(_boxes.size() - (GameClock.day - moved), 0, _boxes.size())
+	if GameClock.day > moved + BOXES_DAYS:
 		keep = 0
 	for i in _boxes.size():
 		var on := i < keep

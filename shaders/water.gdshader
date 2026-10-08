@@ -18,8 +18,14 @@ uniform sampler2D depth_tex : hint_depth_texture, filter_linear_mipmap;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear, repeat_disable;
 // Reflection march steps (each one depth read); the ray reaches about 0.35 * 1.35^steps m.
 uniform int ssr_steps = 16;
+// The sun and the moon on the water as still water shows them: a small bright core and a
+// soft streak the ripples break up (light(), the farm pond: Pond). Off: the earlier wide
+// highlight.
+uniform bool soft_sun = false;
 
 varying vec3 v_wpos;
+// How much the ripples' slope changes across this pixel, squared (fragment() to light()).
+varying float v_slope_blur;
 
 float ripple(vec2 p, float t) {
 	return vnoise2(p * 1.3 + vec2(t * 0.22, t * 0.08))
@@ -83,6 +89,11 @@ vec4 screen_reflection(vec3 pos, vec3 dir, mat4 proj, mat4 inv_proj) {
 	return vec4(0.0);
 }
 
+// The most a pixel's span of ripples widens the sun's sparkles (slope, squared).
+const float SLOPE_BLUR_MAX = 0.004;
+// Snow lying on the frozen pond: as rough as snow anywhere.
+const float SNOW_ROUGHNESS = 0.5;
+
 void vertex() {
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
@@ -101,6 +112,10 @@ void fragment() {
 				* 0.012 * rain_amount;
 	}
 	vec3 n_world = normalize(vec3(-grad.x, 1.0, -grad.y));
+	// Far off a pixel spans whole ripples: there the sun's sparkles blur into a smooth,
+	// dimmer streak instead of flickering from frame to frame (light()).
+	vec2 slope_step = fwidth(grad);
+	v_slope_blur = min(0.25 * dot(slope_step, slope_step), SLOPE_BLUR_MAX);
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
 	float depth = texture(depth_tex, SCREEN_UV).r;
@@ -138,35 +153,86 @@ void fragment() {
 	// instead of a line where the water meets the shore.
 	float edge = smoothstep(0.0, 0.08, water_depth);
 	ALPHA = clamp((mix(0.45, 0.97, smoothstep(0.0, 1.0, d)) + snow_amount + mirror) * edge, 0.0, 1.0);
-	ROUGHNESS = mix(mix(0.03, 0.08, wetness), 0.5, snow_amount);
+	ROUGHNESS = mix(mix(0.03, 0.08, wetness), SNOW_ROUGHNESS, snow_amount);
 	SPECULAR = 0.5 * (1.0 - refl.a * 0.85);
 }
 
 
-// The sun (or the moon, a lamp) on the water. A pond's surface is close to a mirror
-// (ROUGHNESS 0.03), and the engine's own highlight on a mirror is a pinpoint many
-// times brighter than the sky: with the glow on it blew out into a white, blooming
-// blob in the afternoon and at sunset. Here the highlight is a glitter path, a little
-// wider than the mirror's (GLINT_ROUGHNESS) and never brighter than GLINT_MAX, so it
-// reads as bright water and stays under what the glow spreads.
+// A lamp on the water, and the sun and the moon where soft_sun is off. A pond's surface
+// is close to a mirror (ROUGHNESS 0.03), and the engine's own highlight on a mirror is a
+// pinpoint many times brighter than the sky: with the glow on it blew out into a white,
+// blooming blob in the afternoon and at sunset. Here the highlight is a little wider
+// than the mirror's (GLINT_ROUGHNESS) and never brighter than GLINT_MAX.
 const float GLINT_ROUGHNESS = 0.075;
 const float GLINT_MAX = 0.6;
+
+// The sun and the moon with soft_sun. The wide highlight above is far over GLINT_MAX all
+// through its middle, so the cap cut it off flat: the sun stood on the pond as flat white
+// patches several degrees across (the sun's own disc is 0.66), which the glow then spread.
+// Still water shows the sun's small image instead, and its ripples scatter sparkles of it
+// in a path towards the eye. So here the highlight has two parts, each brightest at one
+// point and falling off softly from it (no flat top):
+//   the core: the sun's image, about SUN_CORE_SPREAD across in the water's slope (a
+//     degree or so on screen), on a surface that follows the ripples only SUN_CORE_RIPPLE of
+//     the way, so it wobbles and dents but stays in one piece; SUN_CORE_MAX at its centre
+//     (as bright as the old cap, which the tonemapper keeps under white);
+//   the streak: the shimmer where a ripple's own slope mirrors the sun (SUN_STREAK_SPREAD),
+//     at most SUN_STREAK_MAX when the sun is low and the water mirrors strongly: there
+//     it draws out into a path towards the eye by itself. Under a high sun only
+//     SUN_STREAK_HIGH of that is left, a faint shimmer round the core (with more of it
+//     a pale, smoky blotch as wide as the old disc stood there).
+// Both follow the light's strength up to SUN_FULL (a third of the midday sun: a low or
+// veiled sun and the moon shine weaker on the water) and take its colour.
+// Snow on the ice mirrors nothing: the sun's image goes as the snow comes (gone at half
+// cover, like the mirrored shore in fragment()), and what is left is the snow's own wide,
+// dim sheen (the highlight above at SNOW_ROUGHNESS), not a bright point on the white.
+const float SUN_CORE_SPREAD = 0.0065;
+const float SUN_CORE_RIPPLE = 0.15;
+const float SUN_CORE_MAX = 0.6;
+const float SUN_STREAK_SPREAD = 0.045;
+const float SUN_STREAK_MAX = 0.2;
+const float SUN_STREAK_HIGH = 0.12;
+const float SUN_FULL = 1.0;
 
 void light() {
 	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
 	DIFFUSE_LIGHT += ndl * ATTENUATION * LIGHT_COLOR / PI;
 	vec3 h = normalize(VIEW + LIGHT);
-	float ndh = clamp(dot(NORMAL, h), 0.0, 1.0);
-	float a = max(ROUGHNESS, GLINT_ROUGHNESS);
-	float a2 = a * a * a * a;
-	float den = ndh * ndh * (a2 - 1.0) + 1.0;
-	float d = a2 / (PI * den * den);
 	float f = 0.02 + 0.98 * pow(1.0 - clamp(dot(VIEW, h), 0.0, 1.0), 5.0);
-	vec3 glint = d * f * 0.25 * ndl * ATTENUATION * LIGHT_COLOR / PI;
-	float peak = max(glint.r, max(glint.g, glint.b));
-	if (peak > GLINT_MAX) {
-		glint *= GLINT_MAX / peak;
+	bool soft = soft_sun && LIGHT_IS_DIRECTIONAL;
+	float open = soft ? clamp(1.0 - snow_amount * 2.0, 0.0, 1.0) : 0.0;
+	if (open > 0.0) {
+		vec3 up = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+		vec3 lit = ATTENUATION * LIGHT_COLOR / PI;
+		float strength = max(lit.r, max(lit.g, lit.b));
+		float height = dot(up, LIGHT);
+		if (strength > 0.0001 && height > 0.0) {
+			float level = min(strength / SUN_FULL, 1.0) * smoothstep(0.0, 0.04, height) * open;
+			// The core, on the nearly flat surface.
+			float c = max(dot(normalize(mix(up, NORMAL, SUN_CORE_RIPPLE)), h), 0.001);
+			float cs = SUN_CORE_SPREAD * SUN_CORE_SPREAD;
+			float cw = cs + v_slope_blur * SUN_CORE_RIPPLE * SUN_CORE_RIPPLE;
+			float core = cs / cw * exp(-(1.0 - c * c) / (c * c * cw));
+			// The sparkles, on the ripples themselves.
+			float n = max(dot(NORMAL, h), 0.001);
+			float ss = SUN_STREAK_SPREAD * SUN_STREAK_SPREAD;
+			float sw = ss + v_slope_blur;
+			float streak = ss / sw * exp(-(1.0 - n * n) / (n * n * sw))
+					* SUN_STREAK_MAX * mix(SUN_STREAK_HIGH, 1.0, smoothstep(0.02, 0.3, f));
+			SPECULAR_LIGHT += lit / strength * level * mix(streak, SUN_CORE_MAX, core);
+		}
 	}
-	SPECULAR_LIGHT += glint;
+	if (open < 1.0) {
+		float ndh = clamp(dot(NORMAL, h), 0.0, 1.0);
+		float a = soft ? SNOW_ROUGHNESS : max(ROUGHNESS, GLINT_ROUGHNESS);
+		float a2 = a * a * a * a;
+		float den = ndh * ndh * (a2 - 1.0) + 1.0;
+		float d = a2 / (PI * den * den);
+		vec3 glint = d * f * 0.25 * ndl * ATTENUATION * LIGHT_COLOR / PI;
+		float peak = max(glint.r, max(glint.g, glint.b));
+		if (peak > GLINT_MAX) {
+			glint *= GLINT_MAX / peak;
+		}
+		SPECULAR_LIGHT += glint * (1.0 - open);
+	}
 }
-

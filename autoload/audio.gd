@@ -64,9 +64,9 @@ const SETS := {
 	"drop": ["sfx/ui/drop.ogg"], "notify": ["sfx/ui/notify.ogg"],
 	# A carnival night's fireworks: the burst, and the glitter crackling after it.
 	"firework": "sfx/carnival/firework_%d.ogg", "firework_crackle": "sfx/carnival/crackle_%d.ogg",
-	# The fishing contest (FishingContest; tools/build_contest_audio.py): the horn at its
+	# The fishing contest (FishingContest; tools/build_contest_audio.py): the whistle at its
 	# end, the crowd's applause, the winner's fanfare.
-	"contest_horn": ["sfx/contest/horn.ogg"], "applause": ["sfx/contest/applause.ogg"],
+	"contest_whistle": ["sfx/contest/whistle.ogg"], "applause": ["sfx/contest/applause.ogg"],
 	"fanfare": ["sfx/contest/fanfare.ogg"],
 	# Its crowd (tools/build_contest_crowd_audio.py): a call or a laugh now and then, the
 	# cheer at a new biggest fish.

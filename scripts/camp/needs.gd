@@ -8,6 +8,8 @@ extends RefCounted
 ## (knock_out) leaves both low. Consequences are gentle, never fatal:
 ## hungry or tired only brings a message; starving or exhausted means no running and
 ## slower work (work_factor), and starving tires the farmer faster.
+## Until the story has taught a meal the hunger stops at a floor just above "hungry"
+## (hunger_floor, set by PlayerState: STORY_HUNGER_FLOOR): he gets peckish, never slowed.
 
 signal changed
 ## A need crossed into a lower state: &"hungry", &"starving", &"tired" or &"exhausted".
@@ -19,6 +21,10 @@ const HUNGER_PER_HOUR := 2.6
 const HUNGER_ASLEEP_PER_HOUR := 1.0
 ## A night's sleep never leaves the farmer below this much hunger (nobody wakes starving).
 const HUNGER_NIGHT_FLOOR := 12.0
+## The hunger's floor while the story has not taught a meal yet (PlayerState.story_feeds):
+## just above HUNGRY, so no message, no slowing and no faster tiring come of an empty
+## stomach before he has been shown food. Eating still fills the bar above it.
+const STORY_HUNGER_FLOOR := 30.0
 ## Energy lost per game hour awake: 06:00 to 02:00 is 20 hours.
 const ENERGY_PER_HOUR := 5.0
 ## Starving tires the farmer this much faster.
@@ -40,6 +46,9 @@ const REARM := 8.0
 
 var hunger := MAX
 var energy := MAX
+## Hunger running down stops here (0: no floor; PlayerState sets it before each tick).
+## Hunger already under it (an older save, a faint) stays where it is: it only never falls.
+var hunger_floor := 0.0
 ## Needs stand still (automated runs, until a test lets them run).
 var frozen := false
 var _asleep := false
@@ -66,11 +75,11 @@ func tick(minutes: float) -> void:
 		return
 	var hours := minutes / 60.0
 	if _asleep:
-		var floor_at := minf(hunger, HUNGER_NIGHT_FLOOR)
+		var floor_at := minf(hunger, maxf(HUNGER_NIGHT_FLOOR, hunger_floor))
 		hunger = maxf(hunger - HUNGER_ASLEEP_PER_HOUR * hours, floor_at)
 	else:
 		energy = maxf(energy - ENERGY_PER_HOUR * hours * (STARVING_TIRE if starving() else 1.0), 0.0)
-		hunger = maxf(hunger - HUNGER_PER_HOUR * hours, 0.0)
+		hunger = maxf(hunger - HUNGER_PER_HOUR * hours, minf(hunger, hunger_floor))
 	changed.emit()
 	_check_warnings()
 

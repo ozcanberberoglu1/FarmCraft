@@ -22,7 +22,7 @@ extends Node
 ## weighed, his biggest counts. The board at the pond and a small HUD card (while he is
 ## there) show the top three and his best.
 ##
-## At 17:00 a horn ends it, the crowd applauds, and the winner is named (a banner and a
+## At 17:00 the referee's whistle ends it, the crowd applauds, and the winner is named (a banner and a
 ## fanfare). The player winning keeps his fish (it is already his), earns the "En İyi
 ## Balıkçı" achievement, PRIZE_FISH ordinary fish (into the bag; what doesn't fit goes to
 ## the warehouse) and PRIZE_MONEY dollars (the day's report: REPORT_PRIZE). Then the crowd
@@ -40,13 +40,24 @@ extends Node
 ## farmer who has it all before it would come up is not asked. The first contest's is
 ## prominent, later ones' quiet.
 ##
+## The contests keep their days whatever the story is at, but their news follows the
+## story: the letter, the getting-ready goal, the join goal, the opening banner and the
+## winner's name reach the farmer only once STORY_STEP is behind him (told: the story's
+## day at the pond is done, he has fished; a story finished or skipped: always). A contest
+## he was not told of is still held at the pond for whoever comes by (a fish he lands
+## there is weighed, and a win is a win), and settled without a word (unseen_day): the
+## first contest he is told of is the prominent one. The news reaching him in the middle
+## of a contest brings its join goal at once (he may still make it), but a contest that
+## opened without a word only counts as his first if he comes to it: left alone, the next
+## one, with its letter the day before, is the prominent one.
+##
 ## Automated runs (tests, screenshots) have no contests unless the run asks for them
 ## (`--contest`, or `testing` set by the contest scenario), so other checks' town stays as
 ## it is; the getting-ready goal only when a test turns `prep_testing` on as well.
 
 signal began
 signal finished
-## The horn: the ceremony starts (the crowd claps).
+## The whistle: the ceremony starts (the crowd claps).
 signal ceremony_started
 ## A rival landed a fish (`catch`: FishTable.catch_of) at the venue.
 signal rival_caught(id: StringName, catch: Dictionary)
@@ -57,6 +68,9 @@ signal new_leader(who: String, kg: float)
 
 const FIRST_DAY := 6
 const EVERY_DAYS := 4
+## The story goal that must be behind the player before a contest's news reaches him: the
+## meal that ends the day at the pond.
+const STORY_STEP := "eat"
 const START_MINUTE := 9 * 60
 const END_MINUTE := 17 * 60
 const PRIZE_MONEY := 100
@@ -66,7 +80,7 @@ const PRIZE_FISH_ID := &"fish_crucian"
 const ACHIEVEMENT := &"best_angler"
 ## A fish landed this close to the town pond's centre (flat metres) is weighed for the contest.
 const VENUE_RADIUS := 24.0
-## The horn and the applause are heard this close to the pond; the banner shows in town.
+## The whistle and the applause are heard this close to the pond; the banner shows in town.
 const HEAR_RADIUS := 140.0
 ## The rivals (the anglers; ContestCrowd gives them their places) and their baits.
 const RIVALS := {&"fisher": &"minnow", &"young": &"sweetcorn", &"farmer": &"worm", &"villager": &"dough",
@@ -81,7 +95,7 @@ const CATCH_SHOWN := 6.0
 ## The rivals' fish run a little smaller than the pond allows (a share of the weight roll):
 ## a good fish of the player's beats most days' winners, a giant always does.
 const RIVAL_ROLL := 0.8
-## The ceremony (real seconds from the horn): applause, the winner named, the crowd leaves.
+## The ceremony (real seconds from the whistle): applause, the winner named, the crowd leaves.
 const APPLAUSE_AT := 1.2
 const ANNOUNCE_AT := 4.5
 const CEREMONY_LEN := 12.0
@@ -115,6 +129,10 @@ var letter_day := 0
 var goal_day := 0
 ## The last contest day he was told he is all set for (the getting-ready goal's note).
 var prep_day := 0
+## The last contest day that opened or was settled without a word, before the news of
+## contests reached him (told), and that he didn't come to: it doesn't make the next
+## one's cards quiet.
+var unseen_day := 0
 var letter_pending := false
 ## Set by the contest scenario: contests happen in this automated run (`testing_letter`:
 ## the letter opens by itself as in play). `ceremony_speed` hurries the ceremony.
@@ -127,7 +145,7 @@ var prep_testing := false
 var _letter_wait := LETTER_DELAY
 var _letter_noted := false
 var _on := false
-## Seconds since the horn (<0: no ceremony running); whether the winner was named.
+## Seconds since the whistle (<0: no ceremony running); whether the winner was named.
 var _ceremony_t := -1.0
 var _announced := false
 var _next_catch := {}
@@ -186,6 +204,18 @@ func enabled() -> bool:
 
 func is_today() -> bool:
 	return enabled() and is_contest_day(GameClock.day)
+
+
+## The contests' news reaches the farmer (the letter, the getting-ready and join goals,
+## the opening banner, the winner's name): the story's day at the pond is done, or the
+## story is over.
+func told() -> bool:
+	return Quests.passed(STORY_STEP)
+
+
+## The goals' cards are the quiet kind: a contest he was told of has been settled before.
+func quiet_cards() -> bool:
+	return result_day > unseen_day
 
 
 ## 09:00 to 17:00 of a contest day: fish landed at the pond are weighed.
@@ -342,7 +372,11 @@ func _process(delta: float) -> void:
 		if on:
 			_open_board()
 			began.emit()
-			_show_banner(tr("CONTEST_BANNER_TITLE"), tr("CONTEST_BANNER_TEXT") % _clock(END_MINUTE), "sparkles")
+			if told():
+				_show_banner(tr("CONTEST_BANNER_TITLE"), tr("CONTEST_BANNER_TEXT") % _clock(END_MINUTE), "sparkles")
+			else:
+				# Opened without a word: not his first contest unless he comes to it (_settle).
+				unseen_day = GameClock.day
 	if on:
 		_sim_rivals()
 		_crowd_calls(delta)
@@ -351,7 +385,7 @@ func _process(delta: float) -> void:
 		_goal_t = GOAL_POLL
 		_update_goal()
 		_update_prep()
-	# The end: the horn at the pond, or (missed, slept through, loaded later) settled quietly.
+	# The end: the whistle at the pond, or (missed, slept through, loaded later) settled quietly.
 	if _ceremony_t < 0.0 and day_held > 0 and result_day != day_held and enabled() \
 			and (GameClock.day > day_held or GameClock.minute >= END_MINUTE):
 		if GameClock.day == day_held and _player_distance() < HEAR_RADIUS:
@@ -428,7 +462,8 @@ func rival_catch(id: StringName) -> Dictionary:
 func _start_ceremony() -> void:
 	_ceremony_t = 0.0
 	_announced = false
-	Audio.play("contest_horn", _venue_point(), 4.0, 0.0, &"Effects", 40.0)
+	# (The referee's whistle: two short blasts and a long one.)
+	Audio.play("contest_whistle", _venue_point(), 0.0, 0.0, &"Effects", 40.0)
 	ceremony_started.emit()
 
 
@@ -451,6 +486,13 @@ func _settle(loud: bool) -> void:
 	if result_day == day_held:
 		return
 	result_day = day_held
+	# Not told of it and not in it: settled without a word (the board keeps the winner).
+	var heard := told() or entries.has("player")
+	if not heard:
+		unseen_day = day_held
+	elif unseen_day == day_held and goal_day == day_held:
+		# It opened before the news reached him and he came all the same: it was his first.
+		unseen_day = 0
 	# A rival who never landed one still weighs in with the fish in his keepnet.
 	for id: StringName in RIVALS:
 		if not entries.has(String(id)):
@@ -479,6 +521,8 @@ func _settle(loud: bool) -> void:
 			Game.notify(tr("CONTEST_WIN_TITLE") + " " + text, UiTheme.GOLD)
 	else:
 		var text := tr("CONTEST_LOSE_TEXT") % [entrant_name(top[0]), _fish_name(top[2]), weight]
+		if not heard:
+			return
 		if loud:
 			_show_banner(tr("CONTEST_LOSE_TITLE"), text, "star")
 			Audio.ui("fanfare", -8.0)
@@ -517,7 +561,7 @@ func _crowd_calls(delta: float) -> void:
 ## The side goal on a contest day: up from the morning, its dot over the pond, until he
 ## comes to it while the contest is on (or it is over); quiet after the first contest.
 func _update_goal() -> void:
-	var up := is_today() and GameClock.minute < END_MINUTE and goal_day != GameClock.day
+	var up := told() and is_today() and GameClock.minute < END_MINUTE and goal_day != GameClock.day
 	if up and is_on() and _player_distance() < VENUE_RADIUS:
 		_goal_done()
 		return
@@ -527,7 +571,7 @@ func _update_goal() -> void:
 		return
 	if not SideStory.goals.has(_goal):
 		_goal.title = tr("SIDE_CONTEST_TITLE")
-		_goal.quiet = result_day > 0
+		_goal.quiet = quiet_cards()
 		SideStory.add_goal(_goal)
 		Game.notify(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CONTEST"), GOAL_COLOR)
 	var hint := tr("SIDE_HINT_CONTEST_ON") % _clock(END_MINUTE) if is_on() else tr("SIDE_HINT_CONTEST_SOON") % _clock(START_MINUTE)
@@ -538,7 +582,7 @@ func _update_goal() -> void:
 ## The contest the getting-ready goal is for now: tomorrow's from PREP_MINUTE on, today's
 ## until it starts (0: none, or not in this run).
 func prep_for() -> int:
-	if not enabled() or (DebugTools.is_automated() and not prep_testing):
+	if not enabled() or not told() or (DebugTools.is_automated() and not prep_testing):
 		return 0
 	var d := GameClock.day
 	if is_contest_day(d + 1) and GameClock.minute >= PREP_MINUTE:
@@ -569,7 +613,7 @@ func _update_prep() -> void:
 		return
 	if not up:
 		_prep.title = tr("SIDE_CONTEST_TITLE")
-		_prep.quiet = result_day > 0
+		_prep.quiet = quiet_cards()
 		SideStory.add_goal(_prep)
 		Game.notify(tr("MSG_SIDE_NEW") % tr("SIDE_GOAL_CONTEST_PREP"), GOAL_COLOR)
 	_prep.set_needs("%s · %s" % [Quests.need_part(tr("CONTEST_PREP_ROD"), rods, 1), Quests.need_part(tr("CONTEST_PREP_BAIT"), bait, PREP_BAIT)])
@@ -709,6 +753,9 @@ func _update_letter(delta: float) -> void:
 	if not enabled() or not is_contest_day(GameClock.day + 1):
 		letter_pending = false
 		return
+	# It waits for the story: a day before a contest the story gets there on still brings it.
+	if not told():
+		return
 	if DebugTools.is_automated() and not testing_letter:
 		return
 	var hud := Game.hud as HUD
@@ -776,6 +823,7 @@ func new_game() -> void:
 func save_data() -> Dictionary:
 	return {"entries": entries.duplicate(true), "day_held": day_held, "result_day": result_day,
 		"last_winner": last_winner.duplicate(), "letter_day": letter_day, "goal_day": goal_day, "prep_day": prep_day,
+		"unseen_day": unseen_day,
 		"cast": _cast.duplicate(), "next_catch": _next_catch.duplicate()}
 
 
@@ -790,6 +838,7 @@ func load_data(data: Dictionary) -> void:
 	letter_day = int(data.get("letter_day", 0))
 	goal_day = int(data.get("goal_day", 0))
 	prep_day = int(data.get("prep_day", 0))
+	unseen_day = int(data.get("unseen_day", 0))
 	_goal_t = 0.0
 	# Loaded mid-contest: no opening banner again.
 	_on = is_on()

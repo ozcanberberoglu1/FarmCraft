@@ -265,6 +265,10 @@ func teleport_home(inside: bool) -> void:
 		AnimalHandler.lost(self)
 	var p := housing.random_indoor_point(_rng) if inside and housing.has_shelter() else housing.random_outdoor_point(_rng)
 	indoors = inside and housing.has_shelter()
+	# Put there in one go (bedtime, dawn): never swept there with its collider on, which
+	# throws a vehicle it touches (BodyWarp).
+	if is_inside_tree() and not global_position.is_equal_approx(p):
+		BodyWarp.moved(_shape)
 	global_position = p
 	rotation.y = _rng.randf() * TAU
 	reset_physics_interpolation()
@@ -281,6 +285,7 @@ func teleport_home(inside: bool) -> void:
 ## herself out there and, with the door open in the daytime, soon wanders out.
 func arrive(p: Vector3) -> void:
 	p.y = housing.ground_height(p)
+	BodyWarp.moved(_shape)
 	global_position = p
 	indoors = housing.is_in_building(p)
 	_path.clear()
@@ -308,6 +313,8 @@ func door_shut() -> void:
 	_path_inside.clear()
 	var p := housing.constrain(global_position, radius(), indoors)
 	p.y = housing.ground_height(p)
+	if global_position.distance_to(p) > 0.05:
+		BodyWarp.moved(_shape)
 	global_position = p
 	_set_state(State.IDLE, _rng.randf_range(2.0, 4.0))
 
@@ -1034,6 +1041,11 @@ func _arrived() -> void:
 # --- Laying in a nest box -----------------------------------------------------------------
 
 ## An egg due and a bedded box free: off to it (through the door when she is out).
+## Whether she is on her way to a nest box or sitting in one to lay.
+func on_nest() -> bool:
+	return _nest >= 0
+
+
 func _try_nest() -> bool:
 	var coop := ChickenCoop.of(housing)
 	if coop == null or not coop.wants_to_lay(data.id):
@@ -1370,7 +1382,10 @@ func complete_use(_player: Node, stack: ItemStack, action: Dictionary) -> void:
 
 func set_ridden(on: bool) -> void:
 	ridden = on
-	_shape.set_deferred("disabled", on)
+	if on:
+		BodyWarp.off(_shape)
+	else:
+		BodyWarp.on_after_move(_shape)
 	if on:
 		_path.clear()
 		_path_inside.clear()
@@ -1422,7 +1437,7 @@ func pick_up() -> void:
 	_mode = AnimalRig.Mode.IDLE
 	_stumble_t = -1.0
 	rig.stumble = 0.0
-	_shape.set_deferred("disabled", true)
+	BodyWarp.off(_shape)
 	remove_from_group(&"interactable")
 	_badge.visible = false
 	_badge_key = ""
@@ -1439,7 +1454,9 @@ func put_down(p: Vector3, yaw: float) -> void:
 	ridden = false
 	rig.held = 0.0
 	rig.flutter = 0.0
-	_shape.set_deferred("disabled", false)
+	# On again once its body has been carried here (BodyWarp): out of his arms it is
+	# moved a metre or more in one go.
+	BodyWarp.on_after_move(_shape)
 	add_to_group(&"interactable")
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
 	global_transform = Transform3D(Basis(Vector3.UP, yaw), p)

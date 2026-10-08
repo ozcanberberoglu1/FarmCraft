@@ -229,8 +229,11 @@ func _init() -> void:
 ## A wolf standing on the ground at `at` under `parent`, facing the farm.
 static func spawn(parent: Node, at: Vector3) -> Wolf:
 	var w := Wolf.new()
-	parent.add_child(w, true)
 	var p := Vector3(at.x, TerrainData.height(at.x, at.z), at.z)
+	# In its place before it enters the world: put there afterwards, its body would be
+	# swept from the world's origin (the farmyard) with its collider on.
+	w.position = p
+	parent.add_child(w, true)
 	w.global_position = p
 	w._yaw = atan2(p.x, p.z)
 	w.rotation.y = w._yaw

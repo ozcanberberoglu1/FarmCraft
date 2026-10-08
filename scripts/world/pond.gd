@@ -14,6 +14,11 @@ const REED_STANDS := [[1.95, 0.32, 26], [2.9, 0.42, 36], [3.9, 0.3, 22], [4.75, 
 const REED_CLUMP_VARIANTS := 3
 ## Screen-space reflection march steps of the water per graphics preset (LOW..ULTRA).
 const REFLECTION_STEPS: Array[int] = [0, 10, 14, 16]
+## The sun on the water as a small bright core with a streak the ripples break up (the
+## water shader's soft_sun) instead of the earlier wide white highlight. The farm pond
+## shows it, and the town pond too while this is set (it is: the fishing contest's pond
+## showed the same big white patch the owner reported at the farm).
+const SOFT_SUN_TOWN := true
 
 static var _reed_meshes: Array[ArrayMesh] = []
 
@@ -47,6 +52,7 @@ func _ready() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/water.gdshader")
 	_water_mat = mat
+	mat.set_shader_parameter("soft_sun", SOFT_SUN_TOWN or center == WorldLayout.POND_CENTER)
 	_apply_quality()
 	if not Engine.is_editor_hint() and not Settings.changed.is_connected(_apply_quality):
 		Settings.changed.connect(_apply_quality)

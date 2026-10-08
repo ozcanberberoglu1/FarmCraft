@@ -15,23 +15,38 @@ extends Node
 ##   sit     "First lesson: teach <name> to sit": Pet.knows(&"sit") (F looking at it, then
 ##           a pat; the hint counts the practices).
 ##   fetch   "Teach <name> to bring the ball back": comes up once it is old enough
-##           (Pet.FETCH_AGE days); Pet.knows(&"fetch").
+##           (Pet.FETCH_AGE days); Pet.knows(&"fetch"). With the ball lying about (not in
+##           the bag, not the dog's) the dot shows the ball and the hint how it is taken.
+##
+## And one out of turn, before whichever of those is up, the first time the dog is really
+## hungry (Pet.hungry; `feed_up`):
+##
+##   feed    "<name> is hungry: put food in its bowl": dog food poured into its bowl
+##           (Pet.fed_by_him). With a sack in the bag the dot shows the bowl; with none the
+##           hint says the market sells it and for how much, and the dot shows the market
+##           (short of its price: how to earn it, as for the ball). Had he filled the bowl
+##           before it ever came up, there is nothing to teach: it is done without a word.
 ##
 ## One met already when its turn comes (a ball in the bag) is ticked off at once. Automated
 ## runs keep them away unless the run asks for them (`--dog-goals`, or `testing`).
 
 const GOALS: Array[StringName] = [&"kennel", &"ball", &"sit", &"fetch"]
-const XP := {&"kennel": 6, &"ball": 3, &"sit": 8, &"fetch": 10}
+## The one that comes out of turn: feeding it.
+const FEED := &"feed"
+const XP := {&"kennel": 6, &"ball": 3, &"sit": 8, &"fetch": 10, &"feed": 4}
 const GLYPH := "paw"
 const COLOR := Color("e8c088")
 ## The dot floats this high over the board, over the market's counter.
 const BOARD_LIFT := 2.3
 const COUNTER_LIFT := 1.5
+const BOWL_LIFT := 0.5
 const POLL := 0.5
 
-## Saved: the first goal came up (the farmer was told); the ones done (id -> true).
+## Saved: the first goal came up (the farmer was told); the ones done (id -> true); the
+## dog has been hungry and the feeding goal is up until it is done.
 var up := false
 var done := {}
+var feed_up := false
 ## Set by tests: the goals come up in this automated run.
 var testing := false
 
@@ -45,6 +60,8 @@ func enabled() -> bool:
 
 ## The goal whose turn it is (&"" once all are done).
 func current() -> StringName:
+	if feed_up and not done.has(FEED):
+		return FEED
 	for id: StringName in GOALS:
 		if not done.has(id):
 			return id
@@ -74,6 +91,12 @@ func _process(delta: float) -> void:
 ## Puts the goal whose turn it is on its card, keeps the card and the dot up to date, and
 ## ticks it off when it is met.
 func update() -> void:
+	if enabled() and Pet.has_dog() and not feed_up and not done.has(FEED):
+		if Pet.fed_by_him:
+			# He found the bowl by himself: nothing to teach.
+			done[FEED] = true
+		elif Pet.hungry():
+			feed_up = true
 	var id := current()
 	if not enabled() or not Pet.has_dog() or id == &"":
 		_take_down()
@@ -108,11 +131,14 @@ func _met(id: StringName) -> bool:
 		&"kennel":
 			return Pet.kennel != null
 		&"ball":
-			return PlayerState.inventory.has_item(Pet.BALL) or Pet.knows(&"fetch") or int(Pet.practice.get(&"fetch", 0)) > 0
+			return PlayerState.inventory.has_item(Pet.BALL) or Pet.knows(&"fetch") or int(Pet.practice.get(&"fetch", 0)) > 0 \
+					or Pet.ball_lying() != null or (Pet.dog != null and is_instance_valid(Pet.dog) and Pet.dog.holding_ball)
 		&"sit":
 			return Pet.knows(&"sit")
 		&"fetch":
 			return Pet.knows(&"fetch")
+		FEED:
+			return Pet.fed_by_him
 	return false
 
 
@@ -121,6 +147,25 @@ func _show(id: StringName) -> void:
 	var dog_name := Pet.dog_name
 	var dog: Variant = Pet.dog if Pet.dog != null and is_instance_valid(Pet.dog) and not Pet.dog.is_carried() else null
 	match id:
+		FEED:
+			_goal.set_needs("")
+			var text := tr("DOG_GOAL_FEED") % dog_name
+			if PlayerState.inventory.has_item(Pet.FOOD):
+				var bowl: Variant = Pet.bowl_point() + Vector3(0.0, BOWL_LIFT, 0.0) if Pet.bowl != null and is_instance_valid(Pet.bowl) else null
+				_goal.set_goal(text, tr("DOG_HINT_FEED_BOWL") % Pet.SACK_MEALS, bowl, tr("PET_BOWL") if bowl != null else "")
+				return
+			# No dog food: the market sells it (short of its price: how to earn it first).
+			var town := get_tree().get_first_node_in_group(&"town") as Town
+			var counter: Variant = town.market_counter.global_position + Vector3(0.0, COUNTER_LIFT, 0.0) if town and town.market_counter else null
+			var price := Economy.buy_price(Pet.FOOD)
+			var hint := tr("DOG_HINT_FEED_MARKET") % [UiTheme.money(price), Pet.SACK_MEALS]
+			var label := tr("UI_TOWN_MARKET")
+			if Economy.money < price:
+				var short: Dictionary = Quests.money_short(price)
+				hint = "%s\n%s" % [hint, String(short["hint"])]
+				counter = short["at"]
+				label = ""
+			_goal.set_goal(text, hint, counter, label if counter != null else "")
 		&"kennel":
 			var hint := tr("DOG_HINT_KENNEL_BOARD")
 			var where: Variant = WorldLayout.BOARD_POS + Vector3(0.0, TerrainData.height(WorldLayout.BOARD_POS.x, WorldLayout.BOARD_POS.z) + BOARD_LIFT, 0.0)
@@ -164,6 +209,12 @@ func _show(id: StringName) -> void:
 		&"fetch":
 			var has_ball := PlayerState.inventory.has_item(Pet.BALL) or (dog != null and ((dog as PetDog).holding_ball or (dog as PetDog).ball != null))
 			var hint := tr("DOG_HINT_FETCH") % [mini(int(Pet.practice.get(&"fetch", 0)), Pet.need(&"fetch")), Pet.need(&"fetch")]
+			var lying := Pet.ball_lying() if not has_ball else null
+			if lying != null:
+				# The ball lies about somewhere (it never comes into the bag by itself): the
+				# dot shows where, the hint says how it is taken.
+				_goal.set_goal(tr("DOG_GOAL_FETCH") % dog_name, tr("DOG_HINT_FETCH_LYING"), lying.global_position + Vector3(0.0, 0.5, 0.0), tr("ITEM_DOG_BALL"))
+				return
 			_goal.set_goal(tr("DOG_GOAL_FETCH") % dog_name, hint if has_ball else tr("DOG_HINT_FETCH_NO_BALL"), dog, dog_name if dog != null else "")
 
 
@@ -182,13 +233,14 @@ func _complete(id: StringName) -> void:
 # --- Save ------------------------------------------------------------------------------------
 
 func save_data() -> Dictionary:
-	return {"up": up, "done": done.keys().map(func(k: StringName) -> String: return String(k))}
+	return {"up": up, "done": done.keys().map(func(k: StringName) -> String: return String(k)), "feed_up": feed_up}
 
 
 func load_data(data: Dictionary) -> void:
 	_take_down()
 	_goal = null
 	up = bool(data.get("up", false))
+	feed_up = bool(data.get("feed_up", false))
 	done = {}
 	for id: Variant in data.get("done", []):
 		done[StringName(id)] = true

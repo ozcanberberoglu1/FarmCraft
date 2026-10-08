@@ -90,6 +90,16 @@ var _chick_goal: SideGoal
 var _chick_poll := 0.0
 ## The lesson of the young and the naming of each kind's first-born (BreedingGoals).
 var breeding: BreedingGoals
+## The farmer's own grown hens and roosters put into transport crates to be sold ("Sell" on
+## the bird's card: LiveCrates.crate_up), oldest first. Who each one is rides along (its
+## name, hearts, age, colour and state), off the farm and out of its counts until the crate
+## is opened at a coop (release: the one crated last comes out first, before any bought
+## bird) or the Animal Market's dealer buys it (LiveCrates.sell_offer). Saved.
+var crated: Array[AnimalData] = []
+## While one of them waits in its crate a quiet side goal shows the dealer (SELL_GOAL_*);
+## the first time a bird is crated a line says where to take it (LiveCrates.crate_up).
+const SELL_GOAL_COLOR := Color("e8c27a")
+var _sell_goal: SideGoal
 
 
 func _ready() -> void:
@@ -110,6 +120,7 @@ func _process(delta: float) -> void:
 		return
 	_chick_poll = CHICK_GOAL_POLL
 	_update_chick_goal()
+	_update_sell_goal()
 
 
 # --- Queries -------------------------------------------------------------------------------
@@ -172,7 +183,8 @@ func accepts_food(a: AnimalData, item_id: StringName) -> bool:
 
 
 func names_in_use() -> Array:
-	return animals.map(func(a: AnimalData): return a.name)
+	# (His crated birds keep their names too.)
+	return animals.map(func(a: AnimalData): return a.name) + crated.map(func(a: AnimalData): return a.name)
 
 
 ## The animal with id `id` (null when there is none: sold, or never was).
@@ -286,10 +298,17 @@ func buy(species: StringName, adult: bool, animal_name := "", quiet := false) ->
 ## them at its gate). Null when there is no room.
 ## Emits Events.animal_released with her new home (the ChickenCoop of a kit-built coop,
 ## else the housing).
-func release(species: StringName, housing: AnimalHousing, at := Vector3.INF) -> AnimalData:
+## `opened`: a crate was opened for it (already out of the hand: CoopDoor.release_held);
+## then one of his own birds crated to be sold comes out before any bought one, the one
+## crated last first, as it was (`crated`); nobody asks its name again.
+func release(species: StringName, housing: AnimalHousing, at := Vector3.INF, opened := false) -> AnimalData:
 	if housing == null or housing.level <= 0 or housing.free_space() <= 0:
 		return null
-	var a := _add(species, true, "", housing)
+	# One of his own, crated to be sold and brought back: the same bird comes out.
+	var back := _take_crated(species) if opened else null
+	if back != null:
+		_move_in(back, housing)
+	var a := back if back != null else _add(species, true, "", housing)
 	var n := node_of(a)
 	if n:
 		if at != Vector3.INF:
@@ -299,7 +318,9 @@ func release(species: StringName, housing: AnimalHousing, at := Vector3.INF) -> 
 		else:
 			n.arrive(housing.random_outdoor_point(RandomNumberGenerator.new()))
 	# The farm's first birds: the farmer names them (the note comes with the name).
-	if not _ask_name(a):
+	if back != null:
+		Game.notify(tr("MSG_BIRD_BACK") % a.name, Color(0.55, 1.0, 0.45))
+	elif not _ask_name(a):
 		Game.notify(tr("MSG_ANIMAL_ARRIVED") % [a.name, species_name(species)], Color(0.55, 1.0, 0.45))
 	var home: Node = housing.get_parent() if housing.placed else housing
 	Events.animal_released.emit(species, home)
@@ -369,6 +390,8 @@ func name_ideas(species: StringName, own: AnimalData = null) -> PackedStringArra
 	if BreedingGoals.name_kind(own) != "":
 		key = "ANIMAL_NAME_IDEAS_" + BreedingGoals.name_kind(own)
 	var taken := animals.filter(func(x: AnimalData) -> bool: return x != own).map(func(x: AnimalData) -> String: return x.name)
+	# (A bird waiting in its crate keeps its name: no second Pamuk meanwhile.)
+	taken.append_array(crated.map(func(x: AnimalData) -> String: return x.name))
 	var out := PackedStringArray()
 	for n: String in tr(key).split("|", false):
 		if n.strip_edges() != "" and n.strip_edges() not in taken:
@@ -555,6 +578,115 @@ func sell(a: AnimalData) -> int:
 	animals.erase(a)
 	changed.emit()
 	return value
+
+
+# --- Crated to be sold ---------------------------------------------------------------------
+
+## Takes the farmer's own bird `a` off the farm into a transport crate (LiveCrates.crate_up
+## asks first and puts the crate in the bag): its body goes in a flurry of feathers, its
+## place in its home is free again, and who it is waits in `crated`.
+func crate(a: AnimalData) -> bool:
+	if a == null or not animals.has(a):
+		return false
+	var n := node_of(a)
+	if n:
+		var at := n.global_position + Vector3(0, 0.35, 0)
+		CoopDoor.feathers(at)
+		Audio.animal_voice(a.species, a.adult, at, -3.0)
+		n.queue_free()
+	_nodes.erase(a.id)
+	_homes.erase(a.id)
+	animals.erase(a)
+	_to_name.erase(a)
+	crated.append(a)
+	_chick_poll = 0.0
+	changed.emit()
+	return true
+
+
+## His own crated birds of `species` (every kind when &""), oldest first: no more than
+## there are crates of the kind anywhere (the bag, a bed, the warehouse, the market's
+## spot), the ones crated last.
+func crated_of(species: StringName = &"") -> Array[AnimalData]:
+	var out: Array[AnimalData] = []
+	for sp: StringName in AnimalTable.POULTRY:
+		if species != &"" and sp != species:
+			continue
+		var own := crated.filter(func(a: AnimalData) -> bool: return a.species == sp)
+		var crates := LiveCrates.count_at(&"all", AnimalTable.crate_item(sp))
+		out.append_array(own.slice(maxi(own.size() - crates, 0)))
+	return out
+
+
+## The crated bird of `species` that comes out of the crate just opened (the one crated
+## last), taken out of `crated`; null when he has none of his own in a crate (the crate
+## opened is out of the hand already, so it isn't among the ones counted any more).
+func _take_crated(species: StringName) -> AnimalData:
+	var own := crated.filter(func(a: AnimalData) -> bool: return a.species == species)
+	if own.is_empty():
+		return null
+	var a: AnimalData = own.back()
+	crated.erase(a)
+	return a
+
+
+## Crated bird `a` straight back into `home` (no crate opened: the bag had no room for it
+## after all).
+func uncrate(a: AnimalData, home: AnimalHousing) -> void:
+	if not crated.has(a) or home == null:
+		return
+	crated.erase(a)
+	_move_in(a, home)
+	changed.emit()
+
+
+## `a` (out of its crate) lives on the farm again, in `home`.
+func _move_in(a: AnimalData, home: AnimalHousing) -> void:
+	if home and home.home_id != "":
+		_homes[a.id] = home.home_id
+	a.away = false
+	animals.append(a)
+	_spawn(a)
+
+
+## The dealer bought crated bird `a`: it is nobody's worry here any more.
+func crated_sold(a: AnimalData) -> void:
+	crated.erase(a)
+	_chick_poll = 0.0
+	changed.emit()
+
+
+## Crated birds whose crates are gone (never in play: a crate can't be dropped or thrown
+## away) are forgotten, so a crate bought later never lets a stranger's name out.
+func _prune_crated() -> void:
+	var kept := crated_of()
+	if kept.size() != crated.size():
+		crated = kept
+
+
+## The side goal of a bird waiting in its crate to be sold (null before there was one; tests).
+func sell_goal() -> SideGoal:
+	return _sell_goal
+
+
+## Keeps a quiet card and dot up while one of his own crated birds waits to be sold, its
+## crate in the bag or set down in a pickup's bed or the warehouse (she is not forgotten
+## there): the dot shows the Animal Market's dealer (his hatch).
+func _update_sell_goal() -> void:
+	var waiting: Array[AnimalData] = []
+	if not crated.is_empty():
+		waiting = crated_of()
+	if waiting.is_empty():
+		if _sell_goal != null:
+			SideStory.remove_goal(_sell_goal)
+		return
+	if _sell_goal == null:
+		_sell_goal = SideGoal.new(&"sell_bird", tr("SIDE_SELL_BIRD_TITLE"), "tag", SELL_GOAL_COLOR)
+		_sell_goal.quiet = true
+	var a: AnimalData = waiting.back()
+	var text := tr("SIDE_GOAL_SELL_BIRD") % a.name if waiting.size() == 1 else tr("SIDE_GOAL_SELL_BIRDS") % waiting.size()
+	_sell_goal.set_goal(text, tr("SIDE_HINT_SELL_BIRD"), LiveCrates.dealer_point(), tr("SIDE_SELL_BIRD_LABEL"))
+	SideStory.add_goal(_sell_goal)
 
 
 func species_name(species: StringName, adult := true) -> String:
@@ -755,6 +887,13 @@ func kill(id: int, cause: StringName) -> void:
 func _urgent_note(msg: String) -> void:
 	report_notes.append(msg)
 	_urgent_notes[msg] = true
+
+
+## A line about the animals from elsewhere for the next morning's report, shown whatever
+## else it has to tell (the story's lines about the coop's door: Quests).
+func report_note(msg: String) -> void:
+	if not report_notes.has(msg):
+		_urgent_note(msg)
 
 
 ## The morning report's lines about the animals (then cleared): each once, at most
@@ -1071,6 +1210,13 @@ func _on_day_started(_day: int) -> void:
 			var h := housing_of(a)
 			n.teleport_home(h != null and not h.can_pass() and n.indoors)
 			n.refresh_body()
+	# Waiting in their crates: a new day for them too (nothing else of the farm's).
+	_prune_crated()
+	for c in crated:
+		c.petted_today = false
+		c.brushed_today = false
+		c.hand_fed_today = false
+		c.fed_hours = 0.0
 	_muck_out()
 	_breed()
 	# Grown chicks (their bodies refreshed above) walk off on their own now.
@@ -1179,6 +1325,9 @@ func new_game() -> void:
 	for n in get_tree().get_nodes_in_group(Remains.GROUP):
 		n.queue_free()
 	_next_id = 1
+	crated.clear()
+	if _sell_goal != null:
+		SideStory.remove_goal(_sell_goal)
 	_to_name.clear()
 	_naming_now = null
 	if _chick_goal != null:
@@ -1194,7 +1343,8 @@ func save_data() -> Dictionary:
 	for id: int in _homes:
 		homes[str(id)] = String(_homes[id])
 	return {"next_id": _next_id, "animals": animals.map(func(a: AnimalData): return a.to_dict()), "homes": homes,
-		"remains": remains.map(func(r: Dictionary): return r.duplicate(true))}
+		"remains": remains.map(func(r: Dictionary): return r.duplicate(true)),
+		"crated": crated.map(func(a: AnimalData): return a.to_dict())}
 
 
 func load_data(d: Dictionary) -> void:
@@ -1211,4 +1361,7 @@ func load_data(d: Dictionary) -> void:
 		_homes[int(str(k))] = String(homes[k])
 	for r: Dictionary in d.get("remains", []):
 		remains.append(r.duplicate(true))
+	# (Saves from before birds could be crated to be sold have none.)
+	for cd: Dictionary in d.get("crated", []):
+		crated.append(AnimalData.from_dict(cd))
 	spawn_all()

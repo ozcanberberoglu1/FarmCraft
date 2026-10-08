@@ -8,7 +8,8 @@ const MINUTES_PER_DAY := 1440
 ## Every morning starts here: the player wakes at 06:00 (see sleep_to_next_morning).
 const DAY_START_MINUTE := 6 * 60
 ## A new game's first day starts at 13:00: the player arrives at Grandpa's farm with the
-## afternoon ahead (Quests paces the first day's story to fit it into the daylight).
+## afternoon ahead (Quests slows the first day's clock a little while its story runs: ten
+## real minutes from here to nightfall, FIRST_DAY_RATE).
 const FIRST_DAY_START_MINUTE := 13 * 60
 const PASS_OUT_MINUTE := 26 * 60
 const DAYS_PER_SEASON := 10

@@ -117,6 +117,10 @@ var _quest_note: Label
 var _note_left := 0.0
 ## How long Grandpa's line about a spot on the walk round the land stays up (s).
 const SPOT_LINE_SECONDS := 14.0
+## The note up is a chapter's opening one, and a line of Grandpa's that came while it was
+## up waits for it to have had its time (show_grandpa_line: "" for none).
+var _note_is_chapter := false
+var _note_next := ""
 ## The side story's goal (SideStory), under the story's own card.
 var _side_card: GlassPanel
 var _side_text: Label
@@ -282,8 +286,14 @@ func _process(_delta: float) -> void:
 	if _note_left > 0.0 and not Game.is_ui_open():
 		_note_left -= _delta
 		if _note_left <= 0.0:
-			# (the card closes up where the note was: _fit_cards below)
-			_quest_note.visible = false
+			if _note_next != "":
+				# The line that waited for the chapter's note follows it.
+				var next := _note_next
+				_note_next = ""
+				show_spot_line("", next)
+			else:
+				# (the card closes up where the note was: _fit_cards below)
+				_quest_note.visible = false
 	# Catches what no signal reports (getting in or out of a vehicle, the lock set
 	# directly); compares with what the hotbar should be, so a locked one stays quiet.
 	if hotbar.visible != _hotbar_wanted() and not Game.is_ui_open():
@@ -419,6 +429,7 @@ func _build_quest() -> void:
 	Quests.tutorial_changed.connect(_refresh_quest)
 	Quests.chapter_started.connect(show_chapter_note)
 	Quests.spot_visited.connect(show_spot_line)
+	Quests.grandpa_said.connect(show_grandpa_line)
 	_refresh_quest()
 
 
@@ -655,6 +666,7 @@ func show_chapter_note(index: int) -> void:
 	_quest_note.text = "“%s”" % Quests.chapter_note(index)
 	_quest_note.visible = true
 	_note_left = 18.0
+	_note_is_chapter = true
 
 
 ## Grandpa's line about one of his spots on the first day's walk (Quests.spot_visited),
@@ -663,6 +675,18 @@ func show_spot_line(_spot: String, line: String) -> void:
 	_quest_note.text = "“%s”" % line
 	_quest_note.visible = true
 	_note_left = SPOT_LINE_SECONDS
+	_note_is_chapter = false
+
+
+## A line from Grandpa that belongs to a goal just come up (Quests.grandpa_said: the
+## coop's door at night), under the story's goal for a while. A chapter's note still up
+## is not cut short for it (the hens let in after dark open a chapter and bring the door's
+## lesson in the same breath): the line follows when the note has had its time.
+func show_grandpa_line(line: String) -> void:
+	if _quest_note.visible and _note_is_chapter and _note_left > 0.0:
+		_note_next = line
+		return
+	show_spot_line("", line)
 
 
 func _on_level_up(level: int) -> void:

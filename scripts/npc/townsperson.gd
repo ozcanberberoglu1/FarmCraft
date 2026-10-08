@@ -227,6 +227,10 @@ func setup(model: StringName, tints: Dictionary = {}) -> void:
 	add_child(rig)
 
 
+## Its collider (see place_at).
+var body_shape: CollisionShape3D
+
+
 func _ready() -> void:
 	add_to_group(GROUP)
 	add_to_group(&"interactable")
@@ -234,6 +238,7 @@ func _ready() -> void:
 	collision_mask = 0
 	sync_to_physics = false
 	var cs := CollisionShape3D.new()
+	body_shape = cs
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.24
 	var seated := act in [Act.BENCH, Act.TEA]
@@ -1608,6 +1613,9 @@ static func _tea_glass() -> Node3D:
 ## Stands here (world; the height follows the ground) facing `yaw`, at once.
 func place_at(at: Vector3, yaw: float) -> void:
 	stop_walk()
+	# Never swept there with the collider on: that throws a vehicle it touches (BodyWarp).
+	if is_inside_tree() and global_position.distance_to(at) > 0.05:
+		BodyWarp.moved(body_shape)
 	global_position = at
 	rotation.y = yaw
 	_yaw = yaw

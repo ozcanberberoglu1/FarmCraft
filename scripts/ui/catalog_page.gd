@@ -6,6 +6,8 @@ extends PanelContainer
 ## written so far, the road fee, the total, when it comes, and "Place the order" (paid on
 ## the spot). While an order is open the slip shows that one instead, with "Cancel" (the
 ## money back) until midnight; the list waits until it has come.
+## Over the list a search field in ink (SearchBox: by the goods' name): lines that don't
+## answer it are folded away (what is written on the slip stays written).
 
 ## The letters' paper and inks (LetterScreen).
 const PAPER := Color(0.93, 0.89, 0.8)
@@ -23,6 +25,10 @@ var _money: Label
 var _rows := {}
 var _slip: VBoxContainer
 var _list_note: Label
+var _search: SearchBox
+var _scroll: ScrollContainer
+## The line under the list's last row when the search finds nothing.
+var _none: Label
 
 
 func _ready() -> void:
@@ -64,16 +70,29 @@ func _ready() -> void:
 	var left := VBoxContainer.new()
 	left.add_theme_constant_override("separation", 6)
 	body.add_child(left)
+	_search = SearchBox.new(LIST_SIZE.x, true)
+	_search.changed.connect(func(_q: String) -> void:
+		_apply_search()
+		_scroll.scroll_vertical = 0)
+	left.add_child(_search)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = LIST_SIZE
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	left.add_child(scroll)
+	_scroll = scroll
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 4)
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(list)
 	for id: StringName in _catalog.goods():
-		list.add_child(_make_row(id))
+		var row := _make_row(id)
+		_rows[id]["row"] = row
+		list.add_child(row)
+	_none = UiTheme.make_label("", UiTheme.text(18, INK_SOFT, 500))
+	_none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_none.custom_minimum_size = Vector2(LIST_SIZE.x - 20.0, 0)
+	_none.visible = false
+	list.add_child(_none)
 	_list_note = UiTheme.make_label("", UiTheme.text(16, INK_SOFT, 500))
 	left.add_child(_list_note)
 	var card := PanelContainer.new()
@@ -103,6 +122,26 @@ func _exit_tree() -> void:
 
 func _on_money(_m: int, _d: int) -> void:
 	refresh()
+
+
+## The catalogue's goods the search field lets through, in the list's order.
+func shown_goods() -> Array[StringName]:
+	var query := _search.query()
+	var out: Array[StringName] = []
+	for id: StringName in _rows:
+		if SearchBox.matches(ItemDB.get_item(id).display_name(), query):
+			out.append(id)
+	return out
+
+
+## Shows the lines the search field lets through (and a word when there are none).
+func _apply_search() -> void:
+	var found := shown_goods()
+	for id: StringName in _rows:
+		(_rows[id]["row"] as Control).visible = id in found
+	_none.visible = found.is_empty() and not _rows.is_empty()
+	if _none.visible:
+		_none.text = _search.none_line()
 
 
 ## One line of the catalogue: the picture, the name, the price, − count +.
@@ -223,6 +262,8 @@ func refresh() -> void:
 		(r["plus"] as Button).disabled = not room
 		(r["more"] as Button).disabled = not room
 	_list_note.text = tr("CATALOG_ONE_ORDER") if open else tr("CATALOG_LIMIT") % Catalog.MAX_KINDS
+	# (the field empties itself when the page is turned away from)
+	_apply_search()
 	_fill_slip(open)
 
 

@@ -5,6 +5,10 @@ extends ModalScreen
 ## treated by the vet, or that it is at the clinic). Closes if the animal is gone.
 ## Sheep, cows and horses show their sex ("Ram", "Ewe"), one born here "Born on the farm",
 ## and the lines about young (_breeding_lines: "Pregnant · 2 days left", its mother).
+## A hen, a rooster or a chick has "Sell" beside its value (sell_pressed): it asks once
+## ("Shall I put Pamuk in her crate to sell her?": the confirm window) and the bird goes
+## into a crate in the bag for the Animal Market's dealer (LiveCrates.crate_up); when it
+## must not be sold now, a line under the value says why (LiveCrates.crate_block).
 
 const STATS := [["fullness", "food"], ["hydration", "drop"], ["happiness", "smile"], ["health", "health"]]
 ## The colour of the lines and chips about young (Breeding).
@@ -18,6 +22,8 @@ var _hearts: HBoxContainer
 var _bars := {}
 var _status: VBoxContainer
 var _value: HBoxContainer
+var _sell: UiButton
+var _sell_note: Label
 var _refresh_timer := 0.0
 
 
@@ -81,7 +87,18 @@ func _ready() -> void:
 	vl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	foot.add_child(vl)
 	_value = UiTheme.price(0, 28)
+	_value.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	foot.add_child(_value)
+	foot.add_theme_constant_override("separation", 18)
+	# Birds only: into a crate for the dealer in town (asked once).
+	_sell = UiTheme.button(tr("SHOP_SELL"), "secondary", Vector2(150, 46), "tag", 19)
+	_sell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_sell.set_meta(&"mark", "SellBird")
+	_sell.pressed.connect(sell_pressed)
+	foot.add_child(_sell)
+	_sell_note = UiTheme.paragraph("", 16, UiTheme.GOLD_SOFT, 600)
+	_sell_note.visible = false
+	window.body.add_child(_sell_note)
 
 
 func open(a: AnimalData) -> void:
@@ -99,8 +116,47 @@ func open(a: AnimalData) -> void:
 		_sub.add_child(UiTheme.chip(tr("ANIMAL_INJURED"), UiTheme.RED, "health"))
 	if a.born_day >= 0:
 		_sub.add_child(UiTheme.chip(tr("ANIMAL_BORN_HERE"), PREGNANT, "heart"))
+	_sell.visible = AnimalTable.is_poultry(a.species)
+	_sell.tooltip_text = tr("ANIMAL_SELL_HINT")
+	_set_sell_note("")
 	_refresh()
 	show_screen()
+
+
+## "Sell" on a bird's card: when it can't be sold now the reason shows under its value
+## (and comes back); else the confirm window asks once and, on yes, the bird goes into a
+## crate in the bag and the card closes. Returns the reason ("" when it asked).
+func sell_pressed() -> String:
+	if _data == null:
+		return ""
+	var why := LiveCrates.crate_block(_data)
+	_set_sell_note(why)
+	if why != "":
+		Audio.ui("error", -6.0)
+		return why
+	var a := _data
+	# (A name just typed into the field is the one asked about and kept.)
+	if _name_edit.text.strip_edges() != "":
+		a.name = _name_edit.text.strip_edges().left(18)
+	Game.hud.confirm_dialog.ask(tr("SELL_ASK_TITLE") % a.name,
+			tr("SELL_ASK_TEXT") % [a.name, UiTheme.money(LiveCrates.sale_price(a))], tr("SELL_ASK_YES"),
+			func() -> void:
+				if LiveCrates.crate_up(a):
+					Audio.ui("confirm", -6.0)
+					close_panel()
+				else:
+					_set_sell_note(LiveCrates.crate_block(a)))
+	return ""
+
+
+## The line under the value that says why the bird isn't sold now ("" hides it).
+func sell_note() -> String:
+	return _sell_note.text if _sell_note.visible else ""
+
+
+func _set_sell_note(text: String) -> void:
+	_sell_note.text = text
+	_sell_note.visible = text != ""
 
 
 func close_panel() -> void:

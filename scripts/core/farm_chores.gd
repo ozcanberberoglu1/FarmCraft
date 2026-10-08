@@ -1,17 +1,20 @@
 class_name FarmChores
 extends Node
-## Quiet farm chores for the hours the story leaves free. On days FIRST_DAY to LAST_DAY,
-## once the day's story is done and its next goal waits for a morning to come
-## (Quests.story_idle: the wait for the rooster's day, for the pond's, a farm level after
-## it), a few small things to do round the yard come up beside the story's card, each on
+## Quiet farm chores for the hours the story leaves free. Whatever the calendar day, once
+## the day's story is done and its next goal waits for a morning to come
+## (Quests.story_idle: the wait for the rooster's day, for the pond's, the farm's third
+## level after it: FROM_STEP behind the player, UNTIL_STEP not yet), a few small things
+## to do round the yard come up beside the story's card, each on
 ## a compact card with a small, faint dot (SideGoal.quiet, like the town's: TownGoals).
+## The first day's own free evening has none (Grandpa's note leaves it to the player).
 ## They use what the farm already has, teach the daily round and send nobody on a trip:
 ##
 ##   bin     "Put something to sell in the shipping bin": anything shipped (the hint says
 ##           what sells, and that the courier pays in the morning).
 ##   eggs    "Collect today's eggs": the eggs lying about, three at most.
 ##   care    "Top up the coop's feeder and water": each filled once by hand, or well filled
-##           already (CARE_FULL of its trough).
+##           already (CARE_FULL of its trough). It waits while "feed the hens" is up
+##           (FeedGoal), as that one waits for it.
 ##   pet     "Pet your hens": PET_COUNT animals petted today (E).
 ##   wood    "Stock up on firewood": WOOD pieces picked up.
 ##   stones  "Clear stones off the land": STONES picked up.
@@ -24,8 +27,12 @@ extends Node
 ## next goal comes up, never in its way. Quests owns it (Quests.chores) and saves it.
 ## Automated runs keep it away unless a test asks for it (`testing`).
 
+## The story's waits the chores fill: the ones after FROM_STEP (the first day's free
+## evening), up to and with UNTIL_STEP (the wait for the farm's third level).
+const FROM_STEP := "free"
+const UNTIL_STEP := "level_3"
+## The day the chores' order is counted from (_order).
 const FIRST_DAY := 2
-const LAST_DAY := 4
 ## Cards up at a time, and while other side goals have cards up as well (the column of
 ## cards stays short).
 const SHOWN := 3
@@ -90,9 +97,9 @@ func shown() -> Array[StringName]:
 	return out
 
 
-## The story leaves the farmer free on one of the chores' days.
+## The story leaves the farmer free on one of the waits the chores fill.
 func active() -> bool:
-	return enabled() and GameClock.day >= FIRST_DAY and GameClock.day <= LAST_DAY and Quests.story_idle()
+	return enabled() and Quests.story_idle() and Quests.passed(FROM_STEP) and Quests.step <= Quests.index_of(UNTIL_STEP)
 
 
 func _process(delta: float) -> void:
@@ -232,7 +239,8 @@ func _available(id: StringName) -> bool:
 		&"eggs":
 			return _eggs_lying() > 0
 		&"care":
-			return _coop() != null
+			# (Not beside "feed the hens", SideStory.feed_goal: one card about feed at a time.)
+			return _coop() != null and not (SideStory.feed_goal != null and SideStory.feed_goal.is_up())
 		&"pet":
 			return not Animals.animals.is_empty()
 	return true

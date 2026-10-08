@@ -16,14 +16,31 @@ extends ModalScreen
 ## Sheep, cows and horses are sold female (young or grown) and, grown, male (_fill_male:
 ## the ram, the bull, the stallion a herd needs to have young: Breeding).
 ## Opened at a pen's gate or the hen stall, the market shows that kind first (open_market).
+## "Sell" lists first the crated birds in the farmer's bag (LiveCrates.sale_offers: his
+## own hens and roosters put into crates from their cards, by name, then bought ones never
+## let out), each with what the dealer pays, bought at once out of the bag (sell_crate:
+## SELL, then SURE?); then the farm's animals. Hens and roosters living on the farm are
+## listed with "Bring it in its crate" in place of the button. With one of his own crated
+## birds in the bag the market opens on "Sell" (at the office, the hen stall or a pen's
+## gate alike). One of his own left in its crate somewhere else (a pickup's bed, the
+## warehouse) gets a line there: the dealer buys out of the bag only (RANCHER_CRATE_LEFT).
+## A chick on the farm's list says "Too young yet": it goes into no crate.
+## "Sell" has a search field over the list (SearchBox: by an animal's own name or its
+## kind; the crated birds and the farm's animals alike); "Buy" has none: its five kinds
+## are all on view.
 
 const PORTRAIT_DIR := "res://art/icons/animals/"
+## The height of the window's body under the header, on every tab.
+const LIST_HEIGHT := 600.0
 
 var _tabs: TabStrip
 var _content: VBoxContainer
+var _search: SearchBox
 var _money: Label
 var _tab := "buy"
 var _confirm_sell := -1
+## The crated bird's row (its index in LiveCrates.sale_offers) asked "SURE?" (-1: none).
+var _confirm_crate := -1
 ## The kind shown on the right of "Buy".
 var _selected: StringName = &""
 ## Where the market was opened.
@@ -52,8 +69,14 @@ func _ready() -> void:
 	_tabs.selected.connect(_set_tab)
 	window.header_right.add_child(_tabs)
 	_money = window.add_money_pill()
+	_search = SearchBox.new(420.0)
+	_search.visible = false
+	_search.changed.connect(func(_q: String) -> void:
+		_confirm_sell = -1
+		_fill())
+	window.body.add_child(_search)
 	_content = VBoxContainer.new()
-	_content.custom_minimum_size = Vector2(1200, 600)
+	_content.custom_minimum_size = Vector2(1200, LIST_HEIGHT)
 	window.body.add_child(_content)
 	Events.money_changed.connect(func(m: int, _d: int) -> void:
 		_money.text = UiTheme.money(m)
@@ -82,8 +105,12 @@ func open_market(at: Vector3, focus: StringName = &"") -> void:
 	window.set_heading(tr("UI_RANCHER"), "paw", tr("UI_RANCHER_HINT"))
 	_money.text = UiTheme.money(Economy.money)
 	_order = clampi(_order, 1, LiveCrates.MAX_ORDER)
-	_tab = "buy"
-	_tabs.select("buy")
+	# One of his own birds brought in its crate: straight to the selling side.
+	# (At the hen stall and the pens' gates too: he came with it to sell it.)
+	_tab = "sell" if not LiveCrates.own_in_bag().is_empty() else "buy"
+	_confirm_sell = -1
+	_confirm_crate = -1
+	_tabs.select(_tab)
 	_fill()
 	show_screen()
 
@@ -109,13 +136,21 @@ func _set_tab(tab: String) -> void:
 		return
 	_tab = tab
 	_confirm_sell = -1
+	_confirm_crate = -1
 	_fill()
 
 
 func _fill() -> void:
+	# (taken out at once: the list is made anew at every letter typed in the search field,
+	# and two of them standing in the column for a frame would make the window jump)
 	for c in _content.get_children():
+		_content.remove_child(c)
 		c.queue_free()
 	_portrait = null
+	# (out of sight the field empties itself: before the list is made)
+	_search.visible = _tab == "sell" and not (Animals.animals.is_empty() and LiveCrates.sale_offers().is_empty())
+	# (the field's height comes out of the list's: the window stands still between the tabs)
+	_content.custom_minimum_size.y = LIST_HEIGHT - _search_room()
 	if _tab == "buy":
 		_fill_buy()
 	else:
@@ -491,8 +526,110 @@ func buy_male(species: StringName) -> bool:
 
 # --- Selling ------------------------------------------------------------------------------
 
+## The dealer buys crated bird `index` of LiveCrates.sale_offers out of the bag (the row's
+## second press). Returns what he paid (0 when he didn't: the story's birds).
+func sell_crate(index: int) -> int:
+	var offers := LiveCrates.sale_offers()
+	_confirm_crate = -1
+	if index < 0 or index >= offers.size():
+		return 0
+	var got := LiveCrates.sell_offer(offers[index])
+	if got > 0:
+		Audio.ui("confirm")
+		Audio.animal_voice(offers[index]["species"], true, _stall_at + Vector3(0, 1.0, 0), -8.0)
+	else:
+		Audio.ui("error", -6.0)
+	_fill()
+	return got
+
+
+## A crated bird in the bag: its portrait, its name (a bought one never let out: its
+## kind), its hearts, what the dealer pays and the button (SELL, then SURE?), or the
+## story's line when it must stay.
+func _crate_row(offer: Dictionary, index: int) -> PanelContainer:
+	var bird: AnimalData = offer.get("bird")
+	var species: StringName = offer["species"]
+	var row := PanelContainer.new()
+	var sb := UiTheme.box(Color(0, 0, 0, 0.24), 12, 1, Color(UiTheme.GOLD, 0.28))
+	sb.content_margin_left = 12
+	sb.content_margin_right = 16
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	row.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 20)
+	row.add_child(h)
+	var pic := TextureRect.new()
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.custom_minimum_size = Vector2(110, 76)
+	pic.texture = portrait(species)
+	h.add_child(pic)
+	var name_box := VBoxContainer.new()
+	name_box.custom_minimum_size = Vector2(300, 0)
+	name_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	name_box.add_theme_constant_override("separation", 2)
+	name_box.add_child(UiTheme.make_label(UiTheme.caps(String(offer["name"])), UiTheme.heading(26, UiTheme.TEXT, 700, 1)))
+	name_box.add_child(UiTheme.make_label("%s  ·  %s" % [Animals.species_name(species), tr("RANCHER_IN_CRATE")] if bird != null
+			else tr("RANCHER_CRATE_UNOPENED"), UiTheme.text(16, UiTheme.TEXT_MUTED, 600)))
+	h.add_child(name_box)
+	var stats := VBoxContainer.new()
+	stats.add_theme_constant_override("separation", 6)
+	stats.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stats.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(stats)
+	if bird != null:
+		var hearts := HBoxContainer.new()
+		hearts.add_theme_constant_override("separation", 3)
+		for i in 5:
+			hearts.add_child(UiTheme.icon_rect(UiTheme.glyph("heart"), 18, Color("ff6f86") if i < bird.hearts() else Color(1, 1, 1, 0.15)))
+		stats.add_child(hearts)
+	var why := String(offer.get("why", ""))
+	if why != "":
+		stats.add_child(UiTheme.paragraph(why, 15, UiTheme.GOLD_SOFT, 420))
+	var price_row := UiTheme.price(int(offer["price"]), 28)
+	price_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(price_row)
+	var confirm := _confirm_crate == index
+	var b := UiTheme.button(tr("RANCHER_CONFIRM") if confirm else tr("SHOP_SELL"), "danger" if confirm else "success",
+			Vector2(170, 50), "check" if confirm else "tag", 19)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.set_meta(&"mark", "SellCrate%d" % index)
+	b.disabled = why != ""
+	b.tooltip_text = why
+	b.pressed.connect(func() -> void:
+		if _confirm_crate == index:
+			sell_crate(index)
+		else:
+			_confirm_crate = index
+			_confirm_sell = -1
+			_fill())
+	h.add_child(b)
+	return row
+
+
+## The height the search field takes over the list while it shows (with the gap under it).
+func _search_room() -> float:
+	return SearchBox.HEIGHT + float(window.body.get_theme_constant("separation")) if _search.visible else 0.0
+
+
+## The farm's animals the search field lets through: by an animal's name, or its kind as
+## the row says it ("Koç", "Tavuk").
+func shown_animals() -> Array[AnimalData]:
+	var query := _search.query()
+	var out: Array[AnimalData] = []
+	for a in Animals.animals:
+		if query == "" or SearchBox.matches("%s %s %s" % [a.name, Breeding.sex_name(a), Animals.species_name(a.species, a.adult)], query):
+			out.append(a)
+	return out
+
+
 func _fill_sell() -> void:
-	if Animals.animals.is_empty():
+	var offers := LiveCrates.sale_offers()
+	# His own crated birds whose crates are not in the bag (a pickup's bed, the warehouse):
+	# the dealer buys out of the bag only, and says so.
+	var left_behind := Animals.crated_of().size() - LiveCrates.own_in_bag().size() if not Animals.crated.is_empty() else 0
+	if Animals.animals.is_empty() and offers.is_empty() and left_behind <= 0:
 		var empty := VBoxContainer.new()
 		empty.alignment = BoxContainer.ALIGNMENT_CENTER
 		empty.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -503,14 +640,38 @@ func _fill_sell() -> void:
 		empty.add_child(l)
 		return
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(1200, 600)
+	scroll.custom_minimum_size = Vector2(1200, LIST_HEIGHT - _search_room())
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_content.add_child(scroll)
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 10)
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(list)
-	for a in Animals.animals:
+	if left_behind > 0:
+		var note := UiTheme.paragraph(tr("RANCHER_CRATE_LEFT"), 17, UiTheme.GOLD_SOFT, 1100)
+		note.set_meta(&"mark", "CrateLeft")
+		list.add_child(note)
+	# What the search field lets through: the crated birds by their names too.
+	var query := _search.query()
+	var crates: Array[int] = []
+	for i in offers.size():
+		if query == "" or SearchBox.matches("%s %s" % [String(offers[i]["name"]), Animals.species_name(offers[i]["species"])], query):
+			crates.append(i)
+	var herd := shown_animals()
+	# What he has brought in crates: bought out of the bag, paid at once.
+	if not crates.is_empty():
+		list.add_child(UiTheme.section(tr("RANCHER_CRATED"), "box"))
+		for i in crates:
+			list.add_child(_crate_row(offers[i], i))
+		if not herd.is_empty():
+			list.add_child(UiTheme.spacer(6))
+			list.add_child(UiTheme.section(tr("RANCHER_ON_FARM"), "barn"))
+	if herd.is_empty() and crates.is_empty() and query != "":
+		list.add_child(UiTheme.spacer(40))
+		var none := UiTheme.paragraph(_search.none_line(), 20, UiTheme.TEXT_DIM, 1100)
+		none.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		list.add_child(none)
+	for a in herd:
 		var row := PanelContainer.new()
 		var sb := UiTheme.box(Color(0, 0, 0, 0.24), 12, 1, Color(1, 1, 1, 0.08))
 		sb.content_margin_left = 12
@@ -572,6 +733,18 @@ func _fill_sell() -> void:
 			h.add_child(away)
 			list.add_child(row)
 			continue
+		if AnimalTable.is_poultry(a.species):
+			# A bird is sold out of its crate: "Sell" on its card at home puts it in one.
+			# (A chick goes into no crate: "Too young yet", not an errand that can't be run.)
+			var bring := UiTheme.chip(tr("RANCHER_BRING_CRATED" if a.adult else "HINT_ANIMAL_TOO_YOUNG"), UiTheme.TEXT_MUTED,
+					"box" if a.adult else "heart", 15)
+			bring.custom_minimum_size = Vector2(170, 0)
+			bring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			bring.set_meta(&"mark", "Bring%d" % a.id)
+			bring.tooltip_text = tr("ANIMAL_SELL_HINT") if a.adult else tr("SELL_NO_CHICK") % a.name
+			h.add_child(bring)
+			list.add_child(row)
+			continue
 		var confirm := _confirm_sell == a.id
 		var b := UiTheme.button(tr("RANCHER_CONFIRM") if confirm else tr("SHOP_SELL"), "danger" if confirm else "success",
 				Vector2(170, 50), "check" if confirm else "tag", 19)
@@ -586,6 +759,7 @@ func _fill_sell() -> void:
 				_confirm_sell = -1
 			else:
 				_confirm_sell = a.id
+				_confirm_crate = -1
 			_fill())
 		h.add_child(b)
 		list.add_child(row)

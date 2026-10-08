@@ -236,12 +236,15 @@ crack are synthesised in the script.
 
 ## The fishing contest (`sfx/contest/*`)
 
-Cut, faded and levelled from Mixkit previews by `tools/build_contest_audio.py` (Mixkit Sound Effects Free License:
+`sfx/contest/whistle.ogg` (the referee's whistle that ends the contest: two short blasts and a long one): synthesised by
+`tools/build_contest_audio.py` (no source recording; project-owned). It took the place of Mixkit's "Warfare horn" (2289)
+on 2026-10-07.
+
+The other two: cut, faded and levelled from Mixkit previews by `tools/build_contest_audio.py` (Mixkit Sound Effects Free License:
 free for commercial use in games, no attribution required).
 
 | File | Mixkit title | Mixkit id |
 |---|---|---|
-| sfx/contest/horn.ogg | Warfare horn | 2289 |
 | sfx/contest/applause.ogg | Medium size crowd applause | 485 |
 | sfx/contest/fanfare.ogg | Successful horns fanfare | 722 |
 

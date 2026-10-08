@@ -1,6 +1,7 @@
 extends SceneTree
 ## Renders a 3/4 studio portrait of every vehicle the dealership sells
-## (VehicleTable.FOR_SALE) with a transparent background to
+## (VehicleTable.FOR_SALE) and of the trailers that stand in his bay (VehicleTable.TRAILERS)
+## with a transparent background to
 ## art/icons/vehicles/<id>.png (dealer screen). Pass `-- --only=<id>,<id>` to render some.
 ## Run (needs a window): godot --path . -s res://tools/vehicle_portraits.gd
 
@@ -56,7 +57,10 @@ func _run() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--only="):
 			only = a.substr(7).split(",")
-	for id: StringName in VehicleTable.FOR_SALE:
+	var kinds: Array[StringName] = []
+	kinds.append_array(VehicleTable.FOR_SALE)
+	kinds.append_array(VehicleTable.TRAILERS)
+	for id: StringName in kinds:
 		if not only.is_empty() and String(id) not in only:
 			continue
 		var info: Dictionary = VehicleTable.get_info(id)

@@ -2,8 +2,10 @@ extends Node
 ## The side track beside the story's goals (Quests), never in their way: Zeynep, the
 ## new neighbour.
 ##
-## On day 3 at 07:00 Zeynep moves into the last house on the left at the far end of
-## Yeşilova's street (Town's first house) with her dog Karamel: a banner says so and a
+## Zeynep moves into the last house on the left at the far end of Yeşilova's street
+## (Town's first house) with her dog Karamel at 07:00 on the first morning the story has
+## got to its rooster day (move_in_day: MOVE_STEP behind the player, a contest day put off
+## by one; day 3 for a story finished or skipped): a banner says so and a
 ## side goal comes up, to meet her. Its dot (HUD.side_waypoint, beside the story's own)
 ## shows her in her front garden, crouched petting Karamel, from 07:00 to 20:00 until
 ## they have met (then indoors: her door, knocked on in the evening, or the garden in
@@ -11,8 +13,8 @@ extends Node
 ## Karamel and goes in: one heart of friendship (Relations).
 ##
 ## From then on she asks now and then for a favour (an errand): the day after the
-## meeting (day 4 at the earliest) a welcome gift for Karamel, a bag of dog food from
-## the town market brought to her door (knocked on: she stays indoors until she has it,
+## meeting (the day after she moved in at the earliest) a welcome gift for Karamel, a
+## bag of dog food from the town market brought to her door (knocked on: she stays indoors until she has it,
 ## and the rest of that day; her garden days start after it); then, every 2 to 4 days
 ## after the last delivery, another favour in turn (ERRAND_TURN): a bottle of milk (the
 ## farm's own, or the market's), a bunch of flowers from the market, a bag of dog food
@@ -39,7 +41,8 @@ extends Node
 ## of its own with a dot of its own): the wolves' lesson and the vet's (WolfRaids) add and
 ## take away theirs, and day two's getting to know the town (TownGoals: town_goals, kept
 ## and saved here), and "fishing pays" for a farmer short of the barn's price (FishGoal:
-## fish_goal, kept and saved here too).
+## fish_goal, kept and saved here too), and "feed the hens" the first time his hens go
+## hungry before an empty feeder (FeedGoal: feed_goal, the same).
 
 ## The side goal, its dot or its hint changed (the HUD refreshes).
 signal changed
@@ -49,10 +52,14 @@ signal goals_changed
 const WHO := &"zeynep"
 const DOG := &"karamel"
 const ITEM := &"dog_food"
-## She moves in on MOVE_DAY at MOVE_MINUTE (the house is for sale before).
+## She moves in at MOVE_MINUTE (the house is for sale before) on the first morning the
+## story has MOVE_STEP behind it (its wait for the rooster's day: the rooster's trip to
+## town is up), on MOVE_DAY at the earliest; a story finished or skipped: on MOVE_DAY.
+const MOVE_STEP := "rooster_wait"
 const MOVE_DAY := 3
 const MOVE_MINUTE := 7 * 60
-## The welcome gift is asked for from this day (and never on the day they met).
+## The welcome gift is asked for from this day when she moved in on MOVE_DAY: the day
+## after she moved in (gift_from_day), and never on the day they met.
 const GIFT_DAY := 4
 ## A new errand comes up at this hour of its day.
 const ERRAND_MINUTE := 7 * 60
@@ -101,7 +108,9 @@ const ROSE := Color("f59ac8")
 ## Saved: they have met (and on which day), the errand up now ({} for none: kind "gift"
 ## or "food", the day it came up, the variant of its words), the day the next one comes
 ## up, how many bags were delivered (and the day the welcome gift was), whether the
-## moving-in banner was shown, the last day a chat added friendship.
+## moving-in banner was shown, the last day a chat added friendship; the day she moves in
+## (0: not settled yet, the story hasn't got to its rooster day; set once: move_in_day).
+var move_day := 0
 var met := false
 var met_day := 0
 var errand := {}
@@ -128,6 +137,8 @@ var goals: Array[SideGoal] = []
 var town_goals: TownGoals
 ## "Fishing pays": five fish, three of them giants, for a farmer short of the barn's price.
 var fish_goal: FishGoal
+## "Feed the hens": once, the first time his hens go hungry before an empty feeder.
+var feed_goal: FeedGoal
 
 ## When she last opened the door to a knock with nothing to bring (GameClock.total_minutes).
 var _last_knock := -INF
@@ -148,6 +159,9 @@ func _ready() -> void:
 	fish_goal = FishGoal.new()
 	fish_goal.name = "FishGoal"
 	add_child(fish_goal)
+	feed_goal = FeedGoal.new()
+	feed_goal.name = "FeedGoal"
+	add_child(feed_goal)
 	Events.day_started.connect(func(_d: int) -> void: _poll = 0.0)
 	PlayerState.inventory.changed.connect(func() -> void: _poll = 0.0)
 	Mail.opened.connect(_on_letter_opened)
@@ -158,11 +172,35 @@ func enabled() -> bool:
 	return testing or not DebugTools.is_automated() or DebugTools.args.has("zeynep")
 
 
-## She has moved in (from MOVE_DAY at MOVE_MINUTE).
+## The day she moves in (at MOVE_MINUTE); 0 while the story hasn't got to its rooster day
+## yet. Settled once, when it gets there, and saved (move_day): that morning if it is
+## before MOVE_MINUTE (the story woke him with the rooster's chapter), else the next; a
+## story finished or skipped before that has her on MOVE_DAY as ever. Never a day of the
+## fishing contest (MOVE_DAY is none): she would be off to the pond with the whole town
+## before he could get to her gate and away until the evening, nobody home to meet (and
+## the card would speak of an event he may not have heard of); the day after it instead.
+func move_in_day() -> int:
+	if move_day == 0 and not SaveGame.loading:
+		if Quests.tutorial_done():
+			move_day = MOVE_DAY
+		elif Quests.passed(MOVE_STEP):
+			move_day = maxi(MOVE_DAY, GameClock.day if GameClock.minute < MOVE_MINUTE else GameClock.day + 1)
+			if FishingContest.enabled() and FishingContest.is_contest_day(move_day):
+				move_day += 1
+	return move_day
+
+
+## The first day the welcome gift may be asked for: the day after she moved in.
+func gift_from_day() -> int:
+	return move_in_day() + GIFT_DAY - MOVE_DAY
+
+
+## She has moved in (from move_in_day at MOVE_MINUTE).
 func moved_in() -> bool:
 	if not enabled():
 		return false
-	return GameClock.day > MOVE_DAY or (GameClock.day == MOVE_DAY and GameClock.minute >= MOVE_MINUTE)
+	var d := move_in_day()
+	return d > 0 and (GameClock.day > d or (GameClock.day == d and GameClock.minute >= MOVE_MINUTE))
 
 
 ## Minutes into the day (the clock runs past 24:00 until the player sleeps).
@@ -409,7 +447,7 @@ func _on_letter_opened(letter: Dictionary) -> void:
 		visit_day = GameClock.day + 1
 
 
-## The moving-in banner (MOVE_DAY) once she has moved in, when the player is free (no
+## The moving-in banner (move_in_day) once she has moved in, when the player is free (no
 ## window open, not at the night's report).
 func _update_banner(delta: float) -> void:
 	if announced or not moved_in() or not is_instance_valid(Game.hud):
@@ -508,14 +546,14 @@ func remove_goal(g: SideGoal) -> void:
 # --- What happens ------------------------------------------------------------------------------
 
 ## They met (in the garden or at her door): the first heart, and the welcome gift is
-## asked for the next day (GIFT_DAY at the earliest).
+## asked for the next day (gift_from_day at the earliest).
 func on_met() -> void:
 	if met:
 		return
 	var text := goal_text()
 	met = true
 	met_day = GameClock.day
-	next_errand_day = maxi(GIFT_DAY, GameClock.day + 1)
+	next_errand_day = maxi(gift_from_day(), GameClock.day + 1)
 	Game.notify(tr("MSG_SIDE_DONE") % text, UiTheme.GOLD)
 	Relations.raise(WHO, Relations.POINTS_PER_LEVEL)
 	_goal = goal()
@@ -665,13 +703,16 @@ func save_data() -> Dictionary:
 	return {"met": met, "met_day": met_day, "errand": errand.duplicate(), "next": next_errand_day,
 		"deliveries": deliveries, "gift_day": gift_day, "announced": announced, "chat_day": chat_day,
 		"turn": turn, "puppy_day": puppy_day, "puppy_letter": puppy_letter, "invite_sent": invite_sent,
-		"visit_day": visit_day, "town": town_goals.save_data(), "fish": fish_goal.save_data()}
+		"visit_day": visit_day, "move_day": move_day, "town": town_goals.save_data(), "fish": fish_goal.save_data(),
+		"feed": feed_goal.save_data()}
 
 
-## After GameClock.load_data.
+## After GameClock.load_data and Quests.load_data. (A save from before her move followed
+## the story: one where she is announced or met keeps MOVE_DAY.)
 func load_data(data: Dictionary) -> void:
 	met = bool(data.get("met", false))
 	met_day = int(data.get("met_day", 0))
+	move_day = int(data.get("move_day", MOVE_DAY if bool(data.get("announced", false)) or met else 0))
 	errand = (data.get("errand", {}) as Dictionary).duplicate()
 	next_errand_day = int(data.get("next", 0))
 	deliveries = int(data.get("deliveries", 0))
@@ -685,6 +726,7 @@ func load_data(data: Dictionary) -> void:
 	visit_day = int(data.get("visit_day", 0))
 	town_goals.load_data(data.get("town", {}))
 	fish_goal.load_data(data.get("fish", {}))
+	feed_goal.load_data(data.get("feed", {}))
 	_last_knock = -INF
 	_goal = goal()
 	_waypoint = null

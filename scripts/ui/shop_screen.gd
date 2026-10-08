@@ -5,6 +5,9 @@ extends ModalScreen
 ## market price (with a rising/falling trend). At the Yeşilova Market the SELL tab
 ## also lists the bed of the player's pickup parked outside, and sells its whole load
 ## in one go; the window opens on SELL when that bed holds goods. Optional tool repair.
+## Over the tiles a search field (SearchBox: F or a click, then the goods' name): the grid
+## shows what answers it on either tab; the tile picked stays picked while it is still
+## there, else the first one found is; with nothing found a line says so.
 
 const TILE := Vector2(132, 164)
 const COLS := 5
@@ -14,6 +17,8 @@ const REPAIR_PER_POINT := 0.25
 var _tabs: TabStrip
 var _money: Label
 var _grid: GridContainer
+var _scroll: ScrollContainer
+var _search: SearchBox
 var _detail: VBoxContainer
 var _extra: VBoxContainer
 var _tab := "buy"
@@ -44,10 +49,14 @@ func _ready() -> void:
 	var left := VBoxContainer.new()
 	left.add_theme_constant_override("separation", 12)
 	body.add_child(left)
+	_search = SearchBox.new(COLS * (TILE.x + 10) - 10)
+	_search.changed.connect(_on_search)
+	left.add_child(_search)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(COLS * (TILE.x + 10), 560)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	left.add_child(scroll)
+	_scroll = scroll
 	_grid = GridContainer.new()
 	_grid.columns = COLS
 	_grid.add_theme_constant_override("h_separation", 10)
@@ -158,11 +167,36 @@ func _in_cargo(entry: Dictionary) -> int:
 	return cargo.count(entry["id"], entry["quality"]) if cargo else 0
 
 
+## The tab's entries the search field lets through (all of them while it is empty).
+func shown_entries() -> Array:
+	var query := _search.query()
+	if query == "":
+		return _entries()
+	return _entries().filter(func(e: Dictionary) -> bool:
+		return SearchBox.matches(ItemDB.get_item(e["id"]).display_name(), query))
+
+
+## The words in the search field changed: the grid from its top, on a tile that is in it.
+func _on_search(_query: String) -> void:
+	_fill_grid()
+	_scroll.scroll_vertical = 0
+	# (the whole list again: down to the tile picked, once the grid is laid out)
+	await get_tree().process_frame
+	var tile: ShopTile = _tiles.get(_entry_key(_sel)) if not _sel.is_empty() else null
+	if is_instance_valid(tile) and visible:
+		_scroll.ensure_control_visible(tile)
+
+
 func _fill_grid() -> void:
 	for c in _grid.get_children():
 		c.queue_free()
 	_tiles.clear()
-	var entries := _entries()
+	var entries := shown_entries()
+	var searching := _search.query() != ""
+	# A search that leaves the picked tile out picks the first one it found.
+	if searching and not _sel.is_empty() and not entries.any(_is_selected):
+		_sel = {}
+		_qty = 1
 	if _sel.is_empty() and not entries.is_empty():
 		_sel = entries[0]
 	for e in entries:
@@ -170,7 +204,8 @@ func _fill_grid() -> void:
 		_tiles[_entry_key(e)] = t
 		_grid.add_child(t)
 	if entries.is_empty():
-		_grid.add_child(UiTheme.paragraph(tr("SHOP_NOTHING_TO_SELL"), 20, UiTheme.TEXT_DIM, 600))
+		var nothing := searching and not _entries().is_empty()
+		_grid.add_child(UiTheme.paragraph(_search.none_line() if nothing else tr("SHOP_NOTHING_TO_SELL"), 20, UiTheme.TEXT_DIM, 600))
 		_sel = {}
 	_fill_extra()
 	_show_detail()
@@ -392,7 +427,10 @@ func _show_detail() -> void:
 	for c in _detail.get_children():
 		c.queue_free()
 	if _sel.is_empty():
+		# (a search that finds nothing: the card keeps its width, the window doesn't jump)
+		_detail.custom_minimum_size.x = _detail.size.x
 		return
+	_detail.custom_minimum_size.x = 0.0
 	var item := ItemDB.get_item(_sel["id"])
 	var stage := PanelContainer.new()
 	stage.add_theme_stylebox_override("panel", UiTheme.box(Color(1, 1, 1, 0.04), 12))

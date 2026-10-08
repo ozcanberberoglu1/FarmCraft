@@ -8,7 +8,8 @@ extends PlacedObject
 ## with nest boxes, a roost, troughs and a door that opens and shuts (CoopDoor), and a
 ## free-range yard around it (the whole footprint, which was clear when it was placed).
 ## Crated hens bought in town are let out at its door; the first one to move in lays an
-## egg somewhere around it within the hour (the "first_egg" group: the story's waypoint).
+## egg somewhere around it a few real seconds later (FIRST_EGG_SECONDS; the "first_egg"
+## group: the story's waypoint).
 ## Inside: a feeder and a waterer the farmer fills (Trough), and three nest boxes along
 ## the west wall (Nest), empty until bedded with straw (hay in hand). Hens lay in bedded
 ## boxes: in the morning each walks in, hops into a free one, sits a while, leaves her
@@ -26,9 +27,10 @@ extends PlacedObject
 ## after the second step), two more nest boxes each time, a longer feeder and waterer and
 ## a second roost. Its door, ramp and floor stay where they were.
 ## Entry fields besides {id, pos, yaw}: stage ("site" / "done"), build_left (real
-## seconds), door (open), uid (its home id), egg ("", "due", "nest", "laid", "taken"),
-## egg_at (game minutes), egg_pos, nests ([bool] bedded), lay (eggs due: hen id ->
-## {at, q, first, more}), fertile (eggs that may hatch: [{id, pos, at, hen, q}]),
+## seconds), door (open), uid (its home id), egg (the story's first egg: "", "due",
+## "laid", "taken"; "nest" in older saves), egg_in (real seconds of play until it is
+## laid, while "due"), egg_pos, nests ([bool] bedded), lay (eggs due: hen id ->
+## {at, q, more}), fertile (eggs that may hatch: [{id, pos, at, hen, q}]),
 ## fertile_next (their next id), expand (expansion steps done; none: 0) and expand_left
 ## (real seconds of the one going up, only while it does).
 
@@ -45,12 +47,17 @@ const EXPAND_SECONDS := 60.0
 ## (PlaceableTable size 11 x 10); the house stands at its back.
 const YARD := Rect2(-5.5, -5.0, 11.0, 10.0)
 const HOUSE := Rect2(-2.5, -4.4, 5.0, 3.4)
-## Game minutes after the first hen moves in until she lays her first egg (short: on the
-## first day's slow clock this is about half a real minute, so the story's egg is
-## usually lying in the yard by the time its goal comes up).
-const FIRST_EGG_MINUTES := 6.0
-## Game minutes until a hen lays again after the story's egg was broken (hurry_egg).
-const QUICK_EGG_MINUTES := 6.0
+## Real seconds of play after the first hen moves in until the story's first egg lies
+## there: counted in real time (the game clock's rate, slowed on the story's first days
+## or not, and its ten-minute ticks have no part in it; it waits only while a window is
+## open or the game is paused), and laid at once when it is due, in a bedded nest box or
+## about the yard: no hen has to walk to a box and sit first. So it is lying there long
+## before its goal comes up. Ordinary laying (each morning's eggs: egg_due) is on the
+## game clock as ever.
+const FIRST_EGG_SECONDS := 8.0
+## Real seconds until another is laid when the story has no egg to find (the story's egg
+## broken, or its goal come up with none anywhere: hurry_egg).
+const QUICK_EGG_SECONDS := 4.0
 ## The first egg's Pickup is in this group (for the waypoint).
 const FIRST_EGG_GROUP := &"first_egg"
 ## Waypoint anchor ids (WaypointMarker.tag): over the coop (or its site), over the
@@ -79,9 +86,6 @@ const NEST_LID := 0.92
 ## Game minutes a hen's egg waits for her to lay it in a nest (the door shut on her, the
 ## night, the farmer asleep) before it turns up there anyway.
 const LAY_GRACE := 120.0
-## The same for the story's first egg: it never keeps the farmer waiting long (a hen that
-## doesn't get to a box in time lays it anyway, in a bedded box or about the yard).
-const FIRST_LAY_GRACE := 8.0
 ## A night's sleep (or any skip this long, in game minutes) finishes the construction.
 const SKIP_FINISHES := 60.0
 ## The chopping log in the yard (by the house's front right corner).
@@ -136,7 +140,13 @@ func _setup() -> void:
 			_start_expansion_site()
 	else:
 		_start_site()
-	set_process(not is_built() or expanding())
+	# A save from when a hen walked the story's first egg to a nest box ("nest", her lay
+	# marked "first"): it is simply due again, in real time (her lay stays an ordinary egg).
+	if String(entry.get("egg", "")) == "nest":
+		for key: String in _lays().keys():
+			(_lays()[key] as Dictionary).erase("first")
+		entry["egg"] = "due"
+	set_process(not is_built() or expanding() or _egg_due())
 	Events.time_skipped.connect(_on_time_skipped)
 	Events.clock_tick.connect(_on_tick)
 	Events.animal_released.connect(_on_animal_released)
@@ -250,13 +260,17 @@ func _start_site() -> void:
 
 
 func _process(delta: float) -> void:
-	if is_built() and not expanding():
+	if is_built() and not expanding() and not _egg_due():
 		set_process(false)
 		return
 	# Real time of play: on while the bag or a shop is open, not in the pause menu.
 	if Game.is_paused():
 		return
+	if _egg_due():
+		_tick_first_egg(delta)
 	if is_built():
+		if not expanding():
+			return
 		var rest := maxf(expansion_left() - delta, 0.0)
 		entry["expand_left"] = rest
 		if rest <= 0.0:
@@ -646,32 +660,56 @@ func _on_animal_released(species: StringName, home: Node) -> void:
 	if species != &"chicken" or String(entry.get("egg", "")) != "":
 		return
 	entry["egg"] = "due"
-	entry["egg_at"] = GameClock.total_minutes + FIRST_EGG_MINUTES
+	entry["egg_in"] = FIRST_EGG_SECONDS
+	set_process(true)
 
 
 func _on_tick(_total: float, _delta: float) -> void:
 	if housing == null:
 		return
-	if String(entry.get("egg", "")) == "due" and GameClock.total_minutes >= float(entry.get("egg_at", 0.0)):
-		_first_egg_due()
 	_overdue_lays()
 	_hatch_due()
 
 
-## With a nest box bedded, one of the hens goes and lays it there (the egg stays "nest"
-## until she has); else it is laid at once about the yard.
-func _first_egg_due() -> void:
-	var hen := _first_hen()
-	if hen and filled_nests() > 0:
-		var lays := _lays()
-		var key := str(hen.data.id)
-		var d: Dictionary = lays.get(key, {"q": ItemStack.Quality.NORMAL})
-		d["at"] = minf(float(d.get("at", GameClock.total_minutes)), GameClock.total_minutes)
-		d["first"] = true
-		lays[key] = d
-		entry["egg"] = "nest"
+## The story's first egg is on its way (counted down in _process).
+func _egg_due() -> bool:
+	return String(entry.get("egg", "")) == "due"
+
+
+## Real seconds of play until the story's first egg is laid (0 when none is due). A save
+## from when it was timed on the game clock (no "egg_in") has the short wait.
+func first_egg_left() -> float:
+	return maxf(float(entry.get("egg_in", QUICK_EGG_SECONDS)), 0.0) if _egg_due() else 0.0
+
+
+## The story's first egg comes nearer: in real seconds of play (not while a window is
+## open: the hen's name is being typed, the bag is searched), whatever the game clock does.
+func _tick_first_egg(delta: float) -> void:
+	if housing == null or Game.is_ui_open() or SaveGame.loading:
 		return
-	_lay_first_egg()
+	var left := first_egg_left() - delta
+	entry["egg_in"] = left
+	if left <= 0.0:
+		entry.erase("egg_in")
+		entry.erase("egg_at")
+		_first_egg_due()
+
+
+## The story's first egg is laid now: in a bedded nest box when a hen can get to one
+## (she is inside, or the door is open), else about the yard (the coop floor behind a
+## shut door).
+func _first_egg_due() -> void:
+	var boxes: Array[int] = []
+	for i in nest_count():
+		if nest_filled(i):
+			boxes.append(i)
+	var hen := _first_hen()
+	if hen == null or boxes.is_empty() or not (hen.indoors or housing.can_pass()):
+		_lay_first_egg()
+		return
+	var egg := _spawn_egg(_nest_egg_spot(boxes[randi() % boxes.size()]), ItemStack.Quality.NORMAL, -1)
+	Audio.animal_voice(&"chicken", true, egg.global_position, -4.0)
+	_first_laid(egg)
 
 
 ## A hen of this coop that can get to the nest boxes now (inside, or the door open), else
@@ -688,16 +726,15 @@ func _first_hen() -> Animal:
 	return any
 
 
-## The story's egg was broken with none left: a hen lays another in a few game minutes
-## (the one-off hurry; eggs otherwise come each morning). It is the story's egg again.
+## The story has no egg to find (its egg was broken, or its goal came up with none
+## anywhere): a hen lays another in QUICK_EGG_SECONDS real seconds (the one-off hurry;
+## eggs otherwise come each morning). It is the story's egg again.
 func hurry_egg() -> void:
 	if housing == null or housing.animals.is_empty():
 		return
-	if String(entry.get("egg", "")) in ["due", "nest"]:
-		entry["egg_at"] = minf(float(entry.get("egg_at", INF)), GameClock.total_minutes + QUICK_EGG_MINUTES)
-		return
+	entry["egg_in"] = minf(first_egg_left(), QUICK_EGG_SECONDS) if _egg_due() else QUICK_EGG_SECONDS
 	entry["egg"] = "due"
-	entry["egg_at"] = GameClock.total_minutes + QUICK_EGG_MINUTES
+	set_process(true)
 
 
 ## Where a hen is scratching about in the yard (else in front of the coop, or on the coop
@@ -957,8 +994,8 @@ func _nest_egg_spot(i: int) -> Vector3:
 
 # --- Laying --------------------------------------------------------------------------------
 
-## Eggs due today: hen id (String) -> {"at": game minutes, "q": quality, "first": the
-## story's first egg}.
+## Eggs due today: hen id (String) -> {"at": game minutes, "q": quality, "more": how many
+## more she lays later in the day}.
 func _lays() -> Dictionary:
 	if not entry.has("lay"):
 		entry["lay"] = {}
@@ -1023,11 +1060,8 @@ func lay_in_nest(hen: Animal, i: int) -> bool:
 		return false
 	var d: Dictionary = lays[key]
 	lays.erase(key)
-	var first := bool(d.get("first", false))
-	var egg := _spawn_egg(_nest_egg_spot(i), int(d.get("q", ItemStack.Quality.NORMAL)), -1 if first else hen.data.id)
+	var egg := _spawn_egg(_nest_egg_spot(i), int(d.get("q", ItemStack.Quality.NORMAL)), hen.data.id)
 	Audio.animal_voice(&"chicken", true, egg.global_position, -4.0)
-	if first:
-		_first_laid(egg)
 	_next_egg(key, d)
 	return true
 
@@ -1052,11 +1086,10 @@ func _overdue_lays() -> void:
 	for key: String in lays.keys():
 		var d: Dictionary = lays[key]
 		var late := now - float(d.get("at", now))
-		var grace := FIRST_LAY_GRACE if bool(d.get("first", false)) else LAY_GRACE
-		if late < grace:
+		if late < LAY_GRACE:
 			continue
 		var hen := _hen(int(key))
-		if hen and _claims.values().has(hen) and late < grace * 3.0:
+		if hen and _claims.values().has(hen) and late < LAY_GRACE * 3.0:
 			continue
 		_lay_now(key)
 
@@ -1066,8 +1099,7 @@ func _lay_now(key: String) -> void:
 	var lays := _lays()
 	var d: Dictionary = lays.get(key, {})
 	lays.erase(key)
-	var first := bool(d.get("first", false))
-	if d.is_empty() or (not first and not _lives_here(int(key))):
+	if d.is_empty() or not _lives_here(int(key)):
 		return
 	var hen := _hen(int(key))
 	if hen:
@@ -1079,9 +1111,7 @@ func _lay_now(key: String) -> void:
 			boxes.append(i)
 	var reach := hen == null or hen.indoors or housing.can_pass()
 	var at := _nest_egg_spot(boxes[randi() % boxes.size()]) if reach and not boxes.is_empty() else _loose_spot(null)
-	var egg := _spawn_egg(at, q, -1 if first else int(key))
-	if first:
-		_first_laid(egg)
+	_spawn_egg(at, q, int(key))
 	_next_egg(key, d)
 
 

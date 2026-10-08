@@ -224,6 +224,205 @@ static func tr_key(key: String) -> String:
 	return String(TranslationServer.translate(key))
 
 
+# --- Selling his own birds ---------------------------------------------------------
+#
+# A grown hen or rooster of his own is sold in two steps: "Sell" on the bird's card (F)
+# asks once and puts it into a crate in the bag (crate_up), the same crate a bought one
+# comes in, with who it is inside (Animals.crated); the Animal Market's dealer then buys
+# crated birds out of the bag (sale_offers, sell_offer), paid at once. A change of mind:
+# the crate opens at a coop door like any other and the same bird comes out
+# (Animals.release). Crates are all alike, so with bought birds and his own in crates at
+# once, his own come out first (the one crated last before the others) and are the ones
+# the dealer names.
+#
+# The price is the bird's value on its card (AnimalData.sale_value: the table's "value",
+# its health and happiness, 4% more a heart): a hen $38 the day she was bought and up
+# to $48, a rooster $52 up to $66, always under what the market asks ($50, $70). A crate
+# never opened sells at the fresh bird's price. The carnival's double pay is not for
+# livestock (as for the dealer's other sales; it would make buying and selling pay).
+#
+# The story's birds stay: while a goal ahead still counts hens (up to the first egg in
+# the bin: STORY_HENS_UNTIL) two must be left, crated or not, and one rooster until he
+# is in the coop (STORY_ROOSTER_UNTIL); neither the card nor the dealer takes one below
+# that (story_block).
+#
+# The dealer buys out of the bag only: a crate of his own bird set down in a pickup's bed
+# or the warehouse keeps its bird (Animals.crated_of counts crates anywhere), the side goal
+# stays up for it, and the dealer's list says to bring it (RancherScreen: RANCHER_CRATE_LEFT).
+# With wolves on the farm no bird goes into a crate (wolves_about).
+
+## The story's last goal that needs the first hens (the first egg shipped), how many of
+## them, and the last one that needs the rooster.
+const STORY_HENS_UNTIL := "ship_egg"
+const STORY_HENS := 2
+const STORY_ROOSTER_UNTIL := "rooster_in"
+## FarmState.flags: he has been told once where a crated bird is sold.
+const SELL_TOLD_FLAG := "sell_bird_told"
+
+
+## How many birds of `species` the story's goals ahead still need (0: none).
+static func story_needs(species: StringName) -> int:
+	if Quests.tutorial_done():
+		return 0
+	if species == &"chicken":
+		return STORY_HENS if Quests.step <= Quests.index_of(STORY_HENS_UNTIL) else 0
+	if species == &"rooster":
+		return 1 if Quests.step <= Quests.index_of(STORY_ROOSTER_UNTIL) else 0
+	return 0
+
+
+## His grown birds of `species`: living on the farm and in crates anywhere.
+static func birds_owned(species: StringName) -> int:
+	var n := count_at(&"all", AnimalTable.crate_item(species))
+	for a in Animals.animals:
+		if a.species == species and a.adult:
+			n += 1
+	return n
+
+
+## Why the story keeps one more bird of `species` from being sold ("" when it doesn't).
+static func story_block(species: StringName) -> String:
+	var need := story_needs(species)
+	if need <= 0 or birds_owned(species) > need:
+		return ""
+	return tr_key("SELL_NO_STORY_ROOSTER" if species == &"rooster" else "SELL_NO_STORY_HENS")
+
+
+## "" when his bird `a` can go into a crate to be sold, else the line that says why not:
+## a chick, one away at the vet, hurt or sick, in his arms, wolves on the farm, a hen with
+## chicks at her heels or sitting on her nest, the story's own birds (story_block), no room
+## in the bag.
+static func crate_block(a: AnimalData) -> String:
+	if a == null or not Animals.animals.has(a) or not AnimalTable.is_poultry(a.species):
+		return tr_key("SELL_NO_KIND")
+	if not a.adult:
+		return tr_key("SELL_NO_CHICK") % a.name
+	if a.at_vet():
+		return tr_key("SELL_NO_VET") % a.name
+	if a.injured() or a.sick:
+		return tr_key("SELL_NO_HURT") % a.name
+	var n := Animals.node_of(a)
+	if n and (n.carried or n.led or n.ridden):
+		return tr_key("SELL_NO_CARRIED") % a.name
+	# Wolves on the farm: no bird is whisked out of their reach through its card (the
+	# coop's door, the fire and the knife are for that).
+	if wolves_about():
+		return tr_key("SELL_NO_WOLVES") % a.name
+	if not Animals.chicks_of(a).is_empty():
+		return tr_key("SELL_NO_MOTHER") % a.name
+	if n and n.on_nest():
+		return tr_key("SELL_NO_NEST") % a.name
+	var story := story_block(a.species)
+	if story != "":
+		return story
+	if carry_room(AnimalTable.crate_item(a.species)) <= 0:
+		return tr_key("SELL_NO_ROOM")
+	return ""
+
+
+## Whether wolves are out on the farm now (WolfRaids: the pack has come and not left yet).
+static func wolves_about() -> bool:
+	return not WolfRaids.wolves().is_empty()
+
+
+## Puts his bird `a` into a crate, into the hands or the bag like a bought one (the
+## card's "Sell", once he has said yes). The first time, a line says where it is sold.
+## False, and nothing done, when crate_block has a reason.
+static func crate_up(a: AnimalData) -> bool:
+	if crate_block(a) != "":
+		return false
+	var crate := AnimalTable.crate_item(a.species)
+	if not Animals.crate(a):
+		return false
+	if put_in_hand(crate, 1) < 1 and PlayerState.inventory.add_item(crate, 1) > 0:
+		# (Room was asked for above: never.) Back where she was.
+		Animals.uncrate(a, Animals.home_for(a.species))
+		return false
+	Game.notify(tr_key("MSG_BIRD_CRATED") % a.name, UiTheme.GOLD_SOFT)
+	if not bool(FarmState.flags.get(SELL_TOLD_FLAG, false)):
+		FarmState.flags[SELL_TOLD_FLAG] = true
+		Game.notify(tr_key("HINT_SELL_BIRD"), UiTheme.GOLD)
+	return true
+
+
+## What the dealer pays for crated bird `a`.
+static func sale_price(a: AnimalData) -> int:
+	return a.sale_value()
+
+
+## What he pays for a bought bird of `species` still in the crate it came in.
+static func fresh_price(species: StringName) -> int:
+	var a := AnimalData.new()
+	a.species = species
+	a.adult = true
+	a.affection = 100.0
+	return a.sale_value()
+
+
+## His own crated birds in the bag now (oldest first): no more of a kind than the bag
+## holds crates of it.
+static func own_in_bag() -> Array[AnimalData]:
+	var out: Array[AnimalData] = []
+	if Animals.crated.is_empty():
+		return out
+	for sp: StringName in AnimalTable.POULTRY:
+		var own := Animals.crated_of(sp)
+		var carried := count_at(&"carried", AnimalTable.crate_item(sp))
+		out.append_array(own.slice(maxi(own.size() - carried, 0)))
+	return out
+
+
+## The crated birds the dealer can buy out of the bag, his own first (named), then the
+## bought ones never let out: [{species, bird (AnimalData; null for a bought one), name,
+## price, why ("" or the story's line)}].
+static func sale_offers() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var own := own_in_bag()
+	for sp: StringName in AnimalTable.POULTRY:
+		var why := story_block(sp)
+		var named := 0
+		for a in own:
+			if a.species == sp:
+				named += 1
+				out.append({"species": sp, "bird": a, "name": a.name, "price": sale_price(a), "why": why})
+		for i in count_at(&"carried", AnimalTable.crate_item(sp)) - named:
+			out.append({"species": sp, "bird": null, "name": Animals.species_name(sp), "price": fresh_price(sp), "why": why})
+	return out
+
+
+## The dealer buys the crated bird of `offer` (one of sale_offers) out of the bag, paid at
+## once. Returns what he paid (0, and nothing done, when the story keeps the bird or its
+## crate is no longer in the bag).
+static func sell_offer(offer: Dictionary) -> int:
+	var sp: StringName = offer.get("species", &"")
+	var crate := AnimalTable.crate_item(sp)
+	var bird: AnimalData = offer.get("bird")
+	if crate == &"" or story_block(sp) != "" or PlayerState.inventory.count_item(crate) <= 0:
+		return 0
+	if bird != null and not Animals.crated.has(bird):
+		return 0
+	var pay := sale_price(bird) if bird != null else fresh_price(sp)
+	PlayerState.inventory.remove_item(crate, 1)
+	Economy.add_money(pay, "REPORT_ANIMALS")
+	if bird != null:
+		Animals.crated_sold(bird)
+		Game.notify(tr_key("MSG_BIRD_SOLD") % [bird.name, UiTheme.money(pay)], UiTheme.GOLD_SOFT)
+	else:
+		Animals.changed.emit()
+		Game.notify("+" + UiTheme.money(pay), UiTheme.GOLD_SOFT)
+	return pay
+
+
+## Where the Animal Market's dealer serves (his hatch), for the side goal's dot; null
+## before the town is built.
+static func dealer_point() -> Variant:
+	var tree := Engine.get_main_loop() as SceneTree
+	var town := tree.get_first_node_in_group(&"town") as Town if tree else null
+	if town == null or town.market_office == null or not town.market_office.is_inside_tree():
+		return null
+	return town.market_office.global_position + Vector3(0, 1.1, 0)
+
+
 # --- Hands -------------------------------------------------------------------------
 
 ## Puts up to `amount` of `id` into the farmer's hands: onto the stack in hand when

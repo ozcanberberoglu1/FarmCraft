@@ -1,7 +1,9 @@
 extends Node
 ## Letters from the town, delivered to the mailbox by the house.
 ##
-## On MAILBOX_DAY at 07:00 a side goal comes up (quiet, like Zeynep's errands): put up a
+## From MAILBOX_DAY at 07:00, once there is a workbench to make it at (STORY_STEP behind
+## the player: the story's workbench stands; a story finished or skipped: by the day
+## alone), a side goal comes up (quiet, like Zeynep's errands): put up a
 ## mailbox in front of the house. It is made at the workbench (a little wood and nails)
 ## and put down like the other placeables (scripts/placement/mailbox.gd). From then on
 ## letters arrive in it: its little red flag goes up, a quiet note says so, and E on it
@@ -28,6 +30,8 @@ const ITEM := &"mailbox"
 ## The side goal to put one up comes up on this day at GOAL_MINUTE.
 const MAILBOX_DAY := 5
 const GOAL_MINUTE := 7 * 60
+## The story goal that must be behind the player first: the workbench built.
+const STORY_STEP := "bench_built"
 ## A townsperson writes a thank-you note on reaching these friendship levels (their
 ## letters' keys: MAIL_THANKS_<n>_TITLE/_BODY, n the place in this list + 1); the last
 ## one carries his gift (Relations.TOWN_GIFTS).
@@ -132,7 +136,8 @@ func _process(delta: float) -> void:
 	_note_new()
 
 
-## The mailbox goal: up from MAILBOX_DAY until one stands on the farm.
+## The mailbox goal: up from MAILBOX_DAY, once the story's workbench stands, until a
+## mailbox stands on the farm.
 func _update_goal() -> void:
 	if goal_done:
 		if SideStory.goals.has(_goal):
@@ -144,6 +149,7 @@ func _update_goal() -> void:
 		Game.notify(tr("MSG_SIDE_DONE") % tr("SIDE_GOAL_MAILBOX"), UiTheme.GOLD)
 		return
 	var due := GameClock.day > MAILBOX_DAY or (GameClock.day == MAILBOX_DAY and SideStory.day_minute() >= GOAL_MINUTE)
+	due = due and Quests.passed(STORY_STEP)
 	if not due or (DebugTools.is_automated() and not testing) or Game.player == null:
 		return
 	if not SideStory.goals.has(_goal):

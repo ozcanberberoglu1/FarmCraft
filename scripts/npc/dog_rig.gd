@@ -71,6 +71,14 @@ const LIE_REACH := 0.2
 ## Seconds to sit down (or get up) and to lie down from sitting.
 const SIT_TIME := 0.8
 const LIE_TIME := 1.1
+## Sitting on a seat with its tail laid round (tail_side): how far round from straight
+## behind it lies (rad: past square, so that nothing of it reaches back), how far its
+## wag swings it, how much further round each joint curls it, and its droop onto the
+## cushion.
+const TAIL_ROUND := 1.85
+const TAIL_ROUND_WAG := 0.3
+const TAIL_CURL := 0.22
+const TAIL_LIE := 0.06
 
 ## Loaded models by path, and the coat's materials by model and surface (WolfRig shares
 ## this rig and these caches with its own model).
@@ -116,6 +124,13 @@ var paw_scale := 1.0
 ## Carried in the farmer's arms or riding on a seat (PetDog): the paws go with the body, set
 ## on its own floor (the rig's y = 0), never left planted in the world behind it.
 var held := false
+## Sitting on something shorter than it sits (a seat's cushion, PetDog): the forepaws drawn
+## this far (m at the model's size) back toward the hind paws, the chest coming down over
+## them until the forelegs reach, the rump staying where it is.
+var sit_tuck := 0.0
+## Sitting with something right behind it (a seat's back): the tail laid round on the
+## cushion to its right (+1) or left (-1) instead of straight out behind (0).
+var tail_side := 0.0
 
 var _b := {}  # rig bone -> bone index
 var _conv := {}  # bone index -> [A, C, parent rest basis inverse]
@@ -160,6 +175,18 @@ var _head_vel := Vector3.ZERO
 ## forepaws under the shoulders, the hind paws a little ahead of the hips).
 var _sit_pitch := 0.6
 var _sit_shift := {}
+## Sitting's geometry for sit_tuck (rig frame): the root, the hips, the shoulder at rest,
+## the wrist's height and how far the wrist stands from the shoulder; the tuck the pitch
+## was last worked out for and that pitch.
+var _sit_geo: Array = []
+## How steeply each of the tail's four pieces stands up behind the model at rest (rad
+## over the level: the angle that turned back lays it level).
+var _tail_rise: Array[float] = []
+var _tuck_for := 0.0
+var _tuck_pitch := 0.6
+## The models' skins read once for skin_points (by model path): per surface the vertices,
+## their bones and weights, how many of those a vertex has, and the bone each is mostly on.
+static var _skins := {}
 ## The paws' knuckles in the world as last posed.
 var _paws := {}
 ## How far the legs fell short of their planted paws last frame (m), how much lower the
@@ -236,6 +263,12 @@ func _setup(model: Node3D) -> void:
 	for leg in LEGS:
 		_prepare_leg(leg)
 	_prepare_sit()
+	_tail_rise.clear()
+	if _b.has("tail1") and _b.has("tail2") and _b.has("tail3") and _b.has("tail4"):
+		for i in 3:
+			var piece := _rest_rig("tail%d" % (i + 2)) - _rest_rig("tail%d" % (i + 1))
+			_tail_rise.append(atan2(piece.y, piece.z))
+		_tail_rise.append(_tail_rise[2])
 	for n in model.find_children("*", "MeshInstance3D", true, false):
 		var mi := n as MeshInstance3D
 		meshes.append(mi)
@@ -308,6 +341,9 @@ func _prepare_leg(leg: String) -> void:
 		"l1": hip.distance_to(knee), "l2": knee.distance_to(wrist), "l3": wrist.distance_to(mcp), "l4": mcp.distance_to(tip),
 		"hip": hip, "foot0": mcp, "c_h": mcp.y, "tip_h": tip.y,
 		"phi0": atan2(d.z, d.y), "toe_dir": (tip - mcp).normalized(),
+		# The paw's own direction that points up as the model stands (see _level).
+		"up_local": skeleton.get_bone_global_rest(_b[leg + "_toe"]).basis.orthonormalized().inverse() \
+				* (_from_rig.basis * Vector3.UP).normalized(),
 		"front": leg.begins_with("f"), "side": -1.0 if leg.ends_with("l") else 1.0,
 		# Gait state: planted at `lock` (world), or swinging from `from` (rig) to where it lands.
 		"planted": true, "swing": false, "lock": Vector3.INF, "u": 0.0, "p": 0.0, "from": mcp, "cur": mcp,
@@ -341,6 +377,9 @@ func _prepare_sit() -> void:
 			hi = th
 	_sit_pitch = lo
 	var shoulder := hips + Basis(Vector3.RIGHT, lo) * (shoulder0 - root)
+	_sit_geo = [root, hips, shoulder0, wrist_h, shoulder.distance_to(Vector3(shoulder.x, wrist_h, shoulder.z - 0.02))]
+	_tuck_for = 0.0
+	_tuck_pitch = lo
 	var hip := hips + Basis(Vector3.RIGHT, lo + SIT_TUCK) * ((R["hip"] as Vector3) - root)
 	for leg: String in _legs:
 		var L: Dictionary = _legs[leg]
@@ -459,6 +498,146 @@ func woof() -> void:
 	_bark = 1.0
 
 
+## Sitting at once (set on a seat): no easing down from standing.
+func snap_sit() -> void:
+	pose = Pose.SIT
+	_sit = 1.0
+	_lie = 0.0
+	_gamp = 0.0
+
+
+## The model's skin as read from its meshes (not the fur's shells), once a model.
+func _skin() -> Array:
+	var key := model_path()
+	if _skins.has(key):
+		return _skins[key]
+	var out := []
+	for mi in meshes:
+		if mi == fur or mi.skin == null:
+			continue
+		var binds: Array[Transform3D] = []
+		var bind_bones := PackedInt32Array()
+		for i in mi.skin.get_bind_count():
+			var b := mi.skin.get_bind_bone(i)
+			if b < 0:
+				b = skeleton.find_bone(mi.skin.get_bind_name(i))
+			bind_bones.append(b)
+			binds.append(mi.skin.get_bind_pose(i))
+		for si in mi.mesh.get_surface_count():
+			var arr := mi.mesh.surface_get_arrays(si)
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+			var weights: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+			if verts.is_empty() or bones.is_empty():
+				continue
+			var per := bones.size() / verts.size()
+			var most := PackedInt32Array()
+			most.resize(verts.size())
+			for i in verts.size():
+				var top := 0
+				for k in range(1, per):
+					if weights[i * per + k] > weights[i * per + top]:
+						top = k
+				most[i] = bind_bones[bones[i * per + top]]
+			out.append([verts, bones, weights, per, binds, bind_bones, most])
+	_skins[key] = out
+	return out
+
+
+## The body's skin as it is posed now: every `step`-th vertex of its mesh, moved by `to`
+## from the skeleton's space (e.g. skeleton.global_transform for the world).
+func skin_points(step: int, to: Transform3D) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if skeleton == null:
+		return out
+	for s: Array in _skin():
+		var verts: PackedVector3Array = s[0]
+		var bones: PackedInt32Array = s[1]
+		var weights: PackedFloat32Array = s[2]
+		var per: int = s[3]
+		var mats: Array[Transform3D] = []
+		for i in (s[4] as Array).size():
+			mats.append(to * skeleton.get_bone_global_pose((s[5] as PackedInt32Array)[i]) * ((s[4] as Array)[i] as Transform3D))
+		for i in range(0, verts.size(), maxi(step, 1)):
+			var p := Vector3.ZERO
+			var v := verts[i]
+			for k in per:
+				var w := weights[i * per + k]
+				if w > 0.0:
+					p += (mats[bones[i * per + k]] * v) * w
+			out.append(p)
+	return out
+
+
+## The bone each of skin_points' vertices is mostly on (its name), in the same order.
+func skin_bones(step: int) -> PackedStringArray:
+	var out := PackedStringArray()
+	if skeleton == null:
+		return out
+	for s: Array in _skin():
+		var most: PackedInt32Array = s[6]
+		for i in range(0, most.size(), maxi(step, 1)):
+			out.append(skeleton.get_bone_name(most[i]))
+	return out
+
+
+## The body's skin as it sits (square, its head level, with sit_tuck and tail_side as they
+## are set; whatever it is doing now): every `step`-th vertex in the rig's frame (m at the
+## model's size; the rig's own scale is not in it). What sits it on a seat is measured on
+## this (PetDog).
+func sitting_points(step := 1) -> PackedVector3Array:
+	if skeleton == null:
+		return PackedVector3Array()
+	var keep := [_nose, _sit, _lie, _look, _bark, _gamp, _rest_head, _lean, _wag_amp, _shift, _pant, _ears]
+	var legs := {}
+	for leg: String in _legs:
+		var L: Dictionary = _legs[leg]
+		legs[leg] = [L["cur"], L["phi"], L["curl"]]
+		L["cur"] = L["foot0"]
+		L["phi"] = L["phi0"]
+		L["curl"] = 0.0
+	_nose = 0.0
+	_sit = 1.0
+	_lie = 0.0
+	_look = Vector2.ZERO
+	_bark = 0.0
+	_gamp = 0.0
+	_rest_head = 0.0
+	_lean = 0.0
+	_wag_amp = 0.0
+	_shift = 0.0
+	_pant = 0.0
+	_ears = 0.0
+	skeleton.reset_bone_poses()
+	_pose_body(0.0)
+	_pose_legs(Transform3D.IDENTITY)
+	if head_scale != 1.0 and _b.has("head"):
+		skeleton.set_bone_pose_scale(_b["head"], Vector3.ONE * head_scale)
+	if paw_scale != 1.0:
+		for leg: String in _legs:
+			skeleton.set_bone_pose_scale(_legs[leg]["toe"], Vector3.ONE * paw_scale)
+	var out := skin_points(step, _to_rig)
+	skeleton.reset_bone_poses()
+	_nose = keep[0]
+	_sit = keep[1]
+	_lie = keep[2]
+	_look = keep[3]
+	_bark = keep[4]
+	_gamp = keep[5]
+	_rest_head = keep[6]
+	_lean = keep[7]
+	_wag_amp = keep[8]
+	_shift = keep[9]
+	_pant = keep[10]
+	_ears = keep[11]
+	for leg: String in _legs:
+		var L: Dictionary = _legs[leg]
+		L["cur"] = legs[leg][0]
+		L["phi"] = legs[leg][1]
+		L["curl"] = legs[leg][2]
+	return out
+
+
 # --- Animation -----------------------------------------------------------------------------
 
 ## The pose for this frame: `speed` (m/s over the ground, forward) drives the gait.
@@ -569,7 +748,8 @@ func _pose_body(delta: float) -> void:
 	_crouch = move_toward(_crouch, clampf(_short * 1.2, 0.0, 0.05), delta * (0.8 if _short > _crouch else 0.05))
 	hips.y += bob + breath * 0.002 * still - lerpf(gait_crouch.x, gait_crouch.y, _trot) * clampf(_gamp, 0.0, 1.0) - _crouch
 	hips.x += _shift * 0.006 * still * (1.0 - ws - wl)
-	var pitch := _sit_pitch * ws + LIE_PITCH * wl - 0.07 * dip + _bark * 0.03
+	var sit_pitch := _tucked_pitch()
+	var pitch := sit_pitch * ws + LIE_PITCH * wl - 0.07 * dip + _bark * 0.03
 	# A hard wag swings the hips.
 	var wag_swing := sin(TAU * _wag_phase) * _wag_amp
 	var hip_yaw := wag_swing * 0.14 * smoothstep(0.35, 0.6, _wag_amp) * (1.0 - ws) * (1.0 - wl)
@@ -577,7 +757,8 @@ func _pose_body(delta: float) -> void:
 	_offset("root", hips)
 	_rot("root", Vector3(pitch, hip_yaw, roll - _lean * 0.1 * maxf(ws, 0.4)))
 	# Sitting the rump tucks under; lying the hips roll a little onto one side.
-	_rot("pelvis", Vector3(SIT_TUCK * ws + 0.05 * wl, -hip_yaw * 0.5, 0.12 * wl))
+	# (With the chest brought down over tucked forepaws the rump stays as it sits.)
+	_rot("pelvis", Vector3((SIT_TUCK + _sit_pitch - sit_pitch) * ws + 0.05 * wl, -hip_yaw * 0.5, 0.12 * wl))
 	_rot("spine1", Vector3(-0.08 * ws + breath * 0.004, -hip_yaw * 0.8, 0))
 	_rot("spine2", Vector3(-0.06 * ws + breath * lerpf(0.008, 0.02, _pant) - 0.05 * wl, 0, -_lean * 0.05))
 	# Neck and head: level against the body's pitch, down to the ground, up and turned to
@@ -586,7 +767,7 @@ func _pose_body(delta: float) -> void:
 	var up := _look.y
 	var bark := sin(PI * minf((1.0 - _bark) * 1.6, 1.0)) * _bark
 	var nd := _nose
-	var level := -_sit_pitch * ws - LIE_PITCH * wl
+	var level := -sit_pitch * ws - LIE_PITCH * wl
 	var rest := _rest_head
 	var pant_bob := sin(TAU * _breath) * 0.02 * _pant
 	var nod := -(0.5 + 0.5 * cos(2.0 * ph - TAU * 0.44)) * 0.04 * clampf(_gamp, 0.0, 1.0)
@@ -604,13 +785,25 @@ func _pose_body(delta: float) -> void:
 	carry = lerpf(carry, 0.95, wl)
 	var droop := lerpf(0.28, 0.12, happy)
 	var sweep := wag_swing * (1.0 + 0.4 * (ws + wl))
+	# Laid round on a seat's cushion (tail_side): level from under the rump, round to that
+	# side and curling on along the haunch, its wag a thump along the cushion.
+	var lay := clampf(absf(tail_side), 0.0, 1.0) * ws
 	for i in 4:
 		var lag := float(i) * 0.09
 		var sw := sin(TAU * (_wag_phase - lag)) * _wag_amp * (1.0 + 0.25 * float(i)) * (0.55 if i == 0 else 0.4)
 		var p := carry if i == 0 else droop * (1.0 - 0.2 * float(i))
 		if i == 1:
 			p += -0.25 * ws + 0.1 * wl
-		_rot("tail%d" % (i + 1), Vector3(p, sw if i > 0 else sweep * 0.9, 0))
+		var q := Quaternion.from_euler(Vector3(p, sw if i > 0 else sweep * 0.9, 0))
+		if lay > 0.0 and _tail_rise.size() == 4:
+			# Each joint's piece of the tail (it stands up and back in the model, _tail_rise)
+			# is turned to lie TAIL_LIE under the level, each a little further round.
+			var side := signf(tail_side)
+			var under := Quaternion(Vector3.RIGHT, -(_sit_pitch + SIT_TUCK)) if i == 0 \
+					else Quaternion(Vector3.RIGHT, -(TAIL_LIE + _tail_rise[i - 1]))
+			var turn := side * (TAIL_ROUND + wag_swing * TAIL_ROUND_WAG) if i == 0 else side * (TAIL_CURL + sw * 0.3)
+			q = q.slerp(under * Quaternion(Vector3.UP, turn) * Quaternion(Vector3.RIGHT, TAIL_LIE + _tail_rise[i]), lay)
+		_rotq("tail%d" % (i + 1), q)
 	# Ears: hanging, swinging with the head's motion, laid back when content, a little up
 	# at a bark.
 	for i in 2:
@@ -821,7 +1014,9 @@ func _pose_legs(xf: Transform3D) -> void:
 		# Sitting: the hind pasterns (hocks down) lie flat along the ground behind the
 		# paws. Lying: the forearms flat on the ground ahead, the hind legs folded under.
 		mcp += (_sit_shift.get(leg, Vector3.ZERO) as Vector3) * ws
-		if not front:
+		if front:
+			mcp.z += sit_tuck * ws
+		else:
 			phi = lerpf(phi, 1.42, ws)
 		if wl > 0.0:
 			var lying := n + (Vector3(0, 0, -lie_reach) if front else Vector3(0.03 * float(L["side"]), 0, -0.1))
@@ -839,6 +1034,10 @@ func _pose_legs(xf: Transform3D) -> void:
 		var pole := body_q * (Vector3(0, 0.3, 1) if front else Vector3(0, -0.15, -1))
 		pole.x += float(L["side"]) * (0.15 if front else 0.25)
 		_solve_leg(L, mcp, pastern, toe, pole)
+		if not front and ws > 0.0:
+			# Sitting, the knees are out to the sides and the hind paws came round with
+			# them, rolled onto their outer edges (3 cm into the ground): flat on it again.
+			_level(L["toe"], _from_rig.basis * toe, L["up_local"], ws)
 
 
 ## Two-bone IK from the shoulder (hip) to the wrist (hock), which stands the pastern's
@@ -880,14 +1079,64 @@ func _aim(idx: int, child_local: Vector3, dir: Vector3) -> void:
 	skeleton.set_bone_pose_rotation(idx, (pg.inverse() * (Basis(q) * g)).get_rotation_quaternion())
 
 
+## Rolls bone `idx` (a paw, as it is posed) about `along`, the way it points (skeleton
+## space), until its own `up_local` points up again as nearly as it can (aiming a bone
+## leaves its roll to chance): `weight` of the way.
+func _level(idx: int, along: Vector3, up_local: Vector3, weight: float) -> void:
+	if along.length_squared() < 1e-12:
+		return
+	var axis := along.normalized()
+	var parent := skeleton.get_bone_parent(idx)
+	var pg := skeleton.get_bone_global_pose(parent).basis.orthonormalized() if parent >= 0 else Basis.IDENTITY
+	var g := pg * Basis(skeleton.get_bone_pose_rotation(idx))
+	var now := g * up_local
+	now -= axis * axis.dot(now)
+	var want := (_from_rig.basis * Vector3.UP).normalized()
+	want -= axis * axis.dot(want)
+	if now.length_squared() < 1e-8 or want.length_squared() < 1e-8:
+		return
+	var turn := now.normalized().signed_angle_to(want.normalized(), axis) * weight
+	skeleton.set_bone_pose_rotation(idx, (pg.inverse() * (Basis(axis, turn) * g)).get_rotation_quaternion())
+
+
+## The body's pitch sitting with the forepaws drawn sit_tuck back: the chest comes down
+## over them until the forelegs reach their wrists as they do sitting square.
+func _tucked_pitch() -> float:
+	if sit_tuck <= 0.0005 or _sit_geo.is_empty():
+		return _sit_pitch
+	if is_equal_approx(sit_tuck, _tuck_for):
+		return _tuck_pitch
+	var root: Vector3 = _sit_geo[0]
+	var hips: Vector3 = _sit_geo[1]
+	var arm: Vector3 = (_sit_geo[2] as Vector3) - root
+	var square := hips + Basis(Vector3.RIGHT, _sit_pitch) * arm
+	var wrist := Vector3(square.x, float(_sit_geo[3]), square.z - 0.02 + sit_tuck)
+	var reach: float = _sit_geo[4]
+	var lo := _sit_pitch - 0.7
+	var hi := _sit_pitch
+	for i in 24:
+		var th := (lo + hi) * 0.5
+		if (hips + Basis(Vector3.RIGHT, th) * arm).distance_to(wrist) > reach:
+			hi = th
+		else:
+			lo = th
+	_tuck_for = sit_tuck
+	_tuck_pitch = lo
+	return lo
+
+
 ## Rotation in the dog's frame (euler, radians) -> the bone's pose, as if its parent were
 ## at rest; chained bones compose like a rig built in that frame.
 func _rot(bone: String, euler: Vector3) -> void:
+	_rotq(bone, Quaternion.from_euler(euler))
+
+
+func _rotq(bone: String, q: Quaternion) -> void:
 	var idx: int = _b.get(bone, -1)
 	if idx < 0:
 		return
 	var c: Array = _conv[idx]
-	skeleton.set_bone_pose_rotation(idx, (c[0] as Quaternion) * Quaternion.from_euler(euler) * (c[1] as Quaternion))
+	skeleton.set_bone_pose_rotation(idx, (c[0] as Quaternion) * q * (c[1] as Quaternion))
 
 
 func _offset(bone: String, offset: Vector3) -> void:

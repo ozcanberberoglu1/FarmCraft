@@ -308,6 +308,8 @@ func _restore(p: Townsperson, home: Dictionary) -> void:
 	if not is_instance_valid(p) or _gathered:
 		return
 	p.stop_walk()
+	if p.is_inside_tree() and p.global_position.distance_to(home["pos"]) > 0.05:
+		BodyWarp.moved(p.body_shape)
 	p.global_position = home["pos"]
 	p.rotation.y = float(home["yaw"])
 	p._yaw = p.rotation.y

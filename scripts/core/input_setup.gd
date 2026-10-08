@@ -33,6 +33,8 @@ static func register_actions() -> void:
 	_key(&"whistle", KEY_H)
 	# Taking hold of an animal: a bird into the arms, a halter on a big one (AnimalHandler).
 	_key(&"handle", KEY_G)
+	# The caret into the search field of a buying or selling list (SearchBox).
+	_key(&"search", KEY_F)
 	_mouse(&"use", MOUSE_BUTTON_LEFT)
 	_mouse(&"secondary", MOUSE_BUTTON_RIGHT)
 	_mouse(&"hotbar_prev", MOUSE_BUTTON_WHEEL_UP)

@@ -58,6 +58,14 @@ const VEHICLES := {
 		"reverselights": "Reverse_UCB",
 		## Driver's eyes, model frame.
 		"eyes": Vector3(0.42, 1.52, -0.38),
+		## The passenger seat as SeatProbe.measure finds it on the cab's meshes (model frame;
+		## the scenario seat23 prints it and holds this to it): "at" the cushion's top at the
+		## foot of the seat's back in the seat's middle, "depth" from there to the cushion's
+		## front edge and "width" (m), "pitch" its rake (rad), "door" and "inner" from the
+		## seat's middle to the door and as far toward the driver as there is cushion,
+		## "ahead" from the foot of the seat's back to the dashboard at a sitter's head (m).
+		"seat": {"at": Vector3(0.441, 0.856, 0.375), "depth": 0.553, "width": 0.510, "pitch": 0.053, "door": 0.293, "inner": 0.250,
+			"ahead": 0.702},
 		## Chassis collision boxes, model frame: [center, size].
 		"boxes": [[Vector3(0.13, 0.8, 0.0), Vector3(5.3, 0.66, 1.94)], [Vector3(0.85, 1.36, 0.0), Vector3(1.45, 0.6, 1.76)]],
 		## The model comes with a load baked into its bed trim: loose parts of that mesh
@@ -336,6 +344,8 @@ const VEHICLES := {
 		"brakelights": "Lamp_Brake",
 		"reverselights": "Lamp_Reverse",
 		"eyes": Vector3(0.74, 1.2, -0.36),
+		"seat": {"at": Vector3(0.651, 0.595, 0.365), "depth": 0.414, "width": 0.470, "pitch": 0.000, "door": 0.360, "inner": 0.240,
+			"ahead": 0.516},
 		"beam_pos": Vector3(3.3, 0.66, 0.575),
 		"dash_pos": Vector3(1.35, 0.95, -0.36),
 		"tail_pos": Vector3(-1.15, 0.6, 0.0),
@@ -398,6 +408,8 @@ const VEHICLES := {
 		"brakelights": "Lamp_Brake",
 		"reverselights": "Lamp_Reverse",
 		"eyes": Vector3(1.3, 1.72, -0.4),
+		"seat": {"at": Vector3(1.093, 1.000, 0.405), "depth": 0.355, "width": 0.390, "pitch": 0.000, "door": 0.390, "inner": 0.560,
+			"ahead": 0.820},
 		"beam_pos": Vector3(2.95, 0.93, 0.66),
 		"dash_pos": Vector3(1.8, 1.1, -0.2),
 		"tail_pos": Vector3(-0.85, 0.72, 0.0),
@@ -456,6 +468,8 @@ const VEHICLES := {
 		"brakelights": "Lamp_Brake",
 		"reverselights": "Lamp_Reverse",
 		"eyes": Vector3(2.8, 2.0, -0.48),
+		"seat": {"at": Vector3(2.531, 1.291, 0.480), "depth": 0.431, "width": 0.600, "pitch": -0.003, "door": 0.450, "inner": 0.710,
+			"ahead": 1.330},
 		"beam_pos": Vector3(4.0, 0.87, 0.68),
 		"dash_pos": Vector3(3.45, 1.33, -0.48),
 		"tail_pos": Vector3(-1.9, 0.62, 0.0),

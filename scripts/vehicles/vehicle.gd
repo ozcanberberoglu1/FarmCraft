@@ -45,17 +45,38 @@ const STEER_RATIO := 8.0
 ## How far down and up the driver can look (radians); round about there is no limit.
 const LOOK_DOWN := deg_to_rad(55.0)
 const LOOK_UP := deg_to_rad(40.0)
-## Where the passenger seat's cushion is taken to be from the driver's eyes when the entry
-## doesn't say (passenger_seat): this far below them and ahead of them (m; the eyes are over
-## the seat's back, the cushion's middle in front of it: measured on the pickup's cab).
-const PASSENGER_DROP := 0.79
+## Where the passenger seat's cushion is taken to be from the driver's eyes when no seat
+## is found on the meshes either (passenger_seat): this far below them and ahead of them (m).
+const PASSENGER_DROP := 0.66
 const PASSENGER_AHEAD := 0.28
 ## Collision layer of barriers only vehicles run into (the warehouse door): people,
 ## animals and what they carry pass.
 const BARRIER_LAYER := 64
+## Never lost (see _watch_lost). A vehicle has left the world when its origin is LOST_DEEP m
+## under the terrain (through the ground: the terrain is one sheet with nothing under it),
+## LOST_HIGH m over it (no jump or hill gets it there), or LOST_OUT m beyond the edge of the
+## playable land (the boundary wall stops a driven one at 0).
+const LOST_DEEP := 2.0
+const LOST_HIGH := 45.0
+const LOST_OUT := 12.0
+## Speed gained within one physics tick (m/s) that no engine, slope or bump gives (they
+## stay under 0.5): it was thrown by something.
+const LOST_KICK := 8.0
+## Lying over this far (its up against the world's: on its side or its roof) and still for
+## LOST_TIP_TIME seconds: stuck, put back on its wheels.
+const LOST_TIPPED := 0.3
+const LOST_TIP_TIME := 2.5
+## Its place is taken as its last good one this often (s) while it rolls on its wheels,
+## upright (its up against the world's at least SAFE_UP).
+const SAFE_EVERY := 0.5
+const SAFE_UP := 0.7
+## Put back further than this (m) from where it was found, the farmer is told.
+const LOST_TELL := 3.0
 
 ## Every vehicle in the world (walkers keep off them: keep_out, way_round).
 static var all: Array[Vehicle] = []
+## Passenger seats measured at play, by kind, for entries that keep none ("seat").
+static var _seats_measured := {}
 
 var kind: StringName
 var info: Dictionary
@@ -64,6 +85,18 @@ var owned := true
 var _settle_t := 0.0
 ## Times it was lifted out of the ground on settling since last driven (see _unsink).
 var _lifts := 0
+## Where it last stood as it should: settled and held, as the driver got out, or rolling
+## on its four wheels a moment ago (see _watch_lost); as spawned until then.
+var _safe := Transform3D()
+## Where the world first had it (the dealer's stock goes back there).
+var _spawn := Transform3D()
+var _safe_t := 0.0
+## Its speed at the last physics tick (negative: not known, e.g. just put somewhere).
+var _speed_was := -1.0
+var _tip_t := 0.0
+var _told_back := -1000000
+## Times the net has put it back or righted it (tests).
+var rescues := 0
 ## Its body's footprint (the collision boxes, body frame: x across, y along body z), their
 ## bottom and top (body y) and how far the footprint's corners reach from its origin.
 var _footprint := Rect2()
@@ -178,6 +211,8 @@ func _ready() -> void:
 	_build_cameras()
 	_build_markers()
 	set_lights(false)
+	_spawn = global_transform
+	_safe = _spawn
 	cargo.changed.connect(_on_cargo_changed)
 	# Tests and screenshot runs skip the story: every key is already in its ignition.
 	if DebugTools.is_automated() and key_item() != &"":
@@ -189,6 +224,11 @@ func _ready() -> void:
 ## Model frame (front +X, left -Z) -> body frame (front +Z, left +X).
 func _mb(m: Vector3) -> Vector3:
 	return Vector3(-m.z, m.y, m.x - _mid_x)
+
+
+## Body frame -> model frame (what the table's entries are in).
+func to_model(b: Vector3) -> Vector3:
+	return Vector3(b.z + _mid_x, b.y, -b.x)
 
 
 func _build_model() -> void:
@@ -664,6 +704,181 @@ func teleport(xf: Transform3D) -> void:
 	global_transform = xf
 	reset_physics_interpolation()
 	sleeping = false
+	_speed_was = -1.0
+	_tip_t = 0.0
+
+
+# --- Never lost -----------------------------------------------------------------------
+
+## Whether a vehicle at `xf` has left the world: through the ground, up in the sky, far
+## beyond the edge of the land, or nowhere at all (LOST_DEEP, LOST_HIGH, LOST_OUT).
+static func lost_at(xf: Transform3D) -> bool:
+	if not xf.is_finite():
+		return true
+	var o := xf.origin
+	var ground := TerrainData.height(o.x, o.z)
+	if o.y < ground - LOST_DEEP or o.y > ground + LOST_HIGH:
+		return true
+	return WorldLayout.playable_distance(o.x, o.z) < -LOST_OUT
+
+
+## How upright `xf` stands (1 on its wheels, 0 on its side, -1 on its roof).
+static func _upness(xf: Transform3D) -> float:
+	return xf.basis.y.normalized().dot(Vector3.UP)
+
+
+## Whatever happens to it, a vehicle is never lost for good. Each physics tick, driven or
+## not: one that has left the world (lost_at), or that gained LOST_KICK m/s within a tick
+## (thrown by something: a body swept through it), is put back at once where it last
+## stood as it should (_safe; the nearest clear spot to that when something stands there
+## now), upright and at rest, with its load, its driver, its dog and its trailer; one
+## lying on its side or roof, still for LOST_TIP_TIME, is stood on its wheels where it
+## lies; one hidden is shown again (nothing in the game hides a vehicle). Its last good
+## place is kept up as it goes (SAFE_EVERY). Not while it is turned on the showroom's deck.
+func _watch_lost(delta: float) -> void:
+	if not is_inside_tree() or not _display_pose.is_empty():
+		_speed_was = -1.0
+		return
+	if not visible:
+		visible = true
+	if freeze:
+		# Held still: looked at twice a second.
+		_safe_t += delta
+		if _safe_t < SAFE_EVERY:
+			return
+		delta = _safe_t
+		_safe_t = 0.0
+	var xf := global_transform
+	var speed := linear_velocity.length()
+	var kicked := not freeze and _speed_was >= 0.0 and speed - _speed_was > LOST_KICK
+	_speed_was = -1.0 if freeze else speed
+	if kicked or lost_at(xf) or not is_finite(speed):
+		_bring_back()
+		return
+	var up := _upness(xf)
+	if up < LOST_TIPPED and speed < 0.6 and angular_velocity.length() < 0.6:
+		_tip_t += delta
+		if _tip_t > LOST_TIP_TIME:
+			_right_itself()
+			return
+	else:
+		_tip_t = 0.0
+	if freeze:
+		return
+	_safe_t += delta
+	if _safe_t >= SAFE_EVERY and up >= SAFE_UP and _on_wheels():
+		_safe_t = 0.0
+		_safe = xf
+
+
+## Whether all its wheels are on something (only a body the physics moves knows).
+func _on_wheels() -> bool:
+	if _wheels.is_empty():
+		return false
+	for key: String in _wheels:
+		if not (_wheels[key] as VehicleWheel3D).is_in_contact():
+			return false
+	return true
+
+
+## Its place now is its last good one, when it stands there as it should (in the world,
+## upright, not sunk into the ground).
+func _note_safe() -> void:
+	if not is_inside_tree() or not _display_pose.is_empty():
+		return
+	var xf := global_transform
+	if lost_at(xf) or _upness(xf) < SAFE_UP or (not _wheels.is_empty() and _burial(xf).y > SINK_DEEPEST + 0.3):
+		return
+	_safe = xf
+	_safe_t = 0.0
+
+
+## Where an owned vehicle belongs when nothing better is known: the pickup's spot by the
+## house (Town.farm_truck_home); the dealer's stock where the world first had it.
+func home_place() -> Transform3D:
+	return Town.farm_truck_home() if owned else _spawn
+
+
+## The place to put it back: its last good one, else its home; the nearest clear spot to
+## that when something stands there now.
+func _safe_place() -> Transform3D:
+	var to := _safe
+	# Where it stood a moment ago it fits, whatever it was parked against, unless something
+	# has come to stand in its place since.
+	var slack := -0.05
+	if lost_at(to) or _upness(to) < SAFE_UP:
+		to = home_place()
+		slack = 0.1
+	if not is_clear_at(to, slack):
+		to = clear_spot_near(to)
+	return to
+
+
+## Out of the world, or thrown: back at its last good place, at rest (held again once it
+## has settled there). The farmer is told when it comes back from somewhere else.
+func _bring_back() -> void:
+	var from := global_transform
+	var to := _safe_place()
+	if lost_at(to):
+		return
+	_stand_at(to)
+	if not from.is_finite() or from.origin.distance_to(to.origin) > LOST_TELL:
+		_tell_back()
+
+
+## On its side or roof and stuck: on its wheels where it lies, heading as it did, or at its
+## last good place when it does not fit there.
+func _right_itself() -> void:
+	var from := global_transform
+	var to := _upright(from)
+	if lost_at(to) or not is_clear_at(to, 0.0):
+		to = _safe_place()
+		if lost_at(to):
+			return
+	_stand_at(to)
+	# Righted where it lies he sees it happen; taken somewhere else he is told.
+	if from.origin.distance_to(to.origin) > LOST_TELL:
+		_tell_back()
+
+
+## Put at `xf` at rest and let go to settle on its wheels there.
+func _stand_at(xf: Transform3D) -> void:
+	teleport(xf)
+	if freeze and freeze_mode == RigidBody3D.FREEZE_MODE_STATIC:
+		freeze = false
+	_settle_t = 0.0
+	_lifts = 0
+	_safe = xf
+	_safe_t = 0.0
+	rescues += 1
+
+
+## One warm line when the farmer's own vehicle was brought back (not twice within a minute).
+func _tell_back() -> void:
+	if not owned or not is_inside_tree():
+		return
+	var now := Time.get_ticks_msec()
+	if now - _told_back < 60000:
+		return
+	_told_back = now
+	Game.notify(tr("MSG_VEHICLE_BACK") % display_name(), UiTheme.GOLD_SOFT)
+
+
+## `xf` stood upright on the ground under it, heading the way it does, its wheels just on
+## the ground (a hair above, to drop onto its springs).
+func _upright(xf: Transform3D) -> Transform3D:
+	var o := xf.origin
+	var ahead := xf.basis.z
+	if Vector2(ahead.x, ahead.z).length() < 0.05:
+		# Standing on its nose or tail: the way its roof points.
+		ahead = xf.basis.y * -signf(ahead.y)
+	var yaw := atan2(ahead.x, ahead.z)
+	var up := TerrainData.normal_at(o.x, o.z)
+	var basis := Basis(Quaternion(Vector3.UP, up)) * Basis(Vector3.UP, yaw)
+	var out := Transform3D(basis.orthonormalized(), Vector3(o.x, TerrainData.height(o.x, o.z), o.z))
+	if not _wheels.is_empty():
+		out.origin.y += _burial(out).y + 0.03
+	return out
 
 
 ## Parked with nobody at the wheel (the player's own or stock at the dealer): once it has
@@ -685,8 +900,12 @@ func _hold_when_parked(delta: float) -> void:
 		if _lifts < 3 and _unsink():
 			_lifts += 1
 			return
+		# Never held lying on its side or roof: it is righted first (_watch_lost).
+		if _upness(global_transform) < LOST_TIPPED:
+			return
 		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 		freeze = true
+		_note_safe()
 
 
 ## How deep its wheels stand in the ground (m; below it, negative): each one's contact
@@ -720,15 +939,8 @@ func _unsink() -> bool:
 	var b := _burial(xf)
 	if b.x < SINK_MEAN and b.y < SINK_DEEPEST:
 		return false
-	var o := xf.origin
-	var ahead := xf.basis.z
-	var yaw := atan2(ahead.x, ahead.z)
-	var up := TerrainData.normal_at(o.x, o.z)
-	var basis := Basis(Quaternion(Vector3.UP, up)) * Basis(Vector3.UP, yaw)
-	var lifted := Transform3D(basis.orthonormalized(), o)
 	# Its wheels just on the ground (the deepest one), a hair above to drop onto its springs.
-	lifted.origin.y += _burial(lifted).y + 0.03
-	teleport(lifted)
+	teleport(_upright(xf))
 	if freeze:
 		freeze = false
 	_settle_t = 0.0
@@ -786,6 +998,9 @@ func set_driver(d: Node) -> void:
 		steering = 0.0
 		for key: String in ["rl", "rr"]:
 			(_wheels[key] as VehicleWheel3D).brake = 0.0
+		# Where he got out is where it belongs, should anything throw it (_watch_lost).
+		if was != null and _on_wheels():
+			_note_safe()
 		# Parking turns the engine and the lights off.
 		_manual_lights = false
 		set_lights(false)
@@ -827,6 +1042,7 @@ func speed_kmh() -> float:
 
 
 func _physics_process(delta: float) -> void:
+	_watch_lost(delta)
 	_hold_when_parked(delta)
 	var fwd := forward_speed()
 	var throttle := 0.0
@@ -1086,20 +1302,54 @@ func driver_eye_global() -> Vector3:
 	return _eye_rig.global_position
 
 
+## The driver's eyes, body frame.
+func driver_eye_local() -> Vector3:
+	return _eye_rig.position
+
+
 ## Whether there is a seat beside the driver's (not on the tractor: he sits in the middle).
 func has_passenger_seat() -> bool:
 	var eyes: Vector3 = info.get("eyes", Vector3(0.4, 1.5, -0.38))
-	return info.has("passenger") or absf(eyes.z) > 0.2
+	return info.has("seat") or absf(eyes.z) > 0.2
 
 
-## The passenger seat's cushion, body frame, turned so that what sits on it facing -Z in
-## its own frame (the farmer's dog riding along, PetDog) faces the way the vehicle does:
-## the entry's "passenger" (model frame), else across the cab from the driver's eyes,
-## PASSENGER_DROP below them and PASSENGER_AHEAD in front.
+## The passenger seat, body frame: "at" the cushion's top at the foot of the seat's back
+## in the seat's middle, "depth" from there to the cushion's front edge and "width" (m),
+## "pitch" its rake (rad, the front higher), "door" and "inner" how far from the seat's
+## middle the door is and the cushion (a bench, a row of seats) goes on toward the driver,
+## "ahead" how far before the foot of the seat's back the dashboard or the windscreen is
+## at a sitter's head (m). The entry's "seat", as SeatProbe measured it
+## off the cab's meshes (the scenario seat23 measures it again and holds the entry to it);
+## an entry without one is measured now, once a kind (a hitch of a fifth of a second: the
+## meshes are read back from the renderer). Empty when there is no such seat.
+func seat() -> Dictionary:
+	var rec: Dictionary = info.get("seat", {})
+	if rec.is_empty():
+		if not has_passenger_seat():
+			return {}
+		if not _seats_measured.has(kind):
+			_seats_measured[kind] = SeatProbe.measure(self)
+		rec = _seats_measured[kind]
+		if rec.is_empty():
+			return {}
+	return {"at": _mb(rec["at"]), "depth": float(rec["depth"]), "width": float(rec["width"]), "pitch": float(rec["pitch"]),
+		"door": float(rec.get("door", SeatProbe.DOOR_OPEN)), "inner": float(rec.get("inner", float(rec["width"]) * 0.5)),
+		"ahead": float(rec.get("ahead", SeatProbe.AHEAD_OPEN))}
+
+
+## The middle of the passenger seat's cushion (its top), body frame, turned so that what
+## sits on it facing -Z in its own frame faces the way the vehicle does and stands square
+## on the cushion's rake (seat). With no seat found: across the cab from the driver's
+## eyes, PASSENGER_DROP below them and PASSENGER_AHEAD in front.
 func passenger_seat() -> Transform3D:
-	var eyes: Vector3 = info.get("eyes", Vector3(0.4, 1.5, -0.38))
-	var at: Vector3 = info.get("passenger", Vector3(eyes.x + PASSENGER_AHEAD, eyes.y - PASSENGER_DROP, -eyes.z))
-	return Transform3D(Basis(Vector3.UP, PI), _mb(at))
+	var s := seat()
+	if s.is_empty():
+		var eyes: Vector3 = info.get("eyes", Vector3(0.4, 1.5, -0.38))
+		return Transform3D(Basis(Vector3.UP, PI), _mb(Vector3(eyes.x + PASSENGER_AHEAD, eyes.y - PASSENGER_DROP, -eyes.z)))
+	var pitch: float = s["pitch"]
+	var ahead := Vector3(0.0, sin(pitch), cos(pitch))
+	var up := Vector3(0.0, cos(pitch), -sin(pitch))
+	return Transform3D(Basis(up.cross(-ahead), up, -ahead), (s["at"] as Vector3) + ahead * float(s["depth"]) * 0.5)
 
 
 # --- Interaction ----------------------------------------------------------------------
@@ -1430,7 +1680,7 @@ static func _crosses(r: Rect2, p: Vector2, q: Vector2) -> bool:
 # --- Save -----------------------------------------------------------------------------------
 
 func save_data() -> Dictionary:
-	return {"kind": String(kind), "owned": owned, "xform": global_transform, "fuel": fuel,
+	return {"kind": String(kind), "owned": owned, "xform": global_transform, "safe": _safe, "fuel": fuel,
 		"odometer": odometer, "chase": chase_camera, "cargo": cargo.to_dict(), "unlocked": not is_locked()}
 
 
@@ -1443,16 +1693,68 @@ func load_data(d: Dictionary) -> void:
 	odometer = float(d.get("odometer", 0.0))
 	chase_camera = bool(d.get("chase", false))
 	restored = true
+	visible = true
 	if d.get("xform") is Transform3D:
-		teleport(d["xform"])
+		var xf: Transform3D = d["xform"]
+		var kept: Variant = d.get("safe")
+		# Saved out of the world (dropped through the ground, thrown off the land: it was
+		# never fetched back before _watch_lost): back where it last stood as it should when
+		# the save knows that, else at its home by the house, and the farmer is told.
+		var back := lost_at(xf)
+		var slack := 0.1
+		if back:
+			if kept is Transform3D and not lost_at(kept) and _upness(kept) >= SAFE_UP:
+				# It stood there before: it fits, whatever it was parked against.
+				xf = kept
+				slack = -0.05
+			else:
+				xf = home_place()
+		teleport(xf)
 		_leave_warehouse()
 		_make_room()
+		if back and not is_clear_at(global_transform, slack):
+			teleport(clear_spot_near(global_transform))
 		# Saved sunk in the ground (shoved in by a wolf before that was stopped): out of it.
 		_unsink()
+		# Saved lying on its side or roof: on its wheels.
+		if not _wheels.is_empty() and _upness(global_transform) < LOST_TIPPED:
+			var stood := _upright(global_transform)
+			teleport(stood if is_clear_at(stood, 0.0) else clear_spot_near(stood))
+			back = true
+		_safe = global_transform
+		if back:
+			# Let go to settle on its wheels there (held again once it has).
+			if freeze and freeze_mode == RigidBody3D.FREEZE_MODE_STATIC:
+				freeze = false
+			_settle_t = 0.0
+			_lifts = 0
+			rescues += 1
+			if owned:
+				get_tree().create_timer(1.5).timeout.connect(_tell_back)
+			# Once every vehicle stands where its save left it.
+			_yield_place.call_deferred()
+		elif kept is Transform3D and not lost_at(kept) and _upness(kept) >= SAFE_UP:
+			_safe = kept
 	cargo.from_dict(d.get("cargo", {}))
 	cargo.capacity = int(info.get("cargo_units", cargo.capacity))
 	_bed.settle()
 	changed.emit()
+
+
+## Sent somewhere by a load because its saved place was out of the world (load_data): a
+## vehicle restored after it may have been saved on that very spot (his trailer parked on
+## the pickup's place by the house; the two were held standing in each other). This one
+## moves over to the nearest clear spot; the other stays where the farmer left it.
+func _yield_place() -> void:
+	if not is_inside_tree():
+		return
+	for v: Vehicle in all:
+		if v == self or not v.is_inside_tree() or Trailer.towed_by(self) == v or Trailer.towed_by(v) == self:
+			continue
+		if stands_in(v, 0.0):
+			teleport(clear_spot_near(global_transform))
+			_safe = global_transform
+			return
 
 
 ## A vehicle the save doesn't know yet (Grandpa's pickup in a game saved before it
@@ -1508,28 +1810,48 @@ func _ground_boxes(by: float) -> Array[PackedVector2Array]:
 
 
 ## The first spot 7-13 m around `xf` where this vehicle fits without touching a
-## building, tree or another vehicle (`xf` itself when none is found).
+## building, tree or another vehicle (`xf` itself when none is found): one it can be
+## driven off from again, with nobody standing there, when there is any (good_ground; the
+## first fit used to be taken, which near the pond is in the water, behind its shore
+## ring), else wherever it fits.
 func clear_spot_near(xf: Transform3D) -> Transform3D:
-	for dist: float in [7.0, 10.0, 13.0]:
-		for k in 8:
-			# South (+Z) first: on the farm that is the open yard.
-			var a := k * TAU / 8.0
-			var p := xf.origin + Vector3(sin(a), 0.0, cos(a)) * dist
-			p.y = TerrainData.height(p.x, p.z) + 0.25
-			if is_clear_at(Transform3D(xf.basis, p)):
-				return Transform3D(xf.basis, p)
+	for fussy: bool in [true, false]:
+		for dist: float in [7.0, 10.0, 13.0]:
+			for k in 8:
+				# South (+Z) first: on the farm that is the open yard.
+				var a := k * TAU / 8.0
+				var p := xf.origin + Vector3(sin(a), 0.0, cos(a)) * dist
+				p.y = TerrainData.height(p.x, p.z) + 0.25
+				if fussy and not good_ground(p):
+					continue
+				if is_clear_at(Transform3D(xf.basis, p), 0.1, (1 | 2 | 16) if fussy else 1):
+					return Transform3D(xf.basis, p)
 	return xf
 
 
-## Whether this vehicle fits at `xf` without touching a building, tree or another vehicle.
-func is_clear_at(xf: Transform3D) -> bool:
+## Whether a vehicle can be left at `o` and driven off again: dry ground (in the pond the
+## shore ring would shut it in), inside the land, not on a steep bank.
+static func good_ground(o: Vector3) -> bool:
+	return not TerrainData.is_underwater(o.x, o.z, 0.1) and WorldLayout.playable_distance(o.x, o.z) >= 2.0 \
+			and TerrainData.normal_at(o.x, o.z).y >= 0.94
+
+
+## Whether this vehicle fits at `xf` without touching a building, tree or another vehicle
+## (the trailer it tows goes where it goes): with `slack` m to spare on every side (0.1 by
+## default; below 0, its own body a hair smaller: where it stood before, against a wall).
+## `mask` 1 | 2 | 16: nor the farmer, an animal or anybody else standing there.
+func is_clear_at(xf: Transform3D, slack := 0.1, mask := 1) -> bool:
 	var q := PhysicsShapeQueryParameters3D.new()
 	var box := BoxShape3D.new()
 	# Body frame: width across X, length along Z; kept clear of the ground.
-	box.size = Vector3(half_width() * 2.0 + 0.2, 1.3, body_length() + 0.3)
+	box.size = Vector3(half_width() * 2.0 + slack * 2.0, 1.3 + minf(slack, 0.0) * 2.0, body_length() + slack * 3.0)
 	q.shape = box
-	q.collision_mask = 1
-	q.exclude = [get_rid()]
+	q.collision_mask = mask
+	var skip: Array[RID] = [get_rid()]
+	var towed := Trailer.towed_by(self)
+	if towed != null:
+		skip.append(towed.get_rid())
+	q.exclude = skip
 	q.transform = Transform3D(xf.basis, xf.origin + xf.basis.y * 1.1)
 	return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
 

@@ -12,6 +12,13 @@ extends Node
 ## orders on the board; the shipping bin's courier pays the usual price in the morning).
 ## At 23:00 a note says it's over and the decorations come down.
 ##
+## The nights keep their days whatever the story is at, but their news follows the story:
+## Beyza's letter and the 20:00 banner reach the farmer only once STORY_STEP is behind him
+## (told: the story is at its day at the pond, where the first carnival used to fall; a
+## story finished or skipped: always). A fair he was not told of still stands in town,
+## lights, music, double pay and all, for whoever drives by; its closing note is only for
+## one who is there.
+##
 ## Automated runs (tests, screenshots) keep ordinary nights unless the run asks for
 ## carnivals (`--carnival`, or `testing` set by the carnival scenario), so other checks'
 ## prices and night shots don't depend on the day they happen to land on.
@@ -21,6 +28,9 @@ signal finished
 
 const FIRST_DAY := 4
 const EVERY_DAYS := 4
+## The story goal that must be behind the player before the carnival's letter and banner
+## reach him: the wait for the day at the pond.
+const STORY_STEP := "fishing_wait"
 ## The town dresses up from here; the fun and the double pay run START..END.
 const DRESS_MINUTE := 19 * 60 + 30
 const START_MINUTE := 20 * 60
@@ -89,6 +99,12 @@ func pay_factor() -> float:
 	return PAY_FACTOR if is_on() else 1.0
 
 
+## The carnival's news reaches the farmer (Beyza's letter, the banner): the story has got
+## to its day at the pond, or is over.
+func told() -> bool:
+	return Quests.passed(STORY_STEP)
+
+
 ## How far the player stands from the town square (flat metres); INF without a player.
 func town_distance() -> float:
 	var p := Game.player as Node3D
@@ -122,22 +138,26 @@ func _process(delta: float) -> void:
 		_on = on
 		if on:
 			began.emit()
-			_show_banner()
+			if told():
+				_show_banner()
 		else:
 			finished.emit()
-			if is_today() and GameClock.minute >= END_MINUTE:
+			if is_today() and GameClock.minute >= END_MINUTE and (told() or town_distance() < TOWN_RADIUS):
 				Game.notify(tr("MSG_CARNIVAL_OVER"), UiTheme.GOLD_SOFT)
 	_update_letter(delta)
 
 
 ## Beyza's letter opens a moment after the player is free: no window open, no night's
 ## report, not at the wheel, not while loading. Too late for tonight (after 23:00): it is
-## dropped.
+## dropped. It waits for the story (told): a carnival day the story gets there on still
+## brings it.
 func _update_letter(delta: float) -> void:
 	if not letter_pending:
 		return
 	if not is_today() or GameClock.minute >= END_MINUTE:
 		letter_pending = false
+		return
+	if not told():
 		return
 	# Tests open it themselves (it would stop the clock of every check after it).
 	if DebugTools.is_automated() and not testing_letter:

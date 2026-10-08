@@ -21,3 +21,6 @@ Changes: welded, rescaled and grown up a little (lower legs lengthened, head a l
 smaller, tail longer), rigged and skinned for the game's procedural animation, the coat
 recoloured from cream and tan to caramel with new normal and roughness maps made from
 its painted hair, and shell fur added (strand texture made by the script).
+The paws and pasterns carry only their own leg's weights (`own_leg_only` in the script;
+`tools/fix_dog_paw_skin.py` took the spine's stray pull off the built model's hind paws,
+which sitting had drawn up to 5 cm under their soles).

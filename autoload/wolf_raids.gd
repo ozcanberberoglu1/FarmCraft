@@ -2,10 +2,18 @@ extends Node
 ## Wolf raids: now and then at night wolves come down out of the forest round the valley
 ## for the farm's animals. Never into town, never by day; they are gone by dawn.
 ##
-## The first raid is a lesson, on LESSON_NIGHT (the second night, when the story's knife
-## has just been made; the first night after it with animals on the farm): from HOWL_MINUTE intense howling far off, at NOTE_MINUTE
+## No wolf comes before the story's knife is made (LESSON_AFTER: Quests.passed, true as
+## well once the story is over or skipped): the calendar runs ahead of the story on the
+## first days, and nothing it has not introduced may cost the farmer a hen.
+## The first raid is a lesson, on the first fitting night after the knife (not before
+## LESSON_NIGHT, animals on the farm, the knife made before that evening's howls would
+## begin: one made later in the evening brings it the next night): from HOWL_MINUTE intense howling far off, at NOTE_MINUTE
 ## a note and a side goal (SideStory.goals): shut the coop door once every bird is in,
-## then go home and sleep (the dot on the coop door, then on the bed). The pack comes at
+## then go home and sleep (the dot on the coop door, then on the bed). (The door itself
+## he knows from his hens' first evening, Quests' own lesson before the knife: on this
+## night only the wolves' card asks for it, lesson_card_up, and a coop he has shut already
+## takes the card straight to the bed; a farmer the wolves taught it is not taught it
+## again by Quests: lesson_done.) The pack comes at
 ## ARRIVE_MINUTE (22:00). Later raids come about every other night: on the second night
 ## after the last one often, on the third for certain (NORMAL_GAP; RARE_GAP's longer
 ## spells when Settings.wolf_raids is RARE, none when it is OFF), never two in a row, the
@@ -49,6 +57,9 @@ extends Node
 ## NOTE_MINUTE (later raids an hour earlier: EARLY_*), the pack at ARRIVE_MINUTE (22:00).
 ## They have gone by LEAVE_MINUTE (04:00; nobody stays up past 02:00 anyway).
 const LESSON_NIGHT := 2
+## The story's goal that must be behind the farmer before any wolf comes (the knife
+## Grandpa has him make for the nights: the last goal of the story's second day).
+const LESSON_AFTER := "knife"
 const ROLL_MINUTE := 17 * 60
 const HOWL_MINUTE := 19 * 60 + 30
 const NOTE_MINUTE := 20 * 60
@@ -184,6 +195,19 @@ func raid_pending() -> bool:
 	return not tonight.is_empty() and String(tonight.get("phase", "")) != "done"
 
 
+## The lesson's raid is set for tonight and not over: its note will ask for the coop's
+## door (or has). Quests' own evening lesson about that door holds back on such a night.
+func lesson_tonight() -> bool:
+	return raid_pending() and bool(tonight.get("lesson", false))
+
+
+## The lesson night's card is up (the note given, the raid not over): it asks for the
+## coop's door, then for bed. Quests shows no card of its own for that door meanwhile
+## (the evening's lesson, the story's coop_shut): one door, one card.
+func lesson_card_up() -> bool:
+	return lesson_tonight() and bool(tonight.get("noted", false)) and String(tonight.get("phase", "")) in ["warned", "active", "away"]
+
+
 ## The morning report's lines about the night (cleared once taken: the sleep screen).
 func take_report() -> PackedStringArray:
 	var out := report
@@ -230,21 +254,36 @@ func _herd() -> int:
 	return n
 
 
-## Once each evening (from ROLL_MINUTE): is tonight a raid's night?
+## The story lets the wolves come: its knife is made (LESSON_AFTER), or it is over or
+## skipped. Until then no night is a raid's night, the lesson's or (a save from before
+## this rule that has had its lesson already) a later one's.
+func story_allows() -> bool:
+	return Quests.passed(LESSON_AFTER)
+
+
+## Once each evening (from ROLL_MINUTE): is tonight a raid's night? An evening before the
+## story's knife is not decided at all (story_allows), so the knife made in it still
+## counts: the lesson comes that same night when the howls have not begun yet
+## (HOWL_MINUTE: he hears them build up, then the note, then two hours to the pack),
+## else the next night. A later raid is held to the same rule (EARLY_HOWL: the knife made
+## late in the evening of a save that had its lesson before this rule, the setting turned
+## on at night): no raid is sprung with its howls and its note already overdue.
 func _schedule() -> void:
 	if not tonight.is_empty() or not enabled() or rolled_day == GameClock.day:
 		return
 	var m := GameClock.minute
 	if m < ROLL_MINUTE or m >= ARRIVE_MINUTE - 30:
 		return
+	if not story_allows():
+		return
 	rolled_day = GameClock.day
 	if _herd() == 0:
 		return
 	if not lesson_done:
-		if GameClock.day >= LESSON_NIGHT:
+		if GameClock.day >= LESSON_NIGHT and m <= HOWL_MINUTE:
 			_set_tonight(true)
 		return
-	if _rng.randf() < raid_chance(GameClock.day - last_raid_day):
+	if m <= EARLY_HOWL and _rng.randf() < raid_chance(GameClock.day - last_raid_day):
 		_set_tonight(false)
 
 
@@ -281,6 +320,12 @@ func _process(delta: float) -> void:
 
 func _update_night(delta: float) -> void:
 	if tonight.is_empty():
+		return
+	# A raid set before the story held the wolves back (a save from before LESSON_AFTER,
+	# loaded on its evening) that the farmer has not been told of yet waits for the knife
+	# like every other; one already noted plays out as it was saved.
+	if not bool(tonight.get("noted", false)) and String(tonight["phase"]) in ["set", "warned"] and not story_allows():
+		tonight = {}
 		return
 	var now := GameClock.total_minutes
 	match String(tonight["phase"]):

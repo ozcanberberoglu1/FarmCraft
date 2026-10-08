@@ -666,8 +666,9 @@ func _throw_egg() -> void:
 		Audio.play("swoosh", from, -14.0, 0.1, &"Effects", 5.0, 1.4))
 
 
-## LMB with the dog's ball in hand: thrown where the player looks, bouncing and rolling
-## where it lands, for the dog to fetch (Pet.ball_thrown).
+## LMB with the dog's ball in hand: thrown where the player looks (an easy throw: some ten
+## metres on the level), bouncing a little and rolling out where it lands, for the dog to
+## fetch (Pet.ball_thrown).
 func _throw_ball() -> void:
 	held.play(&"throw", THROW_TIME, 1, false)
 	var release := THROW_TIME * float(ToolAnim.PROFILES[&"throw"]["release"])
@@ -680,7 +681,7 @@ func _throw_ball() -> void:
 			return
 		var fwd := -camera.global_basis.z
 		var from := camera.global_position + fwd * 0.45 + camera.global_basis.x * 0.12 - camera.global_basis.y * 0.06
-		Pet.ball_thrown(from, fwd * 11.0 + Vector3.UP * 2.0, one)
+		Pet.ball_thrown(from, fwd * 9.5 + Vector3.UP * 2.0, one)
 		Audio.play("swoosh", from, -14.0, 0.1, &"Effects", 5.0, 1.3))
 
 

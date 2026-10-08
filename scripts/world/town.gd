@@ -66,6 +66,9 @@ const SHEEP_PEN := Rect2(252.0, 46.4, 16.0, 8.6)
 const PEN_GATE := 2.4
 ## Which paddock shows which kind (the coop's kinds live in the run).
 const MARKET_PENS := {&"horse": HORSE_PADDOCK, &"cow": COW_PADDOCK, &"sheep": SHEEP_PEN}
+## Kemal's desk in the showroom (x, z): E there opens his screen (DealerScreen), where
+## cars are bought and the trailers in his bay are paid for.
+const DEALER_DESK := Vector2(256.0, -5.0)
 ## The concrete yard between the general market's east wall and the dealership (where
 ## the market's poultry stall stood before the Animal Market took the hens): the
 ## dealer's trailer bay now, two bays side by side open to the pavement (TrailerYard
@@ -1335,7 +1338,7 @@ func _dealer(mb: MeshBuilder, cols: Array) -> void:
 	mb.box_at(&"sign", Vector3(DEALER.get_center().x, y0 + 5.35, fz + 0.1), Vector3(DEALER.size.x + 0.3, 1.0, 0.22), Color(0.1, 0.2, 0.36))
 	BuildingKit.sign(self, "YEŞİLOVA OTO GALERİ", Vector3(DEALER.get_center().x, y0 + 5.35, fz + 0.24), 0.0, 140, Color(1, 1, 1))
 	# Showroom: polished floor, desk, plants, a car turntable.
-	var desk := Vector3(DEALER.position.x + 24.0, y0, DEALER.position.y + 5.0)
+	var desk := Vector3(DEALER_DESK.x, y0, DEALER_DESK.y)
 	mb.box_at(&"wood_in", desk + Vector3(0, 0.45, 0), Vector3(2.2, 0.9, 1.0), Color(0.32, 0.26, 0.2))
 	mb.box_at(&"metal", desk + Vector3(0, 0.92, 0), Vector3(2.3, 0.05, 1.1), Color(0.8, 0.8, 0.78))
 	mb.box_at(&"metal", desk + Vector3(-0.4, 1.15, -0.2), Vector3(0.6, 0.4, 0.04), Color(0.08, 0.08, 0.09))
@@ -2639,6 +2642,11 @@ func _market_animals() -> void:
 			var avoid: Array[Rect2] = []
 			avoid.assign(market_avoid.get(species, []))
 			herd.add_pen((MARKET_PENS[species] as Rect2).grow(-0.2), species, 3 if species == &"sheep" else 2, 1, avoid)
+
+
+## Over Kemal's desk in the showroom: where the story's dot points to pay him.
+static func dealer_desk() -> Vector3:
+	return Vector3(DEALER_DESK.x, TerrainData.height(DEALER.get_center().x, DEALER.get_center().y) + 0.15 + 1.5, DEALER_DESK.y)
 
 
 ## Height of the side yard's concrete (the trailer bay's floor).

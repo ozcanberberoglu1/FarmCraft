@@ -36,7 +36,7 @@ WASD hareket · Shift koş · Space zıpla · Fare bakış · Sol tık (basılı
 - Binalar: Kümes, Ahır (+yükseltme), Silo, çitli mera.
 
 ## Ekonomi
-- Zaman: 1 oyun saati ≈ 45 sn → gün (06:00–02:00) ≈ 15 dk. 4 mevsim × 10 gün. Yeni oyunun ilk günü 13:00'te başlar (hikâyenin öğleden sonrası yavaşlatılır, ilk gün ekilip sulanan buğday ertesi sabah olgun); sonraki her sabah 06:00.
+- Zaman: 1 oyun saati ≈ 30 sn → gün (06:00–02:00) 10 dk (ayarlardan 8/10/12). 4 mevsim × 10 gün. Yeni oyunun ilk günü 13:00'te başlar (hikâye sürerken saat biraz yavaşlar: 1. gün 13:00–20:00 ve 2. gün 06:00–19:30 onar gerçek dakika sürer; ilk gün ekilip sulanan buğday ertesi sabah olgun); sonraki her sabah 06:00. Hikâye takvimi değil oyuncuyu izler: ilk iki günün görevleri bu onar dakikadan uzun sürer (1. gün 25–40 dk, 2. gün ~25 dk), takvim hikâyenin önüne geçer. Hikâyenin "sabahı bekle" adımları (serbest akşam, horoz, gölet) takvim gününe bakmaz, görev geldikten sonraki ilk sabah açılır; pazar hasadında biçilecek ekin kalmadıysa yataklar bir kereliğine olgunlaşır, o da yoksa görev kendiliğinden geçer.
 - Para birimi dolar; para yalnızca satıştan gelir (görevler ve başarımlar para vermez). Güncel fiyatlar: docs/BALANCE.md.
 - Başlangıç: 150 dolar (ilk gün iki tavuk 2 × 50 dolar), temel aletler, 12 parselli tarla, 15 tohum.
 - Satış = Taban × Kalite (1 / 1,25 / 1,5) × Günlük piyasa (0,85–1,15) × Doygunluk (≥0,6) × Mevsim (mevsim dışı +%20)

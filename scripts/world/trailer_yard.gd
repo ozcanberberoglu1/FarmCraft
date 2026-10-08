@@ -5,12 +5,12 @@ extends RefCounted
 ## the north pavement under his "RÖMORK" board (Town.MARKET_SIDE_YARD): Grandpa's stock
 ## trailer, left with him for new tyres, and the cargo trailer for sale stand there side
 ## by side in a marked bay each, off the street and the pavement, tongues to the street
-## (a pickup stops at the kerb in front of the bay, either way round, and the farmer
-## wheels the empty trailer out behind it by hand: Trailer.wheel_choice; a loaded one is
-## backed up to across the bevelled kerb, and pulled straight out onto the street), the
-## cargo trailer with its price board at the bay's front (in a wheeled trailer's way while
-## it stands: Trailer.WHEEL_POSTS). One of his that still stands unhitched in the
-## bay is not "at the market" (trailer_at_market): it has to be collected. At the Animal Market:
+## (paid for at Kemal's desk in the dealership, a trailer is backed up to across the
+## bevelled kerb, along the approach Trailer draws on the ground ahead of its tongue, and
+## pulled straight out onto the street), the cargo trailer with its price board at the
+## bay's front (it only shows the price: Kemal takes the money). One of his that still
+## stands unhitched in the bay is not "at the market" (trailer_at_market): it has to be
+## collected. At the Animal Market:
 ## the loading pen by the gate, where a sheep, cow or horse bought at the market waits for
 ## the farmer to put the rope on it (G) and lead it up his trailer's ramp. With no stock
 ## trailer of his by the market the dealer brings it over himself the next morning for
@@ -95,9 +95,6 @@ static func _price_board(town: Town, t: Trailer, base: Vector3) -> Node3D:
 	label.rotation.x = deg_to_rad(-8.0)
 	label.visibility_range_end = 60.0
 	root.visible = not t.owned
-	# It has no body: a trailer wheeled by hand goes round it all the same.
-	root.set_meta("post", Vector3(base.x, base.z, 0.6))
-	root.add_to_group(Trailer.WHEEL_POSTS)
 	return root
 
 
